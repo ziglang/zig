@@ -120,6 +120,14 @@ namespace std::ranges {
     requires is_object_v<T>
   class empty_view;
 
+  template<class T>
+    inline constexpr bool enable_borrowed_range<empty_view<T>> = true;
+
+  namespace views {
+    template<class T>
+      inline constexpr empty_view<T> empty{};
+  }
+
   // [range.all], all view
   namespace views {
     inline constexpr unspecified all = unspecified;
@@ -141,6 +149,15 @@ namespace std::ranges {
 
   template<class T>
     inline constexpr bool enable_borrowed_range<owning_view<T>> = enable_borrowed_range<T>;
+
+  // [range.filter], filter view
+  template<input_range V, indirect_unary_predicate<iterator_t<V>> Pred>
+    requires view<V> && is_object_v<Pred>
+  class filter_view;
+
+  namespace views {
+    inline constexpr unspecified filter = unspecified;
+  }
 
   // [range.drop], drop view
   template<view V>
@@ -196,10 +213,66 @@ namespace std::ranges {
   template<input_range V>
     requires view<V> && input_range<range_reference_t<V>>
   class join_view;
+
+  // [range.lazy.split], lazy split view
+  template<class R>
+    concept tiny-range = see below;   // exposition only
+
+  template<input_range V, forward_range Pattern>
+    requires view<V> && view<Pattern> &&
+             indirectly_comparable<iterator_t<V>, iterator_t<Pattern>, ranges::equal_to> &&
+             (forward_range<V> || tiny-range<Pattern>)
+  class lazy_split_view;
+
+  namespace views {
+    inline constexpr unspecified lazy_split = unspecified;
+  }
+
+  // [range.zip], zip view
+  template<input_range... Views>
+    requires (view<Views> && ...) && (sizeof...(Views) > 0)
+  class zip_view;        // C++2b
+
+  template<class... Views>
+    inline constexpr bool enable_borrowed_range<zip_view<Views...>> =    // C++2b
+      (enable_borrowed_range<Views> && ...);
+
+  namespace views { inline constexpr unspecified zip = unspecified; }    // C++2b
 }
 
+namespace std {
+  namespace views = ranges::views;
+
+  template<class T> struct tuple_size;
+  template<size_t I, class T> struct tuple_element;
+
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_size<ranges::subrange<I, S, K>>
+    : integral_constant<size_t, 2> {};
+
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<0, ranges::subrange<I, S, K>> {
+    using type = I;
+  };
+
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<1, ranges::subrange<I, S, K>> {
+    using type = S;
+  };
+
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<0, const ranges::subrange<I, S, K>> {
+    using type = I;
+  };
+
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<1, const ranges::subrange<I, S, K>> {
+    using type = S;
+  };
+}
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__ranges/access.h>
 #include <__ranges/all.h>
@@ -213,9 +286,13 @@ namespace std::ranges {
 #include <__ranges/empty_view.h>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
+#include <__ranges/filter_view.h>
 #include <__ranges/iota_view.h>
 #include <__ranges/join_view.h>
+#include <__ranges/lazy_split_view.h>
+#include <__ranges/rbegin.h>
 #include <__ranges/ref_view.h>
+#include <__ranges/rend.h>
 #include <__ranges/reverse_view.h>
 #include <__ranges/single_view.h>
 #include <__ranges/size.h>
@@ -224,6 +301,8 @@ namespace std::ranges {
 #include <__ranges/transform_view.h>
 #include <__ranges/view_interface.h>
 #include <__ranges/views.h>
+#include <__ranges/zip_view.h>
+#include <__tuple> // TODO: <ranges> has to export std::tuple_size. Replace this, once <tuple> is granularized.
 #include <compare>          // Required by the standard.
 #include <initializer_list> // Required by the standard.
 #include <iterator>         // Required by the standard.
@@ -231,7 +310,7 @@ namespace std::ranges {
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_RANGES

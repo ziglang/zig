@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 #ifndef _LIBCPP_FILESYSTEM
 #define _LIBCPP_FILESYSTEM
+
 /*
     filesystem synopsis
 
@@ -238,6 +239,7 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__filesystem/copy_options.h>
 #include <__filesystem/directory_entry.h>
@@ -255,15 +257,17 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 #include <__filesystem/recursive_directory_iterator.h>
 #include <__filesystem/space_info.h>
 #include <__filesystem/u8path.h>
-#include <compare>
 #include <version>
 
+// standard-mandated includes
+#include <compare>
+
 #if defined(_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY)
-# error "The Filesystem library is not supported since libc++ has been configured with LIBCXX_ENABLE_FILESYSTEM disabled"
+# error "The <filesystem> library is not supported since libc++ has been configured without support for a filesystem."
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_FILESYSTEM

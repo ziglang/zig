@@ -10,7 +10,7 @@
 #define ____CXXABI_CONFIG_H
 
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
-    !defined(__ARM_DWARF_EH__)
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
 #define _LIBCXXABI_ARM_EHABI
 #endif
 
@@ -95,6 +95,12 @@
 #  endif
 #elif defined(_LIBCXXABI_COMPILER_GCC) && !defined(__EXCEPTIONS)
 #  define _LIBCXXABI_NO_EXCEPTIONS
+#endif
+
+#if defined(_WIN32)
+#define _LIBCXXABI_DTOR_FUNC __thiscall
+#else
+#define _LIBCXXABI_DTOR_FUNC
 #endif
 
 #endif // ____CXXABI_CONFIG_H

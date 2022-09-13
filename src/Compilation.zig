@@ -154,6 +154,8 @@ owned_link_dir: ?std.fs.Dir,
 /// Don't use this for anything other than stage1 compatibility.
 color: Color = .auto,
 
+libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
+
 /// This mutex guards all `Compilation` mutable state.
 mutex: std.Thread.Mutex = .{},
 
@@ -950,6 +952,7 @@ pub const InitOptions = struct {
     headerpad_max_install_names: bool = false,
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
+    libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 };
 
 fn addPackageTableToCacheHash(
@@ -1843,6 +1846,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
+            .libcxx_abi_version = options.libcxx_abi_version,
         };
         break :comp comp;
     };
@@ -4026,6 +4030,13 @@ pub fn addCCArgs(
         if (comp.bin_file.options.single_threaded) {
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
         }
+
+        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
+            @enumToInt(comp.libcxx_abi_version),
+        }));
+        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
+            @enumToInt(comp.libcxx_abi_version),
+        }));
     }
 
     if (comp.bin_file.options.link_libunwind) {

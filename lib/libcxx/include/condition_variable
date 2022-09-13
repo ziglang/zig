@@ -106,13 +106,14 @@ public:
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__mutex_base>
 #include <memory>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifndef _LIBCPP_HAS_NO_THREADS
@@ -260,7 +261,7 @@ condition_variable_any::wait_for(_Lock& __lock,
 }
 
 _LIBCPP_FUNC_VIS
-void notify_all_at_thread_exit(condition_variable& cond, unique_lock<mutex> lk);
+void notify_all_at_thread_exit(condition_variable&, unique_lock<mutex>);
 
 _LIBCPP_END_NAMESPACE_STD
 

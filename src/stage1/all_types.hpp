@@ -1595,6 +1595,7 @@ struct ZigTypeFnFrame {
 
 struct ZigTypeAnyFrame {
     ZigType *result_type; // null if `anyframe` instead of `anyframe->T`
+    LLVMTypeRef struct_llvm_ty;
 };
 
 struct ZigType {
@@ -2044,6 +2045,7 @@ struct CodeGen {
     LLVMValueRef wasm_memory_grow;
     LLVMValueRef prefetch;
     LLVMTypeRef anyframe_fn_type;
+    LLVMTypeRef any_frame_header_llvm_ty;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;

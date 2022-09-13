@@ -64,8 +64,9 @@ namespace pmr {
 
  */
 
-#include <__debug>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__tuple>
+#include <__utility/move.h>
 #include <cstddef>
 #include <cstdlib>
 #include <experimental/__config>
@@ -75,10 +76,9 @@ namespace pmr {
 #include <new>
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS

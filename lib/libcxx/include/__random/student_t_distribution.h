@@ -11,13 +11,14 @@
 
 #include <__config>
 #include <__random/gamma_distribution.h>
+#include <__random/is_valid.h>
 #include <__random/normal_distribution.h>
 #include <cmath>
 #include <iosfwd>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -111,6 +112,7 @@ template<class _URNG>
 _RealType
 student_t_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     gamma_distribution<result_type> __gd(__p.n() * .5, 2);
     return __nd_(__g) * _VSTD::sqrt(__p.n()/__gd(__g));
 }

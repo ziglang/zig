@@ -95,6 +95,12 @@ struct pair
                                 is_nothrow_swappable_v<T2>);                     // constexpr in C++20
 };
 
+template<class T1, class T2, class U1, class U2, template<class> class TQual, template<class> class UQual>
+struct basic_common_reference<pair<T1, T2>, pair<U1, U2>, TQual, UQual>;         // since C++23
+
+template<class T1, class T2, class U1, class U2>
+struct common_type<pair<T1, T2>, pair<U1, U2>>;                                  // since C++23
+
 template<class T1, class T2> pair(T1, T2) -> pair<T1, T2>;
 
 template <class T1, class T2> bool operator==(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
@@ -214,8 +220,8 @@ template <class T>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
 #include <__tuple>
 #include <__utility/as_const.h>
 #include <__utility/auto_cast.h>
@@ -233,12 +239,20 @@ template <class T>
 #include <__utility/swap.h>
 #include <__utility/to_underlying.h>
 #include <__utility/transaction.h>
-#include <compare>
-#include <initializer_list>
+#include <__utility/unreachable.h>
+#include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iosfwd>
+#endif
+
+// standard-mandated includes
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_UTILITY

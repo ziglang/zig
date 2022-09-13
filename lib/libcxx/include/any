@@ -80,17 +80,26 @@ namespace std {
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
 #include <__utility/forward.h>
+#include <__utility/in_place.h>
+#include <__utility/move.h>
+#include <__utility/unreachable.h>
 #include <cstdlib>
+#include <initializer_list>
 #include <memory>
 #include <type_traits>
 #include <typeinfo>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <chrono>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 namespace std {
@@ -262,7 +271,7 @@ public:
         is_copy_constructible<_Tp>::value>
     >
   _LIBCPP_INLINE_VISIBILITY
-  _Tp& emplace(_Args&&... args);
+  _Tp& emplace(_Args&&...);
 
   template <class _ValueType, class _Up, class ..._Args,
     class _Tp = decay_t<_ValueType>,
@@ -364,6 +373,7 @@ namespace __any_imp
         case _Action::_TypeInfo:
           return __type_info();
         }
+        __libcpp_unreachable();
     }
 
     template <class ..._Args>
@@ -447,6 +457,7 @@ namespace __any_imp
         case _Action::_TypeInfo:
           return __type_info();
         }
+        __libcpp_unreachable();
     }
 
     template <class ..._Args>
@@ -658,6 +669,7 @@ _RetType __pointer_or_func_cast(void*, /*IsFunction*/true_type) noexcept {
 }
 
 template <class _ValueType>
+_LIBCPP_HIDE_FROM_ABI
 add_pointer_t<_ValueType>
 any_cast(any * __any) _NOEXCEPT
 {

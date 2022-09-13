@@ -69,11 +69,12 @@ Macros:
     LDBL_TRUE_MIN       // C11
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <float.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_CFLOAT

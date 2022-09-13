@@ -12,12 +12,13 @@
 #include <__config>
 #include <__random/bernoulli_distribution.h>
 #include <__random/gamma_distribution.h>
+#include <__random/is_valid.h>
 #include <__random/poisson_distribution.h>
 #include <iosfwd>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -28,6 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template<class _IntType = int>
 class _LIBCPP_TEMPLATE_VIS negative_binomial_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;
@@ -116,9 +118,12 @@ template<class _URNG>
 _IntType
 negative_binomial_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     result_type __k = __pr.k();
     double __p = __pr.p();
-    if (__k <= 21 * __p)
+    // When the number of bits in _IntType is small, we are too likely to
+    // overflow __f below to use this technique.
+    if (__k <= 21 * __p && sizeof(_IntType) > 1)
     {
         bernoulli_distribution __gen(__p);
         result_type __f = 0;
@@ -130,6 +135,8 @@ negative_binomial_distribution<_IntType>::operator()(_URNG& __urng, const param_
             else
                 ++__f;
         }
+        _LIBCPP_ASSERT(__f >= 0, "std::negative_binomial_distribution should never produce negative values. "
+                                 "This is almost certainly a signed integer overflow issue on __f.");
         return __f;
     }
     return poisson_distribution<result_type>(gamma_distribution<double>

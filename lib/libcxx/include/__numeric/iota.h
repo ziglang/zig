@@ -21,10 +21,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _ForwardIterator, class _Tp>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
-iota(_ForwardIterator __first, _ForwardIterator __last, _Tp __value_)
+iota(_ForwardIterator __first, _ForwardIterator __last, _Tp __value)
 {
-    for (; __first != __last; ++__first, (void) ++__value_)
-        *__first = __value_;
+    for (; __first != __last; ++__first, (void) ++__value)
+        *__first = __value;
 }
 
 _LIBCPP_END_NAMESPACE_STD

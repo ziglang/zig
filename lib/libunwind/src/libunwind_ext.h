@@ -43,6 +43,10 @@ extern int __unw_is_fpreg(unw_cursor_t *, unw_regnum_t);
 extern int __unw_is_signal_frame(unw_cursor_t *);
 extern int __unw_get_proc_name(unw_cursor_t *, char *, size_t, unw_word_t *);
 
+#if defined(_AIX)
+extern uintptr_t __unw_get_data_rel_base(unw_cursor_t *);
+#endif
+
 // SPI
 extern void __unw_iterate_dwarf_unwind_cache(void (*func)(
     unw_word_t ip_start, unw_word_t ip_end, unw_word_t fde, unw_word_t mh));

@@ -513,6 +513,7 @@ const cpu_targets = struct {
     pub const arm = std.Target.arm;
     pub const avr = std.Target.avr;
     pub const bpf = std.Target.bpf;
+    pub const csky = std.Target.csky;
     pub const hexagon = std.Target.hexagon;
     pub const mips = std.Target.mips;
     pub const msp430 = std.Target.msp430;
@@ -654,7 +655,7 @@ pub fn main() anyerror!void {
                 std.process.exit(1);
             }
         }
-        const syntax = objSyntax(obj);
+        const syntax = objSyntax(obj) orelse continue;
 
         if (std.mem.eql(u8, name, "MT") and syntax == .flag) {
             // `-MT foo` is ambiguous because there is also an -MT flag
@@ -760,7 +761,7 @@ const Syntax = union(enum) {
     }
 };
 
-fn objSyntax(obj: *json.ObjectMap) Syntax {
+fn objSyntax(obj: *json.ObjectMap) ?Syntax {
     const num_args = @intCast(u8, obj.get("NumArgs").?.Integer);
     for (obj.get("!superclasses").?.Array.items) |superclass_json| {
         const superclass = superclass_json.String;
@@ -777,6 +778,10 @@ fn objSyntax(obj: *json.ObjectMap) Syntax {
         } else if (std.mem.eql(u8, superclass, "CLJoinedOrSeparate")) {
             return .joined_or_separate;
         } else if (std.mem.eql(u8, superclass, "CLCompileJoinedOrSeparate")) {
+            return .joined_or_separate;
+        } else if (std.mem.eql(u8, superclass, "DXCJoinedOrSeparate")) {
+            return .joined_or_separate;
+        } else if (std.mem.eql(u8, superclass, "CLDXCJoinedOrSeparate")) {
             return .joined_or_separate;
         } else if (std.mem.eql(u8, superclass, "Flag")) {
             return .flag;
@@ -811,7 +816,8 @@ fn objSyntax(obj: *json.ObjectMap) Syntax {
     for (obj.get("!superclasses").?.Array.items) |superclass_json| {
         std.debug.print(" {s}\n", .{superclass_json.String});
     }
-    std.process.exit(1);
+    //std.process.exit(1);
+    return null;
 }
 
 fn syntaxMatchesWithEql(syntax: Syntax) bool {
@@ -834,8 +840,8 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     _ = context;
     // Priority is determined by exact matches first, followed by prefix matches in descending
     // length, with key as a final tiebreaker.
-    const a_syntax = objSyntax(a);
-    const b_syntax = objSyntax(b);
+    const a_syntax = objSyntax(a) orelse return false;
+    const b_syntax = objSyntax(b) orelse return true;
 
     const a_match_with_eql = syntaxMatchesWithEql(a_syntax);
     const b_match_with_eql = syntaxMatchesWithEql(b_syntax);

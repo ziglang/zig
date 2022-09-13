@@ -6280,6 +6280,11 @@ pub const Type = extern union {
                 mutable: bool = true, // TODO rename this to const, not mutable
                 @"volatile": bool = false,
                 size: std.builtin.Type.Pointer.Size = .One,
+
+                pub fn alignment(data: Data, target: Target) u32 {
+                    if (data.@"align" != 0) return data.@"align";
+                    return abiAlignment(data.pointee_type, target);
+                }
             };
         };
 
@@ -6696,6 +6701,7 @@ pub const CType = enum {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
@@ -6705,6 +6711,8 @@ pub const CType = enum {
             .opencl,
             .glsl450,
             .vulkan,
+            .driverkit,
+            .shadermodel,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

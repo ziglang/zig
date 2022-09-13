@@ -180,14 +180,16 @@ typedef basic_stringstream<wchar_t> wstringstream;
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__utility/swap.h>
 #include <istream>
 #include <ostream>
 #include <string>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -859,10 +861,10 @@ swap(basic_stringstream<_CharT, _Traits, _Allocator>& __x,
 }
 
 #if defined(_LIBCPP_ABI_ENABLE_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringbuf<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringstream<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostringstream<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istringstream<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringbuf<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringstream<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostringstream<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istringstream<char>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -15,15 +15,19 @@
 #include <__iterator/concepts.h>
 #include <__iterator/projected.h>
 
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 template <class _I1, class _I2, class _Rp, class _P1 = identity, class _P2 = identity>
 concept indirectly_comparable =
   indirect_binary_predicate<_Rp, projected<_I1, _P1>, projected<_I2, _P2>>;
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

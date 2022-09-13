@@ -52,14 +52,16 @@ namespace std {
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__memory/addressof.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <experimental/__config>
+#include <iosfwd> // char_traits
 #include <iterator>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #if _LIBCPP_STD_VER > 11

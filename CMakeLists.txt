@@ -111,9 +111,9 @@ else()
     set(ZIG_USE_LLVM_CONFIG OFF CACHE BOOL "use llvm-config to find LLVM libraries")
 endif()
 
-find_package(llvm 14)
-find_package(clang 14)
-find_package(lld 14)
+find_package(llvm 15)
+find_package(clang 15)
+find_package(lld 15)
 
 if(ZIG_STATIC_ZLIB)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
@@ -864,7 +864,7 @@ endif()
 if(MSVC)
     set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
-    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment -Wno-deprecated-declarations")
+    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
     if(MINGW)
         set(EXE_CFLAGS "${EXE_CFLAGS} -Wno-format")
     endif()
@@ -1055,6 +1055,7 @@ set(ZIG_INSTALL_ARGS "build"
     ${ZIG_SINGLE_THREADED_ARG}
     "-Dtarget=${ZIG_TARGET_TRIPLE}"
     "-Dcpu=${ZIG_TARGET_MCPU}"
+    "-Dversion-string=${ZIG_VERSION}"
 )
 
 add_custom_target(stage3 ALL

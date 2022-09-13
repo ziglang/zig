@@ -41,9 +41,11 @@ pub const Target = struct {
             nvcl,
             amdhsa,
             ps4,
+            ps5,
             elfiamcu,
             tvos,
             watchos,
+            driverkit,
             mesa3d,
             contiki,
             amdpal,
@@ -51,6 +53,7 @@ pub const Target = struct {
             hurd,
             wasi,
             emscripten,
+            shadermodel,
             uefi,
             opencl,
             glsl450,
@@ -245,6 +248,7 @@ pub const Target = struct {
                     .nvcl,
                     .amdhsa,
                     .ps4,
+                    .ps5,
                     .elfiamcu,
                     .mesa3d,
                     .contiki,
@@ -253,6 +257,8 @@ pub const Target = struct {
                     .hurd,
                     .wasi,
                     .emscripten,
+                    .driverkit,
+                    .shadermodel,
                     .uefi,
                     .opencl, // TODO: OpenCL versions
                     .glsl450, // TODO: GLSL versions
@@ -420,6 +426,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -428,6 +435,8 @@ pub const Target = struct {
                 .hurd,
                 .wasi,
                 .emscripten,
+                .driverkit,
+                .shadermodel,
                 .uefi,
                 .opencl,
                 .glsl450,
@@ -482,6 +491,21 @@ pub const Target = struct {
         coreclr,
         simulator,
         macabi,
+        pixel,
+        vertex,
+        geometry,
+        hull,
+        domain,
+        compute,
+        library,
+        raygeneration,
+        intersection,
+        anyhit,
+        closesthit,
+        miss,
+        callable,
+        mesh,
+        amplification,
 
         pub fn default(arch: Cpu.Arch, target_os: Os) Abi {
             if (arch.isWasm()) {
@@ -503,6 +527,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -532,6 +557,8 @@ pub const Target = struct {
                 .ios,
                 .tvos,
                 .watchos,
+                .driverkit,
+                .shadermodel,
                 => return .none,
             }
         }
@@ -564,16 +591,18 @@ pub const Target = struct {
     pub const ObjectFormat = enum {
         /// Common Object File Format (Windows)
         coff,
+        /// DirectX Container
+        dxcontainer,
         /// Executable and Linking Format
         elf,
         /// macOS relocatables
         macho,
+        /// Standard, Portable Intermediate Representation V
+        spirv,
         /// WebAssembly
         wasm,
         /// C source code
         c,
-        /// Standard, Portable Intermediate Representation V
-        spirv,
         /// Intel IHEX
         hex,
         /// Machine code with no metadata.
@@ -593,6 +622,7 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
+                .dxcontainer => @panic("TODO what's the extension for these?"),
             };
         }
 
@@ -784,7 +814,10 @@ pub const Target = struct {
             bpfel,
             bpfeb,
             csky,
+            dxil,
             hexagon,
+            loongarch32,
+            loongarch64,
             m68k,
             mips,
             mipsel,
@@ -935,6 +968,7 @@ pub const Target = struct {
                     .arm => .ARM,
                     .armeb => .ARM,
                     .hexagon => .HEXAGON,
+                    .dxil => .NONE,
                     .m68k => .@"68K",
                     .le32 => .NONE,
                     .mips => .MIPS,
@@ -985,6 +1019,8 @@ pub const Target = struct {
                     .spu_2 => .SPU_2,
                     .spirv32 => .NONE,
                     .spirv64 => .NONE,
+                    .loongarch32 => .NONE,
+                    .loongarch64 => .NONE,
                 };
             }
 
@@ -995,6 +1031,7 @@ pub const Target = struct {
                     .arc => .Unknown,
                     .arm => .ARM,
                     .armeb => .Unknown,
+                    .dxil => .Unknown,
                     .hexagon => .Unknown,
                     .m68k => .Unknown,
                     .le32 => .Unknown,
@@ -1046,6 +1083,8 @@ pub const Target = struct {
                     .spu_2 => .Unknown,
                     .spirv32 => .Unknown,
                     .spirv64 => .Unknown,
+                    .loongarch32 => .Unknown,
+                    .loongarch64 => .Unknown,
                 };
             }
 
@@ -1094,6 +1133,9 @@ pub const Target = struct {
                     // GPU bitness is opaque. For now, assume little endian.
                     .spirv32,
                     .spirv64,
+                    .dxil,
+                    .loongarch32,
+                    .loongarch64,
                     => .Little,
 
                     .arc,
@@ -1154,6 +1196,8 @@ pub const Target = struct {
                     .renderscript32,
                     .aarch64_32,
                     .spirv32,
+                    .loongarch32,
+                    .dxil,
                     => return 32,
 
                     .aarch64,
@@ -1178,6 +1222,7 @@ pub const Target = struct {
                     .s390x,
                     .ve,
                     .spirv64,
+                    .loongarch64,
                     => return 64,
                 }
             }
@@ -1633,6 +1678,9 @@ pub const Target = struct {
                 .renderscript32,
                 .renderscript64,
                 .ve,
+                .dxil,
+                .loongarch32,
+                .loongarch64,
                 => return result,
             },
 
@@ -1675,12 +1723,15 @@ pub const Target = struct {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
             .amdpal,
             .hermit,
             .hurd,
+            .driverkit,
+            .shadermodel,
             => return result,
         }
     }
@@ -1854,6 +1905,9 @@ pub const Target = struct {
             .renderscript64,
             .ve,
             .spirv64,
+            .dxil,
+            .loongarch32,
+            .loongarch64,
             => 16,
         };
     }

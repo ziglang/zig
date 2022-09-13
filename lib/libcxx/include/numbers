@@ -58,15 +58,16 @@ namespace std::numbers {
 }
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <concepts>
 #include <type_traits>
 #include <version>
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -128,6 +129,6 @@ inline constexpr double phi        = phi_v<double>;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif //!defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP_NUMBERS

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP_EXPERIMENTAL___MEMORY
 #define _LIBCPP_EXPERIMENTAL___MEMORY
 
-#include <__functional_base>
 #include <__memory/allocator_arg_t.h>
 #include <__memory/uses_allocator.h>
 #include <experimental/__config>
@@ -18,7 +17,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS

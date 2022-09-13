@@ -13,6 +13,10 @@
 #include <__availability>
 #include <__config>
 
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
 #ifndef _LIBCPP_CXX03_LANG
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -26,47 +30,47 @@ enum class _LIBCPP_ENUM_VIS directory_options : unsigned char {
 };
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr directory_options operator&(directory_options _LHS,
-                                             directory_options _RHS) {
-  return static_cast<directory_options>(static_cast<unsigned char>(_LHS) &
-                                        static_cast<unsigned char>(_RHS));
+inline constexpr directory_options operator&(directory_options __lhs,
+                                             directory_options __rhs) {
+  return static_cast<directory_options>(static_cast<unsigned char>(__lhs) &
+                                        static_cast<unsigned char>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr directory_options operator|(directory_options _LHS,
-                                             directory_options _RHS) {
-  return static_cast<directory_options>(static_cast<unsigned char>(_LHS) |
-                                        static_cast<unsigned char>(_RHS));
+inline constexpr directory_options operator|(directory_options __lhs,
+                                             directory_options __rhs) {
+  return static_cast<directory_options>(static_cast<unsigned char>(__lhs) |
+                                        static_cast<unsigned char>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr directory_options operator^(directory_options _LHS,
-                                             directory_options _RHS) {
-  return static_cast<directory_options>(static_cast<unsigned char>(_LHS) ^
-                                        static_cast<unsigned char>(_RHS));
+inline constexpr directory_options operator^(directory_options __lhs,
+                                             directory_options __rhs) {
+  return static_cast<directory_options>(static_cast<unsigned char>(__lhs) ^
+                                        static_cast<unsigned char>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr directory_options operator~(directory_options _LHS) {
-  return static_cast<directory_options>(~static_cast<unsigned char>(_LHS));
+inline constexpr directory_options operator~(directory_options __lhs) {
+  return static_cast<directory_options>(~static_cast<unsigned char>(__lhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline directory_options& operator&=(directory_options& _LHS,
-                                     directory_options _RHS) {
-  return _LHS = _LHS & _RHS;
+inline directory_options& operator&=(directory_options& __lhs,
+                                     directory_options __rhs) {
+  return __lhs = __lhs & __rhs;
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline directory_options& operator|=(directory_options& _LHS,
-                                     directory_options _RHS) {
-  return _LHS = _LHS | _RHS;
+inline directory_options& operator|=(directory_options& __lhs,
+                                     directory_options __rhs) {
+  return __lhs = __lhs | __rhs;
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline directory_options& operator^=(directory_options& _LHS,
-                                     directory_options _RHS) {
-  return _LHS = _LHS ^ _RHS;
+inline directory_options& operator^=(directory_options& __lhs,
+                                     directory_options __rhs) {
+  return __lhs = __lhs ^ __rhs;
 }
 
 _LIBCPP_AVAILABILITY_FILESYSTEM_POP

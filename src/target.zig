@@ -106,6 +106,23 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .simulator,
         .macabi,
         => unreachable,
+
+        .pixel,
+        .vertex,
+        .geometry,
+        .hull,
+        .domain,
+        .compute,
+        .library,
+        .raygeneration,
+        .intersection,
+        .anyhit,
+        .closesthit,
+        .miss,
+        .callable,
+        .mesh,
+        .amplification,
+        => unreachable,
     }
 }
 
@@ -218,6 +235,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hex,
         .raw,
         .nvptx,
+        .dxcontainer,
         => {},
     }
 
@@ -232,7 +250,10 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
+        .dxil,
         .hexagon,
+        .loongarch32,
+        .loongarch64,
         .m68k,
         .mips,
         .mipsel,
@@ -535,6 +556,8 @@ pub fn atomicPtrAlignment(
         .renderscript32,
         .csky,
         .spirv32,
+        .dxil,
+        .loongarch32,
         => 32,
 
         .aarch64,
@@ -559,6 +582,7 @@ pub fn atomicPtrAlignment(
         .renderscript64,
         .ve,
         .spirv64,
+        .loongarch64,
         => 64,
 
         .x86_64 => 128,

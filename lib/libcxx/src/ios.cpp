@@ -6,20 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
-
-#include "ios"
-
+#include <__config>
+#include <__locale>
+#include <algorithm>
+#include <ios>
+#include <limits>
+#include <memory>
+#include <new>
 #include <stdlib.h>
+#include <string>
 
-#include "__locale"
-#include "algorithm"
 #include "include/config_elast.h"
-#include "limits"
-#include "memory"
-#include "new"
-#include "string"
-#include "__undef_macros"
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -439,3 +439,5 @@ ios_base::sync_with_stdio(bool sync)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS

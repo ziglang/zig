@@ -11,11 +11,12 @@
 #define _LIBCPP___MEMORY_AUTO_PTR_H
 
 #include <__config>
-#include <__nullptr>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
+
+#if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -77,5 +78,7 @@ public:
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
 
 #endif // _LIBCPP___MEMORY_AUTO_PTR_H

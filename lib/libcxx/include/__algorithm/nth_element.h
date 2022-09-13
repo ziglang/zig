@@ -11,17 +11,16 @@
 
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/sort.h>
 #include <__config>
+#include <__debug>
+#include <__debug_utils/randomize_range.h>
 #include <__iterator/iterator_traits.h>
-#include <__utility/swap.h>
-
-#if defined(_LIBCPP_DEBUG_RANDOMIZE_UNSPECIFIED_STABILITY)
-#  include <__algorithm/shuffle.h>
-#endif
+#include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -42,10 +41,12 @@ __nth_element_find_guard(_RandomAccessIterator& __i, _RandomAccessIterator& __j,
     }
 }
 
-template <class _Compare, class _RandomAccessIterator>
+template <class _AlgPolicy, class _Compare, class _RandomAccessIterator>
 _LIBCPP_CONSTEXPR_AFTER_CXX11 void
 __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last, _Compare __comp)
 {
+    using _Ops = _IterOps<_AlgPolicy>;
+
     // _Compare is known to be a reference type
     typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
     const difference_type __limit = 7;
@@ -61,24 +62,24 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
             return;
         case 2:
             if (__comp(*--__last, *__first))
-                swap(*__first, *__last);
+                _Ops::iter_swap(__first, __last);
             return;
         case 3:
             {
             _RandomAccessIterator __m = __first;
-            _VSTD::__sort3<_Compare>(__first, ++__m, --__last, __comp);
+            std::__sort3<_AlgPolicy, _Compare>(__first, ++__m, --__last, __comp);
             return;
             }
         }
         if (__len <= __limit)
         {
-            _VSTD::__selection_sort<_Compare>(__first, __last, __comp);
+            std::__selection_sort<_AlgPolicy, _Compare>(__first, __last, __comp);
             return;
         }
         // __len > __limit >= 3
         _RandomAccessIterator __m = __first + __len/2;
         _RandomAccessIterator __lm1 = __last;
-        unsigned __n_swaps = _VSTD::__sort3<_Compare>(__first, __m, --__lm1, __comp);
+        unsigned __n_swaps = std::__sort3<_AlgPolicy, _Compare>(__first, __m, --__lm1, __comp);
         // *__m is median
         // partition [__first, __m) < *__m and *__m <= [__m, __last)
         // (this inhibits tossing elements equivalent to __m around unnecessarily)
@@ -91,7 +92,7 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
         {
             // *__first == *__m, *__first doesn't go in first part
             if (_VSTD::__nth_element_find_guard<_Compare>(__i, __j, __m, __comp)) {
-                swap(*__i, *__j);
+                _Ops::iter_swap(__i, __j);
                 ++__n_swaps;
             } else {
                 // *__first == *__m, *__m <= all other elements
@@ -103,7 +104,7 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
                         if (__i == __j) {
                             return;  // [__first, __last) all equivalent elements
                         } else if (__comp(*__first, *__i)) {
-                            swap(*__i, *__j);
+                            _Ops::iter_swap(__i, __j);
                             ++__n_swaps;
                             ++__i;
                             break;
@@ -122,7 +123,7 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
                         ;
                     if (__i >= __j)
                         break;
-                    swap(*__i, *__j);
+                    _Ops::iter_swap(__i, __j);
                     ++__n_swaps;
                     ++__i;
                 }
@@ -153,7 +154,7 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
                     ;
                 if (__i >= __j)
                     break;
-                swap(*__i, *__j);
+                _Ops::iter_swap(__i, __j);
                 ++__n_swaps;
                 // It is known that __m != __j
                 // If __m just moved, follow it
@@ -165,7 +166,7 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
         // [__first, __i) < *__m and *__m <= [__i, __last)
         if (__i != __m && __comp(*__m, *__i))
         {
-            swap(*__i, *__m);
+            _Ops::iter_swap(__i, __m);
             ++__n_swaps;
         }
         // [__first, __i) < *__i and *__i <= [__i+1, __last)
@@ -221,26 +222,36 @@ __nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _Rando
     }
 }
 
-template <class _RandomAccessIterator, class _Compare>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-void
-nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last, _Compare __comp)
-{
-  _LIBCPP_DEBUG_RANDOMIZE_RANGE(__first, __last);
-  typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
-  _VSTD::__nth_element<_Comp_ref>(__first, __nth, __last, __comp);
-  _LIBCPP_DEBUG_RANDOMIZE_RANGE(__first, __nth);
+template <class _AlgPolicy, class _RandomAccessIterator, class _Compare>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+void __nth_element_impl(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last,
+                        _Compare& __comp) {
+  if (__nth == __last)
+    return;
+
+  std::__debug_randomize_range<_AlgPolicy>(__first, __last);
+
+  using _Comp_ref = typename __comp_ref_type<_Compare>::type;
+  std::__nth_element<_AlgPolicy, _Comp_ref>(__first, __nth, __last, __comp);
+
+  std::__debug_randomize_range<_AlgPolicy>(__first, __nth);
   if (__nth != __last) {
-    _LIBCPP_DEBUG_RANDOMIZE_RANGE(++__nth, __last);
+    std::__debug_randomize_range<_AlgPolicy>(++__nth, __last);
   }
 }
 
+template <class _RandomAccessIterator, class _Compare>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+void nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last,
+                 _Compare __comp) {
+  std::__nth_element_impl<_ClassicAlgPolicy>(std::move(__first), std::move(__nth), std::move(__last), __comp);
+}
+
 template <class _RandomAccessIterator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-void
-nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last)
-{
-    _VSTD::nth_element(__first, __nth, __last, __less<typename iterator_traits<_RandomAccessIterator>::value_type>());
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+void nth_element(_RandomAccessIterator __first, _RandomAccessIterator __nth, _RandomAccessIterator __last) {
+  std::nth_element(std::move(__first), std::move(__nth), std::move(__last), __less<typename
+      iterator_traits<_RandomAccessIterator>::value_type>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

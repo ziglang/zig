@@ -179,12 +179,17 @@ typedef basic_fstream<wchar_t> wfstream;
 
 */
 
+#include <__algorithm/max.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
-#include <__debug>
 #include <__locale>
+#include <__utility/move.h>
+#include <__utility/swap.h>
+#include <__utility/unreachable.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <istream>
 #include <ostream>
 #include <version>
@@ -194,7 +199,7 @@ typedef basic_fstream<wchar_t> wfstream;
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -414,25 +419,38 @@ basic_filebuf<_CharT, _Traits>::swap(basic_filebuf& __rhs)
     basic_streambuf<char_type, traits_type>::swap(__rhs);
     if (__extbuf_ != __extbuf_min_ && __rhs.__extbuf_ != __rhs.__extbuf_min_)
     {
-        _VSTD::swap(__extbuf_, __rhs.__extbuf_);
-        _VSTD::swap(__extbufnext_, __rhs.__extbufnext_);
-        _VSTD::swap(__extbufend_, __rhs.__extbufend_);
+        // Neither *this nor __rhs uses the small buffer, so we can simply swap the pointers.
+        std::swap(__extbuf_, __rhs.__extbuf_);
+        std::swap(__extbufnext_, __rhs.__extbufnext_);
+        std::swap(__extbufend_, __rhs.__extbufend_);
     }
     else
     {
-        ptrdiff_t __ln = __extbufnext_ - __extbuf_;
-        ptrdiff_t __le = __extbufend_ - __extbuf_;
-        ptrdiff_t __rn = __rhs.__extbufnext_ - __rhs.__extbuf_;
-        ptrdiff_t __re = __rhs.__extbufend_ - __rhs.__extbuf_;
+        ptrdiff_t __ln = __extbufnext_       ? __extbufnext_ - __extbuf_             : 0;
+        ptrdiff_t __le = __extbufend_        ? __extbufend_ - __extbuf_              : 0;
+        ptrdiff_t __rn = __rhs.__extbufnext_ ? __rhs.__extbufnext_ - __rhs.__extbuf_ : 0;
+        ptrdiff_t __re = __rhs.__extbufend_  ? __rhs.__extbufend_ - __rhs.__extbuf_  : 0;
         if (__extbuf_ == __extbuf_min_ && __rhs.__extbuf_ != __rhs.__extbuf_min_)
         {
+            // *this uses the small buffer, but __rhs doesn't.
             __extbuf_ = __rhs.__extbuf_;
             __rhs.__extbuf_ = __rhs.__extbuf_min_;
+            std::memmove(__rhs.__extbuf_min_, __extbuf_min_, sizeof(__extbuf_min_));
         }
         else if (__extbuf_ != __extbuf_min_ && __rhs.__extbuf_ == __rhs.__extbuf_min_)
         {
+            // *this doesn't use the small buffer, but __rhs does.
             __rhs.__extbuf_ = __extbuf_;
             __extbuf_ = __extbuf_min_;
+            std::memmove(__extbuf_min_, __rhs.__extbuf_min_, sizeof(__extbuf_min_));
+        }
+        else
+        {
+            // Both *this and __rhs use the small buffer.
+            char __tmp[sizeof(__extbuf_min_)];
+            std::memmove(__tmp, __extbuf_min_, sizeof(__extbuf_min_));
+            std::memmove(__extbuf_min_, __rhs.__extbuf_min_, sizeof(__extbuf_min_));
+            std::memmove(__rhs.__extbuf_min_, __tmp, sizeof(__extbuf_min_));
         }
         __extbufnext_ = __extbuf_ + __rn;
         __extbufend_ = __extbuf_ + __re;
@@ -538,7 +556,7 @@ const char* basic_filebuf<_CharT, _Traits>::__make_mdstring(
   default:
     return nullptr;
   }
-  _LIBCPP_UNREACHABLE();
+  __libcpp_unreachable();
 }
 
 template <class _CharT, class _Traits>
@@ -1716,9 +1734,9 @@ basic_fstream<_CharT, _Traits>::close()
 }
 
 #if defined(_LIBCPP_ABI_ENABLE_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ifstream<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ofstream<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_filebuf<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ifstream<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ofstream<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_filebuf<char>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

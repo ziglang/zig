@@ -201,12 +201,18 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__hash_table>
+#include <algorithm>
 #include <ext/__hash>
 #include <functional>
 #include <stdexcept>
 #include <type_traits>
+
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#endif
 
 #if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
@@ -217,7 +223,7 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 namespace __gnu_cxx {
@@ -599,7 +605,7 @@ public:
         {return __table_.bucket_size(__n);}
 
     _LIBCPP_INLINE_VISIBILITY
-    void resize(size_type __n) {__table_.rehash(__n);}
+    void resize(size_type __n) {__table_.__rehash_unique(__n);}
 
 private:
     __node_holder __construct_node(const key_type& __k);
@@ -610,7 +616,7 @@ hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         size_type __n, const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -619,7 +625,7 @@ hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -637,7 +643,7 @@ hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -648,7 +654,7 @@ hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         const hasher& __hf, const key_equal& __eql, const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -657,7 +663,7 @@ hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         const hash_map& __u)
     : __table_(__u.__table_)
 {
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_unique(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -868,7 +874,7 @@ public:
         {return __table_.bucket_size(__n);}
 
     _LIBCPP_INLINE_VISIBILITY
-    void resize(size_type __n) {__table_.rehash(__n);}
+    void resize(size_type __n) {__table_.__rehash_multi(__n);}
 };
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -876,7 +882,7 @@ hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         size_type __n, const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -885,7 +891,7 @@ hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -903,7 +909,7 @@ hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -914,7 +920,7 @@ hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         const hasher& __hf, const key_equal& __eql, const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -923,7 +929,7 @@ hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         const hash_multimap& __u)
     : __table_(__u.__table_)
 {
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_multi(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 

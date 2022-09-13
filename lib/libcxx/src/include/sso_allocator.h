@@ -41,6 +41,11 @@ public:
     typedef _Tp*              pointer;
     typedef _Tp               value_type;
 
+    template <class U>
+    struct rebind {
+        using other = __sso_allocator<U, _Np>;
+    };
+
     _LIBCPP_INLINE_VISIBILITY __sso_allocator() throw() : __allocated_(false) {}
     _LIBCPP_INLINE_VISIBILITY __sso_allocator(const __sso_allocator&) throw() : __allocated_(false) {}
     template <class _Up> _LIBCPP_INLINE_VISIBILITY __sso_allocator(const __sso_allocator<_Up, _Np>&) throw()

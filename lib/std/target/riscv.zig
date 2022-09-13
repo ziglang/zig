@@ -16,8 +16,11 @@ pub const Feature = enum {
     experimental_zbp,
     experimental_zbr,
     experimental_zbt,
+    experimental_zvfh,
     f,
+    lui_addi_fusion,
     m,
+    no_default_unroll,
     no_rvc_hints,
     relax,
     reserve_x1,
@@ -52,6 +55,7 @@ pub const Feature = enum {
     reserve_x8,
     reserve_x9,
     save_restore,
+    unaligned_scalar_mem,
     v,
     zba,
     zbb,
@@ -66,6 +70,10 @@ pub const Feature = enum {
     zfinx,
     zhinx,
     zhinxmin,
+    zicbom,
+    zicbop,
+    zicboz,
+    zihintpause,
     zk,
     zkn,
     zknd,
@@ -76,6 +84,7 @@ pub const Feature = enum {
     zksed,
     zksh,
     zkt,
+    zmmul,
     zve32f,
     zve32x,
     zve64d,
@@ -160,14 +169,31 @@ pub const all_features = blk: {
         .description = "'Zbt' (Ternary 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.experimental_zvfh)] = .{
+        .llvm_name = "experimental-zvfh",
+        .description = "'Zvfh' (Vector Half-Precision Floating-Point)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
+        }),
+    };
     result[@enumToInt(Feature.f)] = .{
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.lui_addi_fusion)] = .{
+        .llvm_name = "lui-addi-fusion",
+        .description = "Enable LUI+ADDI macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.m)] = .{
         .llvm_name = "m",
         .description = "'M' (Integer Multiplication and Division)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.no_default_unroll)] = .{
+        .llvm_name = "no-default-unroll",
+        .description = "Disable default unroll preference.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.no_rvc_hints)] = .{
@@ -340,11 +366,17 @@ pub const all_features = blk: {
         .description = "Enable save/restore.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.unaligned_scalar_mem)] = .{
+        .llvm_name = "unaligned-scalar-mem",
+        .description = "Has reasonably performant unaligned scalar loads and stores",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.v)] = .{
         .llvm_name = "v",
         .description = "'V' (Vector Extension for Application Processors)",
         .dependencies = featureSet(&[_]Feature{
             .d,
+            .zve64d,
             .zvl128b,
         }),
     };
@@ -423,6 +455,26 @@ pub const all_features = blk: {
             .zfinx,
         }),
     };
+    result[@enumToInt(Feature.zicbom)] = .{
+        .llvm_name = "zicbom",
+        .description = "'Zicbom' (Cache-Block Management Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zicbop)] = .{
+        .llvm_name = "zicbop",
+        .description = "'Zicbop' (Cache-Block Prefetch Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zicboz)] = .{
+        .llvm_name = "zicboz",
+        .description = "'Zicboz' (Cache-Block Zero Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zihintpause)] = .{
+        .llvm_name = "zihintpause",
+        .description = "'zihintpause' (Pause Hint)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.zk)] = .{
         .llvm_name = "zk",
         .description = "'Zk' (Standard scalar cryptography extension)",
@@ -488,6 +540,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.zkt)] = .{
         .llvm_name = "zkt",
         .description = "'Zkt' (Data Independent Execution Latency)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zmmul)] = .{
+        .llvm_name = "zmmul",
+        .description = "'Zmmul' (Integer Multiplication)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zve32f)] = .{
@@ -632,6 +689,11 @@ pub const cpu = struct {
             .m,
         }),
     };
+    pub const generic = CpuModel{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = featureSet(&[_]Feature{}),
+    };
     pub const generic_rv32 = CpuModel{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
@@ -659,13 +721,16 @@ pub const cpu = struct {
     pub const sifive_7_rv32 = CpuModel{
         .name = "sifive_7_rv32",
         .llvm_name = "sifive-7-rv32",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{
+            .no_default_unroll,
+        }),
     };
     pub const sifive_7_rv64 = CpuModel{
         .name = "sifive_7_rv64",
         .llvm_name = "sifive-7-rv64",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .no_default_unroll,
         }),
     };
     pub const sifive_e20 = CpuModel{
@@ -722,6 +787,7 @@ pub const cpu = struct {
             .c,
             .f,
             .m,
+            .no_default_unroll,
         }),
     };
     pub const sifive_s21 = CpuModel{
@@ -764,6 +830,7 @@ pub const cpu = struct {
             .c,
             .d,
             .m,
+            .no_default_unroll,
         }),
     };
     pub const sifive_u54 = CpuModel{
@@ -786,6 +853,7 @@ pub const cpu = struct {
             .c,
             .d,
             .m,
+            .no_default_unroll,
         }),
     };
 };

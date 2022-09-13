@@ -1877,8 +1877,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\#include <stdint.h>
         \\int main(void) {
         \\#if defined(__UINTPTR_MAX__) && __has_include(<unistd.h>)
-        \\    uintptr_t x = main;
-        \\    x = (uintptr_t)main;
+        \\    uintptr_t x = (uintptr_t)main;
         \\#endif
         \\    return 0;
         \\}

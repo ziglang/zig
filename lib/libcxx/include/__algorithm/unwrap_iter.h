@@ -10,73 +10,61 @@
 #define _LIBCPP___ALGORITHM_UNWRAP_ITER_H
 
 #include <__config>
+#include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
-#include <iterator>
+#include <__utility/move.h>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// The job of __unwrap_iter is to lower contiguous iterators (such as
-// vector<T>::iterator) into pointers, to reduce the number of template
-// instantiations and to enable pointer-based optimizations e.g. in std::copy.
-// For iterators that are not contiguous, it must be a no-op.
+// TODO: Change the name of __unwrap_iter_impl to something more appropriate
+// The job of __unwrap_iter is to remove iterator wrappers (like reverse_iterator or __wrap_iter),
+// to reduce the number of template instantiations and to enable pointer-based optimizations e.g. in std::copy.
 // In debug mode, we don't do this.
 //
-// __unwrap_iter is non-constexpr for user-defined iterators whose
-// `to_address` and/or `operator->` is non-constexpr. This is okay; but we
-// try to avoid doing __unwrap_iter in constant-evaluated contexts anyway.
-//
 // Some algorithms (e.g. std::copy, but not std::sort) need to convert an
-// "unwrapped" result back into a contiguous iterator. Since contiguous iterators
-// are random-access, we can do this portably using iterator arithmetic; this
-// is the job of __rewrap_iter.
+// "unwrapped" result back into the original iterator type. Doing that is the job of __rewrap_iter.
 
+// Default case - we can't unwrap anything
 template <class _Iter, bool = __is_cpp17_contiguous_iterator<_Iter>::value>
 struct __unwrap_iter_impl {
-    static _LIBCPP_CONSTEXPR _Iter
-    __apply(_Iter __i) _NOEXCEPT {
-        return __i;
-    }
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Iter __rewrap(_Iter, _Iter __iter) { return __iter; }
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Iter __unwrap(_Iter __i) _NOEXCEPT { return __i; }
 };
 
-#if _LIBCPP_DEBUG_LEVEL < 2
+#ifndef _LIBCPP_ENABLE_DEBUG_MODE
 
+// It's a contiguous iterator, so we can use a raw pointer instead
 template <class _Iter>
 struct __unwrap_iter_impl<_Iter, true> {
-    static _LIBCPP_CONSTEXPR decltype(_VSTD::__to_address(declval<_Iter>()))
-    __apply(_Iter __i) _NOEXCEPT {
-        return _VSTD::__to_address(__i);
-    }
+  using _ToAddressT = decltype(std::__to_address(std::declval<_Iter>()));
+
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Iter __rewrap(_Iter __orig_iter, _ToAddressT __unwrapped_iter) {
+    return __orig_iter + (__unwrapped_iter - std::__to_address(__orig_iter));
+  }
+
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToAddressT __unwrap(_Iter __i) _NOEXCEPT {
+    return std::__to_address(__i);
+  }
 };
 
-#endif // _LIBCPP_DEBUG_LEVEL < 2
+#endif // !_LIBCPP_ENABLE_DEBUG_MODE
 
-template<class _Iter, class _Impl = __unwrap_iter_impl<_Iter> >
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-decltype(_Impl::__apply(declval<_Iter>()))
-__unwrap_iter(_Iter __i) _NOEXCEPT
-{
-    return _Impl::__apply(__i);
+template<class _Iter,
+         class _Impl = __unwrap_iter_impl<_Iter>,
+         __enable_if_t<is_copy_constructible<_Iter>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+decltype(_Impl::__unwrap(std::declval<_Iter>())) __unwrap_iter(_Iter __i) _NOEXCEPT {
+  return _Impl::__unwrap(__i);
 }
 
-template<class _OrigIter>
-_LIBCPP_HIDE_FROM_ABI
-_OrigIter __rewrap_iter(_OrigIter, _OrigIter __result)
-{
-    return __result;
-}
-
-template<class _OrigIter, class _UnwrappedIter>
-_LIBCPP_HIDE_FROM_ABI
-_OrigIter __rewrap_iter(_OrigIter __first, _UnwrappedIter __result)
-{
-    // Precondition: __result is reachable from __first
-    // Precondition: _OrigIter is a contiguous iterator
-    return __first + (__result - _VSTD::__unwrap_iter(__first));
+template <class _OrigIter, class _Iter, class _Impl = __unwrap_iter_impl<_OrigIter> >
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _OrigIter __rewrap_iter(_OrigIter __orig_iter, _Iter __iter) _NOEXCEPT {
+  return _Impl::__rewrap(std::move(__orig_iter), std::move(__iter));
 }
 
 _LIBCPP_END_NAMESPACE_STD

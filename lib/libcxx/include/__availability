@@ -13,7 +13,7 @@
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#   pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 // Libc++ is shipped by various vendors. In particular, it is used as a system
@@ -91,6 +91,10 @@
     // other exception types. These were put in the shared library to prevent
     // code bloat from every user program defining the vtable for these exception
     // types.
+    //
+    // Note that when exceptions are disabled, the methods that normally throw
+    // these exceptions can be used even on older deployment targets, but those
+    // methods will abort instead of throwing.
 #   define _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
 #   define _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS
 #   define _LIBCPP_AVAILABILITY_BAD_ANY_CAST
@@ -99,10 +103,15 @@
 #   define _LIBCPP_AVAILABILITY_UNCAUGHT_EXCEPTIONS
 
     // This controls the availability of the sized version of ::operator delete,
-    // which was added to the dylib later.
+    // ::operator delete[], and their align_val_t variants, which were all added
+    // in C++17, and hence not present in early dylibs.
 #   define _LIBCPP_AVAILABILITY_SIZED_NEW_DELETE
 
     // This controls the availability of the std::future_error exception.
+    //
+    // Note that when exceptions are disabled, the methods that normally throw
+    // std::future_error can be used even on older deployment targets, but those
+    // methods will abort instead of throwing.
 #   define _LIBCPP_AVAILABILITY_FUTURE_ERROR
 
     // This controls the availability of std::type_info's vtable.
@@ -126,16 +135,14 @@
 #   define _LIBCPP_AVAILABILITY_FILESYSTEM_POP
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_filesystem
 
-    // This controls the availability of std::to_chars.
-#   define _LIBCPP_AVAILABILITY_TO_CHARS
-
     // This controls the availability of floating-point std::to_chars functions.
     // These overloads were added later than the integer overloads.
 #   define _LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT
 
     // This controls the availability of the C++20 synchronization library,
     // which requires shared library support for various operations
-    // (see libcxx/src/atomic.cpp).
+    // (see libcxx/src/atomic.cpp). This includes <barier>, <latch>,
+    // <semaphore>, and notification functions on std::atomic.
 #   define _LIBCPP_AVAILABILITY_SYNC
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_atomic_wait
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_barrier
@@ -149,10 +156,26 @@
 #   define _LIBCPP_AVAILABILITY_FORMAT
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format
 
+    // This controls whether the default verbose termination function is
+    // provided by the library.
+    //
+    // Note that when users provide their own custom function, it doesn't
+    // matter whether the dylib provides a default function, and the
+    // availability markup can actually give a false positive diagnostic
+    // (it will think that no function is provided, when in reality the
+    // user has provided their own).
+    //
+    // Users can pass -D_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED
+    // to the compiler to tell the library not to define its own verbose abort.
+    // Note that defining this macro but failing to define a custom function
+    // will lead to a load-time error on back-deployment targets, so it should
+    // be avoided.
+// #   define _LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY
+
 #elif defined(__APPLE__)
 
 #   define _LIBCPP_AVAILABILITY_SHARED_MUTEX                                    \
-        __attribute__((availability(macosx,strict,introduced=10.12)))           \
+        __attribute__((availability(macos,strict,introduced=10.12)))            \
         __attribute__((availability(ios,strict,introduced=10.0)))               \
         __attribute__((availability(tvos,strict,introduced=10.0)))              \
         __attribute__((availability(watchos,strict,introduced=3.0)))
@@ -164,24 +187,27 @@
 #       define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_shared_timed_mutex
 #   endif
 
+        // Note: bad_optional_access & friends were not introduced in the matching
+        // macOS and iOS versions, so the version mismatch between macOS and others
+        // is intended.
 #   define _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS                             \
-        __attribute__((availability(macosx,strict,introduced=10.13)))           \
-        __attribute__((availability(ios,strict,introduced=11.0)))               \
-        __attribute__((availability(tvos,strict,introduced=11.0)))              \
-        __attribute__((availability(watchos,strict,introduced=4.0)))
+        __attribute__((availability(macos,strict,introduced=10.13)))            \
+        __attribute__((availability(ios,strict,introduced=12.0)))               \
+        __attribute__((availability(tvos,strict,introduced=12.0)))              \
+        __attribute__((availability(watchos,strict,introduced=5.0)))
 #   define _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS                              \
         _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
 #   define _LIBCPP_AVAILABILITY_BAD_ANY_CAST                                    \
         _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
 
 #   define _LIBCPP_AVAILABILITY_UNCAUGHT_EXCEPTIONS                             \
-        __attribute__((availability(macosx,strict,introduced=10.12)))           \
+        __attribute__((availability(macos,strict,introduced=10.12)))            \
         __attribute__((availability(ios,strict,introduced=10.0)))               \
         __attribute__((availability(tvos,strict,introduced=10.0)))              \
         __attribute__((availability(watchos,strict,introduced=3.0)))
 
 #   define _LIBCPP_AVAILABILITY_SIZED_NEW_DELETE                                \
-        __attribute__((availability(macosx,strict,introduced=10.12)))           \
+        __attribute__((availability(macos,strict,introduced=10.12)))            \
         __attribute__((availability(ios,strict,introduced=10.0)))               \
         __attribute__((availability(tvos,strict,introduced=10.0)))              \
         __attribute__((availability(watchos,strict,introduced=3.0)))
@@ -190,26 +216,26 @@
         __attribute__((availability(ios,strict,introduced=6.0)))
 
 #   define _LIBCPP_AVAILABILITY_TYPEINFO_VTABLE                                 \
-        __attribute__((availability(macosx,strict,introduced=10.9)))            \
+        __attribute__((availability(macos,strict,introduced=10.9)))             \
         __attribute__((availability(ios,strict,introduced=7.0)))
 
 #   define _LIBCPP_AVAILABILITY_LOCALE_CATEGORY                                 \
-        __attribute__((availability(macosx,strict,introduced=10.9)))            \
+        __attribute__((availability(macos,strict,introduced=10.9)))             \
         __attribute__((availability(ios,strict,introduced=7.0)))
 
 #   define _LIBCPP_AVAILABILITY_ATOMIC_SHARED_PTR                               \
-        __attribute__((availability(macosx,strict,introduced=10.9)))            \
+        __attribute__((availability(macos,strict,introduced=10.9)))             \
         __attribute__((availability(ios,strict,introduced=7.0)))
 
 #   define _LIBCPP_AVAILABILITY_FILESYSTEM                                      \
-        __attribute__((availability(macosx,strict,introduced=10.15)))           \
+        __attribute__((availability(macos,strict,introduced=10.15)))            \
         __attribute__((availability(ios,strict,introduced=13.0)))               \
         __attribute__((availability(tvos,strict,introduced=13.0)))              \
         __attribute__((availability(watchos,strict,introduced=6.0)))
 #   define _LIBCPP_AVAILABILITY_FILESYSTEM_PUSH                                 \
-        _Pragma("clang attribute push(__attribute__((availability(macosx,strict,introduced=10.15))), apply_to=any(function,record))") \
-        _Pragma("clang attribute push(__attribute__((availability(ios,strict,introduced=13.0))), apply_to=any(function,record))")     \
-        _Pragma("clang attribute push(__attribute__((availability(tvos,strict,introduced=13.0))), apply_to=any(function,record))")    \
+        _Pragma("clang attribute push(__attribute__((availability(macos,strict,introduced=10.15))), apply_to=any(function,record))") \
+        _Pragma("clang attribute push(__attribute__((availability(ios,strict,introduced=13.0))), apply_to=any(function,record))")    \
+        _Pragma("clang attribute push(__attribute__((availability(tvos,strict,introduced=13.0))), apply_to=any(function,record))")   \
         _Pragma("clang attribute push(__attribute__((availability(watchos,strict,introduced=6.0))), apply_to=any(function,record))")
 #   define _LIBCPP_AVAILABILITY_FILESYSTEM_POP                                  \
         _Pragma("clang attribute pop")                                          \
@@ -223,14 +249,11 @@
 #       define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_filesystem
 #   endif
 
-#   define _LIBCPP_AVAILABILITY_TO_CHARS                                        \
-        _LIBCPP_AVAILABILITY_FILESYSTEM
-
 #   define _LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT                         \
         __attribute__((unavailable))
 
 #   define _LIBCPP_AVAILABILITY_SYNC                                            \
-        __attribute__((availability(macosx,strict,introduced=11.0)))            \
+        __attribute__((availability(macos,strict,introduced=11.0)))             \
         __attribute__((availability(ios,strict,introduced=14.0)))               \
         __attribute__((availability(tvos,strict,introduced=14.0)))              \
         __attribute__((availability(watchos,strict,introduced=7.0)))
@@ -244,13 +267,12 @@
 #       define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_semaphore
 #   endif
 
-    // This controls the availability of the C++20 format library.
-    // The library is in development and not ABI stable yet. P2216 is
-    // retroactively accepted in C++20. This paper contains ABI breaking
-    // changes.
 #   define _LIBCPP_AVAILABILITY_FORMAT                                          \
         __attribute__((unavailable))
 #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format
+
+#   define _LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY
+
 #else
 
 // ...New vendors can add availability markup here...

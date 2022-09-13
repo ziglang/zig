@@ -10,28 +10,28 @@ workspace:
 
 steps:
 - name: configure_git
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   commands:
   - ./ci/zinc/configure_git
 
 - name: test_stage3_debug
   depends_on:
   - configure_git
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   commands:
   - ./ci/zinc/linux_test_stage3_debug
 
 - name: test_stage3_release
   depends_on:
   - configure_git
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   commands:
   - ./ci/zinc/linux_test_stage3_release
 
 - name: build_aarch64_macos
   depends_on:
   - test_stage3_release
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   commands:
   - ./ci/zinc/build_aarch64_macos
 
@@ -44,7 +44,7 @@ steps:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID
@@ -62,7 +62,7 @@ steps:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID
@@ -80,7 +80,7 @@ steps:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-9
+  image: ci/debian-amd64:11.1-11
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN

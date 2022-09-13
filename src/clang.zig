@@ -859,7 +859,7 @@ pub const StmtExpr = opaque {
 
 pub const StringLiteral = opaque {
     pub const getKind = ZigClangStringLiteral_getKind;
-    extern fn ZigClangStringLiteral_getKind(*const StringLiteral) StringLiteral_StringKind;
+    extern fn ZigClangStringLiteral_getKind(*const StringLiteral) CharacterLiteral_CharacterKind;
 
     pub const getCodeUnit = ZigClangStringLiteral_getCodeUnit;
     extern fn ZigClangStringLiteral_getCodeUnit(*const StringLiteral, usize) u32;
@@ -1117,6 +1117,7 @@ pub const TypeClass = enum(c_int) {
     VariableArray,
     Atomic,
     Attributed,
+    BTFTagAttributed,
     BitInt,
     BlockPointer,
     Builtin,
@@ -1202,25 +1203,33 @@ const StmtClass = enum(c_int) {
     OMPForDirectiveClass,
     OMPForSimdDirectiveClass,
     OMPGenericLoopDirectiveClass,
+    OMPMaskedTaskLoopDirectiveClass,
+    OMPMaskedTaskLoopSimdDirectiveClass,
     OMPMasterTaskLoopDirectiveClass,
     OMPMasterTaskLoopSimdDirectiveClass,
     OMPParallelForDirectiveClass,
     OMPParallelForSimdDirectiveClass,
+    OMPParallelGenericLoopDirectiveClass,
+    OMPParallelMaskedTaskLoopDirectiveClass,
+    OMPParallelMaskedTaskLoopSimdDirectiveClass,
     OMPParallelMasterTaskLoopDirectiveClass,
     OMPParallelMasterTaskLoopSimdDirectiveClass,
     OMPSimdDirectiveClass,
     OMPTargetParallelForSimdDirectiveClass,
+    OMPTargetParallelGenericLoopDirectiveClass,
     OMPTargetSimdDirectiveClass,
     OMPTargetTeamsDistributeDirectiveClass,
     OMPTargetTeamsDistributeParallelForDirectiveClass,
     OMPTargetTeamsDistributeParallelForSimdDirectiveClass,
     OMPTargetTeamsDistributeSimdDirectiveClass,
+    OMPTargetTeamsGenericLoopDirectiveClass,
     OMPTaskLoopDirectiveClass,
     OMPTaskLoopSimdDirectiveClass,
     OMPTeamsDistributeDirectiveClass,
     OMPTeamsDistributeParallelForDirectiveClass,
     OMPTeamsDistributeParallelForSimdDirectiveClass,
     OMPTeamsDistributeSimdDirectiveClass,
+    OMPTeamsGenericLoopDirectiveClass,
     OMPTileDirectiveClass,
     OMPUnrollDirectiveClass,
     OMPMaskedDirectiveClass,
@@ -1228,6 +1237,7 @@ const StmtClass = enum(c_int) {
     OMPMetaDirectiveClass,
     OMPOrderedDirectiveClass,
     OMPParallelDirectiveClass,
+    OMPParallelMaskedDirectiveClass,
     OMPParallelMasterDirectiveClass,
     OMPParallelSectionsDirectiveClass,
     OMPScanDirectiveClass,
@@ -1532,6 +1542,7 @@ pub const DeclKind = enum(c_int) {
     OMPDeclareMapper,
     OMPDeclareReduction,
     TemplateParamObject,
+    UnnamedGlobalConstant,
     UnresolvedUsingValue,
     OMPAllocate,
     OMPRequires,
@@ -1805,6 +1816,8 @@ pub const CallingConv = enum(c_int) {
     PreserveMost,
     PreserveAll,
     AArch64VectorCall,
+    AArch64SVEPCS,
+    AMDGPUKernelCall,
 };
 
 pub const StorageClass = enum(c_int) {
@@ -1824,14 +1837,6 @@ pub const APFloat_roundingMode = enum(i8) {
     NearestTiesToAway = 4,
     Dynamic = 7,
     Invalid = -1,
-};
-
-pub const StringLiteral_StringKind = enum(c_int) {
-    Ascii,
-    Wide,
-    UTF8,
-    UTF16,
-    UTF32,
 };
 
 pub const CharacterLiteral_CharacterKind = enum(c_int) {

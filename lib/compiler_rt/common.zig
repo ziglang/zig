@@ -40,7 +40,13 @@ pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.ar
 ///   x86_64-windows-msvc => true
 ///   any-macos-any => false
 pub const gnu_f16_abi = switch (builtin.cpu.arch) {
-    .wasm32, .wasm64, .riscv64, .riscv32 => false,
+    .wasm32,
+    .wasm64,
+    .riscv64,
+    .riscv32,
+    .i386,
+    .x86_64,
+    => false,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
@@ -71,6 +77,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 pub const F16T = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => f16,
     .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
+    .i386, .x86_64 => f16,
     else => u16,
 };
 

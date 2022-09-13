@@ -158,13 +158,15 @@ template <class Stream, class T>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__iterator/istreambuf_iterator.h>
 #include <__utility/forward.h>
 #include <ostream>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -1592,7 +1594,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
             size_t __c = 0;
             _CharT __zero = __ct.widen('0');
             _CharT __one = __ct.widen('1');
-            while (__c < _Size)
+            while (__c != _Size)
             {
                 typename _Traits::int_type __i = __is.rdbuf()->sgetc();
                 if (_Traits::eq_int_type(__i, _Traits::eof()))
@@ -1627,11 +1629,11 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
     return __is;
 }
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>;
 #endif
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>;
 
 _LIBCPP_END_NAMESPACE_STD
 

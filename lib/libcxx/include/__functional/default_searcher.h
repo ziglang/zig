@@ -12,12 +12,13 @@
 
 #include <__algorithm/search.h>
 #include <__config>
+#include <__functional/identity.h>
 #include <__functional/operations.h>
 #include <__iterator/iterator_traits.h>
-#include <utility>
+#include <__utility/pair.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -38,16 +39,15 @@ public:
     pair<_ForwardIterator2, _ForwardIterator2>
     operator () (_ForwardIterator2 __f, _ForwardIterator2 __l) const
     {
-        return _VSTD::__search(__f, __l, __first_, __last_, __pred_,
-            typename iterator_traits<_ForwardIterator>::iterator_category(),
-            typename iterator_traits<_ForwardIterator2>::iterator_category());
+        auto __proj = __identity();
+        return std::__search_impl(__f, __l, __first_, __last_, __pred_, __proj, __proj);
     }
 
 private:
     _ForwardIterator __first_;
     _ForwardIterator __last_;
     _BinaryPredicate __pred_;
-    };
+};
 
 #endif // _LIBCPP_STD_VER > 14
 

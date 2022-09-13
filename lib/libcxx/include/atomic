@@ -518,7 +518,9 @@ template <class T>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
+#include <__chrono/duration.h>
 #include <__config>
 #include <__thread/poll_with_backoff.h>
 #include <__thread/timed_backoff_policy.h>
@@ -532,15 +534,19 @@ template <class T>
 # include <__threading_support>
 #endif
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <chrono>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifdef _LIBCPP_HAS_NO_ATOMIC_HEADER
 # error <atomic> is not implemented
 #endif
 #ifdef kill_dependency
-# error C++ standard library is incompatible with <stdatomic.h>
+# error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
 #endif
 
 #define _LIBCPP_CHECK_STORE_MEMORY_ORDER(__m) \
@@ -900,8 +906,8 @@ struct __cxx_atomic_base_impl {
 #else
     __cxx_atomic_base_impl() _NOEXCEPT : __a_value() {}
 #endif // _LIBCPP_CXX03_LANG
-  _LIBCPP_CONSTEXPR explicit __cxx_atomic_base_impl(_Tp value) _NOEXCEPT
-    : __a_value(value) {}
+  _LIBCPP_CONSTEXPR explicit __cxx_atomic_base_impl(_Tp __value) _NOEXCEPT
+    : __a_value(__value) {}
   _LIBCPP_DISABLE_EXTENSION_WARNING _Atomic(_Tp) __a_value;
 };
 
@@ -1445,15 +1451,15 @@ struct __cxx_atomic_impl : public _Base {
       "std::atomic<T> requires that 'T' be a trivially copyable type");
 
   _LIBCPP_INLINE_VISIBILITY __cxx_atomic_impl() _NOEXCEPT = default;
-  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR explicit __cxx_atomic_impl(_Tp value) _NOEXCEPT
-    : _Base(value) {}
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR explicit __cxx_atomic_impl(_Tp __value) _NOEXCEPT
+    : _Base(__value) {}
 };
 
-#ifdef __linux__
+#if defined(__linux__) || (defined(_AIX) && !defined(__64BIT__))
     using __cxx_contention_t = int32_t;
 #else
     using __cxx_contention_t = int64_t;
-#endif //__linux__
+#endif // __linux__ || (_AIX && !__64BIT__)
 
 using __cxx_atomic_contention_t = __cxx_atomic_impl<__cxx_contention_t>;
 
@@ -1651,13 +1657,7 @@ struct __atomic_base  // false
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
     __atomic_base(_Tp __d) _NOEXCEPT : __a_(__d) {}
 
-#ifndef _LIBCPP_CXX03_LANG
     __atomic_base(const __atomic_base&) = delete;
-#else
-private:
-    _LIBCPP_INLINE_VISIBILITY
-    __atomic_base(const __atomic_base&);
-#endif
 };
 
 #if defined(__cpp_lib_atomic_is_always_lock_free)
@@ -2439,19 +2439,10 @@ typedef struct atomic_flag
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
     atomic_flag(bool __b) _NOEXCEPT : __a_(__b) {} // EXTENSION
 
-#ifndef _LIBCPP_CXX03_LANG
     atomic_flag(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) volatile = delete;
-#else
-private:
-    _LIBCPP_INLINE_VISIBILITY
-    atomic_flag(const atomic_flag&);
-    _LIBCPP_INLINE_VISIBILITY
-    atomic_flag& operator=(const atomic_flag&);
-    _LIBCPP_INLINE_VISIBILITY
-    atomic_flag& operator=(const atomic_flag&) volatile;
-#endif
+
 } atomic_flag;
 
 
@@ -2705,7 +2696,6 @@ typedef atomic<__libcpp_unsigned_lock_free> atomic_unsigned_lock_free;
 
 #if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)
 # if defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER >= 1400
-#  pragma clang deprecated(ATOMIC_FLAG_INIT)
 #  pragma clang deprecated(ATOMIC_VAR_INIT)
 # endif
 #endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)

@@ -10,14 +10,18 @@
 #ifndef _LIBCPP___FILESYSTEM_PATH_ITERATOR_H
 #define _LIBCPP___FILESYSTEM_PATH_ITERATOR_H
 
+#include <__assert>
 #include <__availability>
 #include <__config>
-#include <__debug>
 #include <__filesystem/path.h>
 #include <__iterator/iterator_traits.h>
 #include <cstddef>
 #include <string>
 #include <string_view>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 

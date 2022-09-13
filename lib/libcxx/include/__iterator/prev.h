@@ -10,8 +10,8 @@
 #ifndef _LIBCPP___ITERATOR_PREV_H
 #define _LIBCPP___ITERATOR_PREV_H
 
+#include <__assert>
 #include <__config>
-#include <__debug>
 #include <__iterator/advance.h>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
@@ -19,7 +19,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -34,7 +34,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
   return __x;
 }
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // [range.iter.op.prev]
 
@@ -57,9 +57,8 @@ struct __fn {
   }
 
   template <bidirectional_iterator _Ip>
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr _Ip operator()(_Ip __x, iter_difference_t<_Ip> __n, _Ip __bound) const {
-    ranges::advance(__x, -__n, __bound);
+  _LIBCPP_HIDE_FROM_ABI constexpr _Ip operator()(_Ip __x, iter_difference_t<_Ip> __n, _Ip __bound_iter) const {
+    ranges::advance(__x, -__n, __bound_iter);
     return __x;
   }
 };
@@ -71,7 +70,7 @@ inline namespace __cpo {
 } // namespace __cpo
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

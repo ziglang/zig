@@ -16,7 +16,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -47,12 +47,12 @@ public:
     // conversions
     template <class _Duration2>
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
-    time_point(const time_point<clock, _Duration2>& t,
+    time_point(const time_point<clock, _Duration2>& __t,
         typename enable_if
         <
             is_convertible<_Duration2, duration>::value
         >::type* = nullptr)
-            : __d_(t.time_since_epoch()) {}
+            : __d_(__t.time_since_epoch()) {}
 
     // observer
 

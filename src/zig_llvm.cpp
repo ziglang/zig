@@ -417,12 +417,13 @@ LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
     return wrap(func);
 }
 
-LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
+LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMTypeRef Ty, LLVMValueRef Fn,
+        LLVMValueRef *Args, unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr,
+        const char *Name)
 {
-    Value *V = unwrap(Fn);
-    FunctionType *FnT = cast<FunctionType>(V->getType()->getNonOpaquePointerElementType());
-    CallInst *call_inst = CallInst::Create(FnT, V, makeArrayRef(unwrap(Args), NumArgs), Name);
+    FunctionType *FTy = unwrap<FunctionType>(Ty);
+    CallInst *call_inst = unwrap(B)->CreateCall(FTy, unwrap(Fn), makeArrayRef(unwrap(Args),
+                NumArgs), Name);
     call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
     switch (attr) {
         case ZigLLVM_CallAttrAuto:
@@ -440,7 +441,7 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
             call_inst->addFnAttr(Attribute::AlwaysInline);
             break;
     }
-    return wrap(unwrap(B)->Insert(call_inst));
+    return wrap(call_inst);
 }
 
 LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
@@ -1192,6 +1193,10 @@ void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef
     Type *llvm_type = unwrap<Type>(return_type);
     call_inst->addParamAttr(arg_index,
             Attribute::get(call_inst->getContext(), Attribute::ElementType, llvm_type));
+}
+
+LLVMTypeRef ZigLLVMGetGEPResultElementType(LLVMValueRef GEP) {
+    return wrap(unwrap<GEPOperator>(GEP)->getResultElementType());
 }
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {

@@ -3200,8 +3200,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    fn_bool(123);
             \\    fn_bool(0);
             \\    fn_bool(&fn_int);
-            \\    fn_int(&fn_int);
-            \\    fn_ptr(42);
+            \\    fn_int((int)&fn_int);
+            \\    fn_ptr((void *)42);
             \\}
         , &[_][]const u8{
             \\pub extern fn fn_int(x: c_int) void;

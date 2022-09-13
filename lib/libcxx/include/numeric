@@ -144,10 +144,9 @@ template<class T>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <cmath> // for isnormal
-#include <functional>
-#include <iterator>
 #include <version>
 
 #include <__numeric/accumulate.h>
@@ -164,8 +163,13 @@ template<class T>
 #include <__numeric/transform_inclusive_scan.h>
 #include <__numeric/transform_reduce.h>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <functional>
+#  include <iterator>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17

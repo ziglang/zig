@@ -31,13 +31,14 @@ ForwardIterator search(ForwardIterator first, ForwardIterator last,
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__debug>
 #include <algorithm>
 #include <experimental/__config>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS

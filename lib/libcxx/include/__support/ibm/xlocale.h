@@ -10,7 +10,10 @@
 #ifndef _LIBCPP_SUPPORT_IBM_XLOCALE_H
 #define _LIBCPP_SUPPORT_IBM_XLOCALE_H
 
+#if defined(__MVS__)
 #include <__support/ibm/locale_mgmt_zos.h>
+#endif // defined(__MVS__)
+
 #include <stdarg.h>
 
 #include "cstdlib"
@@ -52,57 +55,50 @@ private:
 
 // The following are not POSIX routines.  These are quick-and-dirty hacks
 // to make things pretend to work
-static inline
-long long strtoll_l(const char *__nptr, char **__endptr,
-    int __base, locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI long long
+strtoll_l(const char *__nptr, char **__endptr, int __base, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtoll(__nptr, __endptr, __base);
+  return ::strtoll(__nptr, __endptr, __base);
 }
 
-static inline
-long strtol_l(const char *__nptr, char **__endptr,
-    int __base, locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI long
+strtol_l(const char *__nptr, char **__endptr, int __base, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtol(__nptr, __endptr, __base);
+  return ::strtol(__nptr, __endptr, __base);
 }
 
-static inline
-double strtod_l(const char *__nptr, char **__endptr,
-    locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI double
+strtod_l(const char *__nptr, char **__endptr, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtod(__nptr, __endptr);
+  return ::strtod(__nptr, __endptr);
 }
 
-static inline
-float strtof_l(const char *__nptr, char **__endptr,
-    locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI float
+strtof_l(const char *__nptr, char **__endptr, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtof(__nptr, __endptr);
+  return ::strtof(__nptr, __endptr);
 }
 
-static inline
-long double strtold_l(const char *__nptr, char **__endptr,
-    locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI long double
+strtold_l(const char *__nptr, char **__endptr, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtold(__nptr, __endptr);
+  return ::strtold(__nptr, __endptr);
 }
 
-static inline
-unsigned long long strtoull_l(const char *__nptr, char **__endptr,
-    int __base, locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI unsigned long long
+strtoull_l(const char *__nptr, char **__endptr, int __base, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtoull(__nptr, __endptr, __base);
+  return ::strtoull(__nptr, __endptr, __base);
 }
 
-static inline
-unsigned long strtoul_l(const char *__nptr, char **__endptr,
-    int __base, locale_t locale) {
+inline _LIBCPP_HIDE_FROM_ABI unsigned long
+strtoul_l(const char *__nptr, char **__endptr, int __base, locale_t locale) {
   __setAndRestore __newloc(locale);
-  return strtoul(__nptr, __endptr, __base);
+  return ::strtoul(__nptr, __endptr, __base);
 }
 
-static inline
-int vasprintf(char **strp, const char *fmt, va_list ap) {
+inline _LIBCPP_HIDE_FROM_ABI int
+vasprintf(char **strp, const char *fmt, va_list ap) {
   const size_t buff_size = 256;
   if ((*strp = (char *)malloc(buff_size)) == NULL) {
     return -1;

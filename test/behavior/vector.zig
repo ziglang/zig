@@ -250,6 +250,13 @@ test "vector @splat" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.os.tag == .macos)
+    {
+        // LLVM 15 regression: https://github.com/ziglang/zig/issues/12827
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
