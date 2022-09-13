@@ -1055,6 +1055,7 @@ set(ZIG_INSTALL_ARGS "build"
     ${ZIG_SINGLE_THREADED_ARG}
     "-Dtarget=${ZIG_TARGET_TRIPLE}"
     "-Dcpu=${ZIG_TARGET_MCPU}"
+    "-Dversion-string=${ZIG_VERSION}"
 )
 
 add_custom_target(stage3 ALL
