@@ -6,7 +6,6 @@ export fn entry() void {
 }
 
 fn makeLlamas(count: usize) [count]u8 {
-    _ = count;
 }
 
 // error
