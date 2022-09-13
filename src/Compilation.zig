@@ -858,6 +858,7 @@ pub const InitOptions = struct {
     strip: bool = false,
     function_sections: bool = false,
     no_builtin: bool = false,
+    nostdlibinc: bool = false,
     is_native_os: bool,
     is_native_abi: bool,
     time_report: bool = false,
@@ -1404,6 +1405,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.no_builtin);
+        cache.hash.add(options.nostdlibinc);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
         cache.hash.add(link_libcpp);
@@ -1718,6 +1720,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_native_abi = options.is_native_abi,
             .function_sections = options.function_sections,
             .no_builtin = options.no_builtin,
+            .nostdlibinc = options.nostdlibinc,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
@@ -4065,9 +4068,11 @@ pub fn addCCArgs(
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
             // and other compiler specific items.
-            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
-            try argv.append("-isystem");
-            try argv.append(c_headers_dir);
+            if (!comp.bin_file.options.nostdlibinc) {
+                const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
+                try argv.append("-isystem");
+                try argv.append(c_headers_dir);
+            }
 
             for (comp.libc_include_dir_list) |include_dir| {
                 try argv.append("-isystem");

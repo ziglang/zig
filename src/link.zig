@@ -111,6 +111,7 @@ pub const Options = struct {
     link_libunwind: bool,
     function_sections: bool,
     no_builtin: bool,
+    nostdlibinc: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
     rdynamic: bool,

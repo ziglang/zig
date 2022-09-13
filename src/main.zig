@@ -631,6 +631,7 @@ fn buildOutputType(
     var strip = false;
     var function_sections = false;
     var no_builtin = false;
+    var nostdlibinc = false;
     var watch = false;
     var debug_compile_errors = false;
     var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
@@ -1527,6 +1528,7 @@ fn buildOutputType(
                     .no_function_sections => function_sections = false,
                     .builtin => no_builtin = false,
                     .no_builtin => no_builtin = true,
+                    .nostdlibinc => nostdlibinc = true,
                     .color_diagnostics => color = .on,
                     .no_color_diagnostics => color = .off,
                     .stack_check => want_stack_check = true,
@@ -1682,7 +1684,6 @@ fn buildOutputType(
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.put(gpa, it.only_arg, .{}),
-                    .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
                         wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, it.only_arg) orelse {
@@ -2947,6 +2948,7 @@ fn buildOutputType(
         .single_threaded = single_threaded,
         .function_sections = function_sections,
         .no_builtin = no_builtin,
+        .nostdlibinc = nostdlibinc,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
         .clang_passthrough_mode = clang_passthrough_mode,
