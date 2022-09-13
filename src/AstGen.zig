@@ -223,6 +223,10 @@ pub const ResultLoc = union(enum) {
     /// The expression must generate a pointer rather than a value. For example, the left hand side
     /// of an assignment uses this kind of result location.
     ref,
+    /// Exactly like `none`, except also indicates this is an error-handling expr (try/catch/return etc.)
+    catch_none,
+    /// Exactly like `ref`, except also indicates this is an error-handling expr (try/catch/return etc.)
+    catch_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
     /// Same as `ty` but for shift operands.
@@ -265,7 +269,7 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .none, .ty, .ty_shift_operand, .coerced_ty, .ref => return .{
+            .none, .catch_none, .ty, .ty_shift_operand, .coerced_ty, .ref, .catch_ref => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -838,7 +842,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
             _ = try gz.addUnNode(.validate_deref, lhs, node);
             switch (rl) {
-                .ref => return lhs,
+                .ref, .catch_ref => return lhs,
                 else => {
                     const result = try gz.addUnNode(.load, lhs, node);
                     return rvalue(gz, rl, result, node);
@@ -855,7 +859,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, result, node);
         },
         .unwrap_optional => switch (rl) {
-            .ref => return gz.addUnNode(
+            .ref, .catch_ref => return gz.addUnNode(
                 .optional_payload_safe_ptr,
                 try expr(gz, scope, .ref, node_datas[node].lhs),
                 node,
@@ -900,7 +904,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             else
                 null;
             switch (rl) {
-                .ref => return orelseCatchExpr(
+                .ref, .catch_ref => return orelseCatchExpr(
                     gz,
                     scope,
                     rl,
@@ -927,7 +931,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             }
         },
         .@"orelse" => switch (rl) {
-            .ref => return orelseCatchExpr(
+            .ref, .catch_ref => return orelseCatchExpr(
                 gz,
                 scope,
                 rl,
@@ -1372,11 +1376,11 @@ fn arrayInitExpr(
             }
             return Zir.Inst.Ref.void_value;
         },
-        .ref => {
+        .ref, .catch_ref => {
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init_ref else .array_init_anon_ref;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
-        .none => {
+        .none, .catch_none => {
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
@@ -1608,7 +1612,7 @@ fn structInitExpr(
             }
             return Zir.Inst.Ref.void_value;
         },
-        .ref => {
+        .ref, .catch_ref => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
@@ -1617,7 +1621,7 @@ fn structInitExpr(
                 return structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon_ref);
             }
         },
-        .none => {
+        .none, .catch_none => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
@@ -1891,15 +1895,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 
                     // As our last action before the break, "pop" the error trace if needed
                     if (err_trace_index_to_restore != .none) {
-                        // TODO: error-liveness and is_non_err
-
-                        _ = try parent_gz.add(.{
-                            .tag = .restore_err_ret_index,
-                            .data = .{ .un_node = .{
-                                .operand = err_trace_index_to_restore,
-                                .src_node = parent_gz.nodeIndexToRelative(node),
-                            } },
-                        });
+                        // void is a non-error so we always pop - no need to call `popErrorReturnTrace`
+                        _ = try parent_gz.addUnNode(.restore_err_ret_index, err_trace_index_to_restore, node);
                     }
 
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
@@ -1914,15 +1911,15 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 
                 // As our last action before the break, "pop" the error trace if needed
                 if (err_trace_index_to_restore != .none) {
-                    // TODO: error-liveness and is_non_err
-
-                    _ = try parent_gz.add(.{
-                        .tag = .restore_err_ret_index,
-                        .data = .{ .un_node = .{
-                            .operand = err_trace_index_to_restore,
-                            .src_node = parent_gz.nodeIndexToRelative(node),
-                        } },
-                    });
+                    // Pop the error trace, unless the operand is an error and breaking to an error-handling expr.
+                    try popErrorReturnTrace(
+                        parent_gz,
+                        scope,
+                        block_gz.break_result_loc,
+                        rhs,
+                        operand,
+                        err_trace_index_to_restore,
+                    );
                 }
 
                 switch (block_gz.break_result_loc) {
@@ -2177,7 +2174,7 @@ fn labeledBlockExpr(
             try block_scope.setBlockBody(block_inst);
             const block_ref = indexToRef(block_inst);
             switch (rl) {
-                .ref => return block_ref,
+                .ref, .catch_ref => return block_ref,
                 else => return rvalue(gz, rl, block_ref, block_node),
             }
         },
@@ -5141,14 +5138,14 @@ fn tryExpr(
     const try_column = astgen.source_column;
 
     const operand_rl: ResultLoc = switch (rl) {
-        .ref => .ref,
-        else => .none,
+        .ref, .catch_ref => .catch_ref,
+        else => .catch_none,
     };
     // This could be a pointer or value depending on the `rl` parameter.
     const operand = try reachableExpr(parent_gz, scope, operand_rl, operand_node, node);
     const is_inline = parent_gz.force_comptime;
     const is_inline_bit = @as(u2, @boolToInt(is_inline));
-    const is_ptr_bit = @as(u2, @boolToInt(operand_rl == .ref)) << 1;
+    const is_ptr_bit = @as(u2, @boolToInt(operand_rl == .ref or operand_rl == .catch_ref)) << 1;
     const block_tag: Zir.Inst.Tag = switch (is_inline_bit | is_ptr_bit) {
         0b00 => .@"try",
         0b01 => .@"try",
@@ -5164,7 +5161,7 @@ fn tryExpr(
     defer else_scope.unstack();
 
     const err_tag = switch (rl) {
-        .ref => Zir.Inst.Tag.err_union_code_ptr,
+        .ref, .catch_ref => Zir.Inst.Tag.err_union_code_ptr,
         else => Zir.Inst.Tag.err_union_code,
     };
     const err_code = try else_scope.addUnNode(err_tag, operand, node);
@@ -5175,8 +5172,83 @@ fn tryExpr(
     try else_scope.setTryBody(try_inst, operand);
     const result = indexToRef(try_inst);
     switch (rl) {
-        .ref => return result,
+        .ref, .catch_ref => return result,
         else => return rvalue(parent_gz, rl, result, node),
+    }
+}
+
+/// Pops the error return trace, unless:
+///  1. the result is a non-error, AND
+///  2. the result location corresponds to an error-handling expression
+///
+/// For reference, the full list of error-handling expressions is:
+///   - try X
+///   - X catch ...
+///   - if (X) |_| { ... } |_| { ... }
+///   - return X
+///
+fn popErrorReturnTrace(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: Ast.Node.Index,
+    result_inst: Zir.Inst.Ref,
+    error_trace_index: Zir.Inst.Ref,
+) InnerError!void {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+
+    const result_is_err = nodeMayEvalToError(tree, node);
+
+    // If we are breaking to a try/catch/error-union-if/return, the error trace propagates.
+    const propagate_error_trace = switch (rl) {
+        .catch_none, .catch_ref => true, // Propagate to try/catch/error-union-if
+        .ptr, .ty => |ref| b: { // Otherwise, propagate if result loc is a return
+            const inst = refToIndex(ref) orelse break :b false;
+            const zir_tags = astgen.instructions.items(.tag);
+            break :b zir_tags[inst] == .ret_ptr or zir_tags[inst] == .ret_type;
+        },
+        else => false,
+    };
+
+    if (result_is_err == .never or !propagate_error_trace) {
+        // We are returning a non-error, or returning to a non-error-handling operator.
+        // In either case, we need to pop the error trace.
+        _ = try gz.addUnNode(.restore_err_ret_index, error_trace_index, node);
+    } else if (result_is_err == .maybe) {
+        // We are returning to an error-handling operator with a maybe-error.
+        // Restore only if it's a non-error, implying the catch was successfully handled.
+        var block_scope = gz.makeSubBlock(scope);
+        block_scope.setBreakResultLoc(.discard);
+        defer block_scope.unstack();
+
+        // Emit conditional branch for restoring error trace index
+        const is_non_err = switch (rl) {
+            .catch_ref => try block_scope.addUnNode(.is_non_err_ptr, result_inst, node),
+            .ptr => |ptr| try block_scope.addUnNode(.is_non_err_ptr, ptr, node),
+            .ty, .catch_none => try block_scope.addUnNode(.is_non_err, result_inst, node),
+            else => unreachable, // Error-handling operators only generate the above result locations
+        };
+        const condbr = try block_scope.addCondBr(.condbr, node);
+
+        const block = try gz.makeBlockInst(.block, node);
+        try block_scope.setBlockBody(block);
+        // block_scope unstacked now, can add new instructions to gz
+
+        try gz.instructions.append(astgen.gpa, block);
+
+        var then_scope = block_scope.makeSubBlock(scope);
+        defer then_scope.unstack();
+
+        _ = try then_scope.addUnNode(.restore_err_ret_index, error_trace_index, node);
+        const then_break = try then_scope.makeBreak(.@"break", block, .void_value);
+
+        var else_scope = block_scope.makeSubBlock(scope);
+        defer else_scope.unstack();
+
+        const else_break = try else_scope.makeBreak(.@"break", block, .void_value);
+
+        try setCondBrPayload(condbr, is_non_err, &then_scope, then_break, &else_scope, else_break);
     }
 }
 
@@ -5204,8 +5276,8 @@ fn orelseCatchExpr(
     const saved_err_trace_index = if (do_err_trace) try parent_gz.addNode(.save_err_ret_index, node) else .none;
 
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
-        .ref => .ref,
-        else => .none,
+        .ref, .catch_ref => if (do_err_trace) ResultLoc{ .catch_ref = {} } else .ref,
+        else => if (do_err_trace) ResultLoc{ .catch_none = {} } else .none,
     };
     block_scope.break_count += 1;
     // This could be a pointer or value depending on the `operand_rl` parameter.
@@ -5227,7 +5299,7 @@ fn orelseCatchExpr(
     // This could be a pointer or value depending on `unwrap_op`.
     const unwrapped_payload = try then_scope.addUnNode(unwrap_op, operand, node);
     const then_result = switch (rl) {
-        .ref => unwrapped_payload,
+        .ref, .catch_ref => unwrapped_payload,
         else => try rvalue(&then_scope, block_scope.break_result_loc, unwrapped_payload, node),
     };
 
@@ -5266,15 +5338,15 @@ fn orelseCatchExpr(
     if (!else_scope.endsWithNoReturn()) {
         block_scope.break_count += 1;
 
-        // TODO: Add is_non_err and break check
         if (do_err_trace) {
-            _ = try else_scope.add(.{
-                .tag = .restore_err_ret_index,
-                .data = .{ .un_node = .{
-                    .operand = saved_err_trace_index,
-                    .src_node = parent_gz.nodeIndexToRelative(node),
-                } },
-            });
+            try popErrorReturnTrace(
+                &else_scope,
+                else_sub_scope,
+                block_scope.break_result_loc,
+                rhs,
+                else_result,
+                saved_err_trace_index,
+            );
         }
     }
     try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
@@ -5351,7 +5423,7 @@ fn finishThenElseBlock(
             }
             const block_ref = indexToRef(main_block);
             switch (rl) {
-                .ref => return block_ref,
+                .ref, .catch_ref => return block_ref,
                 else => return rvalue(parent_gz, rl, block_ref, node),
             }
         },
@@ -5375,7 +5447,7 @@ fn fieldAccess(
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     switch (rl) {
-        .ref => return addFieldAccess(.field_ptr, gz, scope, .ref, node),
+        .ref, .catch_ref => return addFieldAccess(.field_ptr, gz, scope, .ref, node),
         else => {
             const access = try addFieldAccess(.field_val, gz, scope, .none, node);
             return rvalue(gz, rl, access, node);
@@ -5416,7 +5488,7 @@ fn arrayAccess(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     switch (rl) {
-        .ref => return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{
+        .ref, .catch_ref => return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{
             .lhs = try expr(gz, scope, .ref, node_datas[node].lhs),
             .rhs = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         }),
@@ -5514,7 +5586,7 @@ fn ifExpr(
         bool_bit: Zir.Inst.Ref,
     } = c: {
         if (if_full.error_token) |_| {
-            const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
+            const cond_rl: ResultLoc = if (payload_is_ref) .catch_ref else .catch_none;
             const err_union = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
@@ -5660,6 +5732,17 @@ fn ifExpr(
         const e = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node);
         if (!else_scope.endsWithNoReturn()) {
             block_scope.break_count += 1;
+
+            if (do_err_trace) {
+                try popErrorReturnTrace(
+                    &else_scope,
+                    sub_scope,
+                    block_scope.break_result_loc,
+                    else_node,
+                    e,
+                    saved_err_trace_index,
+                );
+            }
         }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         try else_scope.addDbgBlockEnd();
@@ -5675,18 +5758,6 @@ fn ifExpr(
             else => .none,
         },
     };
-
-    if (do_err_trace and !else_scope.endsWithNoReturn()) {
-        // TODO: is_non_err and other checks
-
-        _ = try else_scope.add(.{
-            .tag = .restore_err_ret_index,
-            .data = .{ .un_node = .{
-                .operand = saved_err_trace_index,
-                .src_node = parent_gz.nodeIndexToRelative(node),
-            } },
-        });
-    }
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
     const result = try finishThenElseBlock(
@@ -6760,7 +6831,7 @@ fn switchExpr(
     }
 
     const block_ref = indexToRef(switch_block);
-    if (strat.tag == .break_operand and strat.elide_store_to_block_ptr_instructions and rl != .ref)
+    if (strat.tag == .break_operand and strat.elide_store_to_block_ptr_instructions and rl != .ref and rl != .catch_ref)
         return rvalue(parent_gz, rl, block_ref, switch_node);
     return block_ref;
 }
@@ -6839,19 +6910,12 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
-            try emitDbgStmt(gz, ret_line, ret_column);
 
             // As our last action before the return, "pop" the error trace if needed
-            if (gz.outermost_err_trace_index != .none) {
-                _ = try gz.add(.{
-                    .tag = .restore_err_ret_index,
-                    .data = .{ .un_node = .{
-                        .operand = gz.outermost_err_trace_index,
-                        .src_node = gz.nodeIndexToRelative(node),
-                    } },
-                });
-            }
+            if (gz.outermost_err_trace_index != .none)
+                _ = try gz.addUnNode(.restore_err_ret_index, gz.outermost_err_trace_index, node);
 
+            try emitDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6882,6 +6946,11 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             defer then_scope.unstack();
 
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
+
+            // As our last action before the return, "pop" the error trace if needed
+            if (then_scope.outermost_err_trace_index != .none)
+                _ = try then_scope.addUnNode(.restore_err_ret_index, then_scope.outermost_err_trace_index, node);
+
             try emitDbgStmt(&then_scope, ret_line, ret_column);
             try then_scope.addRet(rl, operand, node);
 
@@ -6893,17 +6962,6 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
             try emitDbgStmt(&else_scope, ret_line, ret_column);
-
-            // As our last action before the return, "pop" the error trace if needed
-            if (else_scope.outermost_err_trace_index != .none) {
-                _ = try else_scope.add(.{
-                    .tag = .restore_err_ret_index,
-                    .data = .{ .un_node = .{
-                        .operand = else_scope.outermost_err_trace_index,
-                        .src_node = else_scope.nodeIndexToRelative(node),
-                    } },
-                });
-            }
             try else_scope.addRet(rl, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, 0, &else_scope, 0);
@@ -7068,7 +7126,7 @@ fn localVarRef(
                 );
 
                 switch (rl) {
-                    .ref => return ptr_inst,
+                    .ref, .catch_ref => return ptr_inst,
                     else => {
                         const loaded = try gz.addUnNode(.load, ptr_inst, ident);
                         return rvalue(gz, rl, loaded, ident);
@@ -7105,7 +7163,7 @@ fn localVarRef(
     // Decl references happen by name rather than ZIR index so that when unrelated
     // decls are modified, ZIR code containing references to them can be unmodified.
     switch (rl) {
-        .ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
+        .ref, .catch_ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
         else => {
             const result = try gz.addStrTok(.decl_val, name_str_index, ident_token);
             return rvalue(gz, rl, result, ident);
@@ -7452,7 +7510,7 @@ fn as(
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .discard, .ref, .ty, .ty_shift_operand, .coerced_ty => {
+        .none, .catch_none, .discard, .ref, .catch_ref, .ty, .ty_shift_operand, .coerced_ty => {
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
@@ -7652,7 +7710,7 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .field => {
-            if (rl == .ref) {
+            if (rl == .ref or rl == .catch_ref) {
                 return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .ref, params[0]),
                     .field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]),
@@ -9600,13 +9658,13 @@ fn rvalue(
     };
     if (gz.endsWithNoReturn()) return result;
     switch (rl) {
-        .none, .coerced_ty => return result,
+        .none, .catch_none, .coerced_ty => return result,
         .discard => {
             // Emit a compile error for discarding error values.
             _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
             return result;
         },
-        .ref => {
+        .ref, .catch_ref => {
             // We need a pointer but we have a value.
             // Unfortunately it's not quite as simple as directly emitting a ref
             // instruction here because we need subsequent address-of operator on
@@ -10575,7 +10633,7 @@ const GenZir = struct {
                 gz.break_result_loc = parent_rl;
             },
 
-            .discard, .none, .ref => {
+            .discard, .none, .catch_none, .ref, .catch_ref => {
                 gz.rl_ty_inst = .none;
                 gz.break_result_loc = parent_rl;
             },

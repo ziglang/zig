@@ -156,6 +156,59 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
+        .name = "catch and re-throw error",
+        .source = 
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    return foo() catch error.AndMyCarIsOutOfGas;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: AndMyCarIsOutOfGas
+            \\source.zig:2:5: [address] in foo (test)
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\source.zig:6:5: [address] in main (test)
+            \\    return foo() catch error.AndMyCarIsOutOfGas;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: AndMyCarIsOutOfGas
+            \\source.zig:2:5: [address] in [function]
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\source.zig:6:5: [address] in [function]
+            \\    return foo() catch error.AndMyCarIsOutOfGas;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: AndMyCarIsOutOfGas
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: AndMyCarIsOutOfGas
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return from within catch",
         .source = 
         \\fn foo() !void {
