@@ -324,7 +324,6 @@ const Writer = struct {
     fn writeNoOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         _ = w;
         _ = inst;
-        _ = s;
         // no-op, no argument to write
     }
 

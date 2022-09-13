@@ -2111,7 +2111,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -3353,7 +3352,6 @@ fn divFloat(
 ) InnerError!MCValue {
     _ = lhs_bind;
     _ = rhs_bind;
-    _ = lhs_ty;
     _ = rhs_ty;
     _ = maybe_inst;
 
@@ -3420,7 +3418,6 @@ fn divExact(
 ) InnerError!MCValue {
     _ = lhs_bind;
     _ = rhs_bind;
-    _ = lhs_ty;
     _ = rhs_ty;
     _ = maybe_inst;
 
@@ -3506,7 +3503,6 @@ fn modulo(
 ) InnerError!MCValue {
     _ = lhs_bind;
     _ = rhs_bind;
-    _ = lhs_ty;
     _ = rhs_ty;
     _ = maybe_inst;
 
