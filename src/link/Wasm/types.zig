@@ -202,22 +202,22 @@ pub const Feature = struct {
         required = '=',
     };
 
-    pub fn toString(self: Feature) []const u8 {
-        return switch (self.tag) {
+    pub fn toString(feature: Feature) []const u8 {
+        return switch (feature.tag) {
             .bulk_memory => "bulk-memory",
             .exception_handling => "exception-handling",
             .mutable_globals => "mutable-globals",
             .nontrapping_fptoint => "nontrapping-fptoint",
             .sign_ext => "sign-ext",
             .tail_call => "tail-call",
-            else => @tagName(self),
+            else => @tagName(feature),
         };
     }
 
-    pub fn format(self: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
         _ = opt;
         _ = fmt;
-        try writer.print("{c} {s}", .{ self.prefix, self.toString() });
+        try writer.print("{c} {s}", .{ feature.prefix, feature.toString() });
     }
 };
 
