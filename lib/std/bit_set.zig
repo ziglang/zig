@@ -1341,10 +1341,6 @@ test "IntegerBitSet" {
 }
 
 test "ArrayBitSet" {
-    if (@import("builtin").cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/9879
-        return error.SkipZigTest;
-    }
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
         try testStaticBitSet(ArrayBitSet(u8, size));
         try testStaticBitSet(ArrayBitSet(u16, size));
