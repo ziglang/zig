@@ -1955,7 +1955,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
             err_msg.src_loc.file_scope.sub_file_path,
             err_msg.src_loc.lazy,
         });
-        crash_report.compilerPanic("unexpected compile error occurred", null);
+        crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
 
     const mod = sema.mod;
@@ -10468,7 +10468,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
 
                 const panic_fn = try sema.getBuiltin(block, src, "panic");
                 const err_return_trace = try sema.getErrorReturnTrace(block, src);
-                const args: [2]Air.Inst.Ref = .{ msg_inst, err_return_trace };
+                const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
                 _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
                 return true;
             },
@@ -21139,7 +21139,7 @@ fn panicWithMsg(
         try Type.optional(arena, ptr_stack_trace_ty),
         Value.@"null",
     );
-    const args: [2]Air.Inst.Ref = .{ msg_inst, null_stack_trace };
+    const args: [3]Air.Inst.Ref = .{ msg_inst, null_stack_trace, .null_value };
     _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
     return always_noreturn;
 }
