@@ -76,7 +76,15 @@ pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liv
 
 pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
     if (!build_options.have_llvm) return;
+    const decl = module.declPtr(decl_index);
+    log.info("updating {s}", .{decl.name});
     return self.llvm_object.updateDecl(module, decl_index);
+    // const decl_index = func.owner_decl;
+    // const decl = module.declPtr(decl_index);
+
+    // try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
+    // try mod.export_owners.ensureUnusedCapacity(gpa, 1);
+    // mod.decl_exports.getOrPutAssumeCapacity(exported_decl_index);
 }
 
 pub fn updateDeclExports(
