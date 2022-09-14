@@ -21,7 +21,7 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
     defer gpa.free(global_cache_dir);
 
-    const info = try std.zig.system.NativeTargetInfo.detect(gpa, .{});
+    const info = try std.zig.system.NativeTargetInfo.detect(.{});
     const triple = try info.target.zigTriple(gpa);
     defer gpa.free(triple);
 
