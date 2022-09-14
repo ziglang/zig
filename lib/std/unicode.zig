@@ -164,7 +164,6 @@ pub fn utf8ValidCodepoint(value: u21) bool {
 
 /// Returns the length of a supplied UTF-8 string literal in terms of unicode
 /// codepoints.
-/// Asserts that the data is valid UTF-8.
 pub fn utf8CountCodepoints(s: []const u8) !usize {
     var len: usize = 0;
 
@@ -324,6 +323,41 @@ pub const Utf16LeIterator = struct {
         }
     }
 };
+
+/// Returns the length of a supplied UTF-16 string literal in terms of unicode
+/// codepoints.
+pub fn utf16CountCodepoints(utf16le: []const u16) !usize {
+    var len: usize = 0;
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |_| len += 1;
+    return len;
+}
+
+fn testUtf16CountCodepoints() !void {
+    try testing.expectEqual(
+        @as(usize, 1),
+        try utf16CountCodepoints(utf8ToUtf16LeStringLiteral("a")),
+    );
+    try testing.expectEqual(
+        @as(usize, 10),
+        try utf16CountCodepoints(utf8ToUtf16LeStringLiteral("abcdefghij")),
+    );
+    try testing.expectEqual(
+        @as(usize, 10),
+        try utf16CountCodepoints(utf8ToUtf16LeStringLiteral("äåéëþüúíóö")),
+    );
+    try testing.expectEqual(
+        @as(usize, 5),
+        try utf16CountCodepoints(utf8ToUtf16LeStringLiteral("こんにちは")),
+    );
+}
+
+test "utf16 count codepoints" {
+    try testUtf16CountCodepoints();
+    // TODO stage1 error: out of bounds slice
+    if (@import("builtin").zig_backend != .stage1)
+        comptime try testUtf16CountCodepoints();
+}
 
 test "utf8 encode" {
     comptime try testUtf8Encode();
@@ -748,9 +782,9 @@ test "utf8ToUtf16LeWithNull" {
 }
 
 /// Converts a UTF-8 string literal into a UTF-16LE string literal.
-pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8):0]u16 {
+pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch unreachable:0]u16 {
     comptime {
-        const len: usize = calcUtf16LeLen(utf8);
+        const len: usize = calcUtf16LeLen(utf8) catch |err| @compileError(err);
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
@@ -758,13 +792,17 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
     }
 }
 
-fn calcUtf16LeLen(utf8: []const u8) usize {
+const CalcUtf16LeLenError = Utf8DecodeError || error{Utf8InvalidStartByte};
+
+/// Returns length in UTF-16 of UTF-8 slice as length of []u16.
+/// Length in []u8 is 2*len16.
+pub fn calcUtf16LeLen(utf8: []const u8) CalcUtf16LeLenError!usize {
     var src_i: usize = 0;
     var dest_len: usize = 0;
     while (src_i < utf8.len) {
-        const n = utf8ByteSequenceLength(utf8[src_i]) catch unreachable;
+        const n = try utf8ByteSequenceLength(utf8[src_i]);
         const next_src_i = src_i + n;
-        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch unreachable;
+        const codepoint = try utf8Decode(utf8[src_i..next_src_i]);
         if (codepoint < 0x10000) {
             dest_len += 1;
         } else {
@@ -773,6 +811,18 @@ fn calcUtf16LeLen(utf8: []const u8) usize {
         src_i = next_src_i;
     }
     return dest_len;
+}
+
+fn testCalcUtf16LeLen() !void {
+    try testing.expectEqual(@as(usize, 1), try calcUtf16LeLen("a"));
+    try testing.expectEqual(@as(usize, 10), try calcUtf16LeLen("abcdefghij"));
+    try testing.expectEqual(@as(usize, 10), try calcUtf16LeLen("äåéëþüúíóö"));
+    try testing.expectEqual(@as(usize, 5), try calcUtf16LeLen("こんにちは"));
+}
+
+test "calculate utf16 string length of given utf8 string in u16" {
+    try testCalcUtf16LeLen();
+    comptime try testCalcUtf16LeLen();
 }
 
 /// Print the given `utf16le` string
