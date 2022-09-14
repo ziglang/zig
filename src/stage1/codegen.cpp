@@ -1086,11 +1086,23 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     if (stack_trace_arg == nullptr) {
         stack_trace_arg = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
     }
+    LLVMValueRef null_ret_alloc;
+    {
+        ZigValue null_val = {};
+        null_val.special = ConstValSpecialStatic;
+        null_val.data.x_optional = nullptr;
+        null_val.type = get_optional_type2(g, g->builtin_types.entry_usize);
+        LLVMValueRef null_ret_val = gen_const_val(g, &null_val, "");
+        null_ret_alloc = build_alloca(g, null_val.type, "ret_addr", 0);
+        LLVMBuildStore(g->builder, null_ret_val, null_ret_alloc);
+    }
+
     LLVMValueRef args[] = {
         msg_arg,
         stack_trace_arg,
+        null_ret_alloc,
     };
-    ZigLLVMBuildCall(g->builder, LLVMGlobalGetValueType(fn_val), fn_val, args, 2, llvm_cc, ZigLLVM_CallAttrAuto, "");
+    ZigLLVMBuildCall(g->builder, LLVMGlobalGetValueType(fn_val), fn_val, args, 3, llvm_cc, ZigLLVM_CallAttrAuto, "");
     if (!stack_trace_is_llvm_alloca) {
         // The stack trace argument is not in the stack of the caller, so
         // we'd like to set tail call here, but because slices (the type of msg_arg) are
