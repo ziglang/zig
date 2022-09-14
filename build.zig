@@ -40,16 +40,11 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    var test_cases = b.addTest("src/test.zig");
+    const test_cases = b.addTest("src/test.zig");
     test_cases.stack_size = stack_size;
     test_cases.setBuildMode(mode);
     test_cases.addPackagePath("test_cases", "test/cases.zig");
     test_cases.single_threaded = single_threaded;
-
-    const test_options = b.addOptions();
-    test_options.addOption([]const u8, "zig_exe_path", b.zig_exe);
-    test_cases.addOptions("test_options", test_options);
-    test_cases.step.dependOn(&test_options.step);
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 

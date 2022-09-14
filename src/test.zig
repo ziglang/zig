@@ -1214,6 +1214,7 @@ pub const TestContext = struct {
 
     fn run(self: *TestContext) !void {
         const host = try std.zig.system.NativeTargetInfo.detect(.{});
+        const zig_exe_path = try std.process.getEnvVarOwned(self.arena, "ZIG_EXE");
 
         var progress = std.Progress{};
         const root_node = progress.start("compiler", self.cases.items.len);
@@ -1272,6 +1273,7 @@ pub const TestContext = struct {
                     &prg_node,
                     case.*,
                     zig_lib_directory,
+                    zig_exe_path,
                     &aux_thread_pool,
                     global_cache_directory,
                     host,
@@ -1298,6 +1300,7 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
+        zig_exe_path: []const u8,
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
         host: std.zig.system.NativeTargetInfo,
@@ -1328,8 +1331,6 @@ pub const TestContext = struct {
             arena,
             &[_][]const u8{ tmp_dir_path, "zig-cache" },
         );
-
-        const zig_exe_path = @import("test_options").zig_exe_path;
 
         for (case.files.items) |file| {
             try tmp.dir.writeFile(file.path, file.src);
