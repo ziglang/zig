@@ -3253,40 +3253,29 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        // when testing pass the zig_exe_path to argv
-        if (arg_mode == .zig_test)
-            try argv.appendSlice(&[_][]const u8{
-                exe_path, self_exe_path,
-            })
-            // when running just pass the current exe
-        else
-            try argv.appendSlice(&[_][]const u8{
-                exe_path,
-            });
+        try argv.append(exe_path);
     } else {
         for (test_exec_args) |arg| {
-            if (arg) |a| {
-                try argv.append(a);
-            } else {
-                try argv.appendSlice(&[_][]const u8{
-                    exe_path, self_exe_path,
-                });
-            }
+            try argv.append(arg orelse exe_path);
         }
     }
     if (runtime_args_start) |i| {
         try argv.appendSlice(all_args[i..]);
     }
+    var env_map = try std.process.getEnvMap(arena);
+    try env_map.put("ZIG_EXE", self_exe_path);
+
     // We do not execve for tests because if the test fails we want to print
     // the error message and invocation below.
     if (std.process.can_execv and arg_mode == .run and !watch) {
         // execv releases the locks; no need to destroy the Compilation here.
-        const err = std.process.execv(gpa, argv.items);
+        const err = std.process.execve(gpa, argv.items, &env_map);
         try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (std.process.can_spawn) {
         var child = std.ChildProcess.init(argv.items, gpa);
+        child.env_map = &env_map;
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
         child.stderr_behavior = .Inherit;

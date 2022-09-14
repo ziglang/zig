@@ -1214,6 +1214,7 @@ pub const TestContext = struct {
 
     fn run(self: *TestContext) !void {
         const host = try std.zig.system.NativeTargetInfo.detect(.{});
+        const zig_exe_path = try std.process.getEnvVarOwned(self.arena, "ZIG_EXE");
 
         var progress = std.Progress{};
         const root_node = progress.start("compiler", self.cases.items.len);
@@ -1272,6 +1273,7 @@ pub const TestContext = struct {
                     &prg_node,
                     case.*,
                     zig_lib_directory,
+                    zig_exe_path,
                     &aux_thread_pool,
                     global_cache_directory,
                     host,
@@ -1298,6 +1300,7 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
+        zig_exe_path: []const u8,
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
         host: std.zig.system.NativeTargetInfo,
@@ -1351,7 +1354,7 @@ pub const TestContext = struct {
             try tmp.dir.writeFile(tmp_src_path, update.src);
 
             var zig_args = std.ArrayList([]const u8).init(arena);
-            try zig_args.append(std.testing.zig_exe_path);
+            try zig_args.append(zig_exe_path);
 
             if (case.is_test) {
                 try zig_args.append("test");
@@ -1545,7 +1548,7 @@ pub const TestContext = struct {
             .link_libc = case.link_libc,
             .use_llvm = use_llvm,
             .use_stage1 = null, // We already handled stage1 tests
-            .self_exe_path = std.testing.zig_exe_path,
+            .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
             // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
@@ -1795,7 +1798,7 @@ pub const TestContext = struct {
                                 continue :update; // Pass test.
                             }
                             try argv.appendSlice(&[_][]const u8{
-                                std.testing.zig_exe_path,
+                                zig_exe_path,
                                 "run",
                                 "-cflags",
                                 "-std=c99",

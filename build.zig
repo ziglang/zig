@@ -40,7 +40,7 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    var test_cases = b.addTest("src/test.zig");
+    const test_cases = b.addTest("src/test.zig");
     test_cases.stack_size = stack_size;
     test_cases.setBuildMode(mode);
     test_cases.addPackagePath("test_cases", "test/cases.zig");
