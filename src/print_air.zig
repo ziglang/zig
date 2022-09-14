@@ -197,6 +197,7 @@ const Writer = struct {
             .unreach,
             .ret_addr,
             .frame_addr,
+            .save_err_return_trace_index,
             => try w.writeNoOp(s, inst),
 
             .const_ty,

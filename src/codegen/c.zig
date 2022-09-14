@@ -1935,6 +1935,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
             .err_return_trace            => try airErrReturnTrace(f, inst),
             .set_err_return_trace        => try airSetErrReturnTrace(f, inst),
+            .save_err_return_trace_index => try airSaveErrReturnTraceIndex(f, inst),
 
             .wasm_memory_size => try airWasmMemorySize(f, inst),
             .wasm_memory_grow => try airWasmMemoryGrow(f, inst),
@@ -3623,6 +3624,11 @@ fn airErrReturnTrace(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airSetErrReturnTrace(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = inst;
     return f.fail("TODO: C backend: implement airSetErrReturnTrace", .{});
+}
+
+fn airSaveErrReturnTraceIndex(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: implement airSaveErrReturnTraceIndex", .{});
 }
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {

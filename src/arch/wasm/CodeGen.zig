@@ -1857,6 +1857,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .tag_name,
         .err_return_trace,
         .set_err_return_trace,
+        .save_err_return_trace_index,
         .is_named_enum_value,
         .error_set_has_value,
         .addrspace_cast,

@@ -16228,22 +16228,28 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // This is only relevant at runtime.
     if (block.is_comptime) return Air.Inst.Ref.zero_usize;
 
-    // In the corner case that `catch { ... }` or `else |err| { ... }` is used in a function
-    // that does *not* make any errorable calls, we still need an error trace to interact with
-    // the AIR instructions we've already emitted.
-    if (sema.owner_func != null)
-        sema.owner_func.?.calls_or_awaits_errorable_fn = true;
-
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     const ok = sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing;
     if (!ok) return Air.Inst.Ref.zero_usize;
 
+    // This is encoded as a primitive AIR instruction to resolve one corner case: A function
+    // may include a `catch { ... }` or `else |err| { ... }` block but not call any errorable
+    // fn. In that case, there is no error return trace to save the index of and codegen needs
+    // to avoid interacting with the non-existing error trace.
+    //
+    // By using a primitive AIR op, we can depend on Liveness to mark this unused in this corner case.
+
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
-    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
-    return sema.fieldVal(block, src, err_return_trace, "index", src);
+    const field_index = try sema.structFieldIndex(block, stack_trace_ty, "index", src);
+    return block.addInst(.{
+        .tag = .save_err_return_trace_index,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(stack_trace_ty),
+            .payload = @intCast(u32, field_index),
+        } },
+    });
 }
 
 fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -16254,7 +16260,8 @@ fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     if (block.is_comptime) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.mod.comp.bin_file.options.error_return_tracing and
+    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
+        sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing;
     if (!ok) return;
 
