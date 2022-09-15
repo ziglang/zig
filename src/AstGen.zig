@@ -1864,15 +1864,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 }
                 block_gz.break_count += 1;
 
-                // The loop scope has a mechanism to prevent rvalue() from emitting a
-                // store to the result location for the loop body (since it is continues
-                // rather than returning a result from the loop) but here is a `break`
-                // which needs to override this behavior.
-                const prev_rvalue_noresult = parent_gz.rvalue_noresult;
-                parent_gz.rvalue_noresult = .none;
                 const operand = try reachableExpr(parent_gz, parent_scope, block_gz.break_result_loc, rhs, node);
                 const search_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
-                parent_gz.rvalue_noresult = prev_rvalue_noresult;
 
                 try genDefers(parent_gz, scope, parent_scope, .normal_only);
 
@@ -2193,7 +2186,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
-            
+
             .grouped_expression => {
                 inner_node = node_data[statement].lhs;
                 continue;
@@ -5789,7 +5782,6 @@ fn whileExpr(
     // make scope now but don't stack on parent_gz until loop_scope
     // gets unstacked after cont_expr is emitted and added below
     var then_scope = parent_gz.makeSubBlock(&continue_scope.base);
-    then_scope.markAsLoopBody(loop_scope);
     then_scope.instructions_top = GenZir.unstacked_top;
     defer then_scope.unstack();
 
@@ -5889,7 +5881,7 @@ fn whileExpr(
     if (dbg_var_name) |some| {
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    const then_result = try expr(&then_scope, then_sub_scope, .none, while_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -6067,7 +6059,6 @@ fn forExpr(
     }
 
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
-    then_scope.markAsLoopBody(loop_scope);
     defer then_scope.unstack();
 
     try then_scope.addDbgBlockBegin();
@@ -6129,7 +6120,7 @@ fn forExpr(
         break :blk &index_scope.base;
     };
 
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    const then_result = try expr(&then_scope, then_sub_scope, .none, for_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -9465,25 +9456,19 @@ fn rvalue(
             }
         },
         .ptr => |ptr_inst| {
-            if (gz.rvalue_noresult != ptr_inst) {
-                _ = try gz.addPlNode(.store_node, src_node, Zir.Inst.Bin{
-                    .lhs = ptr_inst,
-                    .rhs = result,
-                });
-            }
+            _ = try gz.addPlNode(.store_node, src_node, Zir.Inst.Bin{
+                .lhs = ptr_inst,
+                .rhs = result,
+            });
             return result;
         },
         .inferred_ptr => |alloc| {
-            if (gz.rvalue_noresult != alloc) {
-                _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
-            }
+            _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
             return result;
         },
         .block_ptr => |block_scope| {
-            if (gz.rvalue_noresult != block_scope.rl_ptr) {
-                block_scope.rvalue_rl_count += 1;
-                _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
-            }
+            block_scope.rvalue_rl_count += 1;
+            _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
             return result;
         },
     }
@@ -10163,7 +10148,6 @@ const GenZir = struct {
     rl_ptr: Zir.Inst.Ref = .none,
     /// When a block has a type result location, here it is.
     rl_ty_inst: Zir.Inst.Ref = .none,
-    rvalue_noresult: Zir.Inst.Ref = .none,
     /// Keeps track of how many branches of a block did not actually
     /// consume the result location. astgen uses this to figure out
     /// whether to rely on break instructions or writing to the result
@@ -11557,17 +11541,6 @@ const GenZir = struct {
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
         try gz.astgen.instructions.append(gpa, .{ .tag = .dbg_block_end, .data = undefined });
         try gz.instructions.insert(gpa, gz.instructions.items.len - 1, new_index);
-    }
-
-    /// Control flow does not fall through the "then" block of a loop; it continues
-    /// back to the while condition. This prevents `rvalue` from
-    /// adding an invalid store to the result location of `then_scope`.
-    fn markAsLoopBody(gz: *GenZir, loop_scope: GenZir) void {
-        gz.rvalue_noresult = switch (loop_scope.break_result_loc) {
-            .ptr, .inferred_ptr => |ptr| ptr,
-            .block_ptr => |block| block.rl_ptr,
-            else => .none,
-        };
     }
 };
 
