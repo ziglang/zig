@@ -294,10 +294,10 @@ pub fn allocAdvancedWithRetAddr(
     // TODO The `if (alignment == null)` blocks are workarounds for zig not being able to
     // access certain type information about T without creating a circular dependency in async
     // functions that heap-allocate their own frame with @Frame(func).
-    const size_of_T = if (alignment == null) @intCast(u29, @divExact(byte_count, n)) else @sizeOf(T);
+    const size_of_T: usize = if (alignment == null) @divExact(byte_count, n) else @sizeOf(T);
     const len_align: u29 = switch (exact) {
         .exact => 0,
-        .at_least => size_of_T,
+        .at_least => math.cast(u29, size_of_T) orelse 0,
     };
     const byte_slice = try self.rawAlloc(byte_count, a, len_align, return_address);
     switch (exact) {
@@ -393,7 +393,7 @@ pub fn reallocAdvancedWithRetAddr(
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     const len_align: u29 = switch (exact) {
         .exact => 0,
-        .at_least => @sizeOf(T),
+        .at_least => math.cast(u29, @as(usize, @sizeOf(T))) orelse 0,
     };
 
     if (mem.isAligned(@ptrToInt(old_byte_slice.ptr), new_alignment)) {
