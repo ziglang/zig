@@ -845,7 +845,8 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.writeInstruction(Instruction.adrp(reg.to64(), 0));
 
     switch (tag) {
-        .load_memory_got => {
+        .load_memory_got,
+        => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
@@ -871,8 +872,8 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
-        .load_memory_ptr_got,
         .load_memory_ptr_direct,
+        .load_memory_ptr_got,
         => {
             // add reg, reg, offset
             try emit.writeInstruction(Instruction.add(reg, reg, 0, false));

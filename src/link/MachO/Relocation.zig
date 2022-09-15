@@ -135,7 +135,9 @@ fn resolveAarch64(
             inst.pc_relative_address.immlo = @truncate(u2, pages);
             mem.writeIntLittle(u32, &buffer, inst.toU32());
         },
-        .ARM64_RELOC_PAGEOFF12 => {
+        .ARM64_RELOC_PAGEOFF12,
+        .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+        => {
             const narrowed = @truncate(u12, @intCast(u64, target_addr));
             if (isArithmeticOp(&buffer)) {
                 var inst = aarch64.Instruction{
@@ -169,18 +171,6 @@ fn resolveAarch64(
                 inst.load_store_register.offset = offset;
                 mem.writeIntLittle(u32, &buffer, inst.toU32());
             }
-        },
-        .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
-            const narrowed = @truncate(u12, @intCast(u64, target_addr));
-            var inst: aarch64.Instruction = .{
-                .load_store_register = mem.bytesToValue(meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.load_store_register,
-                ), &buffer),
-            };
-            const offset = @divExact(narrowed, 8);
-            inst.load_store_register.offset = offset;
-            mem.writeIntLittle(u32, &buffer, inst.toU32());
         },
         .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
             const RegInfo = struct {
@@ -226,11 +216,8 @@ fn resolveAarch64(
             mem.writeIntLittle(u32, &buffer, inst.toU32());
         },
         .ARM64_RELOC_POINTER_TO_GOT => {
-            const result = math.cast(
-                i32,
-                @intCast(i64, target_addr) - @intCast(i64, source_addr),
-            ) orelse return error.Overflow;
-            mem.writeIntLittle(u32, &buffer, @bitCast(u32, result));
+            const result = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr));
+            mem.writeIntLittle(i32, &buffer, result);
         },
         .ARM64_RELOC_SUBTRACTOR => unreachable,
         .ARM64_RELOC_ADDEND => unreachable,
@@ -255,10 +242,7 @@ fn resolveX8664(
             .X86_64_RELOC_GOT_LOAD,
             .X86_64_RELOC_TLV,
             => {
-                const displacement = math.cast(
-                    i32,
-                    @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4,
-                ) orelse return error.Overflow;
+                const displacement = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
                 mem.writeIntLittle(u32, buffer[0..4], @bitCast(u32, displacement));
                 break :blk buffer[0..4];
             },
@@ -274,10 +258,7 @@ fn resolveX8664(
                     .X86_64_RELOC_SIGNED_4 => 4,
                     else => unreachable,
                 };
-                const displacement = math.cast(
-                    i32,
-                    target_addr - @intCast(i64, source_addr + correction + 4),
-                ) orelse return error.Overflow;
+                const displacement = @intCast(i32, target_addr - @intCast(i64, source_addr + correction + 4));
                 mem.writeIntLittle(u32, buffer[0..4], @bitCast(u32, displacement));
                 break :blk buffer[0..4];
             },

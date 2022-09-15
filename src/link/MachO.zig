@@ -3434,6 +3434,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
 
     if (self.text_section_index == null) {
+        // Sadly, segments need unique string identfiers for some reason.
         self.text_section_index = try self.allocateSection("__TEXT1", "__text", .{
             .size = self.base.options.program_code_size_hint,
             .alignment = switch (cpu_arch) {
