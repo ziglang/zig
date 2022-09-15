@@ -1814,7 +1814,7 @@ pub fn execvpeZ_expandArg0(
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
     var it = mem.tokenize(u8, PATH, ":");
     var seen_eacces = false;
-    var err: ExecveError = undefined;
+    var err: ExecveError = error.FileNotFound;
 
     // In case of expanding arg0 we must put it back if we return with an error.
     const prev_arg0 = child_argv[0];
