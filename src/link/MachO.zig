@@ -3859,7 +3859,7 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64) !
         }
 
         header.size = needed_size;
-        segment.filesize = needed_size;
+        segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
         segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
         maybe_last_atom.* = atom;
 
