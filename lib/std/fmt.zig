@@ -1004,8 +1004,7 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    _ = options;
-    return writer.writeAll(@as(*const [1]u8, &c));
+    return formatBuf(@as(*const [1]u8, &c), options, writer);
 }
 
 pub fn formatUnicodeCodepoint(
