@@ -1309,11 +1309,27 @@ pub const Value = extern union {
                     else => unreachable,
                 },
                 .Int, .Bool => field_val.toBigInt(&field_space, target),
+                .Enum => blk: {
+                    var enum_buffer: Payload.U64 = undefined;
+                    const int_val = field_val.enumToInt(field.ty, &enum_buffer);
+                    break :blk int_val.toBigInt(&field_space, target);
+                },
                 .Struct => packedStructToInt(field_val, field.ty, target, &field_buf),
                 else => unreachable,
             };
             var field_bigint = BigIntMutable.init(&field_buf2, 0);
-            field_bigint.shiftLeft(field_bigint_const, bits);
+            // need to cast negative to unsigned
+            // r = --a
+            //   = ~(-a - 1)
+            if (!field_bigint_const.positive) {
+                // can use 'field_buf' now, cuz this case use 'field_space' in const.
+                var field_bigint_mul = BigIntMutable.init(&field_buf, 0);
+                field_bigint_mul.addScalar(field_bigint_const.negate(), -1);
+                field_bigint_mul.bitNotWrap(field_bigint_mul.toConst(), .unsigned, @intCast(usize, field.ty.bitSize(target)));
+                field_bigint.shiftLeft(field_bigint_mul.toConst(), bits);
+            } else {
+                field_bigint.shiftLeft(field_bigint_const, bits);
+            }
             bits += @intCast(u16, field.ty.bitSize(target));
             bigint.bitOr(bigint.toConst(), field_bigint.toConst());
         }
@@ -1443,10 +1459,22 @@ pub const Value = extern union {
                     else => unreachable,
                 },
                 .Bool => makeBool(!field_bigint.eqZero()),
-                .Int => try Tag.int_big_positive.create(
-                    arena,
-                    try arena.dupe(std.math.big.Limb, field_bigint.limbs),
-                ),
+                .Int, .Enum => blk: {
+                    // check if it shoudle be negative
+                    const int_info = field.ty.intInfo(target);
+                    if (int_info.signedness == .signed and !field_bigint.fitsInTwosComp(.signed, int_info.bits)) {
+                        bigint_mut.bitNotWrap(field_bigint, .unsigned, int_info.bits);
+                        bigint_mut.addScalar(bigint_mut.toConst(), 1);
+                        break :blk try Tag.int_big_negative.create(
+                            arena,
+                            try arena.dupe(std.math.big.Limb, bigint_mut.limbs),
+                        );
+                    }
+                    break :blk try Tag.int_big_positive.create(
+                        arena,
+                        try arena.dupe(std.math.big.Limb, field_bigint.limbs),
+                    );
+                },
                 .Struct => try intToPackedStruct(field.ty, target, field_bigint, arena),
                 else => unreachable,
             };

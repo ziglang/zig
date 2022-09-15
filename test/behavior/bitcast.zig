@@ -175,15 +175,17 @@ test "bitcast packed struct to integer and back" {
 
     const LevelUpMove = packed struct {
         move_id: u9,
+        negint: i8,
         level: u7,
     };
     const S = struct {
         fn doTheTest() !void {
-            var move = LevelUpMove{ .move_id = 1, .level = 2 };
-            var v = @bitCast(u16, move);
+            var move = LevelUpMove{ .move_id = 1, .level = 2, .negint = -3 };
+            var v = @bitCast(u24, move);
             var back_to_a_move = @bitCast(LevelUpMove, v);
             try expect(back_to_a_move.move_id == 1);
             try expect(back_to_a_move.level == 2);
+            try expect(back_to_a_move.negint == -3);
         }
     };
     try S.doTheTest();
@@ -277,6 +279,44 @@ test "@bitCast packed struct of floats" {
             try expect(v.b == foo.b);
             try expect(v.c == foo.c);
             try expect(v.d == foo.d);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@bitCast packed struct of enum" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const EnumA = enum(u2) {
+        zero,
+        one,
+    };
+
+    const EnumB = enum(i4) {
+        one = 1,
+        negone = -1,
+        _,
+    };
+
+    const Foo = packed struct {
+        a: EnumA,
+        b: EnumB,
+        c: EnumB,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            var foo = Foo{ .a = .one, .b = .negone, .c = @intToEnum(EnumB, 2) };
+            var v = @bitCast(u10, foo);
+            var back = @bitCast(Foo, v);
+            try expect(back.a == .one);
+            try expect(back.b == .negone);
+            try expect(@enumToInt(back.c) == 2);
         }
     };
     try S.doTheTest();
