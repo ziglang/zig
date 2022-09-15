@@ -10,29 +10,26 @@ pub fn once(comptime f: fn () void) Once(f) {
 pub fn Once(comptime f: fn () void) type {
     return struct {
         done: bool = false,
-        mutex: std.Thread.Mutex = std.Thread.Mutex{},
 
         /// Call the function `f`.
         /// If `call` is invoked multiple times `f` will be executed only the
         /// first time.
         /// The invocations are thread-safe.
-        pub fn call(self: *@This()) void {
-            if (@atomicLoad(bool, &self.done, .Acquire))
-                return;
+        pub const call = if (builtin.single_threaded)
+            callSingleThreaded
+        else
+            callThreadSafe;
 
-            return self.callSlow();
+        fn callSingleThreaded(self: *@This()) void {
+            if (!self.done) {
+                self.done = true;
+                f();
+            }
         }
 
-        fn callSlow(self: *@This()) void {
-            @setCold(true);
-
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            // The first thread to acquire the mutex gets to run the initializer
-            if (!self.done) {
+        fn callThreadSafe(self: *@This()) void {
+            if (!@atomicRmw(bool, &self.done, .Xchg, true, .Acquire)) {
                 f();
-                @atomicStore(bool, &self.done, true, .Release);
             }
         }
     };
