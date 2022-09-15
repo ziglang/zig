@@ -13842,14 +13842,18 @@ fn zirBuiltinSrc(
 
     const extra = sema.code.extraData(Zir.Inst.Src, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
-    const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
-    const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
 
+    const func_name = blk: {
+        const func = sema.func orelse {
+            break :blk "";
+        };
+        const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
+        break :blk std.mem.span(fn_owner_decl.name);
+    };
     const func_name_val = blk: {
         var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
-        const name = std.mem.span(fn_owner_decl.name);
-        const bytes = try anon_decl.arena().dupe(u8, name[0 .. name.len + 1]);
+        const bytes = try anon_decl.arena().dupe(u8, func_name[0 .. func_name.len + 1]);
         const new_decl = try anon_decl.finish(
             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len - 1),
             try Value.Tag.bytes.create(anon_decl.arena(), bytes),
@@ -13861,7 +13865,7 @@ fn zirBuiltinSrc(
     const file_name_val = blk: {
         var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
-        const relative_path = try fn_owner_decl.getFileScope().fullPath(sema.arena);
+        const relative_path = try block.getFileScope().fullPath(sema.arena);
         const absolute_path = std.fs.realpathAlloc(sema.arena, relative_path) catch |err| {
             return sema.fail(block, src, "failed to get absolute path of file '{s}': {s}", .{ relative_path, @errorName(err) });
         };
