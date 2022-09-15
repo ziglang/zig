@@ -13884,7 +13884,7 @@ fn zirBuiltinSrc(
     // fn_name: [:0]const u8,
     field_values[1] = func_name_val;
     // line: u32
-    field_values[2] = try Value.Tag.runtime_int.create(sema.arena, extra.line + 1);
+    field_values[2] = try Value.Tag.int_u64.create(sema.arena, extra.line + 1);
     // column: u32,
     field_values[3] = try Value.Tag.int_u64.create(sema.arena, extra.column + 1);
 
