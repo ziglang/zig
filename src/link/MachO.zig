@@ -1278,7 +1278,7 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const arch = self.base.options.target.cpu.arch;
-    const size: u64 = switch (arch) {
+    const size: u5 = switch (arch) {
         .x86_64 => 15,
         .aarch64 => 6 * @sizeOf(u32),
         else => unreachable,
