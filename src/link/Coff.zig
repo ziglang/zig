@@ -1135,6 +1135,7 @@ fn getDeclOutputSection(self: *Coff, decl: *Module.Decl) u16 {
         }
 
         switch (zig_ty) {
+            // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
                 if (val.castTag(.variable)) |_| {

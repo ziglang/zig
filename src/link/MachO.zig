@@ -2839,7 +2839,9 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     atom.size = code.len;
     atom.alignment = required_alignment;
-    const sect_id = self.getDeclOutputSection(decl);
+    // TODO: work out logic for disambiguating functions from function pointers
+    // const sect_id = self.getDeclOutputSection(decl);
+    const sect_id = self.data_const_section_index.?;
     const symbol = atom.getSymbolPtr(self);
     symbol.n_strx = name_str_index;
     symbol.n_type = macho.N_SECT;
@@ -2956,6 +2958,7 @@ fn getDeclOutputSection(self: *MachO, decl: *Module.Decl) u8 {
         }
 
         switch (zig_ty) {
+            // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
                 if (val.castTag(.variable)) |_| {
@@ -3709,6 +3712,41 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     return section_id;
 }
 
+fn moveSectionInVirtualMemory(self: *MachO, sect_id: u32, needed_size: u64) !void {
+    const header = &self.sections.items(.header)[sect_id];
+    const segment = &self.segments.items[self.sections.items(.segment_index)[sect_id]];
+    const increased_size = padToIdeal(needed_size);
+    const old_aligned_end = segment.vmaddr + segment.vmsize;
+    const new_aligned_end = segment.vmaddr + mem.alignForwardGeneric(u64, increased_size, self.page_size);
+    const diff = new_aligned_end - old_aligned_end;
+    log.debug("shifting every segment after {s},{s} in virtual memory by {x}", .{
+        header.segName(),
+        header.sectName(),
+        diff,
+    });
+
+    // TODO: enforce order by increasing VM addresses in self.sections container.
+    for (self.sections.items(.header)[sect_id + 1 ..]) |*next_header, next_sect_id| {
+        const index = sect_id + 1 + next_sect_id;
+        const maybe_last_atom = &self.sections.items(.last_atom)[index];
+        const next_segment = &self.segments.items[self.sections.items(.segment_index)[index]];
+        next_header.addr += diff;
+        next_segment.vmaddr += diff;
+
+        if (maybe_last_atom.*) |last_atom| {
+            var atom = last_atom;
+            while (true) {
+                const sym = atom.getSymbolPtr(self);
+                sym.n_value += diff;
+
+                if (atom.prev) |prev| {
+                    atom = prev;
+                } else break;
+            }
+        }
+    }
+}
+
 fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64) !u64 {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3816,13 +3854,12 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64) !
         const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
         if (needed_size > sect_vm_capacity) {
             self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
-            @panic("TODO grow section in VM");
+            try self.moveSectionInVirtualMemory(sect_id, needed_size);
         }
 
         header.size = needed_size;
         segment.filesize = needed_size;
         segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
-        log.warn("updating {s},{s}: {x}, {x}", .{ header.segName(), header.sectName(), segment.vmsize, segment.filesize });
         maybe_last_atom.* = atom;
 
         self.segment_table_dirty = true;

@@ -2320,6 +2320,7 @@ fn getDeclPhdrIndex(self: *Elf, decl: *Module.Decl) !u16 {
         }
 
         switch (zig_ty) {
+            // TODO: what if this is a function pointer?
             .Fn => break :blk self.phdr_load_re_index.?,
             else => {
                 if (val.castTag(.variable)) |_| {
