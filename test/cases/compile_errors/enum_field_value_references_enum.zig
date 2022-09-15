@@ -9,7 +9,8 @@ export fn entry() void {
 const D = 1;
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:17: error: enum 'Foo' depends on itself
+// :1:5: error: dependency loop detected
+// :2:9: note: referenced here

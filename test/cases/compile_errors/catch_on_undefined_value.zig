@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:11: error: use of undefined value here causes undefined behavior
+// :3:11: error: use of undefined value here causes undefined behavior
