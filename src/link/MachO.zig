@@ -3687,7 +3687,7 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
         .vmaddr = vmaddr,
         .vmsize = vmsize,
         .fileoff = off,
-        .filesize = opts.size,
+        .filesize = vmsize,
         .maxprot = opts.prot,
         .initprot = opts.prot,
         .nsects = 1,
