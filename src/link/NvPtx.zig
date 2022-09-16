@@ -28,10 +28,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
     if (!build_options.have_llvm) return error.PtxArchNotSupported;
     if (!options.use_llvm) return error.PtxArchNotSupported;
 
-    switch (options.target.cpu.arch) {
-        .nvptx, .nvptx64 => {},
-        else => return error.PtxArchNotSupported,
-    }
+    if (!options.target.cpu.arch.isNvptx()) return error.PtxArchNotSupported;
 
     switch (options.target.os.tag) {
         // TODO: does it also work with nvcl ?
@@ -59,9 +56,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     if (!options.use_llvm) return error.PtxArchNotSupported;
     assert(options.target.ofmt == .nvptx);
 
-    const nvptx = try createEmpty(allocator, options);
-    log.info("Opening .ptx target file {s}", .{sub_path});
-    return nvptx;
+    log.debug("Opening .ptx target file {s}", .{sub_path});
+    return createEmpty(allocator, options);
 }
 
 pub fn deinit(self: *NvPtx) void {
@@ -76,15 +72,7 @@ pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liv
 
 pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
     if (!build_options.have_llvm) return;
-    const decl = module.declPtr(decl_index);
-    log.info("updating {s}", .{decl.name});
     return self.llvm_object.updateDecl(module, decl_index);
-    // const decl_index = func.owner_decl;
-    // const decl = module.declPtr(decl_index);
-
-    // try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
-    // try mod.export_owners.ensureUnusedCapacity(gpa, 1);
-    // mod.decl_exports.getOrPutAssumeCapacity(exported_decl_index);
 }
 
 pub fn updateDeclExports(
@@ -118,7 +106,7 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     defer tracy.end();
 
     const outfile = comp.bin_file.options.emit.?;
-    // !!! We modify 'comp' before passing it to LLVM, but restore value afterwards
+    // We modify 'comp' before passing it to LLVM, but restore value afterwards.
     // We tell LLVM to not try to build a .o, only an "assembly" file.
     // This is required by the LLVM PTX backend.
     comp.bin_file.options.emit = null;

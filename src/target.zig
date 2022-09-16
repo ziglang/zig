@@ -411,13 +411,12 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .nvptx, .nvptx64 => {
-            // TODO: not sure to test "ptx >= 7.5" with featureset
-            return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
-        },
-        else => true
-    };
+    if (target.cpu.arch.isNvptx()) {
+        // TODO: not sure how to test "ptx >= 7.5" with featureset
+        return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
+    }
+
+    return true;
 }
 
 pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
