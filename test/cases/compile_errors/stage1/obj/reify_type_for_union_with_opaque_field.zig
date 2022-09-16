@@ -8,8 +8,8 @@ const Untagged = @Type(.{
         .decls = &.{},
     },
 });
-export fn entry() void {
-    _ = Untagged{};
+export fn entry() usize {
+    return @sizeOf(Untagged);
 }
 
 // error
