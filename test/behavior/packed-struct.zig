@@ -410,7 +410,7 @@ test "load pointer from packed struct" {
         y: u32,
     };
     var a: A = .{ .index = 123 };
-    var b_list: []B = &.{.{ .x = &a, .y = 99 }};
+    var b_list: []const B = &.{.{ .x = &a, .y = 99 }};
     for (b_list) |b| {
         var i = b.x.index;
         try expect(i == 123);

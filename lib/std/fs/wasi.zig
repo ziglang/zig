@@ -201,7 +201,7 @@ pub const PreopenList = struct {
             // If we were provided a CWD root to resolve against, we try to treat Preopen dirs as
             // POSIX paths, relative to "/" or `cwd_root` depending on whether they start with "."
             const path = if (cwd_root) |cwd| blk: {
-                const resolve_paths: [][]const u8 = if (raw_path[0] == '.') &.{ cwd, raw_path } else &.{ "/", raw_path };
+                const resolve_paths: []const []const u8 = if (raw_path[0] == '.') &.{ cwd, raw_path } else &.{ "/", raw_path };
                 break :blk fs.path.resolve(self.buffer.allocator, resolve_paths) catch |err| switch (err) {
                     error.CurrentWorkingDirectoryUnlinked => unreachable, // root is absolute, so CWD not queried
                     else => |e| return e,
