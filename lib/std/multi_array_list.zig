@@ -334,8 +334,6 @@ pub fn MultiArrayList(comptime S: type) type {
             self.len = new_len;
         }
 
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
-
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
         /// Invalidates pointers if additional memory is needed.

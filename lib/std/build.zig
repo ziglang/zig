@@ -1339,13 +1339,6 @@ test "builder.findProgram compiles" {
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-/// TODO: propose some kind of `@deprecate` builtin so that we can deprecate
-/// this while still having somewhat non-lazy decls. In this file we wanted to do
-/// refAllDecls for example which makes it trigger `@compileError` if you try
-/// to use that strategy.
-pub const Version = @compileError("deprecated; Use `std.builtin.Version`");
-pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
-
 pub const Pkg = struct {
     name: []const u8,
     source: FileSource,
@@ -2314,27 +2307,17 @@ pub const LibExeObjStep = struct {
         self.linkLibraryOrObject(obj);
     }
 
-    /// TODO deprecated, use `addSystemIncludePath`.
-    pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
-        self.addSystemIncludePath(path);
-    }
+    pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
+    pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
+    pub const addLibPath = @compileError("deprecated, use addLibraryPath");
+    pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
 
     pub fn addSystemIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path_system = self.builder.dupe(path) }) catch unreachable;
     }
 
-    /// TODO deprecated, use `addIncludePath`.
-    pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
-        self.addIncludePath(path);
-    }
-
     pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
-    }
-
-    /// TODO deprecated, use `addLibraryPath`.
-    pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
-        self.addLibraryPath(path);
     }
 
     pub fn addLibraryPath(self: *LibExeObjStep, path: []const u8) void {
@@ -2343,11 +2326,6 @@ pub const LibExeObjStep = struct {
 
     pub fn addRPath(self: *LibExeObjStep, path: []const u8) void {
         self.rpaths.append(self.builder.dupe(path)) catch unreachable;
-    }
-
-    /// TODO deprecated, use `addFrameworkPath`.
-    pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
-        self.addFrameworkPath(dir_path);
     }
 
     pub fn addFrameworkPath(self: *LibExeObjStep, dir_path: []const u8) void {

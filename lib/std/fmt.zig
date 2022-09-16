@@ -1885,7 +1885,6 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
-pub const parseHexFloat = @compileError("deprecated; use `parseFloat`");
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 
 test {
@@ -1947,8 +1946,6 @@ pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anyt
         error.NoSpaceLeft => unreachable, // we just counted the size above
     };
 }
-
-pub const allocPrint0 = @compileError("deprecated; use allocPrintZ");
 
 pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);

@@ -83,8 +83,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        pub const toUnmanaged = @compileError("deprecated; use `moveToUnmanaged` which has different semantics.");
-
         /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
         /// of this ArrayList. Empties this ArrayList.
         pub fn moveToUnmanaged(self: *Self) ArrayListAlignedUnmanaged(T, alignment) {
@@ -324,8 +322,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items.len = 0;
             self.capacity = 0;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
@@ -720,8 +716,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.items.len = 0;
             self.capacity = 0;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.

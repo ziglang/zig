@@ -531,7 +531,7 @@ const DocData = struct {
         Int: struct { name: []const u8 },
         Float: struct { name: []const u8 },
         Pointer: struct {
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             child: Expr,
             sentinel: ?Expr = null,
             @"align": ?Expr = null,
@@ -641,7 +641,7 @@ const DocData = struct {
                     const current_value = @field(self, case.name);
                     inline for (comptime std.meta.fields(case.field_type)) |f| {
                         try jsw.arrayElem();
-                        if (f.field_type == std.builtin.TypeInfo.Pointer.Size) {
+                        if (f.field_type == std.builtin.Type.Pointer.Size) {
                             try jsw.emitNumber(@enumToInt(@field(current_value, f.name)));
                         } else {
                             try std.json.stringify(@field(current_value, f.name), opts, w);
