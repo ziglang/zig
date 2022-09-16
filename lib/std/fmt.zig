@@ -2726,6 +2726,9 @@ test "padding" {
     try expectFmt("==crêpe===", "{s:=^10}", .{"crêpe"});
     try expectFmt("=====crêpe", "{s:=>10}", .{"crêpe"});
     try expectFmt("crêpe=====", "{s:=<10}", .{"crêpe"});
+    try expectFmt("====a", "{c:=>5}", .{'a'});
+    try expectFmt("==a==", "{c:=^5}", .{'a'});
+    try expectFmt("a====", "{c:=<5}", .{'a'});
 }
 
 test "decimal float padding" {
