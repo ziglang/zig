@@ -1030,6 +1030,11 @@ const char *address_space_name(AddressSpace as) {
         case AddressSpaceGS: return "gs";
         case AddressSpaceFS: return "fs";
         case AddressSpaceSS: return "ss";
+        case AddressSpaceGlobal: return "global";
+        case AddressSpaceConstant: return "constant";
+        case AddressSpaceParam: return "param";
+        case AddressSpaceShared: return "shared";
+        case AddressSpaceLocal: return "local";
     }
     zig_unreachable();
 }

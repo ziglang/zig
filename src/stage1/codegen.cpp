@@ -4371,7 +4371,7 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
 
 static LLVMValueRef gen_soft_float_neg(CodeGen *g, ZigType *operand_type, LLVMValueRef operand) {
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
-    uint16_t num_bits = operand_type->id == ZigTypeIdVector ? 
+    uint16_t num_bits = operand_type->id == ZigTypeIdVector ?
         operand_type->data.vector.elem_type->data.floating.bit_count :
         operand_type->data.floating.bit_count;
 
@@ -10085,6 +10085,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
     create_builtin_fn(g, BuiltinFnIdPrefetch, "prefetch", 2);
+    create_builtin_fn(g, BuiltinFnIdAddrSpaceCast, "addrSpaceCast", 2);
 }
 
 static const char *bool_to_str(bool b) {

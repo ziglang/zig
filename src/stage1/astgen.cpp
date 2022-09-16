@@ -351,6 +351,8 @@ void destroy_instruction_src(Stage1ZirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSrc *>(inst));
         case Stage1ZirInstIdPrefetch:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPrefetch *>(inst));
+        case Stage1ZirInstIdAddrSpaceCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAddrSpaceCast *>(inst));
     }
     zig_unreachable();
 }
@@ -945,6 +947,10 @@ static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSrc *) {
 
 static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPrefetch *) {
     return Stage1ZirInstIdPrefetch;
+}
+
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAddrSpaceCast *) {
+    return Stage1ZirInstIdAddrSpaceCast;
 }
 
 template<typename T>
@@ -2568,6 +2574,19 @@ static Stage1ZirInst *ir_build_align_cast_src(Stage1AstGen *ag, Scope *scope, As
 
     ir_ref_instruction(align_bytes, ag->current_basic_block);
     ir_ref_instruction(target, ag->current_basic_block);
+
+    return &instruction->base;
+}
+
+static Stage1ZirInst *ir_build_addrspace_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *addrspace, Stage1ZirInst *ptr)
+{
+    Stage1ZirInstAddrSpaceCast *instruction = ir_build_instruction<Stage1ZirInstAddrSpaceCast>(ag, scope, source_node);
+    instruction->addrspace = addrspace;
+    instruction->ptr = ptr;
+
+    ir_ref_instruction(addrspace, ag->current_basic_block);
+    ir_ref_instruction(ptr, ag->current_basic_block);
 
     return &instruction->base;
 }
@@ -5458,6 +5477,21 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
 
                 Stage1ZirInst *ir_extern = ir_build_prefetch(ag, scope, node, ptr_value, casted_options_value);
                 return ir_lval_wrap(ag, scope, ir_extern, lval, result_loc);
+            }
+        case BuiltinFnIdAddrSpaceCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode* arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *addrspace_cast = ir_build_addrspace_cast(ag, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(ag, scope, addrspace_cast, lval, result_loc);
             }
     }
     zig_unreachable();

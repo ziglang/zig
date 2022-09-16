@@ -18181,7 +18181,6 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const ptr = try sema.resolveInst(extra.rhs);
     const ptr_ty = sema.typeOf(ptr);
 
-
     // TODO in addition to pointers, this instruction is supposed to work for
     // pointer-like optionals and slices.
     try sema.checkPtrOperand(block, ptr_src, ptr_ty);

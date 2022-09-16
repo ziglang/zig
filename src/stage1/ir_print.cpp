@@ -373,6 +373,8 @@ const char* ir_inst_src_type_str(Stage1ZirInstId id) {
             return "SrcSrc";
         case Stage1ZirInstIdPrefetch:
             return "SrcPrefetch";
+        case Stage1ZirInstIdAddrSpaceCast:
+            return "SrcAddrSpaceCast";
     }
     zig_unreachable();
 }
@@ -2382,6 +2384,14 @@ static void ir_print_align_cast(IrPrintSrc *irp, Stage1ZirInstAlignCast *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_addrspace_cast(IrPrintSrc *irp, Stage1ZirInstAddrSpaceCast *instruction) {
+    fprintf(irp->f, "@addrSpaceCast(");
+    ir_print_other_inst_src(irp, instruction->addrspace);
+    fprintf(irp->f, ",");
+    ir_print_other_inst_src(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_align_cast(IrPrintGen *irp, Stage1AirInstAlignCast *instruction) {
     fprintf(irp->f, "@alignCast(");
     ir_print_other_inst_gen(irp, instruction->target);
@@ -3126,6 +3136,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, Stage1ZirInst *instruction, bool 
             break;
         case Stage1ZirInstIdPrefetch:
             ir_print_prefetch(irp, (Stage1ZirInstPrefetch *)instruction);
+            break;
+        case Stage1ZirInstIdAddrSpaceCast:
+            ir_print_addrspace_cast(irp, (Stage1ZirInstAddrSpaceCast *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
