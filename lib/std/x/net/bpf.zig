@@ -691,14 +691,14 @@ test "tcpdump filter" {
     );
 }
 
-fn expectPass(data: anytype, filter: []Insn) !void {
+fn expectPass(data: anytype, filter: []const Insn) !void {
     try expectEqual(
         @as(u32, 0),
         try simulate(mem.asBytes(data), filter, .Big),
     );
 }
 
-fn expectFail(expected_error: anyerror, data: anytype, filter: []Insn) !void {
+fn expectFail(expected_error: anyerror, data: anytype, filter: []const Insn) !void {
     try expectError(
         expected_error,
         simulate(mem.asBytes(data), filter, native_endian),

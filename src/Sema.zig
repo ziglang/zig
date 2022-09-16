@@ -17852,7 +17852,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
         .Fn => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
+            const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // calling_convention: CallingConvention,
             const cc = struct_val[0].toEnum(std.builtin.CallingConvention);
@@ -17886,12 +17886,17 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                     break :alignment alignment;
                 }
             };
+            const return_type = return_type_val.optionalValue() orelse
+                return sema.fail(block, src, "Type.Fn.return_type must be non-null for @Type", .{});
+
             var buf: Value.ToTypeBuffer = undefined;
 
             const args_slice_val = args_val.castTag(.slice).?.data;
             const args_len = try sema.usizeCast(block, src, args_slice_val.len.toUnsignedInt(mod.getTarget()));
-            var param_types = try sema.arena.alloc(Type, args_len);
-            var comptime_params = try sema.arena.alloc(bool, args_len);
+
+            const param_types = try sema.arena.alloc(Type, args_len);
+            const comptime_params = try sema.arena.alloc(bool, args_len);
+
             var noalias_bits: u32 = 0;
             var i: usize = 0;
             while (i < args_len) : (i += 1) {
@@ -17919,10 +17924,8 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                     return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
 
                 param_types[i] = try param_type.toType(&buf).copy(sema.arena);
+                comptime_params[i] = false;
             }
-
-            const return_type = return_type_val.optionalValue() orelse
-                return sema.fail(block, src, "Type.Fn.return_type must be non-null for @Type", .{});
 
             var fn_info = Type.Payload.Function.Data{
                 .param_types = param_types,
@@ -23677,27 +23680,7 @@ fn coerceExtra(
                     },
                     else => {},
                 },
-                .Slice => {
-                    // pointer to tuple to slice
-                    if (inst_ty.isSinglePointer() and inst_ty.childType().isTuple() and dest_info.size == .Slice and
-                        sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-                    {
-                        return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
-                    }
-
-                    // empty tuple to zero-length slice
-                    // note that this allows coercing to a mutable slice.
-                    if (inst_ty.isSinglePointer() and
-                        inst_ty.childType().tag() == .empty_struct_literal and
-                        dest_info.size == .Slice)
-                    {
-                        const slice_val = try Value.Tag.slice.create(sema.arena, .{
-                            .ptr = Value.undef,
-                            .len = Value.zero,
-                        });
-                        return sema.addConstant(dest_ty, slice_val);
-                    }
-
+                .Slice => to_slice: {
                     if (inst_ty.zigTypeTag() == .Array) {
                         return sema.fail(
                             block,
@@ -23706,6 +23689,32 @@ fn coerceExtra(
                             .{dest_ty.fmt(sema.mod)},
                         );
                     }
+
+                    if (!inst_ty.isSinglePointer()) break :to_slice;
+                    const inst_child_ty = inst_ty.childType();
+                    if (!inst_child_ty.isTuple()) break :to_slice;
+
+                    // empty tuple to zero-length slice
+                    // note that this allows coercing to a mutable slice.
+                    if (inst_child_ty.tupleFields().types.len == 0) {
+                        const slice_val = try Value.Tag.slice.create(sema.arena, .{
+                            .ptr = Value.undef,
+                            .len = Value.zero,
+                        });
+                        return sema.addConstant(dest_ty, slice_val);
+                    }
+
+                    // pointer to tuple to slice
+                    if (dest_info.mutable) {
+                        const err_msg = err_msg: {
+                            const err_msg = try sema.errMsg(block, inst_src, "cannot cast pointer to tuple to '{}'", .{dest_ty.fmt(sema.mod)});
+                            errdefer err_msg.deinit(sema.gpa);
+                            try sema.errNote(block, dest_ty_src, err_msg, "pointers to tuples can only coerce to constant pointers", .{});
+                            break :err_msg err_msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(err_msg);
+                    }
+                    return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                 },
                 .Many => p: {
                     if (!inst_ty.isSlice()) break :p;
