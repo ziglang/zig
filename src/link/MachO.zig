@@ -3121,6 +3121,11 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8)
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom, code_len);
+        } else if (atom.next == null) {
+            const header = &self.sections.items(.header)[sect_id];
+            const segment = self.getSegment(sect_id);
+            const needed_size = (sym.n_value + code_len) - segment.vmaddr;
+            header.size = needed_size;
         }
         atom.size = code_len;
     } else {
@@ -4688,12 +4693,11 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    for (self.sections.items(.segment_index)) |segment_index| {
-        const segment = self.segments.items[segment_index];
-        const tight_size = segment.filesize;
+    for (self.sections.items(.header)) |header| {
+        const tight_size = header.size;
         const increased_size = padToIdeal(tight_size);
-        const test_end = segment.fileoff + increased_size;
-        if (end > segment.fileoff and start < test_end) {
+        const test_end = header.offset + increased_size;
+        if (end > header.offset and start < test_end) {
             return test_end;
         }
     }
@@ -4705,10 +4709,9 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
     if (start == 0)
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);
-    for (self.sections.items(.segment_index)) |segment_index| {
-        const segment = self.segments.items[segment_index];
-        if (segment.fileoff <= start) continue;
-        if (segment.fileoff < min_pos) min_pos = segment.fileoff;
+    for (self.sections.items(.header)) |header| {
+        if (header.offset <= start) continue;
+        if (header.offset < min_pos) min_pos = header.offset;
     }
     return min_pos - start;
 }
@@ -4721,7 +4724,7 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     return start;
 }
 
-fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
+pub fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
     if (start == 0)
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);

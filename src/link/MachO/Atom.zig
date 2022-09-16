@@ -195,7 +195,7 @@ pub fn capacity(self: Atom, macho_file: *MachO) u64 {
     } else {
         // We are the last atom.
         // The capacity is limited only by virtual address space.
-        return std.math.maxInt(u64) - self_sym.n_value;
+        return macho_file.allocatedVirtualSize(self_sym.n_value);
     }
 }
 
