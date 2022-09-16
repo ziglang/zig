@@ -6,11 +6,13 @@ pub const Ordering = std.builtin.AtomicOrder;
 pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
+pub const Ring = @import("atomic/ring.zig").RingBuffer;
 
 test "std.atomic" {
     _ = @import("atomic/stack.zig");
     _ = @import("atomic/queue.zig");
     _ = @import("atomic/Atomic.zig");
+    _ = @import("atomic/ring.zig");
 }
 
 pub inline fn fence(comptime ordering: Ordering) void {
