@@ -287,7 +287,7 @@ pub const Inst = struct {
         /// Uses the `break` union field.
         break_inline,
         /// Checks that comptime control flow does not happen inside a runtime block.
-        /// Uses the `node` union field.
+        /// Uses the `un_node` union field.
         check_comptime_control_flow,
         /// Function call.
         /// Uses the `pl_node` union field with payload `Call`.
@@ -1600,7 +1600,7 @@ pub const Inst = struct {
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
-                .check_comptime_control_flow = .node,
+                .check_comptime_control_flow = .un_node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,

@@ -10,4 +10,3 @@ export fn entry() void {
 // target=native
 //
 // :1:1: error: dependency loop detected
-// :2:19: note: referenced here

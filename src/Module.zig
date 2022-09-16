@@ -166,6 +166,11 @@ decls_free_list: std.ArrayListUnmanaged(Decl.Index) = .{},
 
 global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
 
+reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
+    referencer: Decl.Index,
+    src: LazySrcLoc,
+}) = .{},
+
 pub const StringLiteralContext = struct {
     bytes: *std.ArrayListUnmanaged(u8),
 
@@ -2084,6 +2089,13 @@ pub const ErrorMsg = struct {
     src_loc: SrcLoc,
     msg: []const u8,
     notes: []ErrorMsg = &.{},
+    reference_trace: []Trace = &.{},
+
+    pub const Trace = struct {
+        decl: ?[*:0]const u8,
+        src_loc: SrcLoc,
+        hidden: u32 = 0,
+    };
 
     pub fn create(
         gpa: Allocator,
@@ -2122,7 +2134,14 @@ pub const ErrorMsg = struct {
         }
         gpa.free(err_msg.notes);
         gpa.free(err_msg.msg);
+        gpa.free(err_msg.reference_trace);
         err_msg.* = undefined;
+    }
+
+    pub fn clearTrace(err_msg: *ErrorMsg, gpa: Allocator) void {
+        if (err_msg.reference_trace.len == 0) return;
+        gpa.free(err_msg.reference_trace);
+        err_msg.reference_trace = &.{};
     }
 };
 
@@ -3411,6 +3430,7 @@ pub fn deinit(mod: *Module) void {
     mod.decls_free_list.deinit(gpa);
     mod.allocated_decls.deinit(gpa);
     mod.global_assembly.deinit(gpa);
+    mod.reference_table.deinit(gpa);
 
     mod.string_literal_table.deinit(gpa);
     mod.string_literal_bytes.deinit(gpa);

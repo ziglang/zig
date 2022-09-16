@@ -2391,12 +2391,15 @@ pub const Value = extern union {
                 union_obj.val.hash(active_field_ty, hasher, mod);
             },
             .Fn => {
-                const func: *Module.Fn = val.castTag(.function).?.data;
-                // Note that his hashes the *Fn rather than the *Decl. This is
+                // Note that his hashes the *Fn/*ExternFn rather than the *Decl. This is
                 // to differentiate function bodies from function pointers.
                 // This is currently redundant since we already hash the zig type tag
                 // at the top of this function.
-                std.hash.autoHash(hasher, func);
+                if (val.castTag(.function)) |func| {
+                    std.hash.autoHash(hasher, func.data);
+                } else if (val.castTag(.extern_fn)) |func| {
+                    std.hash.autoHash(hasher, func.data);
+                } else unreachable;
             },
             .Frame => {
                 @panic("TODO implement hashing frame values");
@@ -2774,6 +2777,9 @@ pub const Value = extern union {
                 if (ty.isTupleOrAnonStruct()) {
                     const tuple = ty.tupleFields();
                     return tuple.values[index];
+                }
+                if (ty.structFieldValueComptime(index)) |some| {
+                    return some;
                 }
                 unreachable;
             },

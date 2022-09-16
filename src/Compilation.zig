@@ -154,6 +154,10 @@ owned_link_dir: ?std.fs.Dir,
 /// Don't use this for anything other than stage1 compatibility.
 color: Color = .auto,
 
+/// How many lines of reference trace should be included per compile error.
+/// Null means only show snippet on first error.
+reference_trace: ?u32 = null,
+
 libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 
 /// This mutex guards all `Compilation` mutable state.
@@ -348,6 +352,7 @@ pub const AllErrors = struct {
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
+            reference_trace: []Message = &.{},
 
             /// Splits the error message up into lines to properly indent them
             /// to allow for long, good-looking error messages.
@@ -446,6 +451,34 @@ pub const AllErrors = struct {
                     }
                     for (src.notes) |note| {
                         try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
+                    }
+                    if (src.reference_trace.len != 0) {
+                        ttyconf.setColor(stderr, .Reset);
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print("referenced by:\n", .{});
+                        for (src.reference_trace) |reference| {
+                            switch (reference) {
+                                .src => |ref_src| try stderr.print("    {s}: {s}:{d}:{d}\n", .{
+                                    ref_src.msg,
+                                    ref_src.src_path,
+                                    ref_src.line + 1,
+                                    ref_src.column + 1,
+                                }),
+                                .plain => |plain| if (plain.count != 0) {
+                                    try stderr.print(
+                                        "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
+                                        .{ plain.count, plain.count + src.reference_trace.len - 1 },
+                                    );
+                                } else {
+                                    try stderr.print(
+                                        "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
+                                        .{},
+                                    );
+                                },
+                            }
+                        }
+                        try stderr.writeByte('\n');
+                        ttyconf.setColor(stderr, .Reset);
                     }
                 },
                 .plain => |plain| {
@@ -572,6 +605,32 @@ pub const AllErrors = struct {
             });
             return;
         }
+
+        const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
+        for (reference_trace) |*reference, i| {
+            const module_reference = module_err_msg.reference_trace[i];
+            if (module_reference.hidden != 0) {
+                reference.* = .{ .plain = .{ .msg = undefined, .count = module_reference.hidden } };
+                break;
+            } else if (module_reference.decl == null) {
+                reference.* = .{ .plain = .{ .msg = undefined, .count = 0 } };
+                break;
+            }
+            const source = try module_reference.src_loc.file_scope.getSource(module.gpa);
+            const span = try module_reference.src_loc.span(module.gpa);
+            const loc = std.zig.findLineColumn(source.bytes, span.main);
+            const file_path = try module_reference.src_loc.file_scope.fullPath(allocator);
+            reference.* = .{
+                .src = .{
+                    .src_path = file_path,
+                    .msg = try allocator.dupe(u8, std.mem.sliceTo(module_reference.decl.?, 0)),
+                    .span = span,
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
+                    .source_line = null,
+                },
+            };
+        }
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
         try errors.append(.{
             .src = .{
@@ -581,6 +640,7 @@ pub const AllErrors = struct {
                 .line = @intCast(u32, err_loc.line),
                 .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
+                .reference_trace = reference_trace,
                 .source_line = try allocator.dupe(u8, err_loc.source_line),
             },
         });
@@ -929,6 +989,7 @@ pub const InitOptions = struct {
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
+    reference_trace: ?u32 = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
@@ -1838,6 +1899,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
             .color = options.color,
+            .reference_trace = options.reference_trace,
             .time_report = options.time_report,
             .stack_report = options.stack_report,
             .unwind_tables = unwind_tables,

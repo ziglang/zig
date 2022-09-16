@@ -396,6 +396,8 @@ const usage_build_generic =
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -fstage1                  Force using bootstrap compiler as the codegen backend
     \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
+    \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
+    \\  -fno-reference-trace      Disable reference trace
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  -fbuiltin                 Enable implicit builtin knowledge of functions
@@ -742,6 +744,7 @@ fn buildOutputType(
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
+    var reference_trace: ?u32 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -928,14 +931,14 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         };
                         stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
-                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                            fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--image-base")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
                         image_base_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
-                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                            fatal("unable to parse image base override '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
                         provided_name = args_iter.next() orelse {
@@ -984,7 +987,7 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         };
                         pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
-                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                            fatal("unable to parse pagezero size'{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-search_paths_first")) {
                         search_strategy = .paths_first;
@@ -995,7 +998,7 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         };
                         headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
-                            fatal("unable to parser '{s}': {s}", .{ arg, @errorName(err) });
+                            fatal("unable to parse headerpat size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                         headerpad_max_install_names = true;
@@ -1214,6 +1217,15 @@ fn buildOutputType(
                         use_stage1 = true;
                     } else if (mem.eql(u8, arg, "-fno-stage1")) {
                         use_stage1 = false;
+                    } else if (mem.eql(u8, arg, "-freference-trace")) {
+                        reference_trace = 256;
+                    } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
+                        const num = arg["-freference-trace=".len..];
+                        reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                            fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                        };
+                    } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
+                        reference_trace = null;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
@@ -1785,11 +1797,11 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     linker_optimization = std.fmt.parseUnsigned(u8, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse optimization level '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                 } else if (mem.startsWith(u8, arg, "-O")) {
                     linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse optimization level '{s}': {s}", .{ arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
                     i += 1;
@@ -1798,7 +1810,7 @@ fn buildOutputType(
                     }
                     const next_arg = linker_args.items[i];
                     pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse pagezero size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-headerpad")) {
                     i += 1;
@@ -1807,7 +1819,7 @@ fn buildOutputType(
                     }
                     const next_arg = linker_args.items[i];
                     headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse  headerpad size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                     headerpad_max_install_names = true;
@@ -1899,7 +1911,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     version.major = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse major image version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--minor-image-version")) {
@@ -1908,7 +1920,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     version.minor = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse minor image version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
@@ -1923,7 +1935,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     stack_size_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse stack size override '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     i += 1;
@@ -1931,7 +1943,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse image base override '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     i += 1;
@@ -1984,7 +1996,7 @@ fn buildOutputType(
                         linker_args.items[i],
                         10,
                     ) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse major subsystem version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--minor-subsystem-version")) {
                     i += 1;
@@ -1997,7 +2009,7 @@ fn buildOutputType(
                         linker_args.items[i],
                         10,
                     ) catch |err| {
-                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        fatal("unable to parse minor subsystem version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-framework")) {
                     i += 1;
@@ -2996,6 +3008,7 @@ fn buildOutputType(
         .headerpad_size = headerpad_size,
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
+        .reference_trace = reference_trace,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
@@ -3744,6 +3757,8 @@ pub const usage_build =
     \\Options:
     \\   -fstage1                      Force using bootstrap compiler as the codegen backend
     \\   -fno-stage1                   Prevent using bootstrap compiler as the codegen backend
+    \\   -freference-trace[=num]       How many lines of reference trace should be shown per compile error
+    \\   -fno-reference-trace          Disable reference trace
     \\   --build-file [file]           Override path to build.zig
     \\   --cache-dir [path]            Override path to local Zig cache directory
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
@@ -3815,6 +3830,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-fno-stage1")) {
                         use_stage1 = false;
+                        try child_argv.append(arg);
+                    } else if (mem.eql(u8, arg, "-freference-trace")) {
+                        try child_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
+                        try child_argv.append(arg);
+                    } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         try child_argv.append(arg);
                     }
                 }

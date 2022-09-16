@@ -1551,6 +1551,7 @@ pub const TestContext = struct {
             .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
+            .reference_trace = 0,
             // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
             //       until the auto-select mechanism deems them worthy
             .use_lld = switch (case.backend) {
