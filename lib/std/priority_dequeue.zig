@@ -357,8 +357,6 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             return queue;
         }
 
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
-
         /// Ensure that the dequeue can fit at least `new_capacity` items.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {
             var better_capacity = self.capacity();

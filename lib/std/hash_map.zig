@@ -120,8 +120,6 @@ pub const StringIndexAdapter = struct {
     }
 };
 
-pub const DefaultMaxLoadPercentage = @compileError("deprecated; use `default_max_load_percentage`");
-
 pub const default_max_load_percentage = 80;
 
 /// This function issues a compile error with a helpful message if there
@@ -517,8 +515,6 @@ pub fn HashMap(
             return self.unmanaged.getOrPutValueContext(self.allocator, key, value, self.ctx);
         }
 
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
-
         /// Increases capacity, guaranteeing that insertions up until the
         /// `expected_count` will not cause an allocation, and therefore cannot fail.
         pub fn ensureTotalCapacity(self: *Self, expected_count: Size) Allocator.Error!void {
@@ -899,8 +895,6 @@ pub fn HashMapUnmanaged(
             new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
             return new_cap;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_size: Size) Allocator.Error!void {
             if (@sizeOf(Context) != 0)

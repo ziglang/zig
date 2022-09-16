@@ -702,8 +702,6 @@ test "span" {
     try testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
-pub const spanZ = @compileError("deprecated; use use std.mem.span() or std.mem.sliceTo()");
-
 /// Helper for the return type of sliceTo()
 fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
     switch (@typeInfo(T)) {
@@ -957,8 +955,6 @@ test "len" {
     }
 }
 
-pub const lenZ = @compileError("deprecated; use std.mem.len() or std.mem.sliceTo().len");
-
 pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
     while (ptr[i] != sentinel) {
@@ -974,9 +970,6 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     }
     return true;
 }
-
-pub const dupe = @compileError("deprecated; use `Allocator.dupe`");
-pub const dupeZ = @compileError("deprecated; use `Allocator.dupeZ`");
 
 /// Remove values from the beginning of a slice.
 pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
@@ -1566,9 +1559,6 @@ test "writeIntBig and writeIntLittle" {
     writeIntLittle(i16, &buf2, -4);
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
-
-/// TODO delete this deprecated declaration after 0.10.0 is released
-pub const bswapAllFields = @compileError("bswapAllFields has been renamed to byteSwapAllFields");
 
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianess)

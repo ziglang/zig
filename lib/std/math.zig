@@ -170,13 +170,6 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     return @fabs(x - y) <= max(@fabs(x), @fabs(y)) * tolerance;
 }
 
-pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
-    _ = x;
-    _ = y;
-    _ = tolerance;
-    @compileError("deprecated; use `approxEqAbs` or `approxEqRel`");
-}
-
 test "approxEqAbs and approxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const eps_value = comptime floatEps(T);
