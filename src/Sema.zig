@@ -8321,6 +8321,7 @@ fn zirAsNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.As, inst_data.payload_index).data;
+    sema.src = src;
     return sema.analyzeAs(block, src, extra.dest_type, extra.operand, false);
 }
 
