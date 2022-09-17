@@ -13,4 +13,3 @@ const D = 1;
 // target=native
 //
 // :1:5: error: dependency loop detected
-// :2:9: note: referenced here
