@@ -4317,7 +4317,7 @@ fn fmtPathDir(
 
         if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
 
-        if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
+        if (is_dir or entry.kind == .File and mem.endsWith(u8, entry.name, ".zig")) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);
 
