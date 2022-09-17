@@ -169,40 +169,6 @@ const MCValue = union(enum) {
     cpsr_flags: Condition,
     /// The value is a function argument passed via the stack.
     stack_argument_offset: u32,
-
-    fn isMemory(mcv: MCValue) bool {
-        return switch (mcv) {
-            .memory, .stack_offset, .stack_argument_offset => true,
-            else => false,
-        };
-    }
-
-    fn isImmediate(mcv: MCValue) bool {
-        return switch (mcv) {
-            .immediate => true,
-            else => false,
-        };
-    }
-
-    fn isMutable(mcv: MCValue) bool {
-        return switch (mcv) {
-            .none => unreachable,
-            .unreach => unreachable,
-            .dead => unreachable,
-
-            .immediate,
-            .memory,
-            .cpsr_flags,
-            .ptr_stack_offset,
-            .undef,
-            .stack_argument_offset,
-            => false,
-
-            .register,
-            .stack_offset,
-            => true,
-        };
-    }
 };
 
 const Branch = struct {
@@ -447,6 +413,11 @@ fn gen(self: *Self) !void {
         // sub sp, sp, #reloc
         const sub_reloc = try self.addNop();
 
+        // The sub_sp_scratch_r4 instruction may use r4, so we mark r4
+        // as allocated by this function.
+        const index = RegisterManager.indexOfRegIntoTracked(.r4).?;
+        self.register_manager.allocated_registers.set(index);
+
         if (self.ret_mcv == .stack_offset) {
             // The address of where to store the return value is in
             // r0. As this register might get overwritten along the
@@ -477,7 +448,6 @@ fn gen(self: *Self) !void {
                 self.saved_regs_stack_space += 4;
             }
         }
-
         self.mir_instructions.set(push_reloc, .{
             .tag = .push,
             .data = .{ .register_list = saved_regs },
@@ -489,7 +459,7 @@ fn gen(self: *Self) !void {
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
         self.max_end_stack = stack_size;
         self.mir_instructions.set(sub_reloc, .{
-            .tag = .sub_sp_scratch_r0,
+            .tag = .sub_sp_scratch_r4,
             .data = .{ .imm32 = stack_size },
         });
 
@@ -4042,7 +4012,6 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfM
         => {
             switch (self.debug_output) {
                 .dwarf => |dw| {
-                    // const abi_size = @intCast(u32, ty.abiSize(self.target.*));
                     const adjusted_stack_offset = switch (mcv) {
                         .stack_offset => |offset| -@intCast(i32, offset),
                         .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),

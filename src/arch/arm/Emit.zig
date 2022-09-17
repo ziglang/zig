@@ -94,7 +94,7 @@ pub fn emitMir(
             .sub => try emit.mirDataProcessing(inst),
             .subs => try emit.mirDataProcessing(inst),
 
-            .sub_sp_scratch_r0 => try emit.mirSubStackPointer(inst),
+            .sub_sp_scratch_r4 => try emit.mirSubStackPointer(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -194,7 +194,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_prologue_end,
         => return 0,
 
-        .sub_sp_scratch_r0 => {
+        .sub_sp_scratch_r4 => {
             const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
 
             if (imm32 == 0) {
@@ -454,11 +454,11 @@ fn mirSubStackPointer(emit: *Emit, inst: Mir.Inst.Index) !void {
     const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
 
     switch (tag) {
-        .sub_sp_scratch_r0 => {
+        .sub_sp_scratch_r4 => {
             if (imm32 == 0) return;
 
             const operand = Instruction.Operand.fromU32(imm32) orelse blk: {
-                const scratch: Register = .r0;
+                const scratch: Register = .r4;
 
                 if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
                     try emit.writeInstruction(Instruction.movw(cond, scratch, @truncate(u16, imm32)));
