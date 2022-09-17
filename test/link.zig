@@ -74,6 +74,10 @@ fn addMachOCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
     });
 
+    cases.addBuildFile("test/link/macho/empty/build.zig", .{
+        .build_modes = true,
+    });
+
     cases.addBuildFile("test/link/macho/entry/build.zig", .{
         .build_modes = true,
     });
