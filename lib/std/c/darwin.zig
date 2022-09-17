@@ -703,11 +703,18 @@ pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
+pub const blkcnt_t = i64;
+pub const blksize_t = i32;
+pub const dev_t = i32;
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const mode_t = c_uint;
 pub const uid_t = u32;
 pub const gid_t = u32;
+
+// machine/_types.h
+pub const clock_t = c_ulong;
+pub const time_t = c_long;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
