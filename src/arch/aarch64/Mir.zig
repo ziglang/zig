@@ -432,7 +432,7 @@ pub const Inst = struct {
             rn: Register,
             offset: bits.Instruction.LoadStoreOffsetRegister,
         },
-        /// A registers and a stack offset
+        /// A register and a stack offset
         ///
         /// Used by e.g. str_stack
         load_store_stack: struct {
@@ -463,10 +463,6 @@ pub const Inst = struct {
         dbg_line_column: struct {
             line: u32,
             column: u32,
-        },
-        load_memory: struct {
-            register: u32,
-            addr: u32,
         },
     };
 

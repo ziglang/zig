@@ -157,40 +157,6 @@ const MCValue = union(enum) {
     condition_flags: Condition,
     /// The value is a function argument passed via the stack.
     stack_argument_offset: u32,
-
-    fn isMemory(mcv: MCValue) bool {
-        return switch (mcv) {
-            .memory, .stack_offset, .stack_argument_offset => true,
-            else => false,
-        };
-    }
-
-    fn isImmediate(mcv: MCValue) bool {
-        return switch (mcv) {
-            .immediate => true,
-            else => false,
-        };
-    }
-
-    fn isMutable(mcv: MCValue) bool {
-        return switch (mcv) {
-            .none => unreachable,
-            .unreach => unreachable,
-            .dead => unreachable,
-
-            .immediate,
-            .memory,
-            .condition_flags,
-            .ptr_stack_offset,
-            .undef,
-            .stack_argument_offset,
-            => false,
-
-            .register,
-            .stack_offset,
-            => true,
-        };
-    }
 };
 
 const Branch = struct {
@@ -416,9 +382,7 @@ fn gen(self: *Self) !void {
             const ptr_bytes = @divExact(ptr_bits, 8);
             const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
 
-            const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset, ptr_bytes) + ptr_bytes;
-            self.next_stack_offset = stack_offset;
-            self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
+            const stack_offset = try self.allocMem(ptr_bytes, ptr_bytes, null);
 
             try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = ret_ptr_reg });
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
@@ -879,17 +843,30 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
     }
 }
 
-fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
+fn allocMem(
+    self: *Self,
+    abi_size: u32,
+    abi_align: u32,
+    maybe_inst: ?Air.Inst.Index,
+) !u32 {
+    assert(abi_size > 0);
+    assert(abi_align > 0);
+
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
+
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
     self.next_stack_offset = offset;
     self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
-    try self.stack.putNoClobber(self.gpa, offset, .{
-        .inst = inst,
-        .size = abi_size,
-    });
+
+    if (maybe_inst) |inst| {
+        try self.stack.putNoClobber(self.gpa, offset, .{
+            .inst = inst,
+            .size = abi_size,
+        });
+    }
+
     return offset;
 }
 
@@ -910,40 +887,41 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
-    return self.allocMem(inst, abi_size, abi_align);
+
+    return self.allocMem(abi_size, abi_align, inst);
 }
 
-fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
-    const elem_ty = self.air.typeOfIndex(inst);
+fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst.Index) !MCValue {
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
         if (abi_size <= 8) {
-            if (self.register_manager.tryAllocReg(inst, gp)) |reg| {
+            if (self.register_manager.tryAllocReg(maybe_inst, gp)) |reg| {
                 return MCValue{ .register = self.registerAlias(reg, elem_ty) };
             }
         }
     }
-    const stack_offset = try self.allocMem(inst, abi_size, abi_align);
+
+    const stack_offset = try self.allocMem(abi_size, abi_align, maybe_inst);
     return MCValue{ .stack_offset = stack_offset };
 }
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
-    const stack_mcv = try self.allocRegOrMem(inst, false);
+    const stack_mcv = try self.allocRegOrMem(self.air.typeOfIndex(inst), false, inst);
     log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
+
     const reg_mcv = self.getResolvedInstValue(inst);
     switch (reg_mcv) {
         .register => |r| assert(reg.id() == r.id()),
         .register_with_overflow => |rwo| assert(rwo.reg.id() == reg.id()),
         else => unreachable, // not a register
     }
+
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
@@ -953,10 +931,11 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 /// occupied
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
     if (self.condition_flags_inst) |inst_to_save| {
+        const ty = self.air.typeOfIndex(inst_to_save);
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
-            .condition_flags => try self.allocRegOrMem(inst_to_save, true),
-            .register_with_overflow => try self.allocRegOrMem(inst_to_save, false),
+            .condition_flags => try self.allocRegOrMem(ty, true, inst_to_save),
+            .register_with_overflow => try self.allocRegOrMem(ty, false, inst_to_save),
             else => unreachable, // mcv doesn't occupy the compare flags
         };
 
@@ -1046,14 +1025,14 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         if (dest_info.bits > operand_info.bits) {
-            const dest_mcv = try self.allocRegOrMem(inst, true);
+            const dest_mcv = try self.allocRegOrMem(dest_ty, true, inst);
             try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, truncated);
             break :result dest_mcv;
         } else {
             if (self.reuseOperand(inst, operand, 0, truncated)) {
                 break :result truncated;
             } else {
-                const dest_mcv = try self.allocRegOrMem(inst, true);
+                const dest_mcv = try self.allocRegOrMem(dest_ty, true, inst);
                 try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, truncated);
                 break :result dest_mcv;
             }
@@ -1278,7 +1257,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
-        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(len_ty, stack_offset - ptr_bytes, len);
         break :result MCValue{ .stack_offset = stack_offset };
@@ -2049,7 +2028,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const int_info = lhs_ty.intInfo(self.target.*);
                 switch (int_info.bits) {
                     1...31, 33...63 => {
-                        const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+                        const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
 
                         try self.spillCompareFlagsIfOccupied();
                         self.condition_flags_inst = null;
@@ -2164,7 +2143,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const int_info = lhs_ty.intInfo(self.target.*);
 
                 if (int_info.bits <= 32) {
-                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+                    const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
 
                     try self.spillCompareFlagsIfOccupied();
                     self.condition_flags_inst = null;
@@ -2220,7 +2199,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits <= 64) {
-                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+                    const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
 
                     try self.spillCompareFlagsIfOccupied();
                     self.condition_flags_inst = null;
@@ -2424,7 +2403,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
             .Int => {
                 const int_info = lhs_ty.intInfo(self.target.*);
                 if (int_info.bits <= 64) {
-                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+                    const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
 
                     const lhs_lock: ?RegisterLock = if (lhs == .register)
                         self.register_manager.lockRegAssumeUnused(lhs.register)
@@ -2745,7 +2724,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 const base_reg_lock = self.register_manager.lockRegAssumeUnused(base_reg);
                 defer self.register_manager.unlockReg(base_reg_lock);
 
-                const dest = try self.allocRegOrMem(inst, true);
+                const dest = try self.allocRegOrMem(elem_ty, true, inst);
                 const addr = try self.binOp(.ptr_add, base_mcv, index_mcv, slice_ptr_field_type, Type.usize, null);
                 try self.load(dest, addr, slice_ptr_field_type);
 
@@ -3058,7 +3037,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
                     else => ptr,
                 };
             } else {
-                break :blk try self.allocRegOrMem(inst, true);
+                break :blk try self.allocRegOrMem(elem_ty, true, inst);
             }
         };
         try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
@@ -3334,7 +3313,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
             };
             const abi_align = ty.abiAlignment(self.target.*);
-            const stack_offset = try self.allocMem(inst, abi_size, abi_align);
+            const stack_offset = try self.allocMem(abi_size, abi_align, inst);
             try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
 
             break :blk MCValue{ .stack_offset = stack_offset };
@@ -3412,7 +3391,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         const ret_ty = fn_ty.fnReturnType();
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
         const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
-        const stack_offset = try self.allocMem(inst, ret_abi_size, ret_abi_align);
+        const stack_offset = try self.allocMem(ret_abi_size, ret_abi_align, inst);
 
         const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
 
@@ -3638,14 +3617,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
                 const abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
                 const abi_align = ret_ty.abiAlignment(self.target.*);
 
-                // This is essentially allocMem without the
-                // instruction tracking
-                if (abi_align > self.stack_align)
-                    self.stack_align = abi_align;
-                // TODO find a free slot instead of always appending
-                const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
-                self.next_stack_offset = offset;
-                self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
+                const offset = try self.allocMem(abi_size, abi_align, null);
 
                 const tmp_mcv = MCValue{ .stack_offset = offset };
                 try self.load(tmp_mcv, ptr, ptr_ty);
@@ -3993,15 +3965,12 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
+        const ptr_ty = self.air.typeOf(un_op);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
         break :result try self.isNull(operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
@@ -4020,15 +3989,12 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
+        const ptr_ty = self.air.typeOf(un_op);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
         break :result try self.isNonNull(operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
@@ -4049,16 +4015,12 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isErr(ptr_ty.elemType(), operand);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
+        break :result try self.isErr(elem_ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4078,16 +4040,12 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonErr(ptr_ty.elemType(), operand);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
+        break :result try self.isNonErr(elem_ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4180,7 +4138,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
                 .immediate, .stack_argument_offset, .condition_flags => blk: {
-                    const new_mcv = try self.allocRegOrMem(block, true);
+                    const new_mcv = try self.allocRegOrMem(self.air.typeOfIndex(block), true, block);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
                 },
@@ -4837,7 +4795,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
-        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(Type.initTag(.usize), stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
