@@ -5570,7 +5570,11 @@ fn ifExpr(
         };
     } else .{
         .src = if_full.ast.then_expr,
-        .result = .none,
+        .result = switch (rl) {
+            // Explicitly store void to ptr result loc if there is no else branch
+            .ptr, .block_ptr => try rvalue(&else_scope, rl, .void_value, node),
+            else => .none,
+        },
     };
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
