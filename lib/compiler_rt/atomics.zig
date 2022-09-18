@@ -217,6 +217,31 @@ fn __atomic_store_8(dst: *u64, value: u64, model: i32) callconv(.C) void {
     return atomic_store_N(u64, dst, value, model);
 }
 
+fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
+    const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+
+    const addr = @ptrToInt(ptr);
+    const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
+    const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
+
+    const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
+    const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
+
+    const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
+
+    var wide_old = @atomicLoad(WideAtomic, wide_ptr, .SeqCst);
+    while (true) {
+        const old = @truncate(T, (wide_old & mask) >> inner_shift);
+        const new = update(val, old);
+        const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
+        if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst)) |new_wide_old| {
+            wide_old = new_wide_old;
+        } else {
+            return old;
+        }
+    }
+}
+
 inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
     _ = model;
     if (@sizeOf(T) > largest_atomic_size) {
@@ -227,29 +252,13 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
         return value;
     } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
         // Machine does not support this type, but it does support a larger type.
-        const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
-
-        const addr = @ptrToInt(ptr);
-        const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
-        const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
-
-        const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
-        const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
-
-        // Put the interesting bits at the right position (branch has dynamic RHS).
-        const shifted_value = @as(WideAtomic, val) << inner_shift;
-        // Mask that guards the bits we care about
-        const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
-        while (true) {
-            const wide_old = @atomicLoad(WideAtomic, wide_ptr, .Acquire);
-            // Insert new bytes in old value.
-            const wide_new = wide_old & ~mask | shifted_value;
-            // CAS the new value until the result stabilizes.
-            if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst) == null) {
-                // Mask-and-Shift back the old bits to get the old value.
-                return @truncate(T, (wide_old & mask) >> inner_shift);
+        const Updater = struct {
+            fn update(new: T, old: T) T {
+                _ = old;
+                return new;
             }
-        }
+        };
+        return wideUpdate(T, ptr, val, Updater.update);
     } else {
         return @atomicRmw(T, ptr, .Xchg, val, .SeqCst);
     }
@@ -318,54 +327,30 @@ fn __atomic_compare_exchange_8(ptr: *u64, expected: *u64, desired: u64, success:
 
 inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr: *T, val: T, model: i32) T {
     _ = model;
+    const Updater = struct {
+        fn update(new: T, old: T) T {
+            return switch (op) {
+                .Add => old +% new,
+                .Sub => old -% new,
+                .And => old & new,
+                .Nand => ~(old & new),
+                .Or => old | new,
+                .Xor => old ^ new,
+                else => @compileError("unsupported atomic op"),
+            };
+        }
+    };
+
     if (@sizeOf(T) > largest_atomic_size) {
         var sl = spinlocks.get(@ptrToInt(ptr));
         defer sl.release();
 
         const value = ptr.*;
-        ptr.* = switch (op) {
-            .Add => value +% val,
-            .Sub => value -% val,
-            .And => value & val,
-            .Nand => ~(value & val),
-            .Or => value | val,
-            .Xor => value ^ val,
-            else => @compileError("unsupported atomic op"),
-        };
-
+        ptr.* = Updater.update(val, value);
         return value;
     } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
         // Machine does not support this type, but it does support a larger type.
-        const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
-
-        const addr = @ptrToInt(ptr);
-        const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
-        const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
-
-        const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
-        const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
-
-        const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
-
-        while (true) {
-            // Compute new wide value with updated bits.
-            const wide_old = @atomicLoad(WideAtomic, wide_ptr, .Acquire);
-            const old = @truncate(T, (wide_old & mask) >> inner_shift);
-            const new = switch (op) {
-                .Add => old +% val,
-                .Sub => old -% val,
-                .And => old & val,
-                .Nand => ~(old & val),
-                .Or => old | val,
-                .Xor => old ^ val,
-                else => @compileError("unsupported atomic op"),
-            };
-            const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
-            // CAS the new value until the result stabilizes.
-            if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst) == null) {
-                return old;
-            }
-        }
+        return wideUpdate(T, ptr, val, Updater.update);
     }
 
     return @atomicRmw(T, ptr, op, val, .SeqCst);
