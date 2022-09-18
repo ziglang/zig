@@ -35,6 +35,17 @@ const largest_atomic_size = switch (arch) {
     else => @sizeOf(usize),
 };
 
+// The size (in bytes) of the smallest atomic object that the architecture can
+// perform fetch/exchange atomically. Note, this does not encompass load and store.
+// Objects smaller than this threshold are implemented in terms of compare-exchange
+// of a larger value.
+const smallest_atomic_fetch_exch_size = switch (arch) {
+    // On AMDGPU, there are no instructions for atomic operations other than load and store
+    // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
+    .amdgcn => @sizeOf(u32),
+    else => @sizeOf(u8),
+};
+
 const cache_line_size = 64;
 
 const SpinlockTable = struct {
@@ -214,6 +225,31 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
         const value = ptr.*;
         ptr.* = val;
         return value;
+    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
+        // Machine does not support this type, but it does support a larger type.
+        const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+
+        const addr = @ptrToInt(ptr);
+        const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
+        const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
+
+        const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
+        const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
+
+        // Put the interesting bits at the right position (branch has dynamic RHS).
+        const shifted_value = @as(WideAtomic, val) << inner_shift;
+        // Mask that guards the bits we care about
+        const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
+        while (true) {
+            const wide_old = @atomicLoad(WideAtomic, wide_ptr, .Acquire);
+            // Insert new bytes in old value.
+            const wide_new = wide_old & ~mask | shifted_value;
+            // CAS the new value until the result stabilizes.
+            if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst) == null) {
+                // Mask-and-Shift back the old bits to get the old value.
+                return @truncate(T, (wide_old & mask) >> inner_shift);
+            }
+        }
     } else {
         return @atomicRmw(T, ptr, .Xchg, val, .SeqCst);
     }
@@ -298,6 +334,38 @@ inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr
         };
 
         return value;
+    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
+        // Machine does not support this type, but it does support a larger type.
+        const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+
+        const addr = @ptrToInt(ptr);
+        const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
+        const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
+
+        const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
+        const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
+
+        const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
+
+        while (true) {
+            // Compute new wide value with updated bits.
+            const wide_old = @atomicLoad(WideAtomic, wide_ptr, .Acquire);
+            const old = @truncate(T, (wide_old & mask) >> inner_shift);
+            const new = switch (op) {
+                .Add => old +% val,
+                .Sub => old -% val,
+                .And => old & val,
+                .Nand => ~(old & val),
+                .Or => old | val,
+                .Xor => old ^ val,
+                else => @compileError("unsupported atomic op"),
+            };
+            const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
+            // CAS the new value until the result stabilizes.
+            if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst) == null) {
+                return old;
+            }
+        }
     }
 
     return @atomicRmw(T, ptr, op, val, .SeqCst);
