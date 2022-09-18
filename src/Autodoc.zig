@@ -471,7 +471,6 @@ const DocData = struct {
     const Decl = struct {
         name: []const u8,
         kind: []const u8,
-        isTest: bool,
         src: usize, // index into astNodes
         value: WalkResult,
         // The index in astNodes of the `test declname { }` node
@@ -2522,14 +2521,22 @@ fn walkInstruction(
                     // even if we haven't fully analyzed the decl yet.
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
-                        for (self.decls.items[decls_first_index..]) |*slot| {
-                            slot._analyzed = false;
-                        }
-                        var decls_slot_index = decls_first_index;
-                        while (it.next()) |d| : (decls_slot_index += 1) {
+                        while (it.next()) |d| {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                            switch (decl_name_index) {
+                                0, 1, 2 => continue,
+                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                                    continue;
+                                },
+                            }
+
+                            const decl_slot_index = self.decls.items.len;
+                            try self.decls.append(self.arena, undefined);
+                            self.decls.items[decl_slot_index]._analyzed = false;
+
+                            // TODO: inspect usingnamespace decls and unpack their contents!
+
+                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
                         }
                     }
 
@@ -2642,14 +2649,22 @@ fn walkInstruction(
                     // even if we haven't fully analyzed the decl yet.
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
-                        for (self.decls.items[decls_first_index..]) |*slot| {
-                            slot._analyzed = false;
-                        }
-                        var decls_slot_index = decls_first_index;
-                        while (it.next()) |d| : (decls_slot_index += 1) {
+                        while (it.next()) |d| {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                            switch (decl_name_index) {
+                                0, 1, 2 => continue,
+                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                                    continue;
+                                },
+                            }
+
+                            const decl_slot_index = self.decls.items.len;
+                            try self.decls.append(self.arena, undefined);
+                            self.decls.items[decl_slot_index]._analyzed = false;
+
+                            // TODO: inspect usingnamespace decls and unpack their contents!
+
+                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
                         }
                     }
 
@@ -2773,14 +2788,22 @@ fn walkInstruction(
                     // even if we haven't fully analyzed the decl yet.
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
-                        for (self.decls.items[decls_first_index..]) |*slot| {
-                            slot._analyzed = false;
-                        }
-                        var decls_slot_index = decls_first_index;
-                        while (it.next()) |d| : (decls_slot_index += 1) {
+                        while (it.next()) |d| {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                            switch (decl_name_index) {
+                                0, 1, 2 => continue,
+                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                                    continue;
+                                },
+                            }
+
+                            const decl_slot_index = self.decls.items.len;
+                            try self.decls.append(self.arena, undefined);
+                            self.decls.items[decl_slot_index]._analyzed = false;
+
+                            // TODO: inspect usingnamespace decls and unpack their contents!
+
+                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
                         }
                     }
 
@@ -2925,14 +2948,22 @@ fn walkInstruction(
                     // even if we haven't fully analyzed the decl yet.
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
-                        for (self.decls.items[decls_first_index..]) |*slot| {
-                            slot._analyzed = false;
-                        }
-                        var decls_slot_index = decls_first_index;
-                        while (it.next()) |d| : (decls_slot_index += 1) {
+                        while (it.next()) |d| {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                            switch (decl_name_index) {
+                                0, 1, 2 => continue,
+                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                                    continue;
+                                },
+                            }
+
+                            const decl_slot_index = self.decls.items.len;
+                            try self.decls.append(self.arena, undefined);
+                            self.decls.items[decl_slot_index]._analyzed = false;
+
+                            // TODO: inspect usingnamespace decls and unpack their contents!
+
+                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
                         }
                     }
 
@@ -3034,7 +3065,7 @@ fn walkDecls(
     scope: *Scope,
     parent_src: SrcLocInfo,
     decls_first_index: usize,
-    decls_len: u32,
+    decls_len: usize,
     decl_indexes: *std.ArrayListUnmanaged(usize),
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
     extra_start: usize,
@@ -3046,8 +3077,12 @@ fn walkDecls(
     var cur_bit_bag: u32 = undefined;
     var decl_i: u32 = 0;
 
+    // NOTE: we're not outputting every ZIR decl as a Autodoc decl.
+    //       tests, comptime blocks and usingnamespace are skipped.
+    //       this is why we `need good_decls_i`.
+    var good_decls_i: usize = 0;
     while (decl_i < decls_len) : (decl_i += 1) {
-        const decls_slot_index = decls_first_index + decl_i;
+        const decls_slot_index = decls_first_index + good_decls_i;
 
         if (decl_i % 8 == 0) {
             cur_bit_bag = file.zir.extra[bit_bag_index];
@@ -3056,6 +3091,7 @@ fn walkDecls(
         const is_pub = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
         const is_exported = @truncate(u1, cur_bit_bag) != 0;
+        _ = is_exported;
         cur_bit_bag >>= 1;
         const has_align = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
@@ -3101,15 +3137,10 @@ fn walkDecls(
         const value_pl_node = data[value_index].pl_node;
         const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
-        var is_test = false; // we discover if it's a test by looking at its name
-        const name: []const u8 = blk: {
-            if (decl_name_index == 0) {
-                break :blk if (is_exported) "usingnamespace" else "comptime";
-            } else if (decl_name_index == 1) {
-                is_test = true;
-                break :blk "test";
-            } else if (decl_name_index == 2) {
-                // it is a decltest
+        const name: []const u8 = switch (decl_name_index) {
+            0, 1 => continue, // comptime or usingnamespace decl
+            2 => {
+                // decl test
                 const decl_being_tested = scope.resolveDeclName(doc_comment_index);
                 const func_index = getBlockInlineBreak(file.zir, value_index);
 
@@ -3126,25 +3157,20 @@ fn walkDecls(
                     .code = test_source_code,
                 });
                 self.decls.items[decl_being_tested].decltest = ast_node_index;
-                self.decls.items[decls_slot_index] = .{
-                    ._analyzed = true,
-                    .name = "test",
-                    .isTest = true,
-                    .src = ast_node_index,
-                    .value = .{ .expr = .{ .type = 0 } },
-                    .kind = "const",
-                };
                 continue;
-            } else {
-                const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
-                if (raw_decl_name.len == 0) {
-                    is_test = true;
-                    break :blk file.zir.nullTerminatedString(decl_name_index + 1);
-                } else {
-                    break :blk raw_decl_name;
+            },
+            else => blk: {
+                if (file.zir.string_bytes[decl_name_index] == 0) {
+                    // test decl
+                    continue;
                 }
-            }
+                break :blk file.zir.nullTerminatedString(decl_name_index);
+            },
         };
+
+        // If we got here, it means that this decl is not a test, usingnamespace
+        // or a comptime block decl.
+        good_decls_i += 1;
 
         const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
             file.zir.nullTerminatedString(doc_comment_index)
@@ -3164,10 +3190,7 @@ fn walkDecls(
             break :idx idx;
         };
 
-        const walk_result = if (is_test) // TODO: decide if tests should show up at all
-            DocData.WalkResult{ .expr = .{ .void = .{} } }
-        else
-            try self.walkInstruction(file, scope, decl_src, value_index, true);
+        const walk_result = try self.walkInstruction(file, scope, decl_src, value_index, true);
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
@@ -3193,7 +3216,6 @@ fn walkDecls(
         self.decls.items[decls_slot_index] = .{
             ._analyzed = true,
             .name = name,
-            .isTest = is_test,
             .src = ast_node_index,
             //.typeRef = decl_type_ref,
             .value = walk_result,
