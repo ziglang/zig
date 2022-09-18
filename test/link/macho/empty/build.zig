@@ -16,5 +16,6 @@ pub fn build(b: *Builder) void {
     exe.linkLibC();
 
     const run_cmd = std.build.EmulatableRunStep.create(b, "run", exe);
+    run_cmd.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run_cmd.step);
 }
