@@ -428,6 +428,28 @@ fn gen(self: *Self) !void {
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
         }
 
+        for (self.args) |*arg, arg_index| {
+            // Copy register arguments to the stack
+            switch (arg.*) {
+                .register => |reg| {
+                    // The first AIR instructions of the main body are guaranteed
+                    // to be the functions arguments
+                    const inst = self.air.getMainBody()[arg_index];
+                    assert(self.air.instructions.items(.tag)[inst] == .arg);
+
+                    const ty = self.air.typeOfIndex(inst);
+
+                    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const abi_align = ty.abiAlignment(self.target.*);
+                    const stack_offset = try self.allocMem(abi_size, abi_align, inst);
+                    try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+
+                    arg.* = MCValue{ .stack_offset = stack_offset };
+                },
+                else => {},
+            }
+        }
+
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
             .cond = undefined,
@@ -3766,7 +3788,8 @@ fn genStrRegister(self: *Self, source_reg: Register, addr_reg: Register, ty: Typ
     const tag: Mir.Inst.Tag = switch (abi_size) {
         1 => .strb,
         2 => .strh,
-        3, 4 => .str,
+        4 => .str,
+        3 => return self.fail("TODO: genStrRegister for abi_size={}", .{abi_size}),
         else => unreachable,
     };
 
@@ -3782,7 +3805,7 @@ fn genStrRegister(self: *Self, source_reg: Register, addr_reg: Register, ty: Typ
     } };
 
     const data: Mir.Inst.Data = switch (abi_size) {
-        1, 3, 4 => rr_offset,
+        1, 4 => rr_offset,
         2 => rr_extra_offset,
         else => unreachable,
     };
@@ -4047,38 +4070,13 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const arg_index = self.arg_index;
     self.arg_index += 1;
 
-    const ty = self.air.typeOfIndex(inst);
-
-    const result = self.args[arg_index];
-    const mcv = switch (result) {
-        // Copy registers to the stack
-        .register => |reg| blk: {
-            const abi_size = @intCast(u32, ty.abiSize(self.target.*));
-            const abi_align = ty.abiAlignment(self.target.*);
-            const stack_offset = try self.allocMem(abi_size, abi_align, inst);
-            try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
-
-            break :blk MCValue{ .stack_offset = stack_offset };
-        },
-        else => result,
-    };
-
     try self.dbg_arg_relocs.append(self.gpa, .{
         .inst = inst,
         .index = arg_index,
     });
 
-    if (self.liveness.isUnused(inst))
-        return self.finishAirBookkeeping();
-
-    switch (mcv) {
-        .register => |reg| {
-            self.register_manager.getRegAssumeFree(reg, inst);
-        },
-        else => {},
-    }
-
-    return self.finishAir(inst, mcv, .{ .none, .none, .none });
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airBreakpoint(self: *Self) !void {
