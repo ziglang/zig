@@ -4033,19 +4033,159 @@ fn writeLinkeditSegmentData(self: *MachO, ncmds: *u32, lc_writer: anytype) !void
             seg.fileoff = mem.alignForwardGeneric(u64, segment.fileoff + segment.filesize, self.page_size);
         }
     }
-    // seg.vmaddr = blk: {
-    //     const prev_segment = self.segments.items[self.linkedit_segment_cmd_index.? - 1];
-    //     break :blk mem.alignForwardGeneric(u64, prev_segment.vmaddr + prev_segment.vmsize, self.page_size);
-    // };
-    // seg.fileoff = blk: {
-    //     const prev_segment = self.segments.items[self.linkedit_segment_cmd_index.? - 1];
-    //     break :blk mem.alignForwardGeneric(u64, prev_segment.fileoff + prev_segment.filesize, self.page_size);
-    // };
 
     try self.writeDyldInfoData(ncmds, lc_writer);
     try self.writeSymtabs(ncmds, lc_writer);
 
     seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+}
+
+const AtomLessThanByAddressContext = struct {
+    macho_file: *MachO,
+};
+
+fn atomLessThanByAddress(ctx: AtomLessThanByAddressContext, lhs: *Atom, rhs: *Atom) bool {
+    return lhs.getSymbol(ctx.macho_file).n_value < rhs.getSymbol(ctx.macho_file).n_value;
+}
+
+fn collectRebaseData(self: *MachO, pointers: *std.ArrayList(bind.Pointer)) !void {
+    const gpa = self.base.allocator;
+
+    var sorted_atoms_by_address = std.ArrayList(*Atom).init(gpa);
+    defer sorted_atoms_by_address.deinit();
+    try sorted_atoms_by_address.ensureTotalCapacityPrecise(self.rebases.count());
+
+    var it = self.rebases.keyIterator();
+    while (it.next()) |key_ptr| {
+        sorted_atoms_by_address.appendAssumeCapacity(key_ptr.*);
+    }
+
+    std.sort.sort(*Atom, sorted_atoms_by_address.items, AtomLessThanByAddressContext{
+        .macho_file = self,
+    }, atomLessThanByAddress);
+
+    const slice = self.sections.slice();
+    for (sorted_atoms_by_address.items) |atom| {
+        log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
+
+        const sym = atom.getSymbol(self);
+        const segment_index = slice.items(.segment_index)[sym.n_sect - 1];
+        const seg = self.getSegment(sym.n_sect - 1);
+
+        const base_offset = sym.n_value - seg.vmaddr;
+
+        const rebases = self.rebases.get(atom).?;
+        try pointers.ensureUnusedCapacity(rebases.items.len);
+        for (rebases.items) |offset| {
+            log.debug("    | rebase at {x}", .{base_offset + offset});
+
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + offset,
+                .segment_id = segment_index,
+            });
+        }
+    }
+}
+
+fn collectBindData(self: *MachO, pointers: *std.ArrayList(bind.Pointer), raw_bindings: anytype) !void {
+    const gpa = self.base.allocator;
+
+    var sorted_atoms_by_address = std.ArrayList(*Atom).init(gpa);
+    defer sorted_atoms_by_address.deinit();
+    try sorted_atoms_by_address.ensureTotalCapacityPrecise(raw_bindings.count());
+
+    var it = raw_bindings.keyIterator();
+    while (it.next()) |key_ptr| {
+        sorted_atoms_by_address.appendAssumeCapacity(key_ptr.*);
+    }
+
+    std.sort.sort(*Atom, sorted_atoms_by_address.items, AtomLessThanByAddressContext{
+        .macho_file = self,
+    }, atomLessThanByAddress);
+
+    const slice = self.sections.slice();
+    for (sorted_atoms_by_address.items) |atom| {
+        log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
+
+        const sym = atom.getSymbol(self);
+        const segment_index = slice.items(.segment_index)[sym.n_sect - 1];
+        const seg = self.getSegment(sym.n_sect - 1);
+
+        const base_offset = sym.n_value - seg.vmaddr;
+
+        const bindings = raw_bindings.get(atom).?;
+        try pointers.ensureUnusedCapacity(bindings.items.len);
+        for (bindings.items) |binding| {
+            const bind_sym = self.getSymbol(binding.target);
+            const bind_sym_name = self.getSymbolName(binding.target);
+            const dylib_ordinal = @divTrunc(
+                @bitCast(i16, bind_sym.n_desc),
+                macho.N_SYMBOL_RESOLVER,
+            );
+            var flags: u4 = 0;
+            log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+                binding.offset + base_offset,
+                bind_sym_name,
+                dylib_ordinal,
+            });
+            if (bind_sym.weakRef()) {
+                log.debug("    | marking as weak ref ", .{});
+                flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
+            }
+            pointers.appendAssumeCapacity(.{
+                .offset = binding.offset + base_offset,
+                .segment_id = segment_index,
+                .dylib_ordinal = dylib_ordinal,
+                .name = bind_sym_name,
+                .bind_flags = flags,
+            });
+        }
+    }
+}
+
+fn collectExportData(self: *MachO, trie: *Trie) !void {
+    const gpa = self.base.allocator;
+
+    // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
+    log.debug("generating export trie", .{});
+
+    const exec_segment = self.segments.items[self.header_segment_cmd_index.?];
+    const base_address = exec_segment.vmaddr;
+
+    if (self.base.options.output_mode == .Exe) {
+        for (&[_]SymbolWithLoc{
+            try self.getEntryPoint(),
+            self.getGlobal("__mh_execute_header").?,
+        }) |global| {
+            const sym = self.getSymbol(global);
+            const sym_name = self.getSymbolName(global);
+            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+            try trie.put(gpa, .{
+                .name = sym_name,
+                .vmaddr_offset = sym.n_value - base_address,
+                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+            });
+        }
+    } else {
+        assert(self.base.options.output_mode == .Lib);
+        for (self.globals.items) |global| {
+            const sym = self.getSymbol(global);
+
+            if (sym.undf()) continue;
+            if (!sym.ext()) continue;
+            if (sym.n_desc == N_DESC_GCED) continue;
+
+            const sym_name = self.getSymbolName(global);
+            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+            try trie.put(gpa, .{
+                .name = sym_name,
+                .vmaddr_offset = sym.n_value - base_address,
+                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+            });
+        }
+    }
+
+    try trie.finalize(gpa);
 }
 
 fn writeDyldInfoData(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
@@ -4056,144 +4196,19 @@ fn writeDyldInfoData(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
 
     var rebase_pointers = std.ArrayList(bind.Pointer).init(gpa);
     defer rebase_pointers.deinit();
+    try self.collectRebaseData(&rebase_pointers);
+
     var bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
     defer bind_pointers.deinit();
+    try self.collectBindData(&bind_pointers, self.bindings);
+
     var lazy_bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
     defer lazy_bind_pointers.deinit();
-
-    const slice = self.sections.slice();
-    for (slice.items(.last_atom)) |last_atom, sect_id| {
-        var atom = last_atom orelse continue;
-        const header = slice.items(.header)[sect_id];
-        const segment_index = slice.items(.segment_index)[sect_id];
-        const seg = self.getSegment(@intCast(u8, sect_id));
-
-        if (mem.eql(u8, header.segName(), "__TEXT")) continue; // __TEXT is non-writable
-
-        log.debug("dyld info for {s},{s}", .{ header.segName(), header.sectName() });
-
-        while (true) {
-            log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
-            const sym = atom.getSymbol(self);
-            const base_offset = sym.n_value - seg.vmaddr;
-
-            if (self.rebases.get(atom)) |rebases| {
-                for (rebases.items) |offset| {
-                    log.debug("    | rebase at {x}", .{base_offset + offset});
-                    try rebase_pointers.append(.{
-                        .offset = base_offset + offset,
-                        .segment_id = segment_index,
-                    });
-                }
-            }
-
-            if (self.bindings.get(atom)) |bindings| {
-                for (bindings.items) |binding| {
-                    const bind_sym = self.getSymbol(binding.target);
-                    const bind_sym_name = self.getSymbolName(binding.target);
-                    const dylib_ordinal = @divTrunc(
-                        @bitCast(i16, bind_sym.n_desc),
-                        macho.N_SYMBOL_RESOLVER,
-                    );
-                    var flags: u4 = 0;
-                    log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-                        binding.offset + base_offset,
-                        bind_sym_name,
-                        dylib_ordinal,
-                    });
-                    if (bind_sym.weakRef()) {
-                        log.debug("    | marking as weak ref ", .{});
-                        flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
-                    }
-                    try bind_pointers.append(.{
-                        .offset = binding.offset + base_offset,
-                        .segment_id = segment_index,
-                        .dylib_ordinal = dylib_ordinal,
-                        .name = bind_sym_name,
-                        .bind_flags = flags,
-                    });
-                }
-            }
-
-            if (self.lazy_bindings.get(atom)) |lazy_bindings| {
-                for (lazy_bindings.items) |binding| {
-                    const bind_sym = self.getSymbol(binding.target);
-                    const bind_sym_name = self.getSymbolName(binding.target);
-                    const dylib_ordinal = @divTrunc(
-                        @bitCast(i16, bind_sym.n_desc),
-                        macho.N_SYMBOL_RESOLVER,
-                    );
-                    var flags: u4 = 0;
-                    log.debug("    | lazy bind at {x} import('{s}') ord({d})", .{
-                        binding.offset + base_offset,
-                        bind_sym_name,
-                        dylib_ordinal,
-                    });
-                    if (bind_sym.weakRef()) {
-                        log.debug("    | marking as weak ref ", .{});
-                        flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
-                    }
-                    try lazy_bind_pointers.append(.{
-                        .offset = binding.offset + base_offset,
-                        .segment_id = segment_index,
-                        .dylib_ordinal = dylib_ordinal,
-                        .name = bind_sym_name,
-                        .bind_flags = flags,
-                    });
-                }
-            }
-
-            if (atom.prev) |prev| {
-                atom = prev;
-            } else break;
-        }
-    }
+    try self.collectBindData(&lazy_bind_pointers, self.lazy_bindings);
 
     var trie: Trie = .{};
     defer trie.deinit(gpa);
-
-    {
-        // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
-        log.debug("generating export trie", .{});
-
-        const text_segment = self.segments.items[self.header_segment_cmd_index.?];
-        const base_address = text_segment.vmaddr;
-
-        if (self.base.options.output_mode == .Exe) {
-            for (&[_]SymbolWithLoc{
-                try self.getEntryPoint(),
-                self.getGlobal("__mh_execute_header").?,
-            }) |global| {
-                const sym = self.getSymbol(global);
-                const sym_name = self.getSymbolName(global);
-                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-                try trie.put(gpa, .{
-                    .name = sym_name,
-                    .vmaddr_offset = sym.n_value - base_address,
-                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-                });
-            }
-        } else {
-            assert(self.base.options.output_mode == .Lib);
-            for (self.globals.items) |global| {
-                const sym = self.getSymbol(global);
-
-                if (sym.undf()) continue;
-                if (!sym.ext()) continue;
-                if (sym.n_desc == N_DESC_GCED) continue;
-
-                const sym_name = self.getSymbolName(global);
-                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-                try trie.put(gpa, .{
-                    .name = sym_name,
-                    .vmaddr_offset = sym.n_value - base_address,
-                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-                });
-            }
-        }
-
-        try trie.finalize(gpa);
-    }
+    try self.collectExportData(&trie);
 
     const link_seg = self.getLinkeditSegmentPtr();
     const rebase_off = mem.alignForwardGeneric(u64, link_seg.fileoff, @alignOf(u64));
