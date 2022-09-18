@@ -182,13 +182,17 @@ const current_thread_storage = struct {
 
     /// Return casted thread specific value.
     fn getspecific() ?*ObjectArray {
-        return @ptrCast(
-            ?*ObjectArray,
-            @alignCast(
-                @alignOf(ObjectArray),
-                std.c.pthread_getspecific(current_thread_storage.key),
-            ),
-        );
+        if (std.c.pthread_getspecific(current_thread_storage.key)) |v| {
+            return @ptrCast(
+                ?*ObjectArray,
+                @alignCast(
+                    @alignOf(ObjectArray),
+                    v,
+                ),
+            );
+        } else {
+            return null;
+        }
     }
 
     /// Set casted thread specific value.
