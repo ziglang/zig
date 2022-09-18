@@ -1135,6 +1135,7 @@ fn getDeclOutputSection(self: *Coff, decl: *Module.Decl) u16 {
         }
 
         switch (zig_ty) {
+            // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
                 if (val.castTag(.variable)) |_| {
@@ -1527,7 +1528,7 @@ pub fn getDeclVAddr(
     assert(self.llvm_object == null);
     assert(decl.link.coff.sym_index != 0);
 
-    const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
+    const atom = self.getAtomForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = decl.link.coff.sym_index, .file = null };
     try atom.addRelocation(self, .{
         .@"type" = .direct,

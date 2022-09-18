@@ -16,6 +16,7 @@ const Arch = std.Target.Cpu.Arch;
 const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
+const RelocationIncr = @import("Relocation.zig"); // temporary name until we clean up object-file relocation scanning
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -64,8 +65,6 @@ next: ?*Atom,
 prev: ?*Atom,
 
 dbg_info_atom: Dwarf.Atom,
-
-dirty: bool = true,
 
 pub const Binding = struct {
     target: SymbolWithLoc,
@@ -196,7 +195,7 @@ pub fn capacity(self: Atom, macho_file: *MachO) u64 {
     } else {
         // We are the last atom.
         // The capacity is limited only by virtual address space.
-        return std.math.maxInt(u64) - self_sym.n_value;
+        return macho_file.allocatedVirtualSize(self_sym.n_value);
     }
 }
 
@@ -313,13 +312,13 @@ pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, 
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
                     const sect = object.getSourceSection(sect_id);
-                    const match = (try context.macho_file.getOutputSection(sect)) orelse
+                    const out_sect_id = (try context.macho_file.getOutputSection(sect)) orelse
                         unreachable;
                     const sym_index = @intCast(u32, object.symtab.items.len);
                     try object.symtab.append(gpa, .{
                         .n_strx = 0,
                         .n_type = macho.N_SECT,
-                        .n_sect = match + 1,
+                        .n_sect = out_sect_id + 1,
                         .n_desc = 0,
                         .n_value = sect.addr,
                     });
@@ -893,4 +892,84 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
 inline fn isArithmeticOp(inst: *const [4]u8) bool {
     const group_decode = @truncate(u5, inst[3]);
     return ((group_decode >> 2) == 4);
+}
+
+pub fn addRelocation(self: *Atom, macho_file: *MachO, reloc: RelocationIncr) !void {
+    return self.addRelocations(macho_file, 1, .{reloc});
+}
+
+pub fn addRelocations(
+    self: *Atom,
+    macho_file: *MachO,
+    comptime count: comptime_int,
+    relocs: [count]RelocationIncr,
+) !void {
+    const gpa = macho_file.base.allocator;
+    const target = macho_file.base.options.target;
+    const gop = try macho_file.relocs.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.ensureUnusedCapacity(gpa, count);
+    for (relocs) |reloc| {
+        log.debug("  (adding reloc of type {s} to target %{d})", .{
+            reloc.fmtType(target),
+            reloc.target.sym_index,
+        });
+        gop.value_ptr.appendAssumeCapacity(reloc);
+    }
+}
+
+pub fn addRebase(self: *Atom, macho_file: *MachO, offset: u32) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding rebase at offset 0x{x} in %{d})", .{ offset, self.sym_index });
+    const gop = try macho_file.rebases.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, offset);
+}
+
+pub fn addBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{d})", .{
+        macho_file.getSymbolName(binding.target),
+        binding.offset,
+        self.sym_index,
+    });
+    const gop = try macho_file.bindings.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, binding);
+}
+
+pub fn addLazyBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{d})", .{
+        macho_file.getSymbolName(binding.target),
+        binding.offset,
+        self.sym_index,
+    });
+    const gop = try macho_file.lazy_bindings.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, binding);
+}
+
+pub fn resolveRelocations(self: *Atom, macho_file: *MachO) !void {
+    const relocs = macho_file.relocs.get(self) orelse return;
+    const source_sym = self.getSymbol(macho_file);
+    const source_section = macho_file.sections.get(source_sym.n_sect - 1).header;
+    const file_offset = source_section.offset + source_sym.n_value - source_section.addr;
+
+    log.debug("relocating '{s}'", .{self.getName(macho_file)});
+
+    for (relocs.items) |*reloc| {
+        if (!reloc.dirty) continue;
+
+        try reloc.resolve(self, macho_file, file_offset);
+        reloc.dirty = false;
+    }
 }

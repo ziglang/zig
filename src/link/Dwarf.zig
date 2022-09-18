@@ -948,7 +948,7 @@ pub fn commitDeclState(
                                 new_offset,
                             });
 
-                            try File.MachO.copyRangeAllOverlappingAlloc(
+                            try copyRangeAllOverlappingAlloc(
                                 gpa,
                                 d_sym.file,
                                 debug_line_sect.offset,
@@ -1247,7 +1247,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                         new_offset,
                     });
 
-                    try File.MachO.copyRangeAllOverlappingAlloc(
+                    try copyRangeAllOverlappingAlloc(
                         gpa,
                         d_sym.file,
                         debug_info_sect.offset,
@@ -2337,4 +2337,17 @@ fn addDbgInfoErrorSet(
 
     // DW.AT.enumeration_type delimit children
     try dbg_info_buffer.append(0);
+}
+
+fn copyRangeAllOverlappingAlloc(
+    allocator: Allocator,
+    file: std.fs.File,
+    in_offset: u64,
+    out_offset: u64,
+    len: usize,
+) !void {
+    const buf = try allocator.alloc(u8, len);
+    defer allocator.free(buf);
+    const amt = try file.preadAll(buf, in_offset);
+    try file.pwriteAll(buf[0..amt], out_offset);
 }
