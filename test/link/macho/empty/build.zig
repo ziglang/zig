@@ -18,5 +18,7 @@ pub fn build(b: *Builder) void {
 
     const run_cmd = exe.run();
     run_cmd.expectStdOutEqual("Hello!\n");
-    test_step.dependOn(&run_cmd.step);
+    if (@import("builtin").os.tag == .macos) {
+        test_step.dependOn(&run_cmd.step);
+    }
 }
