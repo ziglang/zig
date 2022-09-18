@@ -249,7 +249,7 @@ pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
     const in_symtab = self.in_symtab orelse {
         for (self.sections.items) |sect, id| {
             if (sect.isDebug()) continue;
-            const match = (try macho_file.getOutputSection(sect)) orelse {
+            const out_sect_id = (try macho_file.getOutputSection(sect)) orelse {
                 log.debug("  unhandled section", .{});
                 continue;
             };
@@ -261,7 +261,7 @@ pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
                 try self.symtab.append(gpa, .{
                     .n_strx = 0,
                     .n_type = macho.N_SECT,
-                    .n_sect = match + 1,
+                    .n_sect = out_sect_id + 1,
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -282,10 +282,10 @@ pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
                 code,
                 relocs,
                 &.{},
-                match,
+                out_sect_id,
                 sect,
             );
-            try macho_file.addAtomToSection(atom, match);
+            try macho_file.addAtomToSection(atom);
         }
         return;
     };
