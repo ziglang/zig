@@ -109,6 +109,67 @@ fn ptrInfo(comptime PtrType: type) std.builtin.Type.Pointer {
     };
 }
 
+/// Gives a type equivalent to a C packed struct
+/// by changing the alignment of all fields to 1 unless
+/// explicitly specified using align() *unless it matches natural alignment*
+/// in which case it can be specified using the overrides parameter
+pub fn CPacked(comptime T: type, comptime overrides: std.enums.EnumFieldStruct(T, ?u29, @as(?u29, null))) type {
+    const StructField = std.builtin.Type.StructField;
+    var t_info = @typeInfo(T);
+
+    var s_info = switch (t_info) {
+        .Struct => |s| s,
+        else => return,
+    };
+
+    if (s_info.layout != .Extern) {
+        @compileError("CPacked requires an extern struct!");
+    }
+
+    var p_fields = comptime std.meta.fields(T);
+    var fields: [p_fields.len]StructField = undefined;
+
+    for (p_fields) |f, i| {
+        var alignment = if (@field(overrides, f.name)) |override|
+            override
+        else if (f.alignment != @alignOf(f.field_type))
+            f.alignment
+        else
+            1;
+
+        fields[i] = StructField{
+            .alignment = alignment,
+            .name = f.name,
+            .field_type = f.field_type,
+            .default_value = f.default_value,
+            .is_comptime = f.is_comptime,
+        };
+    }
+
+    return @Type(.{
+        .Struct = .{
+            .is_tuple = s_info.is_tuple,
+            .layout = s_info.layout,
+            .decls = s_info.decls,
+            .fields = &fields,
+        },
+    });
+}
+
+test "CPacked" {
+    const S = CPacked(extern struct { a: u8, b: u8, c: u16, d: u8 }, .{});
+
+    try std.testing.expect(@sizeOf(S) == 5);
+
+    const S2 = CPacked(extern struct { a: u8, b: u8 align(@alignOf(u16)), c: u16, d: u8 }, .{});
+
+    try std.testing.expect(@sizeOf(S2) == 6);
+
+    const S3 = CPacked(extern struct { a: u8, b: u8, c: u16, d: u8 }, .{ .b = @alignOf(u16) });
+
+    try std.testing.expect(@sizeOf(S3) == 6);
+}
+
 test "cast" {
     var i = @as(i64, 10);
 
