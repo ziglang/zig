@@ -492,6 +492,14 @@ const known_options = [_]KnownOpt{
         .name = "compress-debug-sections=",
         .ident = "compress_debug_sections",
     },
+    .{
+        .name = "dynamic",
+        .ident = "dynamic",
+    },
+    .{
+        .name = "static",
+        .ident = "static",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -798,7 +806,7 @@ fn objSyntax(obj: *json.ObjectMap) ?Syntax {
         } else if (std.mem.eql(u8, superclass, "CLRemainingArgsJoined")) {
             return .remaining_args_joined;
         } else if (std.mem.eql(u8, superclass, "MultiArg")) {
-            return .{ .multi_arg = num_args };
+            return Syntax{ .multi_arg = num_args };
         }
     }
     const name = obj.get("Name").?.String;

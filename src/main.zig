@@ -1721,6 +1721,8 @@ fn buildOutputType(
                             };
                         }
                     },
+                    .dynamic => link_mode = .Dynamic,
+                    .static => link_mode = .Static,
                 }
             }
             // Parse linker args.
@@ -4750,6 +4752,8 @@ pub const ClangArgIterator = struct {
         weak_framework,
         headerpad_max_install_names,
         compress_debug_sections,
+        dynamic,
+        static,
     };
 
     const Args = struct {
