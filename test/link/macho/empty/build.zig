@@ -1,6 +1,5 @@
 const std = @import("std");
 const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
@@ -16,9 +15,6 @@ pub fn build(b: *Builder) void {
     exe.setTarget(target);
     exe.linkLibC();
 
-    const run_cmd = exe.run();
-    run_cmd.expectStdOutEqual("Hello!\n");
-    if (@import("builtin").os.tag == .macos) {
-        test_step.dependOn(&run_cmd.step);
-    }
+    const run_cmd = std.build.EmulatableRunStep.create(b, "run", exe);
+    test_step.dependOn(&run_cmd.step);
 }
