@@ -7576,6 +7576,8 @@ pub const FuncGen = struct {
         const src_bits = operand_ty.floatBits(target);
         if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
             return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+        } else if (!backendSupportsF128(target) and (src_bits == 128 or dest_bits == 128)) {
+            return softF128TruncOrExt(self, operand, src_bits, dest_bits);
         }
         const dest_llvm_ty = try self.dg.lowerType(dest_ty);
         return self.builder.buildFPTrunc(operand, dest_llvm_ty, "");
@@ -7594,6 +7596,8 @@ pub const FuncGen = struct {
         const src_bits = operand_ty.floatBits(target);
         if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
             return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+        } else if (!backendSupportsF128(target) and (src_bits == 128 or dest_bits == 128)) {
+            return softF128TruncOrExt(self, operand, src_bits, dest_bits);
         }
         const dest_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
         return self.builder.buildFPExt(operand, dest_llvm_ty, "");
@@ -9138,6 +9142,88 @@ pub const FuncGen = struct {
         return self.builder.buildBitCast(result, final_cast_llvm_ty, "");
     }
 
+    fn softF128TruncOrExt(
+        self: *FuncGen,
+        operand: *llvm.Value,
+        src_bits: u16,
+        dest_bits: u16,
+    ) !?*llvm.Value {
+        const target = self.dg.module.getTarget();
+
+        var param_llvm_ty: *llvm.Type = self.context.fp128Type();
+        var ret_llvm_ty: *llvm.Type = param_llvm_ty;
+        var fn_name: [*:0]const u8 = undefined;
+        var arg = operand;
+        var final_cast: ?*llvm.Type = null;
+
+        assert(src_bits == 128 or dest_bits == 128);
+
+        // TODO: Implement proper names and compiler-rt functions for this!!
+        if (src_bits == 128) switch (dest_bits) {
+            16 => {
+                // See corresponding condition at definition of
+                // __truncxfhf2 in compiler-rt.
+                if (target.cpu.arch.isAARCH64()) {
+                    ret_llvm_ty = self.context.halfType();
+                } else {
+                    ret_llvm_ty = self.context.intType(16);
+                    final_cast = self.context.halfType();
+                }
+                fn_name = "__trunctfhf2";
+            },
+            32 => {
+                ret_llvm_ty = self.context.floatType();
+                fn_name = "__trunctfsf2";
+            },
+            64 => {
+                ret_llvm_ty = self.context.doubleType();
+                fn_name = "__trunctfdf2";
+            },
+            80 => {
+                ret_llvm_ty = self.context.intType(80);
+                fn_name = "__trunctfxf2";
+            },
+            128 => return operand,
+            else => unreachable,
+        } else switch (src_bits) {
+            16 => {
+                // See corresponding condition at definition of
+                // __extendhftf2 in compiler-rt.
+                param_llvm_ty = if (target.cpu.arch.isAARCH64())
+                    self.context.halfType()
+                else
+                    self.context.intType(16);
+                arg = self.builder.buildBitCast(arg, param_llvm_ty, "");
+                fn_name = "__extendhftf2";
+            },
+            32 => {
+                param_llvm_ty = self.context.floatType();
+                fn_name = "__extendsftf2";
+            },
+            64 => {
+                param_llvm_ty = self.context.doubleType();
+                fn_name = "__extenddftf2";
+            },
+            80 => {
+                param_llvm_ty = self.context.intType(80);
+                fn_name = "__extendxftf2";
+            },
+            128 => return operand,
+            else => unreachable,
+        }
+
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(fn_name) orelse f: {
+            const param_types = [_]*llvm.Type{param_llvm_ty};
+            const fn_type = llvm.functionType(ret_llvm_ty, &param_types, param_types.len, .False);
+            break :f self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+        };
+
+        var args: [1]*llvm.Value = .{arg};
+        const result = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .C, .Auto, "");
+        const final_cast_llvm_ty = final_cast orelse return result;
+        return self.builder.buildBitCast(result, final_cast_llvm_ty, "");
+    }
+
     fn getErrorNameTable(self: *FuncGen) !*llvm.Value {
         if (self.dg.object.error_name_table) |table| {
             return table;
@@ -10489,13 +10575,23 @@ fn backendSupportsF16(target: std.Target) bool {
     };
 }
 
+/// This function returns true if we expect LLVM to lower f128 correctly,
+/// and false if we expect LLVm to crash if it encounters and f128 type
+/// or if it produces miscompilations.
+fn backendSupportsF128(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .amdgcn => false,
+        else => true,
+    };
+}
+
 /// LLVM does not support all relevant intrinsics for all targets, so we
 /// may need to manually generate a libc call
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.tag()) {
         .f16 => backendSupportsF16(target),
         .f80 => target.longDoubleIs(f80) and backendSupportsF80(target),
-        .f128 => target.longDoubleIs(f128),
+        .f128 => target.longDoubleIs(f128) and backendSupportsF128(target),
         else => true,
     };
 }
