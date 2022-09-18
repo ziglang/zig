@@ -64,10 +64,10 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});
     }
-    if (native_os != .freestanding and native_os != .other) {
-        std.os.abort();
+    switch (native_os) {
+        .freestanding, .other, .amdhsa, .amdpal => while (true) {},
+        else => std.os.abort(),
     }
-    while (true) {}
 }
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
