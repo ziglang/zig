@@ -15,7 +15,7 @@ pub const ManagedNetworkProtocol = extern struct {
     _transmit: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status),
     _receive: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status),
     _cancel: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(.C) Status),
-    _poll: std.meta.FnPtr(fn (*const ManagedNetworkProtocol) callconv(.C) usize),
+    _poll: std.meta.FnPtr(fn (*const ManagedNetworkProtocol) callconv(.C) Status),
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
