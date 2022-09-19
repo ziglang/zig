@@ -16492,6 +16492,9 @@ fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    if (ty.isNoReturn()) {
+        return sema.fail(block, operand_src, "no align available for type '{}'", .{ty.fmt(sema.mod)});
+    }
     const target = sema.mod.getTarget();
     const val = try ty.lazyAbiAlignment(target, sema.arena);
     if (val.tag() == .lazy_align) {
