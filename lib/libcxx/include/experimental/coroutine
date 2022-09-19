@@ -45,24 +45,17 @@ template <class P> struct hash<coroutine_handle<P>>;
 
  */
 
-#include <__debug>
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__functional/hash.h>
+#include <__functional/operations.h>
 #include <cstddef>
 #include <experimental/__config>
-#include <functional>
 #include <memory> // for hash<T*>
 #include <new>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
-#endif
-
-#ifdef _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES
-# if defined(_LIBCPP_WARNING)
-    _LIBCPP_WARNING("<experimental/coroutine> cannot be used with this compiler")
-# else
-#   warning <experimental/coroutine> cannot be used with this compiler
-# endif
+#  pragma GCC system_header
 #endif
 
 #ifndef _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES

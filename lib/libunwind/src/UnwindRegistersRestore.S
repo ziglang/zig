@@ -8,7 +8,11 @@
 
 #include "assembly.h"
 
+#if defined(_AIX)
+  .toc
+#else
   .text
+#endif
 
 #if !defined(__USING_SJLJ_EXCEPTIONS__)
 
@@ -222,27 +226,36 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_ppc646jumptoEv)
   PPC64_LVS(30)
   PPC64_LVS(31)
 
-  // use VRSAVE to conditionally restore the remaining VS regs,
-  // that are where the V regs are mapped
+#define PPC64_CLVS_RESTORE(n)                    \
+  addi   4, 3, PPC64_OFFS_FP + n * 16           ;\
+  lxvd2x n, 0, 4
 
+#if !defined(_AIX)
+  // use VRSAVE to conditionally restore the remaining VS regs, that are
+  // where the V regs are mapped. In the AIX ABI, VRSAVE is not used.
   ld    5, PPC64_OFFS_VRSAVE(3)   // test VRsave
   cmpwi 5, 0
   beq   Lnovec
 
 // conditionally load VS
-#define PPC64_CLVS_BOTTOM(n)               \
-  beq    Ldone##n                         ;\
-  addi   4, 3, PPC64_OFFS_FP + n * 16     ;\
-  lxvd2x n, 0, 4                          ;\
+#define PPC64_CLVSl(n)                           \
+  andis. 0, 5, (1 PPC_LEFT_SHIFT(47-n))         ;\
+  beq    Ldone##n                               ;\
+  PPC64_CLVS_RESTORE(n)                         ;\
 Ldone##n:
 
-#define PPC64_CLVSl(n)                    \
-  andis. 0, 5, (1 PPC_LEFT_SHIFT(47-n))  ;\
-PPC64_CLVS_BOTTOM(n)
+#define PPC64_CLVSh(n)                           \
+  andi.  0, 5, (1 PPC_LEFT_SHIFT(63-n))         ;\
+  beq    Ldone##n                               ;\
+  PPC64_CLVS_RESTORE(n)                         ;\
+Ldone##n:
 
-#define PPC64_CLVSh(n)                    \
-  andi.  0, 5, (1 PPC_LEFT_SHIFT(63-n))  ;\
-PPC64_CLVS_BOTTOM(n)
+#else
+
+#define PPC64_CLVSl(n) PPC64_CLVS_RESTORE(n)
+#define PPC64_CLVSh(n) PPC64_CLVS_RESTORE(n)
+
+#endif // !defined(_AIX)
 
   PPC64_CLVSl(32)
   PPC64_CLVSl(33)
@@ -318,32 +331,44 @@ PPC64_CLVS_BOTTOM(n)
   PPC64_LF(31)
 
 #if defined(__ALTIVEC__)
-  // restore vector registers if any are in use
+
+#define PPC64_CLV_UNALIGNED_RESTORE(n)       \
+  ld     0, (PPC64_OFFS_V + n * 16)(3)      ;\
+  std    0, 0(4)                            ;\
+  ld     0, (PPC64_OFFS_V + n * 16 + 8)(3)  ;\
+  std    0, 8(4)                            ;\
+  lvx    n, 0, 4
+
+#if !defined(_AIX)
+  // restore vector registers if any are in use. In the AIX ABI, VRSAVE is
+  // not used.
   ld    5, PPC64_OFFS_VRSAVE(3)   // test VRsave
   cmpwi 5, 0
   beq   Lnovec
+
+#define PPC64_CLV_UNALIGNEDl(n)              \
+  andis. 0, 5, (1 PPC_LEFT_SHIFT(15-n))     ;\
+  beq    Ldone##n                           ;\
+  PPC64_CLV_UNALIGNED_RESTORE(n)            ;\
+Ldone  ## n:
+
+#define PPC64_CLV_UNALIGNEDh(n)              \
+  andi.  0, 5, (1 PPC_LEFT_SHIFT(31-n))     ;\
+  beq    Ldone##n                           ;\
+  PPC64_CLV_UNALIGNED_RESTORE(n)            ;\
+Ldone  ## n:
+
+#else
+
+#define PPC64_CLV_UNALIGNEDl(n) PPC64_CLV_UNALIGNED_RESTORE(n)
+#define PPC64_CLV_UNALIGNEDh(n) PPC64_CLV_UNALIGNED_RESTORE(n)
+
+#endif // !defined(_AIX)
 
   subi  4, 1, 16
   // r4 is now a 16-byte aligned pointer into the red zone
   // the _vectorScalarRegisters may not be 16-byte aligned
   // so copy via red zone temp buffer
-
-#define PPC64_CLV_UNALIGNED_BOTTOM(n)            \
-  beq    Ldone##n                               ;\
-  ld     0, (PPC64_OFFS_V + n * 16)(3)          ;\
-  std    0, 0(4)                                ;\
-  ld     0, (PPC64_OFFS_V + n * 16 + 8)(3)      ;\
-  std    0, 8(4)                                ;\
-  lvx    n, 0, 4                                ;\
-Ldone  ## n:
-
-#define PPC64_CLV_UNALIGNEDl(n)                 \
-  andis. 0, 5, (1 PPC_LEFT_SHIFT(15-n))        ;\
-PPC64_CLV_UNALIGNED_BOTTOM(n)
-
-#define PPC64_CLV_UNALIGNEDh(n)                \
-  andi.  0, 5, (1 PPC_LEFT_SHIFT(31-n))       ;\
-PPC64_CLV_UNALIGNED_BOTTOM(n)
 
   PPC64_CLV_UNALIGNEDl(0)
   PPC64_CLV_UNALIGNEDl(1)
@@ -387,11 +412,23 @@ Lnovec:
   ld    0, PPC64_OFFS_SRR0(3)
   mtctr 0
 
+#if defined(_AIX)
+  // After setting GPR1 to a higher address, AIX wipes out the original
+  // stack space below that address invalidated by the new GPR1 value. Use
+  // GPR0 to save the value of GPR3 in the context before it is wiped out.
+  // This compromises the content of GPR0 which is a volatile register.
+  ld 0, (8 * (3 + 2))(3)
+#else
   PPC64_LR(0)
+#endif
   PPC64_LR(5)
   PPC64_LR(4)
   PPC64_LR(1)
+#if defined(_AIX)
+  mr 3, 0
+#else
   PPC64_LR(3)
+#endif
   bctr
 
 #elif defined(__powerpc__)
@@ -475,45 +512,48 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind13Registers_ppc6jumptoEv)
 #endif
 
 #if defined(__ALTIVEC__)
-  // restore vector registers if any are in use
+
+#define LOAD_VECTOR_RESTORE(_index)                 \
+  lwz     0, 424+_index*16(3)             SEPARATOR \
+  stw     0, 0(4)                         SEPARATOR \
+  lwz     0, 424+_index*16+4(3)           SEPARATOR \
+  stw     0, 4(4)                         SEPARATOR \
+  lwz     0, 424+_index*16+8(3)           SEPARATOR \
+  stw     0, 8(4)                         SEPARATOR \
+  lwz     0, 424+_index*16+12(3)          SEPARATOR \
+  stw     0, 12(4)                        SEPARATOR \
+  lvx     _index, 0, 4
+
+#if !defined(_AIX)
+  // restore vector registers if any are in use. In the AIX ABI, VRSAVE
+  // is not used.
   lwz     5, 156(3)       // test VRsave
   cmpwi   5, 0
   beq     Lnovec
+
+#define LOAD_VECTOR_UNALIGNEDl(_index)                   \
+  andis.  0, 5, (1 PPC_LEFT_SHIFT(15-_index))  SEPARATOR \
+  beq     Ldone ## _index                      SEPARATOR \
+  LOAD_VECTOR_RESTORE(_index)                  SEPARATOR \
+  Ldone ## _index:
+
+#define LOAD_VECTOR_UNALIGNEDh(_index)                   \
+  andi.   0, 5, (1 PPC_LEFT_SHIFT(31-_index))  SEPARATOR \
+  beq     Ldone ## _index                      SEPARATOR \
+  LOAD_VECTOR_RESTORE(_index)                  SEPARATOR \
+  Ldone ## _index:
+
+#else
+
+#define LOAD_VECTOR_UNALIGNEDl(_index) LOAD_VECTOR_RESTORE(_index)
+#define LOAD_VECTOR_UNALIGNEDh(_index) LOAD_VECTOR_RESTORE(_index)
+
+#endif // !defined(_AIX)
 
   subi    4, 1, 16
   rlwinm  4, 4, 0, 0, 27  // mask low 4-bits
   // r4 is now a 16-byte aligned pointer into the red zone
   // the _vectorRegisters may not be 16-byte aligned so copy via red zone temp buffer
-
-
-#define LOAD_VECTOR_UNALIGNEDl(_index)          \
-  andis.  0, 5, (1 PPC_LEFT_SHIFT(15-_index)) SEPARATOR \
-  beq     Ldone ## _index             SEPARATOR \
-  lwz     0, 424+_index*16(3)         SEPARATOR \
-  stw     0, 0(%r4)                   SEPARATOR \
-  lwz     0, 424+_index*16+4(%r3)     SEPARATOR \
-  stw     0, 4(%r4)                   SEPARATOR \
-  lwz     0, 424+_index*16+8(%r3)     SEPARATOR \
-  stw     0, 8(%r4)                   SEPARATOR \
-  lwz     0, 424+_index*16+12(%r3)    SEPARATOR \
-  stw     0, 12(%r4)                  SEPARATOR \
-  lvx     _index, 0, 4                SEPARATOR \
-  Ldone ## _index:
-
-#define LOAD_VECTOR_UNALIGNEDh(_index)          \
-  andi.   0, 5, (1 PPC_LEFT_SHIFT(31-_index)) SEPARATOR \
-  beq     Ldone ## _index             SEPARATOR \
-  lwz     0, 424+_index*16(3)         SEPARATOR \
-  stw     0, 0(4)                     SEPARATOR \
-  lwz     0, 424+_index*16+4(3)       SEPARATOR \
-  stw     0, 4(4)                     SEPARATOR \
-  lwz     0, 424+_index*16+8(3)       SEPARATOR \
-  stw     0, 8(%r4)                   SEPARATOR \
-  lwz     0, 424+_index*16+12(3)      SEPARATOR \
-  stw     0, 12(4)                    SEPARATOR \
-  lvx     _index, 0, 4                SEPARATOR \
-  Ldone ## _index:
-
 
   LOAD_VECTOR_UNALIGNEDl(0)
   LOAD_VECTOR_UNALIGNEDl(1)
@@ -1211,6 +1251,43 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_riscv6jumptoEv)
   ILOAD    x10, (RISCV_ISIZE * 10)(a0)   // restore a0
 
   ret                       // jump to ra
+
+#elif defined(__s390x__)
+
+DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_s390x6jumptoEv)
+//
+// void libunwind::Registers_s390x::jumpto()
+//
+// On entry:
+//  thread_state pointer is in r2
+//
+
+  // Skip PSWM, but load PSWA into r1
+  lg %r1, 8(%r2)
+
+  // Restore FPRs
+  ld %f0, 144(%r2)
+  ld %f1, 152(%r2)
+  ld %f2, 160(%r2)
+  ld %f3, 168(%r2)
+  ld %f4, 176(%r2)
+  ld %f5, 184(%r2)
+  ld %f6, 192(%r2)
+  ld %f7, 200(%r2)
+  ld %f8, 208(%r2)
+  ld %f9, 216(%r2)
+  ld %f10, 224(%r2)
+  ld %f11, 232(%r2)
+  ld %f12, 240(%r2)
+  ld %f13, 248(%r2)
+  ld %f14, 256(%r2)
+  ld %f15, 264(%r2)
+
+  // Restore GPRs - skipping %r0 and %r1
+  lmg  %r2, %r15, 32(%r2)
+
+  // Return to PSWA (was loaded into %r1 above)
+  br %r1
 
 #endif
 

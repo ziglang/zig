@@ -18,29 +18,6 @@
 namespace std {
 namespace experimental {
 inline namespace fundamentals_v1 {
-
-    // See C++14 20.9.9, Function object binders
-    template <class T> constexpr bool is_bind_expression_v
-      = is_bind_expression<T>::value;
-    template <class T> constexpr int is_placeholder_v
-      = is_placeholder<T>::value;
-
-    // 4.2, Class template function
-    template<class> class function; // undefined
-    template<class R, class... ArgTypes> class function<R(ArgTypes...)>;
-
-    template<class R, class... ArgTypes>
-    void swap(function<R(ArgTypes...)>&, function<R(ArgTypes...)>&);
-
-    template<class R, class... ArgTypes>
-    bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
-    template<class R, class... ArgTypes>
-    bool operator==(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
-    template<class R, class... ArgTypes>
-    bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
-    template<class R, class... ArgTypes>
-    bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
-
     // 4.3, Searchers
     template<class ForwardIterator, class BinaryPredicate = equal_to<>>
       class default_searcher;
@@ -79,16 +56,14 @@ inline namespace fundamentals_v1 {
   } // namespace fundamentals_v1
   } // namespace experimental
 
-  template<class R, class... ArgTypes, class Alloc>
-  struct uses_allocator<experimental::function<R(ArgTypes...)>, Alloc>;
-
 } // namespace std
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__debug>
+#include <__functional/identity.h>
 #include <__memory/uses_allocator.h>
-#include <algorithm>
 #include <array>
 #include <experimental/__config>
 #include <functional>
@@ -97,7 +72,7 @@ inline namespace fundamentals_v1 {
 #include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -105,10 +80,20 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
+#ifdef _LIBCPP_NO_EXPERIMENTAL_DEPRECATION_WARNING_SEARCHERS
+#  define _LIBCPP_DEPRECATED_DEFAULT_SEARCHER
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER
+#else
+#  define _LIBCPP_DEPRECATED_DEFAULT_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::default_searcher will be removed in LLVM 17. Use std::default_searcher instead")
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::boyer_moore_searcher will be removed in LLVM 17. Use std::boyer_moore_searcher instead")
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::boyer_moore_horspool_searcher will be removed in LLVM 17. Use std::boyer_moore_horspool_searcher instead")
+#endif
+
 #if _LIBCPP_STD_VER > 11
 // default searcher
 template<class _ForwardIterator, class _BinaryPredicate = equal_to<>>
-class _LIBCPP_TEMPLATE_VIS default_searcher {
+class _LIBCPP_DEPRECATED_DEFAULT_SEARCHER _LIBCPP_TEMPLATE_VIS default_searcher {
 public:
     _LIBCPP_INLINE_VISIBILITY
     default_searcher(_ForwardIterator __f, _ForwardIterator __l,
@@ -120,9 +105,8 @@ public:
     pair<_ForwardIterator2, _ForwardIterator2>
     operator () (_ForwardIterator2 __f, _ForwardIterator2 __l) const
     {
-        return _VSTD::__search(__f, __l, __first_, __last_, __pred_,
-            typename iterator_traits<_ForwardIterator>::iterator_category(),
-            typename iterator_traits<_ForwardIterator2>::iterator_category());
+        auto __proj = __identity();
+        return std::__search_impl(__f, __l, __first_, __last_, __pred_, __proj, __proj);
     }
 
 private:
@@ -132,7 +116,7 @@ private:
     };
 
 template<class _ForwardIterator, class _BinaryPredicate = equal_to<>>
-_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_DEPRECATED_DEFAULT_SEARCHER _LIBCPP_INLINE_VISIBILITY
 default_searcher<_ForwardIterator, _BinaryPredicate>
 make_default_searcher( _ForwardIterator __f, _ForwardIterator __l, _BinaryPredicate __p = _BinaryPredicate ())
 {
@@ -144,7 +128,6 @@ template<class _Key, class _Value, class _Hash, class _BinaryPredicate, bool /*u
 //  General case for BM data searching; use a map
 template<class _Key, typename _Value, class _Hash, class _BinaryPredicate>
 class _BMSkipTable<_Key, _Value, _Hash, _BinaryPredicate, false> {
-public: // TODO private:
     typedef _Value value_type;
     typedef _Key   key_type;
 
@@ -179,7 +162,7 @@ private:
     typedef _Key   key_type;
 
     typedef typename make_unsigned<key_type>::type unsigned_key_type;
-    typedef std::array<value_type, numeric_limits<unsigned_key_type>::max()> skip_map;
+    typedef std::array<value_type, 256> skip_map;
     skip_map __table;
 
 public:
@@ -206,7 +189,7 @@ public:
 template <class _RandomAccessIterator1,
           class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>,
           class _BinaryPredicate = equal_to<>>
-class _LIBCPP_TEMPLATE_VIS boyer_moore_searcher {
+class _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER _LIBCPP_TEMPLATE_VIS boyer_moore_searcher {
 private:
     typedef typename std::iterator_traits<_RandomAccessIterator1>::difference_type difference_type;
     typedef typename std::iterator_traits<_RandomAccessIterator1>::value_type      value_type;
@@ -236,11 +219,9 @@ public:
     pair<_RandomAccessIterator2, _RandomAccessIterator2>
     operator ()(_RandomAccessIterator2 __f, _RandomAccessIterator2 __l) const
     {
-        static_assert ( std::is_same<
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type,
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator2>::value_type>::type
-                    >::value,
-                "Corpus and Pattern iterators must point to the same type" );
+        static_assert(__is_same_uncvref<typename iterator_traits<_RandomAccessIterator1>::value_type,
+                                        typename iterator_traits<_RandomAccessIterator2>::value_type>::value,
+                      "Corpus and Pattern iterators must point to the same type");
 
         if (__f      == __l )    return make_pair(__l, __l); // empty corpus
         if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
@@ -253,7 +234,7 @@ public:
         return this->__search(__f, __l);
     }
 
-public: // TODO private:
+private:
     _RandomAccessIterator1               __first_;
     _RandomAccessIterator1               __last_;
     _BinaryPredicate                     __pred_;
@@ -320,7 +301,7 @@ public: // TODO private:
         vector<difference_type> & __suffix = *__suffix_.get();
         if (__count > 0)
         {
-            vector<value_type> __scratch(__count);
+            vector<difference_type> __scratch(__count);
 
             __compute_bm_prefix(__f, __l, __pred, __scratch);
             for ( size_t __i = 0; __i <= __count; __i++ )
@@ -345,7 +326,7 @@ public: // TODO private:
 template<class _RandomAccessIterator,
          class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>,
          class _BinaryPredicate = equal_to<>>
-_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER _LIBCPP_INLINE_VISIBILITY
 boyer_moore_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>
 make_boyer_moore_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
                     _Hash __hf = _Hash(), _BinaryPredicate __p = _BinaryPredicate ())
@@ -357,7 +338,7 @@ make_boyer_moore_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
 template <class _RandomAccessIterator1,
           class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>,
           class _BinaryPredicate = equal_to<>>
-class _LIBCPP_TEMPLATE_VIS boyer_moore_horspool_searcher {
+class _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER _LIBCPP_TEMPLATE_VIS boyer_moore_horspool_searcher {
 private:
     typedef typename std::iterator_traits<_RandomAccessIterator1>::difference_type difference_type;
     typedef typename std::iterator_traits<_RandomAccessIterator1>::value_type      value_type;
@@ -388,11 +369,9 @@ public:
     pair<_RandomAccessIterator2, _RandomAccessIterator2>
     operator ()(_RandomAccessIterator2 __f, _RandomAccessIterator2 __l) const
     {
-        static_assert ( std::is_same<
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type,
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator2>::value_type>::type
-                    >::value,
-                "Corpus and Pattern iterators must point to the same type" );
+        static_assert(__is_same_uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type,
+                                        typename std::iterator_traits<_RandomAccessIterator2>::value_type>::value,
+                      "Corpus and Pattern iterators must point to the same type");
 
         if (__f      == __l )    return make_pair(__l, __l); // empty corpus
         if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
@@ -440,7 +419,7 @@ private:
 template<class _RandomAccessIterator,
          class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>,
          class _BinaryPredicate = equal_to<>>
-_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER _LIBCPP_INLINE_VISIBILITY
 boyer_moore_horspool_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>
 make_boyer_moore_horspool_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
                     _Hash __hf = _Hash(), _BinaryPredicate __p = _BinaryPredicate ())

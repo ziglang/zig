@@ -285,6 +285,7 @@ const Code = struct {
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
+    backend_stage1: bool,
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
     verbose_cimport: bool,
@@ -554,6 +555,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
                     var verbose_cimport = false;
+                    var backend_stage1 = false;
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, Token.Id.Content);
@@ -586,6 +588,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             link_libc = true;
                         } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
                             link_mode = .Dynamic;
+                        } else if (mem.eql(u8, end_tag_name, "backend_stage1")) {
+                            backend_stage1 = true;
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
@@ -609,6 +613,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_objects = link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
+                            .backend_stage1 = backend_stage1,
                             .link_mode = link_mode,
                             .disable_cache = disable_cache,
                             .verbose_cimport = verbose_cimport,
@@ -853,10 +858,11 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
 }
 
 const builtin_types = [_][]const u8{
-    "f16",         "f32",      "f64",       "f128",     "c_longdouble", "c_short",
-    "c_ushort",    "c_int",    "c_uint",    "c_long",   "c_ulong",      "c_longlong",
-    "c_ulonglong", "c_char",   "anyopaque", "void",     "bool",         "isize",
-    "usize",       "noreturn", "type",      "anyerror", "comptime_int", "comptime_float",
+    "f16",          "f32",     "f64",        "f80",          "f128",
+    "c_longdouble", "c_short", "c_ushort",   "c_int",        "c_uint",
+    "c_long",       "c_ulong", "c_longlong", "c_ulonglong",  "c_char",
+    "anyopaque",    "void",    "bool",       "isize",        "usize",
+    "noreturn",     "type",    "anyerror",   "comptime_int", "comptime_float",
 };
 
 fn isType(name: []const u8) bool {
@@ -1052,9 +1058,7 @@ fn tokenizeAndPrintRaw(
                 }
             },
 
-            .integer_literal,
-            .float_literal,
-            => {
+            .number_literal => {
                 try out.writeAll("<span class=\"tok-number\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
@@ -1187,6 +1191,9 @@ fn printShell(out: anytype, shell_content: []const u8) !void {
     try out.writeAll("</samp></pre></figure>");
 }
 
+// Override this to skip to later tests
+const debug_start_line = 0;
+
 fn genHtml(
     allocator: Allocator,
     tokenizer: *Tokenizer,
@@ -1202,7 +1209,7 @@ fn genHtml(
     var env_map = try process.getEnvMap(allocator);
     try env_map.put("ZIG_DEBUG_COLOR", "1");
 
-    const host = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
@@ -1266,6 +1273,13 @@ fn genHtml(
                     continue;
                 }
 
+                if (debug_start_line > 0) {
+                    const loc = tokenizer.getTokenLocation(code.source_token);
+                    if (debug_start_line > loc.line) {
+                        continue;
+                    }
+                }
+
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 const tmp_source_file_name = try fs.path.join(
@@ -1310,6 +1324,10 @@ fn genHtml(
                         if (code.link_libc) {
                             try build_args.append("-lc");
                             try shell_out.print("-lc ", .{});
+                        }
+                        if (code.backend_stage1) {
+                            try build_args.append("-fstage1");
+                            try shell_out.print("-fstage1", .{});
                         }
                         const target = try std.zig.CrossTarget.parse(.{
                             .arch_os_abi = code.target_str orelse "native",
@@ -1443,6 +1461,10 @@ fn genHtml(
                             try test_args.append("-lc");
                             try shell_out.print("-lc ", .{});
                         }
+                        if (code.backend_stage1) {
+                            try test_args.append("-fstage1");
+                            try shell_out.print("-fstage1", .{});
+                        }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
@@ -1451,7 +1473,6 @@ fn genHtml(
                                 .arch_os_abi = triple,
                             });
                             const target_info = try std.zig.system.NativeTargetInfo.detect(
-                                allocator,
                                 cross_target,
                             );
                             switch (host.getExternalExecutor(target_info, .{
@@ -1489,6 +1510,14 @@ fn genHtml(
                                 try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                                 try shell_out.print("-O {s} ", .{@tagName(code.mode)});
                             },
+                        }
+                        if (code.link_libc) {
+                            try test_args.append("-lc");
+                            try shell_out.print("-lc ", .{});
+                        }
+                        if (code.backend_stage1) {
+                            try test_args.append("-fstage1");
+                            try shell_out.print("-fstage1", .{});
                         }
                         const result = try ChildProcess.exec(.{
                             .allocator = allocator,

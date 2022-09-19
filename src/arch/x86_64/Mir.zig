@@ -44,25 +44,28 @@ pub const Inst = struct {
         ///       0b01 word ptr [reg1 + imm32], imm16
         ///       0b10 dword ptr [reg1 + imm32], imm32
         ///       0b11 qword ptr [reg1 + imm32], imm32 (sign-extended to imm64)
+        /// Notes:
+        ///  * Uses `ImmPair` as payload
         adc_mem_imm,
 
-        /// form: reg1, [reg2 + scale*rcx + imm32]
-        /// ops flags  scale
-        ///      0b00      1
-        ///      0b01      2
-        ///      0b10      4
-        ///      0b11      8
-        adc_scale_src,
-
-        /// form: [reg1 + scale*rax + imm32], reg2
-        /// form: [reg1 + scale*rax + 0], imm32
+        /// form: reg1, [reg2 + scale*index + imm32]
         /// ops flags  scale
         ///      0b00      1
         ///      0b01      2
         ///      0b10      4
         ///      0b11      8
         /// Notes:
-        ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
+        ///  * Uses `IndexRegisterDisp` as payload
+        adc_scale_src,
+
+        /// form: [reg1 + scale*index + imm32], reg2
+        /// ops flags  scale
+        ///      0b00      1
+        ///      0b01      2
+        ///      0b10      4
+        ///      0b11      8
+        /// Notes:
+        ///  * Uses `IndexRegisterDisp` payload.
         adc_scale_dst,
 
         /// form: [reg1 + scale*rax + imm32], imm32
@@ -72,14 +75,16 @@ pub const Inst = struct {
         ///      0b10      4
         ///      0b11      8
         /// Notes:
-        ///  * Data field `payload` points at `ImmPair`.
+        ///  * Uses `IndexRegisterDispImm` payload.
         adc_scale_imm,
 
         /// ops flags: form:
-        ///       0b00 byte ptr [reg1 + rax + imm32], imm8
-        ///       0b01 word ptr [reg1 + rax + imm32], imm16
-        ///       0b10 dword ptr [reg1 + rax + imm32], imm32
-        ///       0b11 qword ptr [reg1 + rax + imm32], imm32 (sign-extended to imm64)
+        ///       0b00 byte ptr [reg1 + index + imm32], imm8
+        ///       0b01 word ptr [reg1 + index + imm32], imm16
+        ///       0b10 dword ptr [reg1 + index + imm32], imm32
+        ///       0b11 qword ptr [reg1 + index + imm32], imm32 (sign-extended to imm64)
+        /// Notes:
+        ///  * Uses `IndexRegisterDispImm` payload.
         adc_mem_index_imm,
 
         // The following instructions all have the same encoding as `adc`.
@@ -174,15 +179,18 @@ pub const Inst = struct {
         ///      0b00  reg1, [reg2 + imm32]
         ///      0b00  reg1, [ds:imm32]
         ///      0b01  reg1, [rip + imm32]
-        ///      0b10  reg1, [reg2 + rcx + imm32]
+        ///      0b10  reg1, [reg2 + index + imm32]
+        /// Notes:
+        ///  * 0b10 uses `IndexRegisterDisp` payload
         lea,
 
         /// ops flags: form:
-        ///      0b00  reg1, [rip + reloc] // via GOT emits X86_64_RELOC_GOT relocation
-        ///      0b01  reg1, [rip + reloc] // direct load emits X86_64_RELOC_SIGNED relocation
+        ///      0b00  reg1, [rip + reloc] // via GOT PIC
+        ///      0b01  reg1, [rip + reloc] // direct load PIC
+        ///      0b10  reg1, [rip + reloc] // via imports table PIC
         /// Notes:
         /// * `Data` contains `relocation`
-        lea_pie,
+        lea_pic,
 
         /// ops flags: form:
         ///      0b00  reg1, 1
@@ -242,15 +250,14 @@ pub const Inst = struct {
         imul_complex,
 
         /// ops flags:  form:
-        ///      0bX0   reg1, imm64
-        ///      0bX1   rax, moffs64
+        ///      0b00   reg1, imm64
+        ///      0b01   rax, moffs64
         /// Notes:
         ///   * If reg1 is 64-bit, the immediate is 64-bit and stored
         ///     within extra data `Imm64`.
-        ///   * For 0bX1, reg1 (or reg2) need to be
+        ///   * For 0b01, reg1 (or reg2) need to be
         ///     a version of rax. If reg1 == .none, then reg2 == .rax,
         ///     or vice versa.
-        /// TODO handle scaling
         movabs,
 
         /// ops flags:  form:
@@ -455,52 +462,109 @@ pub const Inst = struct {
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
-        if (builtin.mode != .Debug) {
+        if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
             assert(@sizeOf(Data) == 8);
         }
     }
 };
 
-pub fn RegisterList(comptime Reg: type, comptime registers: []const Reg) type {
-    assert(registers.len <= @bitSizeOf(u32));
-    return struct {
-        bitset: RegBitSet = RegBitSet.initEmpty(),
+pub const IndexRegisterDisp = struct {
+    /// Index register to use with SIB-based encoding
+    index: u32,
 
-        const RegBitSet = IntegerBitSet(registers.len);
-        const Self = @This();
+    /// Displacement value
+    disp: u32,
 
-        fn getIndexForReg(reg: Reg) RegBitSet.MaskInt {
-            inline for (registers) |cpreg, i| {
-                if (reg.id() == cpreg.id()) return i;
-            }
-            unreachable; // register not in input register list!
+    pub fn encode(index: Register, disp: u32) IndexRegisterDisp {
+        return .{
+            .index = @enumToInt(index),
+            .disp = disp,
+        };
+    }
+
+    pub fn decode(this: IndexRegisterDisp) struct {
+        index: Register,
+        disp: u32,
+    } {
+        return .{
+            .index = @intToEnum(Register, this.index),
+            .disp = this.disp,
+        };
+    }
+};
+
+/// TODO: would it be worth making `IndexRegisterDisp` and `IndexRegisterDispImm` a variable length list
+/// instead of having two structs, one a superset of the other one?
+pub const IndexRegisterDispImm = struct {
+    /// Index register to use with SIB-based encoding
+    index: u32,
+
+    /// Displacement value
+    disp: u32,
+
+    /// Immediate
+    imm: u32,
+
+    pub fn encode(index: Register, disp: u32, imm: u32) IndexRegisterDispImm {
+        return .{
+            .index = @enumToInt(index),
+            .disp = disp,
+            .imm = imm,
+        };
+    }
+
+    pub fn decode(this: IndexRegisterDispImm) struct {
+        index: Register,
+        disp: u32,
+        imm: u32,
+    } {
+        return .{
+            .index = @intToEnum(Register, this.index),
+            .disp = this.disp,
+            .imm = this.imm,
+        };
+    }
+};
+
+/// Used in conjunction with `SaveRegisterList` payload to transfer a list of used registers
+/// in a compact manner.
+pub const RegisterList = struct {
+    bitset: BitSet = BitSet.initEmpty(),
+
+    const BitSet = IntegerBitSet(@ctz(@as(u32, 0)));
+    const Self = @This();
+
+    fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
+        for (registers) |cpreg, i| {
+            if (reg.id() == cpreg.id()) return @intCast(u32, i);
         }
+        unreachable; // register not in input register list!
+    }
 
-        pub fn push(self: *Self, reg: Reg) void {
-            const index = getIndexForReg(reg);
-            self.bitset.set(index);
-        }
+    pub fn push(self: *Self, registers: []const Register, reg: Register) void {
+        const index = getIndexForReg(registers, reg);
+        self.bitset.set(index);
+    }
 
-        pub fn isSet(self: Self, reg: Reg) bool {
-            const index = getIndexForReg(reg);
-            return self.bitset.isSet(index);
-        }
+    pub fn isSet(self: Self, registers: []const Register, reg: Register) bool {
+        const index = getIndexForReg(registers, reg);
+        return self.bitset.isSet(index);
+    }
 
-        pub fn asInt(self: Self) u32 {
-            return self.bitset.mask;
-        }
+    pub fn asInt(self: Self) u32 {
+        return self.bitset.mask;
+    }
 
-        pub fn fromInt(mask: u32) Self {
-            return .{
-                .bitset = RegBitSet{ .mask = @intCast(RegBitSet.MaskInt, mask) },
-            };
-        }
+    pub fn fromInt(mask: u32) Self {
+        return .{
+            .bitset = BitSet{ .mask = @intCast(BitSet.MaskInt, mask) },
+        };
+    }
 
-        pub fn count(self: Self) u32 {
-            return @intCast(u32, self.bitset.count());
-        }
-    };
-}
+    pub fn count(self: Self) u32 {
+        return @intCast(u32, self.bitset.count());
+    }
+};
 
 pub const SaveRegisterList = struct {
     /// Use `RegisterList` to populate.

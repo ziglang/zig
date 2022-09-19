@@ -33,6 +33,7 @@ void zig_five_integers(int32_t, int32_t, int32_t, int32_t, int32_t);
 
 void zig_f32(float);
 void zig_f64(double);
+void zig_longdouble(long double);
 void zig_five_floats(float, float, float, float, float);
 
 bool zig_ret_bool();
@@ -85,24 +86,8 @@ struct MedStructMixed {
 void zig_med_struct_mixed(struct MedStructMixed);
 struct MedStructMixed zig_ret_med_struct_mixed();
 
-struct SmallPackedStruct {
-    uint8_t a: 2;
-    uint8_t b: 2;
-    uint8_t c: 2;
-    uint8_t d: 2;
-    uint8_t e: 1;
-};
-
-struct BigPackedStruct {
-    uint64_t a: 64;
-    uint64_t b: 64;
-    uint64_t c: 64;
-    uint64_t d: 64;
-    uint8_t e: 8;
-};
-
-//void zig_small_packed_struct(struct SmallPackedStruct); // #1481
-void zig_big_packed_struct(struct BigPackedStruct);
+void zig_small_packed_struct(uint8_t);
+void zig_big_packed_struct(__int128);
 
 struct SplitStructInts {
     uint64_t a;
@@ -157,6 +142,7 @@ void run_c_tests(void) {
 
     zig_f32(12.34f);
     zig_f64(56.78);
+    zig_longdouble(12.34l);
     zig_five_floats(1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
 
     zig_ptr((void*)0xdeadbeefL);
@@ -174,13 +160,19 @@ void run_c_tests(void) {
     }
 
     {
-        struct BigPackedStruct s = {1, 2, 3, 4, 5};
+        __int128 s = 0;
+        s |= 1 << 0;
+        s |= (__int128)2 << 64;
         zig_big_packed_struct(s);
     }
 
     {
-        struct SmallPackedStruct s = {0, 1, 2, 3, 1};
-        //zig_small_packed_struct(s);
+        uint8_t s = 0;
+        s |= 0 << 0;
+        s |= 1 << 2;
+        s |= 2 << 4;
+        s |= 3 << 6;
+        zig_small_packed_struct(s);
     }
 
     {
@@ -269,6 +261,10 @@ void c_f32(float x) {
 
 void c_f64(double x) {
     assert_or_panic(x == 56.78);
+}
+
+void c_long_double(long double x) {
+    assert_or_panic(x == 12.34l);
 }
 
 void c_ptr(void *x) {
@@ -372,42 +368,32 @@ void c_split_struct_mixed(struct SplitStructMixed x) {
     assert_or_panic(y.c == 1337.0f);
 }
 
-struct SmallPackedStruct c_ret_small_packed_struct() {
-    struct SmallPackedStruct s = {
-        .a = 0,
-        .b = 1,
-        .c = 2,
-        .d = 3,
-        .e = 1,
-    };
+uint8_t c_ret_small_packed_struct() {
+    uint8_t s = 0;
+    s |= 0 << 0;
+    s |= 1 << 2;
+    s |= 2 << 4;
+    s |= 3 << 6;
     return s;
 }
 
-void c_small_packed_struct(struct SmallPackedStruct x) {
-    assert_or_panic(x.a == 0);
-    assert_or_panic(x.a == 1);
-    assert_or_panic(x.a == 2);
-    assert_or_panic(x.a == 3);
-    assert_or_panic(x.e == 1);
+void c_small_packed_struct(uint8_t x) {
+    assert_or_panic(((x >> 0) & 0x3) == 0);
+    assert_or_panic(((x >> 2) & 0x3) == 1);
+    assert_or_panic(((x >> 4) & 0x3) == 2);
+    assert_or_panic(((x >> 6) & 0x3) == 3);
 }
 
-struct BigPackedStruct c_ret_big_packed_struct() {
-    struct BigPackedStruct s = {
-        .a = 1,
-        .b = 2,
-        .c = 3,
-        .d = 4,
-        .e = 5,
-    };
+__int128 c_ret_big_packed_struct() {
+    __int128 s = 0;
+    s |= 1 << 0;
+    s |= (__int128)2 << 64;
     return s;
 }
 
-void c_big_packed_struct(struct BigPackedStruct x) {
-    assert_or_panic(x.a == 1);
-    assert_or_panic(x.b == 2);
-    assert_or_panic(x.c == 3);
-    assert_or_panic(x.d == 4);
-    assert_or_panic(x.e == 5);
+void c_big_packed_struct(__int128 x) {
+    assert_or_panic(((x >> 0) & 0xFFFFFFFFFFFFFFFF) == 1);
+    assert_or_panic(((x >> 64) & 0xFFFFFFFFFFFFFFFF) == 2);
 }
 
 struct SplitStructMixed c_ret_split_struct_mixed() {

@@ -9753,6 +9753,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     Buf *name = buf_sprintf("(%s header)", buf_ptr(&any_frame_type->name));
     LLVMTypeRef frame_header_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
     any_frame_type->llvm_type = LLVMPointerType(frame_header_type, 0);
+    any_frame_type->data.any_frame.struct_llvm_ty = frame_header_type;
 
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
     ZigLLVMDIFile *di_file = nullptr;
@@ -9775,7 +9776,8 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
     LLVMTypeRef ptr_fn_llvm_type = LLVMPointerType(fn_type, fn_addrspace);
     if (result_type == nullptr) {
-        g->anyframe_fn_type = ptr_fn_llvm_type;
+        g->any_frame_header_llvm_ty = frame_header_type;
+        g->anyframe_fn_type = fn_type;
     }
 
     ZigList<LLVMTypeRef> field_types = {};

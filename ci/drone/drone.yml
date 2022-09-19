@@ -9,70 +9,70 @@ platform:
 
 steps:
 - name: build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
   - ./ci/drone/linux_script_build
 
-- name: test-1
+- name: behavior
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 1
+  - ./ci/drone/test_linux_behavior
 
-- name: test-2
+- name: std_Debug
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 2
+  - ./ci/drone/test_linux_std_Debug
 
-- name: test-3
+- name: std_ReleaseSafe
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 3
+  - ./ci/drone/test_linux_std_ReleaseSafe
 
-- name: test-4
+- name: std_ReleaseFast
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 4
+  - ./ci/drone/test_linux_std_ReleaseFast
 
-- name: test-5
+- name: std_ReleaseSmall
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 5
+  - ./ci/drone/test_linux_std_ReleaseSmall
 
-- name: test-6
+- name: misc
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 6
+  - ./ci/drone/test_linux_misc
 
-- name: test-7
+- name: cases
   depends_on:
   - build
-  image: ziglang/static-base:llvm14-aarch64-3
+  image: ziglang/static-base:llvm15-aarch64-2
   commands:
-  - ./ci/drone/linux_script_test 7
+  - ./ci/drone/test_linux_cases
 
 - name: finalize
   depends_on:
   - build
-  - test-1
-  - test-2
-  - test-3
-  - test-4
-  - test-5
-  - test-6
-  - test-7
-  image: ziglang/static-base:llvm14-aarch64-3
+  - behavior
+  - std_Debug
+  - std_ReleaseSafe
+  - std_ReleaseFast
+  - std_ReleaseSmall
+  - misc
+  - cases
+  image: ziglang/static-base:llvm15-aarch64-2
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN

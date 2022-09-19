@@ -16,7 +16,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -218,8 +218,8 @@ private:
     static_assert(__m == 0 || __c < __m, "linear_congruential_engine invalid parameters");
     static_assert(is_unsigned<_UIntType>::value, "_UIntType must be unsigned type");
 public:
-    static _LIBCPP_CONSTEXPR const result_type _Min = __c == 0u ? 1u: 0u;
-    static _LIBCPP_CONSTEXPR const result_type _Max = __m - 1u;
+    static _LIBCPP_CONSTEXPR const result_type _Min = __c == 0u ? 1u : 0u;
+    static _LIBCPP_CONSTEXPR const result_type _Max = __m - _UIntType(1u);
     static_assert(_Min < _Max,           "linear_congruential_engine invalid parameters");
 
     // engine characteristics

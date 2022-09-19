@@ -25,7 +25,7 @@ const skip_stage1 = builtin.zig_backend != .stage1 or build_options.skip_stage1;
 const hr = "=" ** 80;
 
 test {
-    if (build_options.is_stage1) {
+    if (build_options.have_stage1) {
         @import("stage1.zig").os_init();
     }
 
@@ -177,6 +177,8 @@ const TestManifestConfigDefaults = struct {
                 inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-macos" ++ ",";
                 }
+                // Windows
+                defaults = defaults ++ "x86_64-windows" ++ ",";
                 // Wasm
                 defaults = defaults ++ "wasm32-wasi";
                 return defaults;
@@ -606,7 +608,6 @@ pub const TestContext = struct {
         output_mode: std.builtin.OutputMode,
         optimize_mode: std.builtin.Mode = .Debug,
         updates: std.ArrayList(Update),
-        object_format: ?std.Target.ObjectFormat = null,
         emit_h: bool = false,
         is_test: bool = false,
         expect_exact: bool = false,
@@ -782,12 +783,13 @@ pub const TestContext = struct {
     pub fn exeFromCompiledC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
         const prefixed_name = std.fmt.allocPrint(ctx.arena, "CBE: {s}", .{name}) catch
             @panic("out of memory");
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = prefixed_name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -851,12 +853,13 @@ pub const TestContext = struct {
 
     /// Adds a test case for Zig or ZIR input, producing C code.
     pub fn addC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -1210,7 +1213,8 @@ pub const TestContext = struct {
     }
 
     fn run(self: *TestContext) !void {
-        const host = try std.zig.system.NativeTargetInfo.detect(self.gpa, .{});
+        const host = try std.zig.system.NativeTargetInfo.detect(.{});
+        const zig_exe_path = try std.process.getEnvVarOwned(self.arena, "ZIG_EXE");
 
         var progress = std.Progress{};
         const root_node = progress.start("compiler", self.cases.items.len);
@@ -1269,6 +1273,7 @@ pub const TestContext = struct {
                     &prg_node,
                     case.*,
                     zig_lib_directory,
+                    zig_exe_path,
                     &aux_thread_pool,
                     global_cache_directory,
                     host,
@@ -1295,11 +1300,12 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
+        zig_exe_path: []const u8,
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
         host: std.zig.system.NativeTargetInfo,
     ) !void {
-        const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
+        const target_info = try std.zig.system.NativeTargetInfo.detect(case.target);
         const target = target_info.target;
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
@@ -1348,7 +1354,7 @@ pub const TestContext = struct {
             try tmp.dir.writeFile(tmp_src_path, update.src);
 
             var zig_args = std.ArrayList([]const u8).init(arena);
-            try zig_args.append(std.testing.zig_exe_path);
+            try zig_args.append(zig_exe_path);
 
             if (case.is_test) {
                 try zig_args.append("test");
@@ -1501,7 +1507,6 @@ pub const TestContext = struct {
             .root_name = "test_case",
             .target = target,
             .output_mode = case.output_mode,
-            .object_format = case.object_format,
         });
 
         const emit_directory: Compilation.Directory = .{
@@ -1537,16 +1542,22 @@ pub const TestContext = struct {
             .emit_h = emit_h,
             .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
-            .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .link_libc = case.link_libc,
             .use_llvm = use_llvm,
             .use_stage1 = null, // We already handled stage1 tests
-            .self_exe_path = std.testing.zig_exe_path,
+            .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
+            .reference_trace = 0,
+            // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
+            //       until the auto-select mechanism deems them worthy
+            .use_lld = switch (case.backend) {
+                .stage2 => false,
+                else => null,
+            },
         });
         defer comp.destroy();
 
@@ -1782,13 +1793,13 @@ pub const TestContext = struct {
                             ".." ++ ss ++ "{s}" ++ ss ++ "{s}",
                             .{ &tmp.sub_path, bin_name },
                         );
-                        if (case.object_format != null and case.object_format.? == .c) {
+                        if (case.target.ofmt != null and case.target.ofmt.? == .c) {
                             if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
                                 continue :update; // Pass test.
                             }
                             try argv.appendSlice(&[_][]const u8{
-                                std.testing.zig_exe_path,
+                                zig_exe_path,
                                 "run",
                                 "-cflags",
                                 "-std=c99",

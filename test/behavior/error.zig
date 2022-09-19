@@ -168,7 +168,7 @@ fn entryPtr() void {
     fooPtr(ptr);
 }
 
-fn foo2(f: fn () anyerror!void) void {
+fn foo2(comptime f: fn () anyerror!void) void {
     const x = f();
     x catch {
         @panic("fail");
@@ -222,8 +222,8 @@ fn testErrorSetType() !void {
 
 test "explicit error set cast" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testExplicitErrorSetCast(Set1.A);
     comptime try testExplicitErrorSetCast(Set1.A);
@@ -282,7 +282,6 @@ test "inferred empty error set comptime catch" {
 }
 
 test "error union peer type resolution" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testErrorUnionPeerTypeResolution(1);
@@ -327,7 +326,6 @@ fn foo3(b: usize) Error!usize {
 
 test "error: Infer error set from literals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     _ = nullLiteral("n") catch |err| handleErrors(err);
     _ = floatLiteral("n") catch |err| handleErrors(err);
@@ -700,7 +698,6 @@ test "ret_ptr doesn't cause own inferred error set to be resolved" {
 
 test "simple else prong allowed even when all errors handled" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -795,4 +792,20 @@ test "error union of noreturn used with catch" {
     NoReturn.a = 64;
     const err = NoReturn.testCatch();
     try expect(err == error.OtherFailure);
+}
+
+test "alignment of wrapping an error union payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const I = extern struct { x: i128 };
+
+        fn foo() anyerror!I {
+            var i: I = .{ .x = 1234 };
+            return i;
+        }
+    };
+    try expect((S.foo() catch unreachable).x == 1234);
 }

@@ -822,7 +822,6 @@ test "args iterator" {
     const given_suffix = std.fs.path.basename(prog_name);
 
     try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
-    try testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
     try testing.expect(it.next() == null);
     try testing.expect(!it.skip());
 }

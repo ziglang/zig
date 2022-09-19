@@ -82,12 +82,11 @@ test "type pun value and struct" {
 }
 
 fn bigToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Big) v else @byteSwap(T, v);
+    return if (endian == .Big) v else @byteSwap(v);
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
@@ -398,7 +397,6 @@ test "offset field ptr by enclosing array element size" {
 test "accessing reinterpreted memory of parent object" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     const S = extern struct {
         a: f32,
         b: [4]u8,

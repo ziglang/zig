@@ -14,7 +14,6 @@ test "bytes" {
         .a = undefined,
         .c = "12345".*, // this caused problems
     };
-    _ = s_1;
 
     var u_2 = U{ .s = s_1 };
     _ = u_2;
@@ -35,7 +34,6 @@ test "aggregate" {
         .a = undefined,
         .c = c, // this caused problems
     };
-    _ = s_1;
 
     var u_2 = U{ .s = s_1 };
     _ = u_2;

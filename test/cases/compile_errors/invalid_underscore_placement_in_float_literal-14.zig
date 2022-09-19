@@ -7,5 +7,4 @@ fn main() void {
 // backend=stage2
 // target=native
 //
-// :2:21: error: expected expression, found 'invalid bytes'
-// :2:27: note: invalid byte: 'p'
+// :2:27: error: expected digit before exponent

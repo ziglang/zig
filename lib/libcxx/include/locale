@@ -187,26 +187,37 @@ template <class charT> class messages_byname;
 
 */
 
+#include <__algorithm/copy.h>
+#include <__algorithm/equal.h>
+#include <__algorithm/find.h>
+#include <__algorithm/max.h>
+#include <__algorithm/reverse.h>
+#include <__algorithm/unwrap_iter.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__debug>
+#include <__iterator/access.h>
+#include <__iterator/back_insert_iterator.h>
+#include <__iterator/istreambuf_iterator.h>
+#include <__iterator/ostreambuf_iterator.h>
 #include <__locale>
-#include <algorithm>
-#ifndef __APPLE__
-# include <cstdarg>
-#endif
+#include <cstdarg> // TODO: Remove this include
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <ios>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <streambuf>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#endif
+
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 // Most unix variants have catopen.  These are the specific ones that don't.
-#  if !defined(__BIONIC__) && !defined(_NEWLIB_VERSION)
+#  if !defined(__BIONIC__) && !defined(_NEWLIB_VERSION) && !defined(__EMSCRIPTEN__)
 #    define _LIBCPP_HAS_CATOPEN 1
 #    include <nl_types.h>
 #  endif
@@ -219,7 +230,7 @@ template <class charT> class messages_byname;
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -572,9 +583,9 @@ __num_get<_CharT>::__stage2_float_loop(_CharT __ct, bool& __in_units, char& __ex
     return 0;
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_get<char>)
+extern template struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_get<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_get<wchar_t>)
+extern template struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_get<wchar_t>;
 #endif
 
 template <class _CharT, class _InputIterator = istreambuf_iterator<_CharT> >
@@ -1112,9 +1123,9 @@ num_get<_CharT, _InputIterator>::do_get(iter_type __b, iter_type __e,
     return __b;
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<wchar_t>;
 #endif
 
 struct _LIBCPP_TYPE_VIS __num_put_base
@@ -1264,9 +1275,9 @@ __num_put<_CharT>::__widen_and_group_float(char* __nb, char* __np, char* __ne,
         __op = __ob + (__np - __nb);
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_put<char>)
+extern template struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_put<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_put<wchar_t>)
+extern template struct _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __num_put<wchar_t>;
 #endif
 
 template <class _CharT, class _OutputIterator = ostreambuf_iterator<_CharT> >
@@ -1456,7 +1467,7 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
         return do_put(__s, __iob, __fl, (unsigned long)__v);
     const numpunct<char_type>& __np = use_facet<numpunct<char_type> >(__iob.getloc());
     typedef typename numpunct<char_type>::string_type string_type;
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
     string_type __tmp(__v ? __np.truename() : __np.falsename());
     string_type __nm = _VSTD::move(__tmp);
 #else
@@ -1486,10 +1497,11 @@ num_put<_CharT, _OutputIterator>::__do_put_integral(iter_type __s, ios_base& __i
         + ((numeric_limits<_Unsigned>::digits % 3) != 0) // round up
         + 2; // base prefix + terminating null character
     char __nar[__nbuf];
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
+    _LIBCPP_DIAGNOSTIC_PUSH
+    _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
+    _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
     int __nc = __libcpp_snprintf_l(__nar, sizeof(__nar), _LIBCPP_GET_C_LOCALE, __fmt, __v);
-#pragma clang diagnostic pop
+    _LIBCPP_DIAGNOSTIC_POP
     char* __ne = __nar + __nc;
     char* __np = this->__identify_padding(__nar, __ne, __iob);
     // Stage 2 - Widen __nar while adding thousands separators
@@ -1549,8 +1561,9 @@ num_put<_CharT, _OutputIterator>::__do_put_floating_point(iter_type __s, ios_bas
     char __nar[__nbuf];
     char* __nb = __nar;
     int __nc;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
+    _LIBCPP_DIAGNOSTIC_PUSH
+    _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
+    _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
     if (__specify_precision)
         __nc = __libcpp_snprintf_l(__nb, __nbuf, _LIBCPP_GET_C_LOCALE, __fmt,
                                    (int)__iob.precision(), __v);
@@ -1567,7 +1580,7 @@ num_put<_CharT, _OutputIterator>::__do_put_floating_point(iter_type __s, ios_bas
             __throw_bad_alloc();
         __nbh.reset(__nb);
     }
-#pragma clang diagnostic pop
+    _LIBCPP_DIAGNOSTIC_POP
     char* __ne = __nb + __nc;
     char* __np = this->__identify_padding(__nb, __ne, __iob);
     // Stage 2 - Widen __nar while adding thousands separators
@@ -1633,9 +1646,9 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
     return __pad_and_output(__s, __o, __op, __oe, __iob, __fl);
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_put<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_put<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_put<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_put<wchar_t>;
 #endif
 
 template <class _CharT, class _InputIterator>
@@ -1918,7 +1931,7 @@ time_get<_CharT, _InputIterator>::__get_month(int& __m,
                                               const ctype<char_type>& __ct) const
 {
     int __t = __get_up_to_n_digits(__b, __e, __err, __ct, 2) - 1;
-    if (!(__err & ios_base::failbit) && __t <= 11)
+    if (!(__err & ios_base::failbit) && 0 <= __t && __t <= 11)
         __m = __t;
     else
         __err |= ios_base::failbit;
@@ -2323,9 +2336,9 @@ time_get<_CharT, _InputIterator>::do_get(iter_type __b, iter_type __e,
     return __b;
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<wchar_t>;
 #endif
 
 class _LIBCPP_TYPE_VIS __time_get
@@ -2425,9 +2438,9 @@ private:
     virtual const string_type& __X() const      {return this->__X_;}
 };
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<wchar_t>;
 #endif
 
 class _LIBCPP_TYPE_VIS __time_put
@@ -2540,9 +2553,9 @@ time_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base&,
     return _VSTD::copy(__nb, __ne, __s);
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put<wchar_t>;
 #endif
 
 template <class _CharT, class _OutputIterator = ostreambuf_iterator<_CharT> >
@@ -2563,9 +2576,9 @@ protected:
     ~time_put_byname() {}
 };
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put_byname<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put_byname<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put_byname<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put_byname<wchar_t>;
 #endif
 
 // money_base
@@ -2632,11 +2645,11 @@ template <class _CharT, bool _International>
 const bool
 moneypunct<_CharT, _International>::intl;
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<char, false>)
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<char, true>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<char, false>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<char, true>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<wchar_t, false>)
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<wchar_t, true>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<wchar_t, false>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct<wchar_t, true>;
 #endif
 
 // moneypunct_byname
@@ -2688,14 +2701,14 @@ private:
 
 template<> _LIBCPP_FUNC_VIS void moneypunct_byname<char, false>::init(const char*);
 template<> _LIBCPP_FUNC_VIS void moneypunct_byname<char, true>::init(const char*);
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, false>)
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, true>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, false>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, true>;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template<> _LIBCPP_FUNC_VIS void moneypunct_byname<wchar_t, false>::init(const char*);
 template<> _LIBCPP_FUNC_VIS void moneypunct_byname<wchar_t, true>::init(const char*);
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, false>)
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, true>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, false>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, true>;
 #endif
 
 // money_get
@@ -2752,9 +2765,9 @@ __money_get<_CharT>::__gather_info(bool __intl, const locale& __loc,
     }
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_get<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_get<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_get<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_get<wchar_t>;
 #endif
 
 template <class _CharT, class _InputIterator = istreambuf_iterator<_CharT> >
@@ -3121,9 +3134,9 @@ money_get<_CharT, _InputIterator>::do_get(iter_type __b, iter_type __e,
     return __b;
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_get<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_get<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_get<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_get<wchar_t>;
 #endif
 
 // money_put
@@ -3214,9 +3227,9 @@ __money_put<_CharT>::__format(char_type* __mb, char_type*& __mi, char_type*& __m
                               int __fd)
 {
     __me = __mb;
-    for (unsigned __p = 0; __p < 4; ++__p)
+    for (char __p : __pat.field)
     {
-        switch (__pat.field[__p])
+        switch (__p)
         {
         case money_base::none:
             __mi = __me;
@@ -3298,9 +3311,9 @@ __money_put<_CharT>::__format(char_type* __mb, char_type*& __mi, char_type*& __m
         __mi = __mb;
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_put<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_put<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_put<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __money_put<wchar_t>;
 #endif
 
 template <class _CharT, class _OutputIterator = ostreambuf_iterator<_CharT> >
@@ -3453,9 +3466,9 @@ money_put<_CharT, _OutputIterator>::do_put(iter_type __s, bool __intl,
     return __pad_and_output(__s, __mb, __mi, __me, __iob, __fl);
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_put<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_put<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_put<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_put<wchar_t>;
 #endif
 
 // messages
@@ -3571,9 +3584,9 @@ messages<_CharT>::do_close(catalog __c) const
 #endif // _LIBCPP_HAS_CATOPEN
 }
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages<wchar_t>;
 #endif
 
 template <class _CharT>
@@ -3597,15 +3610,15 @@ protected:
     ~messages_byname() {}
 };
 
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages_byname<char>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages_byname<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages_byname<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages_byname<wchar_t>;
 #endif
 
 template<class _Codecvt, class _Elem = wchar_t,
          class _Wide_alloc = allocator<_Elem>,
          class _Byte_alloc = allocator<char> >
-class _LIBCPP_TEMPLATE_VIS wstring_convert
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 wstring_convert
 {
 public:
     typedef basic_string<char, char_traits<char>, _Byte_alloc>   byte_string;
@@ -3672,6 +3685,7 @@ public:
     state_type state() const {return __cvtstate_;}
 };
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
 inline
 wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
@@ -3679,6 +3693,7 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
         : __cvtptr_(__pcvt), __cvtstate_(), __cvtcount_(0)
 {
 }
+_LIBCPP_SUPPRESS_DEPRECATED_POP
 
 template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
 inline
@@ -3713,6 +3728,7 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
 
 #endif // _LIBCPP_CXX03_LANG
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
 wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::~wstring_convert()
 {
@@ -3724,6 +3740,7 @@ typename wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::wide_string
 wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
     from_bytes(const char* __frm, const char* __frm_end)
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     __cvtcount_ = 0;
     if (__cvtptr_ != nullptr)
     {
@@ -3870,7 +3887,7 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
 }
 
 template <class _Codecvt, class _Elem = wchar_t, class _Tr = char_traits<_Elem> >
-class _LIBCPP_TEMPLATE_VIS wbuffer_convert
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 wbuffer_convert
     : public basic_streambuf<_Elem, _Tr>
 {
 public:
@@ -3947,6 +3964,7 @@ private:
     wbuffer_convert* __close();
 };
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 wbuffer_convert<_Codecvt, _Elem, _Tr>::
     wbuffer_convert(streambuf* __bytebuf, _Codecvt* __pcvt, state_type __state)
@@ -3982,6 +4000,7 @@ template <class _Codecvt, class _Elem, class _Tr>
 typename wbuffer_convert<_Codecvt, _Elem, _Tr>::int_type
 wbuffer_convert<_Codecvt, _Elem, _Tr>::underflow()
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     if (__cv_ == 0 || __bufptr_ == 0)
         return traits_type::eof();
     bool __initial = __read_mode();
@@ -4046,10 +4065,12 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::underflow()
     return __c;
 }
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 typename wbuffer_convert<_Codecvt, _Elem, _Tr>::int_type
 wbuffer_convert<_Codecvt, _Elem, _Tr>::pbackfail(int_type __c)
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     if (__cv_ != 0 && __bufptr_ != 0 && this->eback() < this->gptr())
     {
         if (traits_type::eq_int_type(__c, traits_type::eof()))
@@ -4067,10 +4088,12 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::pbackfail(int_type __c)
     return traits_type::eof();
 }
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 typename wbuffer_convert<_Codecvt, _Elem, _Tr>::int_type
 wbuffer_convert<_Codecvt, _Elem, _Tr>::overflow(int_type __c)
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     if (__cv_ == 0 || __bufptr_ == 0)
         return traits_type::eof();
     __write_mode();
@@ -4129,10 +4152,12 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::overflow(int_type __c)
     return traits_type::not_eof(__c);
 }
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 basic_streambuf<_Elem, _Tr>*
 wbuffer_convert<_Codecvt, _Elem, _Tr>::setbuf(char_type* __s, streamsize __n)
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     this->setg(0, 0, 0);
     this->setp(0, 0);
     if (__owns_eb_)
@@ -4182,6 +4207,7 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::setbuf(char_type* __s, streamsize __n)
     return this;
 }
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 typename wbuffer_convert<_Codecvt, _Elem, _Tr>::pos_type
 wbuffer_convert<_Codecvt, _Elem, _Tr>::seekoff(off_type __off, ios_base::seekdir __way,
@@ -4213,6 +4239,7 @@ template <class _Codecvt, class _Elem, class _Tr>
 int
 wbuffer_convert<_Codecvt, _Elem, _Tr>::sync()
 {
+_LIBCPP_SUPPRESS_DEPRECATED_POP
     if (__cv_ == 0 || __bufptr_ == 0)
         return 0;
     if (__cm_ & ios_base::out)
@@ -4281,6 +4308,7 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::sync()
     return 0;
 }
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Codecvt, class _Elem, class _Tr>
 bool
 wbuffer_convert<_Codecvt, _Elem, _Tr>::__read_mode()
@@ -4334,6 +4362,8 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::__close()
     }
     return __rt;
 }
+
+_LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_END_NAMESPACE_STD
 

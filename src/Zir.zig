@@ -43,7 +43,11 @@ pub const Header = extern struct {
     instructions_len: u32,
     string_bytes_len: u32,
     extra_len: u32,
-
+    /// We could leave this as padding, however it triggers a Valgrind warning because
+    /// we read and write undefined bytes to the file system. This is harmless, but
+    /// it's essentially free to have a zero field here and makes the warning go away,
+    /// making it more likely that following Valgrind warnings will be taken seriously.
+    unused: u32 = 0,
     stat_inode: std.fs.File.INode,
     stat_size: u64,
     stat_mtime: i128,
@@ -238,6 +242,8 @@ pub const Inst = struct {
         /// Type coercion to the function's return type.
         /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
         as_node,
+        /// Same as `as_node` but ignores runtime to comptime int error.
+        as_shift_operand,
         /// Bitwise AND. `&`
         bit_and,
         /// Reinterpret the memory representation of a value as a different type.
@@ -281,7 +287,7 @@ pub const Inst = struct {
         /// Uses the `break` union field.
         break_inline,
         /// Checks that comptime control flow does not happen inside a runtime block.
-        /// Uses the `node` union field.
+        /// Uses the `un_node` union field.
         check_comptime_control_flow,
         /// Function call.
         /// Uses the `pl_node` union field with payload `Call`.
@@ -938,9 +944,6 @@ pub const Inst = struct {
         /// Implements the `@maximum` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
         maximum,
-        /// Implements the `@asyncCall` builtin.
-        /// Uses the `pl_node` union field with payload `AsyncCall`.
-        builtin_async_call,
         /// Implements the `@cImport` builtin.
         /// Uses the `pl_node` union field with payload `Block`.
         c_import,
@@ -992,6 +995,13 @@ pub const Inst = struct {
         /// closure_capture instruction ref.
         closure_get,
 
+        /// A defer statement.
+        /// Uses the `defer` union field.
+        @"defer",
+        /// An errdefer statement with a code.
+        /// Uses the `err_defer_code` union field.
+        defer_err_code,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -1025,6 +1035,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .as,
                 .as_node,
+                .as_shift_operand,
                 .bit_and,
                 .bitcast,
                 .bit_or,
@@ -1227,7 +1238,6 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .minimum,
-                .builtin_async_call,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1241,6 +1251,8 @@ pub const Inst = struct {
                 .try_ptr,
                 //.try_inline,
                 //.try_ptr_inline,
+                .@"defer",
+                .defer_err_code,
                 => false,
 
                 .@"break",
@@ -1308,6 +1320,8 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .check_comptime_control_flow,
+                .@"defer",
+                .defer_err_code,
                 => true,
 
                 .param,
@@ -1335,6 +1349,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .as,
                 .as_node,
+                .as_shift_operand,
                 .bit_and,
                 .bitcast,
                 .bit_or,
@@ -1509,7 +1524,6 @@ pub const Inst = struct {
                 .field_parent_ptr,
                 .maximum,
                 .minimum,
-                .builtin_async_call,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1573,6 +1587,7 @@ pub const Inst = struct {
                 .anyframe_type = .un_node,
                 .as = .bin,
                 .as_node = .pl_node,
+                .as_shift_operand = .pl_node,
                 .bit_and = .pl_node,
                 .bitcast = .pl_node,
                 .bit_not = .un_node,
@@ -1585,7 +1600,7 @@ pub const Inst = struct {
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
-                .check_comptime_control_flow = .node,
+                .check_comptime_control_flow = .un_node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
@@ -1797,7 +1812,6 @@ pub const Inst = struct {
                 .memcpy = .pl_node,
                 .memset = .pl_node,
                 .minimum = .pl_node,
-                .builtin_async_call = .pl_node,
                 .c_import = .pl_node,
 
                 .alloc = .un_node,
@@ -1815,6 +1829,9 @@ pub const Inst = struct {
 
                 .closure_capture = .un_tok,
                 .closure_get = .inst_node,
+
+                .@"defer" = .@"defer",
+                .defer_err_code = .defer_err_code,
 
                 .extended = .extended,
             });
@@ -1968,6 +1985,9 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` contains `NameStrategy
         reify,
+        /// Implements the `@asyncCall` builtin.
+        /// `operand` is payload index to `AsyncCall`.
+        builtin_async_call,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2569,12 +2589,20 @@ pub const Inst = struct {
                 return zir.nullTerminatedString(self.str);
             }
         },
+        @"defer": struct {
+            index: u32,
+            len: u32,
+        },
+        defer_err_code: struct {
+            err_code: Ref,
+            payload_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
         // to insert a secret field for safety checks.
         comptime {
-            if (builtin.mode != .Debug) {
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
                 assert(@sizeOf(Data) == 8);
             }
         }
@@ -2605,6 +2633,8 @@ pub const Inst = struct {
             dbg_stmt,
             inst_node,
             str_op,
+            @"defer",
+            defer_err_code,
         };
     };
 
@@ -3450,6 +3480,7 @@ pub const Inst = struct {
     };
 
     pub const AsyncCall = struct {
+        node: i32,
         frame_buffer: Ref,
         result_ptr: Ref,
         fn_ptr: Ref,
@@ -3542,6 +3573,12 @@ pub const Inst = struct {
         node: i32,
         line: u32,
         column: u32,
+    };
+
+    pub const DeferErrCode = struct {
+        remapped_err_code: Index,
+        index: u32,
+        len: u32,
     };
 };
 

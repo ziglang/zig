@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -x
+set -e
+
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+$ZIG build test-std \
+  --zig-lib-dir lib \
+  -Dskip-debug \
+  -Dskip-release-fast \
+  -Dskip-release-small \
+  -Dskip-non-native \
+  -Dskip-single-threaded

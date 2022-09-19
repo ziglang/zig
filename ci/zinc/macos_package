@@ -1,0 +1,49 @@
+#!/bin/sh
+
+set -x
+set -e
+
+ARCH="aarch64"
+OS=macos
+ZIG_PREFIX="$DRONE_WORKSPACE/_release/staging"
+VERSION=$($ZIG_PREFIX/bin/zig version)
+TARGET="$ARCH-$OS-none"
+INSTALL_PREFIX="$DRONE_WORKSPACE/$TARGET"
+BASENAME="zig-$OS-$ARCH-$VERSION"
+TARBALL="$BASENAME.tar.xz"
+
+# This runs concurrently with the linux_package script, so it should not make
+# any changes to the filesystem that will cause problems for the other script.
+
+# Remove the unnecessary bin dir in $prefix/bin/zig
+mv $INSTALL_PREFIX/bin/zig $INSTALL_PREFIX/
+rmdir $INSTALL_PREFIX/bin
+
+# Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+mv $INSTALL_PREFIX/lib/zig $INSTALL_PREFIX/lib2
+rmdir $INSTALL_PREFIX/lib
+mv $INSTALL_PREFIX/lib2 $INSTALL_PREFIX/lib
+
+cp -r "$ZIG_PREFIX/docs" "$INSTALL_PREFIX/"
+cp "$ZIG_PREFIX/LICENSE" "$INSTALL_PREFIX/"
+
+mv "$INSTALL_PREFIX" "$BASENAME"
+tar cfJ "$TARBALL" "$BASENAME"
+
+SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
+BYTESIZE=$(wc -c < $TARBALL)
+
+MANIFEST="manifest-$TARGET.json"
+touch $MANIFEST
+echo "{\"tarball\": \"$TARBALL\"," >>$MANIFEST
+echo "\"shasum\": \"$SHASUM\"," >>$MANIFEST
+echo "\"size\": \"$BYTESIZE\"}" >>$MANIFEST
+
+# Publish artifact.
+s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+
+# Publish manifest.
+s3cmd put -P --add-header="cache-control: max-age=0, must-revalidate" "$MANIFEST" "s3://ziglang.org/builds/$ARCH-$OS-$VERSION.json"
+
+# Explicit exit helps show last command duration.
+exit

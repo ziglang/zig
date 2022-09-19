@@ -62,7 +62,8 @@ typedef intptr_t _sleb128_t;
 typedef uintptr_t _uleb128_t;
 
 struct _Unwind_Context;
-#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || defined(__ARM_DWARF_EH__))
+#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || \
+                          defined(__ARM_DWARF_EH__) || defined(__SEH__))
 struct _Unwind_Control_Block;
 typedef struct _Unwind_Control_Block _Unwind_Exception; /* Alias */
 #else
@@ -72,7 +73,7 @@ typedef struct _Unwind_Exception _Unwind_Exception;
 typedef enum {
   _URC_NO_REASON = 0,
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && \
-    !defined(__ARM_DWARF_EH__)
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
   _URC_OK = 0, /* used by ARM EHABI */
 #endif
   _URC_FOREIGN_EXCEPTION_CAUGHT = 1,
@@ -86,7 +87,7 @@ typedef enum {
   _URC_INSTALL_CONTEXT = 7,
   _URC_CONTINUE_UNWIND = 8,
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && \
-    !defined(__ARM_DWARF_EH__)
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
   _URC_FAILURE = 9 /* used by ARM EHABI */
 #endif
 } _Unwind_Reason_Code;
@@ -103,7 +104,8 @@ typedef enum {
 typedef void (*_Unwind_Exception_Cleanup_Fn)(_Unwind_Reason_Code,
                                              _Unwind_Exception *);
 
-#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || defined(__ARM_DWARF_EH__))
+#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || \
+                          defined(__ARM_DWARF_EH__) || defined(__SEH__))
 typedef struct _Unwind_Control_Block _Unwind_Control_Block;
 typedef uint32_t _Unwind_EHT_Header;
 
@@ -167,7 +169,8 @@ typedef _Unwind_Personality_Fn __personality_routine;
 typedef _Unwind_Reason_Code (*_Unwind_Trace_Fn)(struct _Unwind_Context *,
                                                 void *);
 
-#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || defined(__ARM_DWARF_EH__))
+#if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) ||                \
+                          defined(__ARM_DWARF_EH__) || defined(__SEH__))
 typedef enum {
   _UVRSC_CORE = 0,        /* integer register */
   _UVRSC_VFP = 1,         /* vfp */

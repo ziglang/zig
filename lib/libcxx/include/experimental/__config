@@ -13,7 +13,7 @@
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL namespace std { namespace experimental {
@@ -31,19 +31,6 @@
 #define _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR _LIBCPP_BEGIN_NAMESPACE_LFTS namespace pmr {
 #define _LIBCPP_END_NAMESPACE_LFTS_PMR _LIBCPP_END_NAMESPACE_LFTS }
 #define _VSTD_LFTS_PMR _VSTD_LFTS::pmr
-
-#if defined(_LIBCPP_NO_EXPERIMENTAL_DEPRECATION_WARNING_FILESYSTEM)
-#   define _LIBCPP_DEPRECATED_EXPERIMENTAL_FILESYSTEM /* nothing */
-#else
-#   define _LIBCPP_DEPRECATED_EXPERIMENTAL_FILESYSTEM __attribute__((deprecated("std::experimental::filesystem has now been deprecated in favor of C++17's std::filesystem. Please stop using it and start using std::filesystem. This experimental version will be removed in LLVM 11. You can remove this warning by defining the _LIBCPP_NO_EXPERIMENTAL_DEPRECATION_WARNING_FILESYSTEM macro.")))
-#endif
-
-#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_FILESYSTEM \
-    _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL namespace filesystem _LIBCPP_DEPRECATED_EXPERIMENTAL_FILESYSTEM { \
-    inline namespace v1 {
-
-#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL_FILESYSTEM \
-    } } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
 
 #if !defined(__cpp_coroutines) || __cpp_coroutines < 201703L
 #define _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES

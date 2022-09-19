@@ -10,12 +10,13 @@
 #define _LIBCPP___RANDOM_GEOMETRIC_DISTRIBUTION_H
 
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/negative_binomial_distribution.h>
 #include <iosfwd>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -26,6 +27,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template<class _IntType = int>
 class _LIBCPP_TEMPLATE_VIS geometric_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;

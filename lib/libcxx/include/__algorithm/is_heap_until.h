@@ -15,14 +15,14 @@
 #include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Compare, class _RandomAccessIterator>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 _RandomAccessIterator
-__is_heap_until(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare __comp)
+__is_heap_until(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare&& __comp)
 {
     typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
     difference_type __len = __last - __first;
@@ -52,7 +52,7 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
 is_heap_until(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare __comp)
 {
     typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
-    return _VSTD::__is_heap_until<_Comp_ref>(__first, __last, __comp);
+    return std::__is_heap_until(__first, __last, static_cast<_Comp_ref>(__comp));
 }
 
 template<class _RandomAccessIterator>

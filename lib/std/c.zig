@@ -20,7 +20,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 /// If linking gnu libc (glibc), the `ok` value will be true if the target
 /// version is greater than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
-pub fn versionCheck(glibc_version: std.builtin.Version) type {
+pub fn versionCheck(comptime glibc_version: std.builtin.Version) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;
@@ -263,7 +263,11 @@ const PThreadForkFn = if (builtin.zig_backend == .stage1)
     fn () callconv(.C) void
 else
     *const fn () callconv(.C) void;
-pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *anyopaque) callconv(.C) void) c.E;
+pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?PThreadKeyCreateFn) c.E;
+const PThreadKeyCreateFn = if (builtin.zig_backend == .stage1)
+    fn (value: *anyopaque) callconv(.C) void
+else
+    *const fn (value: *anyopaque) callconv(.C) void;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
 pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;

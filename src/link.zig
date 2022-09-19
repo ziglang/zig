@@ -72,7 +72,6 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
     root_name: [:0]const u8,
@@ -91,6 +90,9 @@ pub const Options = struct {
     entry: ?[]const u8,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    /// 0 means no stack protector
+    /// other value means stack protector with that buffer size.
+    stack_protector: u32,
     cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
@@ -164,6 +166,9 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
+    print_gc_sections: bool,
+    print_icf_sections: bool,
+    print_map: bool,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
@@ -172,6 +177,12 @@ pub const Options = struct {
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
+
+    /// List of symbols forced as undefined in the symbol table
+    /// thus forcing their resolution by the linker.
+    /// Corresponds to `-u <symbol>` for ELF and `/include:<symbol>` for COFF/PE.
+    /// TODO add handling for MachO.
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
     version: ?std.builtin.Version,
     compatibility_version: ?std.builtin.Version,
@@ -237,8 +248,8 @@ pub const File = struct {
 
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
-        coff: Coff.TextBlock,
-        macho: MachO.TextBlock,
+        coff: Coff.Atom,
+        macho: MachO.Atom,
         plan9: Plan9.DeclBlock,
         c: void,
         wasm: Wasm.DeclBlock,
@@ -259,7 +270,7 @@ pub const File = struct {
 
     pub const Export = union {
         elf: Elf.Export,
-        coff: void,
+        coff: Coff.Export,
         macho: MachO.Export,
         plan9: Plan9.Export,
         c: void,
@@ -273,13 +284,13 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: Allocator, options: Options) !*File {
-        if (options.object_format == .macho) {
+        if (options.target.ofmt == .macho) {
             return &(try MachO.openPath(allocator, options)).base;
         }
 
-        const use_stage1 = build_options.is_stage1 and options.use_stage1;
+        const use_stage1 = build_options.have_stage1 and options.use_stage1;
         if (use_stage1 or options.emit == null) {
-            return switch (options.object_format) {
+            return switch (options.target.ofmt) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => unreachable,
@@ -290,6 +301,7 @@ pub const File = struct {
                 .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
+                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
             };
         }
         const emit = options.emit.?;
@@ -298,7 +310,7 @@ pub const File = struct {
             if (options.module == null) {
                 // No point in opening a file, we would not write anything to it.
                 // Initialize with empty.
-                return switch (options.object_format) {
+                return switch (options.target.ofmt) {
                     .coff => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => unreachable,
@@ -309,17 +321,18 @@ pub const File = struct {
                     .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
+                    .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
                 };
             }
             // Open a temporary object file, not the final output file because we
             // want to link with LLD.
             break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
-                emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
+                emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
             });
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
-        const file: *File = switch (options.object_format) {
+        const file: *File = switch (options.target.ofmt) {
             .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => unreachable,
@@ -330,6 +343,7 @@ pub const File = struct {
             .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
+            .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
         };
 
         if (use_lld) {
@@ -418,7 +432,7 @@ pub const File = struct {
         NoSpaceLeft,
         Unseekable,
         PermissionDenied,
-        FileBusy,
+        SwapFile,
         SystemResources,
         OperationAborted,
         BrokenPipe,
@@ -465,7 +479,7 @@ pub const File = struct {
         log.debug("getGlobalSymbol '{s}'", .{name});
         switch (base.tag) {
             // zig fmt: off
-            .coff  => unreachable,
+            .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name),
             .elf   => unreachable,
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name),
             .plan9 => unreachable,
@@ -815,7 +829,7 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
-            const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
+            const use_stage1 = build_options.have_stage1 and base.options.use_stage1;
             if (use_stage1) {
                 const obj_basename = try std.zig.binNameAlloc(arena, .{
                     .root_name = base.options.root_name,
@@ -923,9 +937,10 @@ pub const File = struct {
             std.debug.print("\n", .{});
         }
 
-        const llvm = @import("codegen/llvm/bindings.zig");
-        const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
-        const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
+        const llvm_bindings = @import("codegen/llvm/bindings.zig");
+        const llvm = @import("codegen/llvm.zig");
+        const os_tag = llvm.targetOs(base.options.target.os.tag);
+        const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
 
         if (!base.options.disable_lld_caching) {

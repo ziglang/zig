@@ -34,8 +34,6 @@ pub fn Complex(comptime T: type) type {
         /// Imaginary part.
         im: T,
 
-        pub const new = @compileError("deprecated; use init()");
-
         /// Create a new Complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
             return Self{

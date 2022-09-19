@@ -195,7 +195,7 @@ pub fn format(
     }
 
     if (comptime arg_state.hasUnusedArgs()) {
-        const missing_count = arg_state.args_len - @popCount(ArgSetType, arg_state.used_args);
+        const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
             1 => @compileError("unused argument in '" ++ fmt ++ "'"),
@@ -380,7 +380,7 @@ const ArgState = struct {
     args_len: usize,
 
     fn hasUnusedArgs(self: *@This()) bool {
-        return @popCount(ArgSetType, self.used_args) != self.args_len;
+        return @popCount(self.used_args) != self.args_len;
     }
 
     fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
@@ -1885,7 +1885,6 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
-pub const parseHexFloat = @compileError("deprecated; use `parseFloat`");
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 
 test {
@@ -1947,8 +1946,6 @@ pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anyt
         error.NoSpaceLeft => unreachable, // we just counted the size above
     };
 }
-
-pub const allocPrint0 = @compileError("deprecated; use allocPrintZ");
 
 pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);

@@ -136,6 +136,13 @@ template<class In, class Out>
 template<class In, class Out>
   concept indirectly_movable_storable = see below;         // since C++20
 
+// [alg.req.ind.copy], concept indirectly_copyable
+template<class In, class Out>
+  concept indirectly_copyable = see below;                 // since C++20
+
+template<class In, class Out>
+  concept indirectly_copyable_storable = see below;        // since C++20
+
 // [alg.req.ind.swap], concept indirectly_swappable
 template<class I1, class I2 = I1>
   concept indirectly_swappable = see below;                // since C++20
@@ -144,6 +151,19 @@ template<class I1, class I2, class R, class P1 = identity,
          class P2 = identity>
   concept indirectly_comparable =
     indirect_binary_predicate<R, projected<I1, P1>, projected<I2, P2>>; // since C++20
+
+// [alg.req.permutable], concept permutable
+template<class I>
+  concept permutable = see below;                          // since C++20
+
+ // [alg.req.mergeable], concept mergeable
+template<class I1, class I2, class Out,
+    class R = ranges::less, class P1 = identity, class P2 = identity>
+  concept mergeable = see below;                           // since C++20
+
+// [alg.req.sortable], concept sortable
+template<class I, class R = ranges::less, class P = identity>
+  concept sortable = see below;                            // since C++20
 
 template<input_or_output_iterator I, sentinel_for<I> S>
   requires (!same_as<I, S> && copyable<I>)
@@ -165,6 +185,7 @@ struct output_iterator_tag {};
 struct forward_iterator_tag       : public input_iterator_tag         {};
 struct bidirectional_iterator_tag : public forward_iterator_tag       {};
 struct random_access_iterator_tag : public bidirectional_iterator_tag {};
+struct contiguous_iterator_tag    : public random_access_iterator_tag {};
 
 // 27.4.3, iterator operations
 template <class InputIterator, class Distance>  // constexpr in C++17
@@ -204,10 +225,17 @@ class reverse_iterator
 protected:
     Iterator current;
 public:
-    typedef Iterator                                            iterator_type;
-    typedef typename iterator_traits<Iterator>::difference_type difference_type;
-    typedef typename iterator_traits<Iterator>::reference       reference;
-    typedef typename iterator_traits<Iterator>::pointer         pointer;
+    using iterator_type     = Iterator;
+    using iterator_concept  = see below; // since C++20
+    using iterator_category = typename iterator_traits<Iterator>::iterator_category; // since C++17, until C++20
+    using iterator_category = see below; // since C++20
+    using value_type        = typename iterator_traits<Iterator>::value_type; // since C++17, until C++20
+    using value_type        = iter_value_t<Iterator>; // since C++20
+    using difference_type   = typename iterator_traits<Iterator>::difference_type; // until C++20
+    using difference_type   = iter_difference_t<Iterator>; // since C++20
+    using pointer           = typename iterator_traits<Iterator>::pointer;
+    using reference         = typename iterator_traits<Iterator>::reference; // until C++20
+    using reference         = iter_reference_t<Iterator>; // since C++20
 
     constexpr reverse_iterator();
     constexpr explicit reverse_iterator(Iterator x);
@@ -215,7 +243,8 @@ public:
     template <class U> constexpr reverse_iterator& operator=(const reverse_iterator<U>& u);
     constexpr Iterator base() const;
     constexpr reference operator*() const;
-    constexpr pointer   operator->() const;
+    constexpr pointer   operator->() const; // until C++20
+    constexpr pointer   operator->() const requires see below; // since C++20
     constexpr reverse_iterator& operator++();
     constexpr reverse_iterator  operator++(int);
     constexpr reverse_iterator& operator--();
@@ -224,7 +253,14 @@ public:
     constexpr reverse_iterator& operator+=(difference_type n);
     constexpr reverse_iterator  operator- (difference_type n) const;
     constexpr reverse_iterator& operator-=(difference_type n);
-    constexpr reference         operator[](difference_type n) const;
+    constexpr unspecified       operator[](difference_type n) const;
+
+    friend constexpr iter_rvalue_reference_t<Iterator>
+      iter_move(const reverse_iterator& i) noexcept(see below);
+    template<indirectly_swappable<Iterator> Iterator2>
+      friend constexpr void
+        iter_swap(const reverse_iterator& x,
+                  const reverse_iterator<Iterator2>& y) noexcept(see below);
 };
 
 template <class Iterator1, class Iterator2>
@@ -233,11 +269,11 @@ operator==(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator
 
 template <class Iterator1, class Iterator2>
 constexpr bool                          // constexpr in C++17
-operator<(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
+operator!=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
 
 template <class Iterator1, class Iterator2>
 constexpr bool                          // constexpr in C++17
-operator!=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
+operator<(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
 
 template <class Iterator1, class Iterator2>
 constexpr bool                          // constexpr in C++17
@@ -245,11 +281,16 @@ operator>(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2
 
 template <class Iterator1, class Iterator2>
 constexpr bool                          // constexpr in C++17
-operator>=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
+operator<=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
 
 template <class Iterator1, class Iterator2>
 constexpr bool                          // constexpr in C++17
-operator<=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
+operator>=(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2>& y);
+
+template<class Iterator1, three_way_comparable_with<Iterator1> Iterator2>
+  constexpr compare_three_way_result_t<Iterator1, Iterator2>
+    operator<=>(const reverse_iterator<Iterator1>& x,
+                const reverse_iterator<Iterator2>& y);
 
 template <class Iterator1, class Iterator2>
 constexpr auto
@@ -263,6 +304,11 @@ operator+(typename reverse_iterator<Iterator>::difference_type n,
 
 template <class Iterator>
 constexpr reverse_iterator<Iterator> make_reverse_iterator(Iterator i); // C++14, constexpr in C++17
+
+template<class Iterator1, class Iterator2>
+    requires (!sized_sentinel_for<Iterator1, Iterator2>)
+  inline constexpr bool disable_sized_sentinel_for<reverse_iterator<Iterator1>,
+                                                   reverse_iterator<Iterator2>> = true;
 
 template <class Container>
 class back_insert_iterator
@@ -332,18 +378,21 @@ public:
     insert_iterator& operator++(int);  // constexpr in C++20
 };
 
-template <class Container, class Iterator>
-insert_iterator<Container> inserter(Container& x, Iterator i);  // constexpr in C++20
+template <class Container>
+insert_iterator<Container> inserter(Container& x, typename Container::iterator i);  // until C++20
+template <class Container>
+constexpr insert_iterator<Container> inserter(Container& x, ranges::iterator_t<Container> i);  // since C++20
 
 template <class Iterator>
 class move_iterator {
 public:
-    typedef Iterator                                              iterator_type;
-    typedef typename iterator_traits<Iterator>::difference_type   difference_type;
-    typedef Iterator                                              pointer;
-    typedef typename iterator_traits<Iterator>::value_type        value_type;
-    typedef typename iterator_traits<Iterator>::iterator_category iterator_category;
-    typedef value_type&&                                          reference;
+    using iterator_type     = Iterator;
+    using iterator_concept  = input_iterator_tag; // From C++20
+    using iterator_category = see below; // not always present starting from C++20
+    using value_type        = iter_value_t<Iterator>; // Until C++20, iterator_traits<Iterator>::value_type
+    using difference_type   = iter_difference_t<Iterator>; // Until C++20, iterator_traits<Iterator>::difference_type;
+    using pointer           = Iterator;
+    using reference         = iter_rvalue_reference_t<Iterator>; // Until C++20, value_type&&
 
     constexpr move_iterator();  // all the constexprs are in C++17
     constexpr explicit move_iterator(Iterator i);
@@ -351,18 +400,40 @@ public:
       constexpr move_iterator(const move_iterator<U>& u);
     template <class U>
       constexpr move_iterator& operator=(const move_iterator<U>& u);
-    constexpr iterator_type base() const;
+
+    constexpr iterator_type base() const; // Until C++20
+    constexpr const Iterator& base() const & noexcept; // From C++20
+    constexpr Iterator base() &&; // From C++20
+
     constexpr reference operator*() const;
-    constexpr pointer operator->() const;
+    constexpr pointer operator->() const; // Deprecated in C++20
     constexpr move_iterator& operator++();
-    constexpr move_iterator operator++(int);
+    constexpr auto operator++(int); // Return type was move_iterator until C++20
     constexpr move_iterator& operator--();
     constexpr move_iterator operator--(int);
     constexpr move_iterator operator+(difference_type n) const;
     constexpr move_iterator& operator+=(difference_type n);
     constexpr move_iterator operator-(difference_type n) const;
     constexpr move_iterator& operator-=(difference_type n);
-    constexpr unspecified operator[](difference_type n) const;
+    constexpr reference operator[](difference_type n) const; // Return type unspecified until C++20
+
+    template<sentinel_for<Iterator> S>
+      friend constexpr bool
+        operator==(const move_iterator& x, const move_sentinel<S>& y); // Since C++20
+    template<sized_sentinel_for<Iterator> S>
+      friend constexpr iter_difference_t<Iterator>
+        operator-(const move_sentinel<S>& x, const move_iterator& y); // Since C++20
+    template<sized_sentinel_for<Iterator> S>
+      friend constexpr iter_difference_t<Iterator>
+        operator-(const move_iterator& x, const move_sentinel<S>& y); // Since C++20
+    friend constexpr iter_rvalue_reference_t<Iterator>
+      iter_move(const move_iterator& i)
+        noexcept(noexcept(ranges::iter_move(i.current))); // Since C++20
+    template<indirectly_swappable<Iterator> Iterator2>
+      friend constexpr void
+        iter_swap(const move_iterator& x, const move_iterator<Iterator2>& y)
+          noexcept(noexcept(ranges::iter_swap(x.current, y.current))); // Since C++20
+
 private:
     Iterator current; // exposition only
 };
@@ -404,6 +475,23 @@ constexpr move_iterator<Iterator> operator+(   // constexpr in C++17
 template <class Iterator>   // constexpr in C++17
 constexpr  move_iterator<Iterator> make_move_iterator(const Iterator& i);
 
+template<semiregular S>
+class move_sentinel {
+public:
+  constexpr move_sentinel();
+  constexpr explicit move_sentinel(S s);
+  template<class S2>
+    requires convertible_to<const S2&, S>
+      constexpr move_sentinel(const move_sentinel<S2>& s);
+  template<class S2>
+    requires assignable_from<S&, const S2&>
+      constexpr move_sentinel& operator=(const move_sentinel<S2>& s);
+
+  constexpr S base() const;
+private:
+  S last;     // exposition only
+};
+
 // [default.sentinel], default sentinel
 struct default_sentinel_t;
 inline constexpr default_sentinel_t default_sentinel{};
@@ -434,7 +522,8 @@ public:
     typedef traits                       traits_type;
     typedef basic_istream<charT, traits> istream_type;
 
-    constexpr istream_iterator();
+    istream_iterator(); // constexpr since C++11
+    constexpr istream_iterator(default_sentinel_t); // since C++20
     istream_iterator(istream_type& s);
     istream_iterator(const istream_iterator& x);
     ~istream_iterator();
@@ -443,6 +532,7 @@ public:
     const T* operator->() const;
     istream_iterator& operator++();
     istream_iterator  operator++(int);
+    friend bool operator==(const istream_iterator& i, default_sentinel_t); // since C++20
 };
 
 template <class T, class charT, class traits, class Distance>
@@ -450,7 +540,7 @@ bool operator==(const istream_iterator<T,charT,traits,Distance>& x,
                 const istream_iterator<T,charT,traits,Distance>& y);
 template <class T, class charT, class traits, class Distance>
 bool operator!=(const istream_iterator<T,charT,traits,Distance>& x,
-                const istream_iterator<T,charT,traits,Distance>& y);
+                const istream_iterator<T,charT,traits,Distance>& y); // until C++20
 
 template <class T, class charT = char, class traits = char_traits<charT> >
 class ostream_iterator
@@ -496,7 +586,8 @@ public:
     typedef basic_streambuf<charT, traits>  streambuf_type;
     typedef basic_istream<charT, traits>    istream_type;
 
-    istreambuf_iterator() noexcept;
+    istreambuf_iterator() noexcept; // constexpr since C++11
+    constexpr istreambuf_iterator(default_sentinel_t) noexcept; // since C++20
     istreambuf_iterator(istream_type& s) noexcept;
     istreambuf_iterator(streambuf_type* s) noexcept;
     istreambuf_iterator(a-private-type) noexcept;
@@ -507,6 +598,7 @@ public:
     a-private-type       operator++(int);
 
     bool equal(const istreambuf_iterator& b) const;
+    friend bool operator==(const istreambuf_iterator& i, default_sentinel_t s); // since C++20
 };
 
 template <class charT, class traits>
@@ -514,7 +606,7 @@ bool operator==(const istreambuf_iterator<charT,traits>& a,
                 const istreambuf_iterator<charT,traits>& b);
 template <class charT, class traits>
 bool operator!=(const istreambuf_iterator<charT,traits>& a,
-                const istreambuf_iterator<charT,traits>& b);
+                const istreambuf_iterator<charT,traits>& b); // until C++20
 
 template <class charT, class traits = char_traits<charT> >
 class ostreambuf_iterator
@@ -582,12 +674,13 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__debug>
-#include <__functional_base>
 #include <__iterator/access.h>
 #include <__iterator/advance.h>
 #include <__iterator/back_insert_iterator.h>
+#include <__iterator/bounded_iter.h>
 #include <__iterator/common_iterator.h>
 #include <__iterator/concepts.h>
 #include <__iterator/counted_iterator.h>
@@ -606,21 +699,24 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #include <__iterator/iter_swap.h>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/mergeable.h>
 #include <__iterator/move_iterator.h>
+#include <__iterator/move_sentinel.h>
 #include <__iterator/next.h>
 #include <__iterator/ostream_iterator.h>
 #include <__iterator/ostreambuf_iterator.h>
+#include <__iterator/permutable.h>
 #include <__iterator/prev.h>
 #include <__iterator/projected.h>
 #include <__iterator/readable_traits.h>
 #include <__iterator/reverse_access.h>
 #include <__iterator/reverse_iterator.h>
 #include <__iterator/size.h>
+#include <__iterator/sortable.h>
 #include <__iterator/unreachable_sentinel.h>
 #include <__iterator/wrap_iter.h>
 #include <__memory/addressof.h>
 #include <__memory/pointer_traits.h>
-#include <__utility/forward.h>
 #include <compare>
 #include <concepts> // Mandated by the Standard.
 #include <cstddef>
@@ -628,8 +724,15 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <exception>
+#  include <new>
+#  include <typeinfo>
+#  include <utility>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_ITERATOR

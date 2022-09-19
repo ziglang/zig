@@ -15,7 +15,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 
@@ -30,14 +30,14 @@ using __enable_if_tuple_size_imp = _Tp;
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS tuple_size<__enable_if_tuple_size_imp<
     const _Tp,
-    typename enable_if<!is_volatile<_Tp>::value>::type,
+    __enable_if_t<!is_volatile<_Tp>::value>,
     integral_constant<size_t, sizeof(tuple_size<_Tp>)>>>
     : public integral_constant<size_t, tuple_size<_Tp>::value> {};
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS tuple_size<__enable_if_tuple_size_imp<
     volatile _Tp,
-    typename enable_if<!is_const<_Tp>::value>::type,
+    __enable_if_t<!is_const<_Tp>::value>,
     integral_constant<size_t, sizeof(tuple_size<_Tp>)>>>
     : public integral_constant<size_t, tuple_size<_Tp>::value> {};
 
@@ -278,7 +278,7 @@ using __type_pack_element _LIBCPP_NODEBUG = typename decltype(
 #endif
 
 template <size_t _Ip, class ..._Types>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, __tuple_types<_Types...>>
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, __tuple_types<_Types...> >
 {
     static_assert(_Ip < sizeof...(_Types), "tuple_element index out of range");
     typedef _LIBCPP_NODEBUG __type_pack_element<_Ip, _Types...> type;
@@ -393,7 +393,7 @@ struct __tuple_sfinae_base {
   template <template <class, class...> class _Trait,
             class ..._LArgs, class ..._RArgs>
   static auto __do_test(__tuple_types<_LArgs...>, __tuple_types<_RArgs...>)
-    -> __all<typename enable_if<_Trait<_LArgs, _RArgs>::value, bool>::type{true}...>;
+    -> __all<__enable_if_t<_Trait<_LArgs, _RArgs>::value, bool>{true}...>;
   template <template <class...> class>
   static auto __do_test(...) -> false_type;
 
@@ -469,8 +469,7 @@ template <class _SizeTrait, size_t _Expected>
 struct __tuple_like_with_size_imp<true, _SizeTrait, _Expected>
     : integral_constant<bool, _SizeTrait::value == _Expected> {};
 
-template <class _Tuple, size_t _ExpectedSize,
-          class _RawTuple = typename __uncvref<_Tuple>::type>
+template <class _Tuple, size_t _ExpectedSize, class _RawTuple = __uncvref_t<_Tuple> >
 using __tuple_like_with_size _LIBCPP_NODEBUG = __tuple_like_with_size_imp<
                                    __tuple_like<_RawTuple>::value,
                                    tuple_size<_RawTuple>, _ExpectedSize

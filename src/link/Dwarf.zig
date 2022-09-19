@@ -861,7 +861,8 @@ pub fn commitDeclState(
                             },
                             .wasm => {
                                 const wasm_file = file.cast(File.Wasm).?;
-                                writeDbgLineNopsBuffered(wasm_file.debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
+                                const debug_line = wasm_file.debug_line_atom.?.code;
+                                writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
                             },
                             else => unreachable,
                         }
@@ -947,7 +948,7 @@ pub fn commitDeclState(
                                 new_offset,
                             });
 
-                            try File.MachO.copyRangeAllOverlappingAlloc(
+                            try copyRangeAllOverlappingAlloc(
                                 gpa,
                                 d_sym.file,
                                 debug_line_sect.offset,
@@ -972,23 +973,21 @@ pub fn commitDeclState(
                 },
                 .wasm => {
                     const wasm_file = file.cast(File.Wasm).?;
-                    const segment_index = try wasm_file.getDebugLineIndex();
-                    const segment = &wasm_file.segments.items[segment_index];
-                    const debug_line = &wasm_file.debug_line;
-                    if (needed_size != segment.size) {
+                    const atom = wasm_file.debug_line_atom.?;
+                    const debug_line = &atom.code;
+                    const segment_size = debug_line.items.len;
+                    if (needed_size != segment_size) {
                         log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                        if (needed_size > segment.size) {
-                            log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment.size});
+                        if (needed_size > segment_size) {
+                            log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
                             try debug_line.resize(self.allocator, needed_size);
-                            mem.set(u8, debug_line.items[segment.size..], 0);
+                            mem.set(u8, debug_line.items[segment_size..], 0);
                         }
-                        segment.size = needed_size;
                         debug_line.items.len = needed_size;
                     }
-                    const offset = segment.offset + src_fn.off;
                     writeDbgLineNopsBuffered(
                         debug_line.items,
-                        offset,
+                        src_fn.off,
                         prev_padding_size,
                         dbg_line_buffer.items,
                         next_padding_size,
@@ -1146,10 +1145,8 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u3
                     },
                     .wasm => {
                         const wasm_file = file.cast(File.Wasm).?;
-                        const segment_index = try wasm_file.getDebugInfoIndex();
-                        const segment = &wasm_file.segments.items[segment_index];
-                        const offset = segment.offset + atom.off;
-                        try writeDbgInfoNopsToArrayList(gpa, &wasm_file.debug_info, offset, 0, &.{0}, atom.len, false);
+                        const debug_info = &wasm_file.debug_info_atom.?.code;
+                        try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
                     },
                     else => unreachable,
                 }
@@ -1250,7 +1247,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                         new_offset,
                     });
 
-                    try File.MachO.copyRangeAllOverlappingAlloc(
+                    try copyRangeAllOverlappingAlloc(
                         gpa,
                         d_sym.file,
                         debug_info_sect.offset,
@@ -1276,27 +1273,25 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            const segment_index = try wasm_file.getDebugInfoIndex();
-            const segment = &wasm_file.segments.items[segment_index];
-            const debug_info = &wasm_file.debug_info;
-            if (needed_size != segment.size) {
+            const info_atom = wasm_file.debug_info_atom.?;
+            const debug_info = &info_atom.code;
+            const segment_size = debug_info.items.len;
+            if (needed_size != segment_size) {
                 log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                if (needed_size > segment.size) {
-                    log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment.size});
+                if (needed_size > segment_size) {
+                    log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
                     try debug_info.resize(self.allocator, needed_size);
-                    mem.set(u8, debug_info.items[segment.size..], 0);
+                    mem.set(u8, debug_info.items[segment_size..], 0);
                 }
-                segment.size = needed_size;
                 debug_info.items.len = needed_size;
             }
-            const offset = segment.offset + atom.off;
             log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
-                debug_info.items.len, offset, dbg_info_buf.len, next_padding_size,
+                debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
             });
             try writeDbgInfoNopsToArrayList(
                 gpa,
                 debug_info,
-                offset,
+                atom.off,
                 prev_padding_size,
                 dbg_info_buf,
                 next_padding_size,
@@ -1337,10 +1332,9 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            const segment_index = wasm_file.getDebugLineIndex() catch unreachable;
-            const segment = wasm_file.segments.items[segment_index];
-            const offset = segment.offset + decl.fn_link.wasm.src_fn.off + self.getRelocDbgLineOff();
-            mem.copy(u8, wasm_file.debug_line.items[offset..], &data);
+            const offset = decl.fn_link.wasm.src_fn.off + self.getRelocDbgLineOff();
+            const atom = wasm_file.debug_line_atom.?;
+            mem.copy(u8, atom.code.items[offset..], &data);
         },
         else => unreachable,
     }
@@ -1576,8 +1570,9 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            try wasm_file.debug_abbrev.resize(wasm_file.base.allocator, needed_size);
-            mem.copy(u8, wasm_file.debug_abbrev.items, &abbrev_buf);
+            const debug_abbrev = &wasm_file.debug_abbrev_atom.?.code;
+            try debug_abbrev.resize(wasm_file.base.allocator, needed_size);
+            mem.copy(u8, debug_abbrev.items, &abbrev_buf);
         },
         else => unreachable,
     }
@@ -1687,7 +1682,8 @@ pub fn writeDbgInfoHeader(self: *Dwarf, file: *File, module: *Module, low_pc: u6
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            try writeDbgInfoNopsToArrayList(self.allocator, &wasm_file.debug_info, 0, 0, di_buf.items, jmp_amt, false);
+            const debug_info = &wasm_file.debug_info_atom.?.code;
+            try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
         },
         else => unreachable,
     }
@@ -2016,8 +2012,9 @@ pub fn writeDbgAranges(self: *Dwarf, file: *File, addr: u64, size: u64) !void {
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            try wasm_file.debug_aranges.resize(wasm_file.base.allocator, needed_size);
-            mem.copy(u8, wasm_file.debug_aranges.items, di_buf.items);
+            const debug_ranges = &wasm_file.debug_ranges_atom.?.code;
+            try debug_ranges.resize(wasm_file.base.allocator, needed_size);
+            mem.copy(u8, debug_ranges.items, di_buf.items);
         },
         else => unreachable,
     }
@@ -2139,7 +2136,8 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            writeDbgLineNopsBuffered(wasm_file.debug_line.items, 0, 0, di_buf.items, jmp_amt);
+            const debug_line = wasm_file.debug_line_atom.?.code;
+            writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
         },
         else => unreachable,
     }
@@ -2287,7 +2285,8 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
                 },
                 .wasm => {
                     const wasm_file = file.cast(File.Wasm).?;
-                    mem.copy(u8, wasm_file.debug_info.items[reloc.atom.off + reloc.offset ..], &buf);
+                    const debug_info = wasm_file.debug_info_atom.?.code;
+                    mem.copy(u8, debug_info.items[reloc.atom.off + reloc.offset ..], &buf);
                 },
                 else => unreachable,
             }
@@ -2338,4 +2337,17 @@ fn addDbgInfoErrorSet(
 
     // DW.AT.enumeration_type delimit children
     try dbg_info_buffer.append(0);
+}
+
+fn copyRangeAllOverlappingAlloc(
+    allocator: Allocator,
+    file: std.fs.File,
+    in_offset: u64,
+    out_offset: u64,
+    len: usize,
+) !void {
+    const buf = try allocator.alloc(u8, len);
+    defer allocator.free(buf);
+    const amt = try file.preadAll(buf, in_offset);
+    try file.pwriteAll(buf[0..amt], out_offset);
 }

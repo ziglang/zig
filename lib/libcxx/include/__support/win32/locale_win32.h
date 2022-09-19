@@ -11,7 +11,7 @@
 #define _LIBCPP_SUPPORT_WIN32_LOCALE_WIN32_H
 
 #include <__config>
-#include <__nullptr>
+#include <cstddef>
 #include <locale.h> // _locale_t
 #include <stdio.h>
 
@@ -186,28 +186,28 @@ private:
 // Locale management functions
 #define freelocale _free_locale
 // FIXME: base currently unused. Needs manual work to construct the new locale
-locale_t newlocale( int mask, const char * locale, locale_t base );
+locale_t newlocale( int __mask, const char * __locale, locale_t __base );
 // uselocale can't be implemented on Windows because Windows allows partial modification
 // of thread-local locale and so _get_current_locale() returns a copy while uselocale does
 // not create any copies.
 // We can still implement raii even without uselocale though.
 
 
-lconv *localeconv_l( locale_t &loc );
-size_t mbrlen_l( const char *__restrict s, size_t n,
-                 mbstate_t *__restrict ps, locale_t loc);
-size_t mbsrtowcs_l( wchar_t *__restrict dst, const char **__restrict src,
-                    size_t len, mbstate_t *__restrict ps, locale_t loc );
-size_t wcrtomb_l( char *__restrict s, wchar_t wc, mbstate_t *__restrict ps,
-                  locale_t loc);
-size_t mbrtowc_l( wchar_t *__restrict pwc, const char *__restrict s,
-                  size_t n, mbstate_t *__restrict ps, locale_t loc);
-size_t mbsnrtowcs_l( wchar_t *__restrict dst, const char **__restrict src,
-                     size_t nms, size_t len, mbstate_t *__restrict ps, locale_t loc);
-size_t wcsnrtombs_l( char *__restrict dst, const wchar_t **__restrict src,
-                     size_t nwc, size_t len, mbstate_t *__restrict ps, locale_t loc);
-wint_t btowc_l( int c, locale_t loc );
-int wctob_l( wint_t c, locale_t loc );
+lconv *localeconv_l( locale_t & __loc );
+size_t mbrlen_l( const char *__restrict __s, size_t __n,
+                 mbstate_t *__restrict __ps, locale_t __loc);
+size_t mbsrtowcs_l( wchar_t *__restrict __dst, const char **__restrict __src,
+                    size_t __len, mbstate_t *__restrict __ps, locale_t __loc );
+size_t wcrtomb_l( char *__restrict __s, wchar_t __wc, mbstate_t *__restrict __ps,
+                  locale_t __loc);
+size_t mbrtowc_l( wchar_t *__restrict __pwc, const char *__restrict __s,
+                  size_t __n, mbstate_t *__restrict __ps, locale_t __loc);
+size_t mbsnrtowcs_l( wchar_t *__restrict __dst, const char **__restrict __src,
+                     size_t __nms, size_t __len, mbstate_t *__restrict __ps, locale_t __loc);
+size_t wcsnrtombs_l( char *__restrict __dst, const wchar_t **__restrict __src,
+                     size_t __nwc, size_t __len, mbstate_t *__restrict __ps, locale_t __loc);
+wint_t btowc_l( int __c, locale_t __loc );
+int wctob_l( wint_t __c, locale_t __loc );
 
 decltype(MB_CUR_MAX) MB_CUR_MAX_L( locale_t __l );
 
@@ -223,18 +223,16 @@ decltype(MB_CUR_MAX) MB_CUR_MAX_L( locale_t __l );
 _LIBCPP_FUNC_VIS float strtof_l(const char*, char**, locale_t);
 _LIBCPP_FUNC_VIS long double strtold_l(const char*, char**, locale_t);
 #endif
-inline _LIBCPP_INLINE_VISIBILITY
-int
-islower_l(int c, _locale_t loc)
+inline _LIBCPP_HIDE_FROM_ABI int
+islower_l(int __c, _locale_t __loc)
 {
- return _islower_l((int)c, loc);
+ return _islower_l((int)__c, __loc);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY
-int
-isupper_l(int c, _locale_t loc)
+inline _LIBCPP_HIDE_FROM_ABI int
+isupper_l(int __c, _locale_t __loc)
 {
- return _isupper_l((int)c, loc);
+ return _isupper_l((int)__c, __loc);
 }
 
 #define isdigit_l _isdigit_l
@@ -266,18 +264,18 @@ _LIBCPP_FUNC_VIS size_t strftime_l(char *ret, size_t n, const char *format,
 #define sprintf_l( __s, __l, __f, ... ) _sprintf_l( __s, __f, __l, __VA_ARGS__ )
 #define vsprintf_l( __s, __l, __f, ... ) _vsprintf_l( __s, __f, __l, __VA_ARGS__ )
 #define vsnprintf_l( __s, __n, __l, __f, ... ) _vsnprintf_l( __s, __n, __f, __l, __VA_ARGS__ )
-_LIBCPP_FUNC_VIS int snprintf_l(char *ret, size_t n, locale_t loc, const char *format, ...);
-_LIBCPP_FUNC_VIS int asprintf_l( char **ret, locale_t loc, const char *format, ... );
-_LIBCPP_FUNC_VIS int vasprintf_l( char **ret, locale_t loc, const char *format, va_list ap );
+_LIBCPP_FUNC_VIS int snprintf_l(char *__ret, size_t __n, locale_t __loc, const char *__format, ...);
+_LIBCPP_FUNC_VIS int asprintf_l( char **__ret, locale_t __loc, const char *__format, ... );
+_LIBCPP_FUNC_VIS int vasprintf_l( char **__ret, locale_t __loc, const char *__format, va_list __ap );
 
 // not-so-pressing FIXME: use locale to determine blank characters
-inline int isblank_l( int c, locale_t /*loc*/ )
+inline int isblank_l( int __c, locale_t /*loc*/ )
 {
-    return ( c == ' ' || c == '\t' );
+    return ( __c == ' ' || __c == '\t' );
 }
-inline int iswblank_l( wint_t c, locale_t /*loc*/ )
+inline int iswblank_l( wint_t __c, locale_t /*loc*/ )
 {
-    return ( c == L' ' || c == L'\t' );
+    return ( __c == L' ' || __c == L'\t' );
 }
 
 #endif // _LIBCPP_SUPPORT_WIN32_LOCALE_WIN32_H

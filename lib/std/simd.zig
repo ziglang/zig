@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
-    const element_bit_size = @maximum(8, std.math.ceilPowerOfTwo(T, @bitSizeOf(T)) catch unreachable);
+    const element_bit_size = @maximum(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
@@ -55,6 +55,15 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
 /// Not yet implemented for every CPU architecture.
 pub fn suggestVectorSize(comptime T: type) ?usize {
     return suggestVectorSizeForCpu(T, builtin.cpu);
+}
+
+test "suggestVectorSizeForCpu works with signed and unsigned values" {
+    comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
+    comptime cpu.features.addFeature(@enumToInt(std.Target.x86.Feature.avx512f));
+    const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
+    const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
+    try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
+    try std.testing.expectEqual(@as(usize, 16), signed_integer_size);
 }
 
 fn vectorLength(comptime VectorType: type) comptime_int {

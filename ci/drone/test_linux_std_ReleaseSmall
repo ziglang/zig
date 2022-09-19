@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -x
+set -e
+
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+# Empirically, this takes about 55 minutes on the CI, and is the bottleneck
+# causing timeouts. So this is disabled in favor of running a smaller set
+# of ReleaseSmall std lib tests.
+# $ZIG build test-std -Dskip-debug -Dskip-release-safe -Dskip-release-fast -Dskip-non-native
+
+$ZIG test lib/std/std.zig -OReleaseSmall     --zig-lib-dir lib
+$ZIG test lib/std/std.zig -OReleaseSmall -lc --zig-lib-dir lib

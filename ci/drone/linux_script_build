@@ -1,17 +1,16 @@
 #!/bin/sh
 
-. ./ci/drone/linux_script_base
+set -x
+set -e
 
-# Probe CPU/brand details.
-# TODO: `lscpu` is changing package names in EDGE to `util-linux-misc`
-apk update
-apk add util-linux
-echo "lscpu:"
-lscpu | sed 's,^,  : ,'
+ARCH="$(uname -m)"
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
 
 PREFIX="/deps/local"
 ZIG="$PREFIX/bin/zig"
-TARGET="$TRIPLEARCH-linux-musl"
+TARGET="$ARCH-linux-musl"
 MCPU="baseline"
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
@@ -30,8 +29,8 @@ cat <<'ENDFILE' >$PREFIX/bin/ranlib
 /deps/local/bin/zig ranlib $@
 ENDFILE
 
-chmod +x $PREFIX/bin/ar
-chmod +x $PREFIX/bin/ranlib
+chmod +x "$PREFIX/bin/ar"
+chmod +x "$PREFIX/bin/ranlib"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -42,8 +41,8 @@ git fetch --tags
 mkdir build
 cd build
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$DISTDIR" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_AR="$PREFIX/bin/ar" \
   -DCMAKE_RANLIB="$PREFIX/bin/ranlib" \
@@ -56,10 +55,4 @@ cmake .. \
 # so that installation and testing do not get affected by them.
 unset CC
 unset CXX
-samu install
-
-# Here we rebuild Zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. See
-# https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$DISTDIR/bin/zig"
 samu install

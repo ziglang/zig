@@ -38,7 +38,7 @@
 //!             return,
 //!     } ++ "): ";
 //!
-//!     const prefix = "[" ++ level.asText() ++ "] " ++ scope_prefix;
+//!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
 //!     std.debug.getStderrMutex().lock();
@@ -169,10 +169,6 @@ pub fn defaultLog(
 /// provided here.
 pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
     return struct {
-        pub const emerg = @compileError("deprecated; use err instead of emerg");
-        pub const alert = @compileError("deprecated; use err instead of alert");
-        pub const crit = @compileError("deprecated; use err instead of crit");
-
         /// Log an error message. This log level is intended to be used
         /// when something has gone wrong. This might be recoverable or might
         /// be followed by the program exiting.
@@ -193,8 +189,6 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
         ) void {
             log(.warn, scope, format, args);
         }
-
-        pub const notice = @compileError("deprecated; use info instead of notice");
 
         /// Log an info message. This log level is intended to be used for
         /// general messages about the state of the program.
@@ -219,10 +213,6 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
 /// The default scoped logging namespace.
 pub const default = scoped(.default);
 
-pub const emerg = @compileError("deprecated; use err instead of emerg");
-pub const alert = @compileError("deprecated; use err instead of alert");
-pub const crit = @compileError("deprecated; use err instead of crit");
-
 /// Log an error message using the default scope. This log level is intended to
 /// be used when something has gone wrong. This might be recoverable or might
 /// be followed by the program exiting.
@@ -232,8 +222,6 @@ pub const err = default.err;
 /// to be used if it is uncertain whether something has gone wrong or not, but
 /// the circumstances would be worth investigating.
 pub const warn = default.warn;
-
-pub const notice = @compileError("deprecated; use info instead of notice");
 
 /// Log an info message using the default scope. This log level is intended to
 /// be used for general messages about the state of the program.

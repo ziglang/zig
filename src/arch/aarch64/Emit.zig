@@ -277,7 +277,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         => return 2 * 4,
         .pop_regs, .push_regs => {
             const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
-            const number_of_regs = @popCount(u32, reg_list);
+            const number_of_regs = @popCount(reg_list);
             const number_of_insts = std.math.divCeil(u6, number_of_regs, 2) catch unreachable;
             return number_of_insts * 4;
         },
@@ -680,18 +680,15 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
             break :blk offset;
         };
         // Add relocation to the decl.
-        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
-        try atom.relocs.append(emit.bin_file.allocator, .{
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const target = macho_file.getGlobalByIndex(relocation.sym_index);
+        try atom.addRelocation(macho_file, .{
+            .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+            .target = target,
             .offset = offset,
-            .target = .{
-                .sym_index = relocation.sym_index,
-                .file = null,
-            },
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
-            .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
         });
     } else {
         return emit.fail("Implement call_extern for linking backends != MachO", .{});
@@ -874,8 +871,8 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
-        .load_memory_ptr_got,
         .load_memory_ptr_direct,
+        .load_memory_ptr_got,
         => {
             // add reg, reg, offset
             try emit.writeInstruction(Instruction.add(reg, reg, 0, false));
@@ -884,13 +881,13 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom = macho_file.atom_by_index_table.get(data.atom_index).?;
-        // Page reloc for adrp instruction.
-        try atom.relocs.append(emit.bin_file.allocator, .{
-            .offset = offset,
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        // TODO this causes segfault in stage1
+        // try atom.addRelocations(macho_file, 2, .{
+        try atom.addRelocation(macho_file, .{
             .target = .{ .sym_index = data.sym_index, .file = null },
+            .offset = offset,
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
             .@"type" = switch (tag) {
@@ -903,12 +900,10 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         });
-        // Pageoff reloc for adrp instruction.
-        try atom.relocs.append(emit.bin_file.allocator, .{
-            .offset = offset + 4,
+        try atom.addRelocation(macho_file, .{
             .target = .{ .sym_index = data.sym_index, .file = null },
+            .offset = offset + 4,
             .addend = 0,
-            .subtractor = null,
             .pcrel = false,
             .length = 2,
             .@"type" = switch (tag) {
@@ -1183,7 +1178,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
     // sp must be aligned at all times, so we only use stp and ldp
     // instructions for minimal instruction count. However, if we do
     // not have an even number of registers, we use str and ldr
-    const number_of_regs = @popCount(u32, reg_list);
+    const number_of_regs = @popCount(reg_list);
 
     switch (tag) {
         .pop_regs => {

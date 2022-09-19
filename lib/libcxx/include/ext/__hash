@@ -10,9 +10,9 @@
 #ifndef _LIBCPP_EXT_HASH
 #define _LIBCPP_EXT_HASH
 
-#pragma GCC system_header
+#  pragma GCC system_header
 
-#include <__string>
+#include <__config>
 #include <cstring>
 #include <string>
 
@@ -21,7 +21,7 @@ namespace __gnu_cxx {
 template <typename _Tp> struct _LIBCPP_TEMPLATE_VIS hash { };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<const char*>
- : public std::unary_function<const char*, size_t>
+ : public std::__unary_function<const char*, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(const char *__c) const _NOEXCEPT
@@ -31,7 +31,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<const char*>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<char *>
- : public std::unary_function<char*, size_t>
+ : public std::__unary_function<char*, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(char *__c) const _NOEXCEPT
@@ -41,7 +41,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<char *>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<char>
- : public std::unary_function<char, size_t>
+ : public std::__unary_function<char, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(char __c) const _NOEXCEPT
@@ -51,7 +51,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<char>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<signed char>
- : public std::unary_function<signed char, size_t>
+ : public std::__unary_function<signed char, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(signed char __c) const _NOEXCEPT
@@ -61,7 +61,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<signed char>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned char>
- : public std::unary_function<unsigned char, size_t>
+ : public std::__unary_function<unsigned char, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(unsigned char __c) const _NOEXCEPT
@@ -71,7 +71,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned char>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<short>
- : public std::unary_function<short, size_t>
+ : public std::__unary_function<short, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(short __c) const _NOEXCEPT
@@ -81,7 +81,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<short>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned short>
- : public std::unary_function<unsigned short, size_t>
+ : public std::__unary_function<unsigned short, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(unsigned short __c) const _NOEXCEPT
@@ -91,7 +91,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned short>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<int>
-    : public std::unary_function<int, size_t>
+    : public std::__unary_function<int, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(int __c) const _NOEXCEPT
@@ -101,7 +101,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<int>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned int>
-    : public std::unary_function<unsigned int, size_t>
+    : public std::__unary_function<unsigned int, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(unsigned int __c) const _NOEXCEPT
@@ -111,7 +111,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned int>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<long>
-    : public std::unary_function<long, size_t>
+    : public std::__unary_function<long, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(long __c) const _NOEXCEPT
@@ -121,7 +121,7 @@ template <> struct _LIBCPP_TEMPLATE_VIS hash<long>
 };
 
 template <> struct _LIBCPP_TEMPLATE_VIS hash<unsigned long>
-    : public std::unary_function<unsigned long, size_t>
+    : public std::__unary_function<unsigned long, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(unsigned long __c) const _NOEXCEPT

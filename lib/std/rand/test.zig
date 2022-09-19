@@ -445,3 +445,29 @@ test "CSPRNG" {
     const c = random.int(u64);
     try expect(a ^ b ^ c != 0);
 }
+
+test "Random weightedIndex" {
+    // Make sure weightedIndex works for various integers and floats
+    inline for (.{ u64, i4, f32, f64 }) |T| {
+        var prng = DefaultPrng.init(0);
+        const random = prng.random();
+
+        const proportions = [_]T{ 2, 1, 1, 2 };
+        var counts = [_]f64{ 0, 0, 0, 0 };
+
+        const n_trials: u64 = 10_000;
+        var i: usize = 0;
+        while (i < n_trials) : (i += 1) {
+            const pick = random.weightedIndex(T, &proportions);
+            counts[pick] += 1;
+        }
+
+        // We expect the first and last counts to be roughly 2x the second and third
+        const approxEqRel = std.math.approxEqRel;
+        // Define "roughly" to be within 10%
+        const tolerance = 0.1;
+        try std.testing.expect(approxEqRel(f64, counts[0], counts[1] * 2, tolerance));
+        try std.testing.expect(approxEqRel(f64, counts[1], counts[2], tolerance));
+        try std.testing.expect(approxEqRel(f64, counts[2] * 2, counts[3], tolerance));
+    }
+}

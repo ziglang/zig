@@ -268,7 +268,7 @@ test "sizeof" {
 pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
 
 fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime radix: CIntLiteralRadix) type {
-    const signed_decimal = [_]type{ c_int, c_long, c_longlong };
+    const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };
     const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
     const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
 
@@ -349,7 +349,7 @@ test "shuffleVectorIndex" {
 
 /// Constructs a [*c] pointer with the const and volatile annotations
 /// from SelfType for pointing to a C flexible array of ElementType.
-pub fn FlexibleArrayType(comptime SelfType: type, ElementType: type) type {
+pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) type {
     switch (@typeInfo(SelfType)) {
         .Pointer => |ptr| {
             return @Type(.{ .Pointer = .{

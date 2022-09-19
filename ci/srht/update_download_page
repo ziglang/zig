@@ -101,27 +101,47 @@ CIDIR="$(pwd)"
 
 cd "$HOME"
 
-# Upload new stdlib autodocs 
-mkdir -p docs_to_upload/documentation/master/std/
+# Update autodocs and langref directly to S3 in order to prevent the
+# www.ziglang.org git repo from growing too big.
 
-gzip -c -9 "$ZIGDIR/docs/std/index.html" >  docs_to_upload/documentation/master/std/index.html
-gzip -c -9 "$ZIGDIR/docs/std/data.js" > docs_to_upload/documentation/master/std/data.js
-gzip -c -9 "$ZIGDIR/docs/std/main.js" > docs_to_upload/documentation/master/std/main.js
-gzip -c -9 "$LANGREF" > docs_to_upload/documentation/master/index.html
-$S3CMD put -P --no-mime-magic --recursive --add-header="Content-Encoding:gzip" --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
+# Please do not edit this script to pre-compress the artifacts before they hit
+# S3. This prevents the website from working on browsers that do not support gzip
+# encoding. Cloudfront will automatically compress files if they are less than
+# 9.5 MiB, and the client advertises itself as capable of decompressing.
+# The data.js file is currently 16 MiB. In order to fix this problem, we need to do
+# one of the following things:
+# * Reduce the size of data.js to less than 9.5 MiB.
+# * Figure out how to adjust the Cloudfront settings to increase the max size for
+#   auto-compressed objects.
+# * Migrate to fastly.
+$S3CMD put -P --no-mime-magic \
+  --add-header="Cache-Control: max-age=0, must-revalidate" \
+  "$LANGREF" s3://ziglang.org/documentation/master/index.html
 
-## Copy without compression:
-# cp "$ZIGDIR/docs/std/index.html" docs_to_upload/documentation/master/std/index.html
-# cp "$ZIGDIR/docs/std/data.js" docs_to_upload/documentation/master/std/data.js
-# cp "$ZIGDIR/docs/std/main.js" docs_to_upload/documentation/master/std/main.js
-# cp "$LANGREF" docs_to_upload/documentation/master/index.html
-# $S3CMD put -P --no-mime-magic --recursive --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
+$S3CMD put -P --no-mime-magic \
+  --add-header="Cache-Control: max-age=0, must-revalidate" \
+  "$ZIGDIR/docs/std/index.html" s3://ziglang.org/documentation/master/std/index.html
+
+$S3CMD put -P --no-mime-magic \
+  --add-header="Cache-Control: max-age=0, must-revalidate" \
+  "$ZIGDIR/docs/std/main.js" s3://ziglang.org/documentation/master/std/main.js
+
+$S3CMD put -P --no-mime-magic \
+  --add-header="Cache-Control: max-age=0, must-revalidate" \
+  "$ZIGDIR/docs/std/data.js" s3://ziglang.org/documentation/master/std/data.js
+
+$S3CMD put -P --no-mime-magic --recursive \
+  --add-header="Cache-Control: max-age=0, must-revalidate" \
+  -m "text/html" \
+  "$ZIGDIR/docs/std/src/" s3://ziglang.org/documentation/master/std/src/
+
+$S3CMD put -P --no-mime-magic \
+  --add-header="cache-control: public, max-age=31536000, immutable" \
+  "$HOME/$SRC_TARBALL" s3://ziglang.org/builds/
 
 git clone --depth 1 git@github.com:ziglang/www.ziglang.org.git
 cd www.ziglang.org
 WWWDIR="$(pwd)"
-
-$S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "$HOME/$SRC_TARBALL" s3://ziglang.org/builds/
 
 cd "$WWWDIR"
 cp "$CIDIR/out/index.json" data/releases.json

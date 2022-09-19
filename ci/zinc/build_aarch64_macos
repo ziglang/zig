@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -x
+set -e
+
+RELEASE_STAGING="$DRONE_WORKSPACE/_release/staging"
+TARGET="aarch64-macos-none"
+MCPU="apple_a14"
+INSTALL_PREFIX="$DRONE_WORKSPACE/$TARGET"
+SEARCH_PREFIX="/deps/$TARGET"
+
+"$RELEASE_STAGING/bin/zig" build \
+  --prefix "$INSTALL_PREFIX" \
+  --search-prefix "$SEARCH_PREFIX" \
+  -Dstatic-llvm \
+  -Drelease \
+  -Dstrip \
+  -Dtarget="$TARGET" \
+  -Dcpu="$MCPU" \
+  -Denable-stage1

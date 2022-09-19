@@ -45,6 +45,7 @@ pub const Builder = struct {
     /// The purpose of executing the command is for a human to read compile errors from the terminal
     prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
+    reference_trace: ?u32 = null,
     use_stage1: ?bool = null,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -171,7 +172,7 @@ pub const Builder = struct {
         const env_map = try allocator.create(EnvMap);
         env_map.* = try process.getEnvMap(allocator);
 
-        const host = try NativeTargetInfo.detect(allocator, .{});
+        const host = try NativeTargetInfo.detect(.{});
 
         const self = try allocator.create(Builder);
         self.* = Builder{
@@ -1339,13 +1340,6 @@ test "builder.findProgram compiles" {
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-/// TODO: propose some kind of `@deprecate` builtin so that we can deprecate
-/// this while still having somewhat non-lazy decls. In this file we wanted to do
-/// refAllDecls for example which makes it trigger `@compileError` if you try
-/// to use that strategy.
-pub const Version = @compileError("deprecated; Use `std.builtin.Version`");
-pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
-
 pub const Pkg = struct {
     name: []const u8,
     source: FileSource,
@@ -1495,6 +1489,7 @@ pub const LibExeObjStep = struct {
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
     single_threaded: ?bool = null,
+    stack_protector: ?bool = null,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
@@ -1797,7 +1792,7 @@ pub const LibExeObjStep = struct {
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
-        self.target_info = NativeTargetInfo.detect(self.builder.allocator, self.target) catch
+        self.target_info = NativeTargetInfo.detect(self.target) catch
             unreachable;
 
         const target = self.target_info.target;
@@ -1898,11 +1893,10 @@ pub const LibExeObjStep = struct {
     pub fn runEmulatable(exe: *LibExeObjStep) *EmulatableRunStep {
         assert(exe.kind == .exe or exe.kind == .test_exe);
 
-        const run_step = EmulatableRunStep.create(exe.builder.fmt("run {s}", .{exe.step.name}), exe);
+        const run_step = EmulatableRunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}), exe);
         if (exe.vcpkg_bin_path) |path| {
-            run_step.addPathDir(path);
+            RunStep.addPathDirInternal(&run_step.step, exe.builder, path);
         }
-
         return run_step;
     }
 
@@ -2314,27 +2308,17 @@ pub const LibExeObjStep = struct {
         self.linkLibraryOrObject(obj);
     }
 
-    /// TODO deprecated, use `addSystemIncludePath`.
-    pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
-        self.addSystemIncludePath(path);
-    }
+    pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
+    pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
+    pub const addLibPath = @compileError("deprecated, use addLibraryPath");
+    pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
 
     pub fn addSystemIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path_system = self.builder.dupe(path) }) catch unreachable;
     }
 
-    /// TODO deprecated, use `addIncludePath`.
-    pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
-        self.addIncludePath(path);
-    }
-
     pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
-    }
-
-    /// TODO deprecated, use `addLibraryPath`.
-    pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
-        self.addLibraryPath(path);
     }
 
     pub fn addLibraryPath(self: *LibExeObjStep, path: []const u8) void {
@@ -2343,11 +2327,6 @@ pub const LibExeObjStep = struct {
 
     pub fn addRPath(self: *LibExeObjStep, path: []const u8) void {
         self.rpaths.append(self.builder.dupe(path)) catch unreachable;
-    }
-
-    /// TODO deprecated, use `addFrameworkPath`.
-    pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
-        self.addFrameworkPath(dir_path);
     }
 
     pub fn addFrameworkPath(self: *LibExeObjStep, dir_path: []const u8) void {
@@ -2473,6 +2452,10 @@ pub const LibExeObjStep = struct {
         if (builder.color != .auto) {
             try zig_args.append("--color");
             try zig_args.append(@tagName(builder.color));
+        }
+
+        if (builder.reference_trace) |some| {
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-freference-trace={d}", .{some}));
         }
 
         if (self.use_stage1) |stage1| {
@@ -2825,6 +2808,13 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.stack_protector) |stack_protector| {
+            if (stack_protector) {
+                try zig_args.append("-fstack-protector");
+            } else {
+                try zig_args.append("-fno-stack-protector");
+            }
         }
         if (self.red_zone) |red_zone| {
             if (red_zone) {

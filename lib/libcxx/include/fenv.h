@@ -53,7 +53,7 @@ int feupdateenv(const fenv_t* envp);
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #include_next <fenv.h>

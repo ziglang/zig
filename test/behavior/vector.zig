@@ -250,6 +250,13 @@ test "vector @splat" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.os.tag == .macos)
+    {
+        // LLVM 15 regression: https://github.com/ziglang/zig/issues/12827
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
@@ -1110,4 +1117,27 @@ test "loading the second vector from a slice of vectors" {
     var a: []const @Vector(2, u8) = &small_bases;
     var a4 = a[1][1];
     try expect(a4 == 3);
+}
+
+test "array of vectors is copied" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Vec3 = @Vector(3, i32);
+    var points = [_]Vec3{
+        Vec3{ 404, -588, -901 },
+        Vec3{ 528, -643, 409 },
+        Vec3{ -838, 591, 734 },
+        Vec3{ 390, -675, -793 },
+        Vec3{ -537, -823, -458 },
+        Vec3{ -485, -357, 347 },
+        Vec3{ -345, -311, 381 },
+        Vec3{ -661, -816, -575 },
+    };
+    var points2: [20]Vec3 = undefined;
+    points2[0..points.len].* = points;
+    try std.testing.expectEqual(points2[6], Vec3{ -345, -311, 381 });
 }

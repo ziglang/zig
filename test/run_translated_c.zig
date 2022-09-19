@@ -250,18 +250,20 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    cases.add("struct initializer - packed",
-        \\#define _NO_CRT_STDIO_INLINE 1
-        \\#include <stdint.h>
-        \\#include <stdlib.h>
-        \\struct s {uint8_t x,y;
-        \\          uint32_t z;} __attribute__((packed)) s0 = {1, 2};
-        \\int main() {
-        \\  /* sizeof nor offsetof currently supported */
-        \\  if (((intptr_t)&s0.z - (intptr_t)&s0.x) != 2) abort();
-        \\  return 0;
-        \\}
-    , "");
+    if (@import("builtin").zig_backend == .stage1) {
+        cases.add("struct initializer - packed",
+            \\#define _NO_CRT_STDIO_INLINE 1
+            \\#include <stdint.h>
+            \\#include <stdlib.h>
+            \\struct s {uint8_t x,y;
+            \\          uint32_t z;} __attribute__((packed)) s0 = {1, 2};
+            \\int main() {
+            \\  /* sizeof nor offsetof currently supported */
+            \\  if (((intptr_t)&s0.z - (intptr_t)&s0.x) != 2) abort();
+            \\  return 0;
+            \\}
+        , "");
+    }
 
     cases.add("cast signed array index to unsigned",
         \\#include <stdlib.h>
@@ -1875,8 +1877,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\#include <stdint.h>
         \\int main(void) {
         \\#if defined(__UINTPTR_MAX__) && __has_include(<unistd.h>)
-        \\    uintptr_t x = main;
-        \\    x = (uintptr_t)main;
+        \\    uintptr_t x = (uintptr_t)main;
         \\#endif
         \\    return 0;
         \\}

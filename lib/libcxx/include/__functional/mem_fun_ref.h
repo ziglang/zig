@@ -15,7 +15,7 @@
 #include <__functional/unary_function.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template<class _Sp, class _Tp>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 mem_fun_t
-    : public unary_function<_Tp*, _Sp>
+    : public __unary_function<_Tp*, _Sp>
 {
     _Sp (_Tp::*__p_)();
 public:
@@ -36,7 +36,7 @@ public:
 
 template<class _Sp, class _Tp, class _Ap>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 mem_fun1_t
-    : public binary_function<_Tp*, _Ap, _Sp>
+    : public __binary_function<_Tp*, _Ap, _Sp>
 {
     _Sp (_Tp::*__p_)(_Ap);
 public:
@@ -60,7 +60,7 @@ mem_fun(_Sp (_Tp::*__f)(_Ap))
 
 template<class _Sp, class _Tp>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 mem_fun_ref_t
-    : public unary_function<_Tp, _Sp>
+    : public __unary_function<_Tp, _Sp>
 {
     _Sp (_Tp::*__p_)();
 public:
@@ -72,7 +72,7 @@ public:
 
 template<class _Sp, class _Tp, class _Ap>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 mem_fun1_ref_t
-    : public binary_function<_Tp, _Ap, _Sp>
+    : public __binary_function<_Tp, _Ap, _Sp>
 {
     _Sp (_Tp::*__p_)(_Ap);
 public:
@@ -96,7 +96,7 @@ mem_fun_ref(_Sp (_Tp::*__f)(_Ap))
 
 template <class _Sp, class _Tp>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun_t
-    : public unary_function<const _Tp*, _Sp>
+    : public __unary_function<const _Tp*, _Sp>
 {
     _Sp (_Tp::*__p_)() const;
 public:
@@ -108,7 +108,7 @@ public:
 
 template <class _Sp, class _Tp, class _Ap>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun1_t
-    : public binary_function<const _Tp*, _Ap, _Sp>
+    : public __binary_function<const _Tp*, _Ap, _Sp>
 {
     _Sp (_Tp::*__p_)(_Ap) const;
 public:
@@ -132,7 +132,7 @@ mem_fun(_Sp (_Tp::*__f)(_Ap) const)
 
 template <class _Sp, class _Tp>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun_ref_t
-    : public unary_function<_Tp, _Sp>
+    : public __unary_function<_Tp, _Sp>
 {
     _Sp (_Tp::*__p_)() const;
 public:
@@ -144,7 +144,7 @@ public:
 
 template <class _Sp, class _Tp, class _Ap>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun1_ref_t
-    : public binary_function<_Tp, _Ap, _Sp>
+    : public __binary_function<_Tp, _Ap, _Sp>
 {
     _Sp (_Tp::*__p_)(_Ap) const;
 public:

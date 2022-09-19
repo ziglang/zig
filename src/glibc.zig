@@ -41,29 +41,7 @@ pub const libs = [_]Lib{
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1 },
-};
-
-// glibc's naming of Zig architectures
-const Arch = enum(c_int) {
-    arm,
-    armeb,
-    aarch64,
-    aarch64_be,
-    mips,
-    mipsel,
-    mips64,
-    mips64el,
-    powerpc,
-    powerpc64,
-    powerpc64le,
-    riscv32,
-    riscv64,
-    sparc,
-    sparcv9,
-    sparcel,
-    s390x,
-    i386,
-    x86_64,
+    .{ .name = "resolv", .sover = 2 },
 };
 
 pub const LoadMetaDataError = error{
@@ -157,7 +135,7 @@ pub fn loadMetaData(gpa: Allocator, zig_lib_dir: fs.Dir) LoadMetaDataError!*ABI 
                 log.err("abilists: expected ABI name", .{});
                 return error.ZigInstallationCorrupt;
             };
-            const arch_tag = std.meta.stringToEnum(Arch, arch_name) orelse {
+            const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
                 return error.ZigInstallationCorrupt;
             };
@@ -171,7 +149,7 @@ pub fn loadMetaData(gpa: Allocator, zig_lib_dir: fs.Dir) LoadMetaDataError!*ABI 
             };
 
             targets[i] = .{
-                .arch = glibcToZigArch(arch_tag),
+                .arch = arch_tag,
                 .os = .linux,
                 .abi = abi_tag,
             };
@@ -741,17 +719,16 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                 .lt => continue,
                 .gt => {
                     // TODO Expose via compile error mechanism instead of log.
-                    log.err("invalid target glibc version: {}", .{target_version});
+                    log.warn("invalid target glibc version: {}", .{target_version});
                     return error.InvalidTargetGLibCVersion;
                 },
             }
-        } else {
+        } else blk: {
             const latest_index = metadata.all_versions.len - 1;
-            // TODO Expose via compile error mechanism instead of log.
-            log.err("zig does not yet provide glibc version {}, the max provided version is {}", .{
+            log.warn("zig cannot build new glibc version {}; providing instead {}", .{
                 target_version, metadata.all_versions[latest_index],
             });
-            return error.InvalidTargetGLibCVersion;
+            break :blk latest_index;
         };
 
         {
@@ -1111,6 +1088,7 @@ fn buildSharedLib(
         .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
@@ -1136,30 +1114,6 @@ fn buildSharedLib(
     defer sub_compilation.destroy();
 
     try sub_compilation.updateSubCompilation();
-}
-
-fn glibcToZigArch(arch_tag: Arch) std.Target.Cpu.Arch {
-    return switch (arch_tag) {
-        .arm => .arm,
-        .armeb => .armeb,
-        .aarch64 => .aarch64,
-        .aarch64_be => .aarch64_be,
-        .mips => .mips,
-        .mipsel => .mipsel,
-        .mips64 => .mips64,
-        .mips64el => .mips64el,
-        .powerpc => .powerpc,
-        .powerpc64 => .powerpc64,
-        .powerpc64le => .powerpc64le,
-        .riscv32 => .riscv32,
-        .riscv64 => .riscv64,
-        .sparc => .sparc,
-        .sparcv9 => .sparc64, // In glibc, sparc64 is called sparcv9.
-        .sparcel => .sparcel,
-        .s390x => .s390x,
-        .i386 => .i386,
-        .x86_64 => .x86_64,
-    };
 }
 
 // Return true if glibc has crti/crtn sources for that architecture.

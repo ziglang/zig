@@ -19,12 +19,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
   // __non_propagating_cache is a helper type that allows storing an optional value in it,
@@ -45,7 +45,7 @@ namespace ranges {
     // constructing the contained type from an iterator.
     struct __wrapper {
       template<class ..._Args>
-      constexpr explicit __wrapper(__forward_tag, _Args&& ...__args) : __t_(_VSTD::forward<_Args>(__args)...) { }
+      constexpr explicit __wrapper(__forward_tag, _Args&& ...__args) : __t_(std::forward<_Args>(__args)...) { }
       template<class _Fn>
       constexpr explicit __wrapper(__from_tag, _Fn const& __f) : __t_(__f()) { }
       _Tp __t_;
@@ -70,7 +70,7 @@ namespace ranges {
 
     _LIBCPP_HIDE_FROM_ABI
     constexpr __non_propagating_cache& operator=(__non_propagating_cache const& __other) noexcept {
-      if (this != _VSTD::addressof(__other)) {
+      if (this != std::addressof(__other)) {
         __value_.reset();
       }
       return *this;
@@ -100,14 +100,14 @@ namespace ranges {
     template<class ..._Args>
     _LIBCPP_HIDE_FROM_ABI
     constexpr _Tp& __emplace(_Args&& ...__args) {
-      return __value_.emplace(__forward_tag{}, _VSTD::forward<_Args>(__args)...).__t_;
+      return __value_.emplace(__forward_tag{}, std::forward<_Args>(__args)...).__t_;
     }
   };
 
   struct __empty_cache { };
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

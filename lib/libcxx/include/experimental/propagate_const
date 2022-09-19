@@ -9,6 +9,7 @@
 
 #ifndef _LIBCPP_EXPERIMENTAL_PROPAGATE_CONST
 #define _LIBCPP_EXPERIMENTAL_PROPAGATE_CONST
+
 /*
     propagate_const synopsis
 
@@ -106,13 +107,16 @@
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__functional/operations.h>
+#include <__utility/forward.h>
+#include <__utility/move.h>
+#include <__utility/swap.h>
 #include <experimental/__config>
-#include <functional>
 #include <type_traits>
-#include <utility>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #if _LIBCPP_STD_VER > 11

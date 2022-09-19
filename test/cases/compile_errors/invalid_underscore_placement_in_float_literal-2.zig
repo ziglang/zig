@@ -1,5 +1,5 @@
 fn main() void {
-    var bad: f128 = 0_.0;
+    var bad: f128 = 1_.0;
     _ = bad;
 }
 
@@ -7,5 +7,4 @@ fn main() void {
 // backend=stage2
 // target=native
 //
-// :2:21: error: expected expression, found 'invalid bytes'
-// :2:23: note: invalid byte: '.'
+// :2:23: error: expected digit before '.'

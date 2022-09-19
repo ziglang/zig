@@ -3377,7 +3377,7 @@ pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
-        sum += @popCount(usize, x);
+        sum += @popCount(x);
     }
     return sum;
 }

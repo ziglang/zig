@@ -33,24 +33,13 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .directory = null, // Put it in the cache directory.
         .basename = basename,
     };
-    const unwind_src_list = [_][]const u8{
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "libunwind.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-EHABI.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-seh.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "gcc_personality_v0.c",
-    };
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list) |unwind_src, i| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c99");
+                try cflags.append("-std=c11");
             },
             .cpp => {
                 try cflags.appendSlice(&[_][]const u8{
@@ -113,13 +102,15 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
-        .want_lto = comp.bin_file.options.lto,
+        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
+        .want_lto = false,
         .function_sections = comp.bin_file.options.function_sections,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
@@ -150,3 +141,16 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }
+
+const unwind_src_list = [_][]const u8{
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "libunwind.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-EHABI.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-seh.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind_AIXExtras.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "gcc_personality_v0.c",
+};

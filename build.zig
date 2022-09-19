@@ -15,6 +15,7 @@ const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
+    const test_step = b.step("test", "Run all the tests");
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
@@ -39,9 +40,7 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
-
-    var test_cases = b.addTest("src/test.zig");
+    const test_cases = b.addTest("src/test.zig");
     test_cases.stack_size = stack_size;
     test_cases.setBuildMode(mode);
     test_cases.addPackagePath("test_cases", "test/cases.zig");
@@ -64,10 +63,9 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
-    const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
-    const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
+    const have_stage1 = b.option(bool, "enable-stage1", "Include the stage1 compiler behind a feature flag") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
-    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (have_stage1 or static_llvm);
     const llvm_has_m68k = b.option(
         bool,
         "llvm-has-m68k",
@@ -137,7 +135,7 @@ pub fn build(b: *Builder) !void {
     };
 
     const main_file: ?[]const u8 = mf: {
-        if (!is_stage1) break :mf "src/main.zig";
+        if (!have_stage1) break :mf "src/main.zig";
         if (use_zig0) break :mf null;
         break :mf "src/stage1.zig";
     };
@@ -150,7 +148,7 @@ pub fn build(b: *Builder) !void {
     exe.setBuildMode(mode);
     exe.setTarget(target);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(&exe.step);
+        test_step.dependOn(&exe.step);
     }
 
     b.default_step.dependOn(&exe.step);
@@ -248,7 +246,7 @@ pub fn build(b: *Builder) !void {
             }
         };
 
-        if (is_stage1) {
+        if (have_stage1) {
             const softfloat = b.addStaticLibrary("softfloat", null);
             softfloat.setBuildMode(.ReleaseFast);
             softfloat.setTarget(target);
@@ -360,8 +358,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
-    exe_options.addOption(bool, "is_stage1", is_stage1);
-    exe_options.addOption(bool, "omit_stage2", omit_stage2);
+    exe_options.addOption(bool, "have_stage1", have_stage1);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -396,8 +393,7 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
     test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
-    test_cases_options.addOption(bool, "is_stage1", is_stage1);
-    test_cases_options.addOption(bool, "omit_stage2", omit_stage2);
+    test_cases_options.addOption(bool, "have_stage1", have_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -418,7 +414,7 @@ pub fn build(b: *Builder) !void {
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     test_cases_step.dependOn(&test_cases.step);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(test_cases_step);
+        test_step.dependOn(test_cases_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
@@ -442,11 +438,11 @@ pub fn build(b: *Builder) !void {
     const modes = chosen_modes[0..chosen_mode_index];
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    toolchain_step.dependOn(&fmt_build_zig.step);
+    test_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "test/behavior.zig",
@@ -457,11 +453,10 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         skip_libc,
         skip_stage1,
-        omit_stage2,
-        is_stage1,
+        skip_stage2_tests,
     ));
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/compiler_rt.zig",
@@ -472,11 +467,10 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
-        is_stage1,
+        skip_stage2_tests or true, // TODO get these all passing
     ));
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/c.zig",
@@ -487,37 +481,36 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
-        is_stage1,
+        skip_stage2_tests or true, // TODO get these all passing
     ));
 
-    toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addStandaloneTests(
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    test_step.dependOn(tests.addStandaloneTests(
         b,
         test_filter,
         modes,
         skip_non_native,
         enable_macos_sdk,
         target,
-        omit_stage2,
+        skip_stage2_tests,
         b.enable_darling,
         b.enable_qemu,
         b.enable_rosetta,
         b.enable_wasmtime,
         b.enable_wine,
     ));
-    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, omit_stage2));
-    toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
+    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
-        toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
     // tests for this feature are disabled until we have the self-hosted compiler available
-    // toolchain_step.dependOn(tests.addGenHTests(b, test_filter));
+    // test_step.dependOn(tests.addGenHTests(b, test_filter));
 
-    const std_step = tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/std/std.zig",
@@ -528,14 +521,8 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         skip_libc,
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
-        is_stage1,
-    );
-
-    const test_step = b.step("test", "Run all the tests");
-    test_step.dependOn(toolchain_step);
-    test_step.dependOn(std_step);
-    test_step.dependOn(docs_step);
+        true, // TODO get these all passing
+    ));
 }
 
 const exe_cflags = [_][]const u8{
@@ -1046,6 +1033,8 @@ const clang_libs = [_][]const u8{
     "clangCrossTU",
     "clangIndex",
     "clangToolingCore",
+    "clangExtractAPI",
+    "clangSupport",
 };
 const lld_libs = [_][]const u8{
     "lldMinGW",
@@ -1061,6 +1050,7 @@ const lld_libs = [_][]const u8{
 // from these libs.
 const llvm_libs = [_][]const u8{
     "LLVMWindowsManifest",
+    "LLVMWindowsDriver",
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
@@ -1168,11 +1158,10 @@ const llvm_libs = [_][]const u8{
     "LLVMOrcTargetProcess",
     "LLVMOrcShared",
     "LLVMDWP",
-    "LLVMSymbolize",
-    "LLVMDebugInfoPDB",
     "LLVMDebugInfoGSYM",
     "LLVMOption",
     "LLVMObjectYAML",
+    "LLVMObjCopy",
     "LLVMMCA",
     "LLVMMCDisassembler",
     "LLVMLTO",
@@ -1191,7 +1180,6 @@ const llvm_libs = [_][]const u8{
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",
-    "LLVMDebugInfoMSF",
     "LLVMSelectionDAG",
     "LLVMCodeGen",
     "LLVMIRReader",
@@ -1207,6 +1195,9 @@ const llvm_libs = [_][]const u8{
     "LLVMBitWriter",
     "LLVMAnalysis",
     "LLVMProfileData",
+    "LLVMSymbolize",
+    "LLVMDebugInfoPDB",
+    "LLVMDebugInfoMSF",
     "LLVMDebugInfoDWARF",
     "LLVMObject",
     "LLVMTextAPI",
@@ -1214,6 +1205,7 @@ const llvm_libs = [_][]const u8{
     "LLVMMC",
     "LLVMDebugInfoCodeView",
     "LLVMBitReader",
+    "LLVMFuzzerCLI",
     "LLVMCore",
     "LLVMRemarks",
     "LLVMBitstreamReader",

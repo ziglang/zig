@@ -534,27 +534,6 @@ static __inline__ void __DEFAULT_FN_ATTRS __stosq(unsigned __int64 *__dst,
 |* Misc
 \*----------------------------------------------------------------------------*/
 #if defined(__i386__) || defined(__x86_64__)
-#if defined(__i386__)
-#define __cpuid_count(__leaf, __count, __eax, __ebx, __ecx, __edx)             \
-  __asm("cpuid"                                                                \
-        : "=a"(__eax), "=b"(__ebx), "=c"(__ecx), "=d"(__edx)                   \
-        : "0"(__leaf), "2"(__count))
-#else
-/* x86-64 uses %rbx as the base register, so preserve it. */
-#define __cpuid_count(__leaf, __count, __eax, __ebx, __ecx, __edx)             \
-  __asm("xchg{q} {%%rbx, %q1|%q1, rbx}\n"                                      \
-        "cpuid\n"                                                              \
-        "xchg{q} {%%rbx, %q1|%q1, rbx}"                                        \
-        : "=a"(__eax), "=r"(__ebx), "=c"(__ecx), "=d"(__edx)                   \
-        : "0"(__leaf), "2"(__count))
-#endif
-static __inline__ void __DEFAULT_FN_ATTRS __cpuid(int __info[4], int __level) {
-  __cpuid_count(__level, 0, __info[0], __info[1], __info[2], __info[3]);
-}
-static __inline__ void __DEFAULT_FN_ATTRS __cpuidex(int __info[4], int __level,
-                                                    int __ecx) {
-  __cpuid_count(__level, __ecx, __info[0], __info[1], __info[2], __info[3]);
-}
 static __inline__ void __DEFAULT_FN_ATTRS __halt(void) {
   __asm__ volatile("hlt");
 }
@@ -581,6 +560,18 @@ unsigned __int64 __cdecl _byteswap_uint64(unsigned __int64 val);
 
 __int64 __mulh(__int64 __a, __int64 __b);
 unsigned __int64 __umulh(unsigned __int64 __a, unsigned __int64 __b);
+
+void __break(int);
+
+void __writex18byte(unsigned long offset, unsigned char data);
+void __writex18word(unsigned long offset, unsigned short data);
+void __writex18dword(unsigned long offset, unsigned long data);
+void __writex18qword(unsigned long offset, unsigned __int64 data);
+
+unsigned char __readx18byte(unsigned long offset);
+unsigned short __readx18word(unsigned long offset);
+unsigned long __readx18dword(unsigned long offset);
+unsigned __int64 __readx18qword(unsigned long offset);
 #endif
 
 /*----------------------------------------------------------------------------*\

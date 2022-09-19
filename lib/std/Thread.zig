@@ -404,7 +404,6 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             }
 
             // pthreads don't support exit status, ignore value
-            _ = status;
             return default_value;
         },
         .ErrorUnion => |info| {
@@ -769,16 +768,13 @@ const LinuxThreadImpl = struct {
                 ),
                 .x86_64 => asm volatile (
                     \\  movq $11, %%rax
-                    \\  movq %[ptr], %%rbx
-                    \\  movq %[len], %%rcx
                     \\  syscall
                     \\  movq $60, %%rax
                     \\  movq $1, %%rdi
                     \\  syscall
                     :
-                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
-                      [len] "r" (self.mapped.len),
-                    : "memory"
+                    : [ptr] "{rdi}" (@ptrToInt(self.mapped.ptr)),
+                      [len] "{rsi}" (self.mapped.len),
                 ),
                 .arm, .armeb, .thumb, .thumbeb => asm volatile (
                     \\  mov r7, #91

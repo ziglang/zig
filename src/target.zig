@@ -1,5 +1,4 @@
 const std = @import("std");
-const llvm = @import("codegen/llvm/bindings.zig");
 const Type = @import("type.zig").Type;
 
 pub const ArchOsAbi = struct {
@@ -106,6 +105,23 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .coreclr,
         .simulator,
         .macabi,
+        => unreachable,
+
+        .pixel,
+        .vertex,
+        .geometry,
+        .hull,
+        .domain,
+        .compute,
+        .library,
+        .raygeneration,
+        .intersection,
+        .anyhit,
+        .closesthit,
+        .miss,
+        .callable,
+        .mesh,
+        .amplification,
         => unreachable,
     }
 }
@@ -219,6 +235,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hex,
         .raw,
         .nvptx,
+        .dxcontainer,
         => {},
     }
 
@@ -233,7 +250,10 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
+        .dxil,
         .hexagon,
+        .loongarch32,
+        .loongarch64,
         .m68k,
         .mips,
         .mipsel,
@@ -300,111 +320,20 @@ pub fn supportsStackProbing(target: std.Target) bool {
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
 }
 
+pub fn supportsStackProtector(target: std.Target) bool {
+    // TODO: investigate whether stack-protector works on wasm
+    return !target.isWasm();
+}
+
+pub fn libcProvidesStackProtector(target: std.Target) bool {
+    return !target.isMinGW() and target.os.tag != .wasi;
+}
+
 pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
         .bpfel, .bpfeb => false,
         else => true,
-    };
-}
-
-pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
-    return switch (os_tag) {
-        .freestanding, .other, .opencl, .glsl450, .vulkan, .plan9 => .UnknownOS,
-        .windows, .uefi => .Win32,
-        .ananas => .Ananas,
-        .cloudabi => .CloudABI,
-        .dragonfly => .DragonFly,
-        .freebsd => .FreeBSD,
-        .fuchsia => .Fuchsia,
-        .ios => .IOS,
-        .kfreebsd => .KFreeBSD,
-        .linux => .Linux,
-        .lv2 => .Lv2,
-        .macos => .MacOSX,
-        .netbsd => .NetBSD,
-        .openbsd => .OpenBSD,
-        .solaris => .Solaris,
-        .zos => .ZOS,
-        .haiku => .Haiku,
-        .minix => .Minix,
-        .rtems => .RTEMS,
-        .nacl => .NaCl,
-        .aix => .AIX,
-        .cuda => .CUDA,
-        .nvcl => .NVCL,
-        .amdhsa => .AMDHSA,
-        .ps4 => .PS4,
-        .elfiamcu => .ELFIAMCU,
-        .tvos => .TvOS,
-        .watchos => .WatchOS,
-        .mesa3d => .Mesa3D,
-        .contiki => .Contiki,
-        .amdpal => .AMDPAL,
-        .hermit => .HermitCore,
-        .hurd => .Hurd,
-        .wasi => .WASI,
-        .emscripten => .Emscripten,
-    };
-}
-
-pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
-    return switch (arch_tag) {
-        .arm => .arm,
-        .armeb => .armeb,
-        .aarch64 => .aarch64,
-        .aarch64_be => .aarch64_be,
-        .aarch64_32 => .aarch64_32,
-        .arc => .arc,
-        .avr => .avr,
-        .bpfel => .bpfel,
-        .bpfeb => .bpfeb,
-        .csky => .csky,
-        .hexagon => .hexagon,
-        .m68k => .m68k,
-        .mips => .mips,
-        .mipsel => .mipsel,
-        .mips64 => .mips64,
-        .mips64el => .mips64el,
-        .msp430 => .msp430,
-        .powerpc => .ppc,
-        .powerpcle => .ppcle,
-        .powerpc64 => .ppc64,
-        .powerpc64le => .ppc64le,
-        .r600 => .r600,
-        .amdgcn => .amdgcn,
-        .riscv32 => .riscv32,
-        .riscv64 => .riscv64,
-        .sparc => .sparc,
-        .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .sparcel => .sparcel,
-        .s390x => .systemz,
-        .tce => .tce,
-        .tcele => .tcele,
-        .thumb => .thumb,
-        .thumbeb => .thumbeb,
-        .i386 => .x86,
-        .x86_64 => .x86_64,
-        .xcore => .xcore,
-        .nvptx => .nvptx,
-        .nvptx64 => .nvptx64,
-        .le32 => .le32,
-        .le64 => .le64,
-        .amdil => .amdil,
-        .amdil64 => .amdil64,
-        .hsail => .hsail,
-        .hsail64 => .hsail64,
-        .spir => .spir,
-        .spir64 => .spir64,
-        .kalimba => .kalimba,
-        .shave => .shave,
-        .lanai => .lanai,
-        .wasm32 => .wasm32,
-        .wasm64 => .wasm64,
-        .renderscript32 => .renderscript32,
-        .renderscript64 => .renderscript64,
-        .ve => .ve,
-        .spu_2, .spirv32, .spirv64 => .UnknownArch,
     };
 }
 
@@ -627,6 +556,8 @@ pub fn atomicPtrAlignment(
         .renderscript32,
         .csky,
         .spirv32,
+        .dxil,
+        .loongarch32,
         => 32,
 
         .aarch64,
@@ -651,6 +582,7 @@ pub fn atomicPtrAlignment(
         .renderscript64,
         .ve,
         .spirv64,
+        .loongarch64,
         => 64,
 
         .x86_64 => 128,
@@ -760,4 +692,11 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
         .wasm32, .wasm64 => false,
         else => true,
     };
+}
+
+pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
+    switch (backend) {
+        .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
+        else => return false,
+    }
 }

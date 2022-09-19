@@ -18,7 +18,6 @@ const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Module = @import("../../Module.zig");
 const StringTable = @import("../strtab.zig").StringTable;
-const TextBlock = MachO.TextBlock;
 const Type = @import("../../type.zig").Type;
 
 base: *MachO,
@@ -307,6 +306,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
 }
 
 pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
+    self.file.close();
     self.segments.deinit(allocator);
     self.sections.deinit(allocator);
     self.dwarf.deinit();
@@ -480,7 +480,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
         if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
         const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
         if (self.base.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
-        if (self.base.globals.contains(self.base.getSymbolName(sym_loc))) continue; // global symbol is either an export or import, skip
+        if (self.base.getGlobal(self.base.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(sym_loc));
         try locals.append(out_sym);
@@ -489,7 +489,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     var exports = std.ArrayList(macho.nlist_64).init(gpa);
     defer exports.deinit();
 
-    for (self.base.globals.values()) |global| {
+    for (self.base.globals.items) |global| {
         const sym = self.base.getSymbol(global);
         if (sym.undf()) continue; // import, skip
         if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
@@ -512,7 +512,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
         const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
         seg.filesize = aligned_size;
 
-        try MachO.copyRangeAllOverlappingAlloc(
+        try copyRangeAllOverlappingAlloc(
             self.base.base.allocator,
             self.file,
             dwarf_seg.fileoff,
@@ -571,7 +571,7 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
         const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
         seg.filesize = aligned_size;
 
-        try MachO.copyRangeAllOverlappingAlloc(
+        try copyRangeAllOverlappingAlloc(
             self.base.base.allocator,
             self.file,
             dwarf_seg.fileoff,
@@ -600,4 +600,17 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     log.debug("writing string table from 0x{x} to 0x{x}", .{ lc.stroff, lc.stroff + lc.strsize });
 
     try self.file.pwriteAll(self.strtab.buffer.items, lc.stroff);
+}
+
+fn copyRangeAllOverlappingAlloc(
+    allocator: Allocator,
+    file: std.fs.File,
+    in_offset: u64,
+    out_offset: u64,
+    len: usize,
+) !void {
+    const buf = try allocator.alloc(u8, len);
+    defer allocator.free(buf);
+    const amt = try file.preadAll(buf, in_offset);
+    try file.pwriteAll(buf[0..amt], out_offset);
 }

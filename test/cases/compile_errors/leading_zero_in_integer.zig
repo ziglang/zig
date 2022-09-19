@@ -21,7 +21,7 @@ export fn entry4() void {
 //
 // :2:15: error: primitive integer type 'u000123' has leading zero
 // :8:12: error: primitive integer type 'i01' has leading zero
-// :12:9: error: integer literal '000123' has leading zero
+// :12:9: error: number '000123' has leading zero
 // :12:9: note: use '0o' prefix for octal literals
-// :15:9: error: integer literal '01' has leading zero
+// :15:9: error: number '01' has leading zero
 // :15:9: note: use '0o' prefix for octal literals

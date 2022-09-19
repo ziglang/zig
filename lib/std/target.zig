@@ -9,6 +9,7 @@ pub const Target = struct {
     cpu: Cpu,
     os: Os,
     abi: Abi,
+    ofmt: ObjectFormat,
 
     pub const Os = struct {
         tag: Tag,
@@ -40,9 +41,11 @@ pub const Target = struct {
             nvcl,
             amdhsa,
             ps4,
+            ps5,
             elfiamcu,
             tvos,
             watchos,
+            driverkit,
             mesa3d,
             contiki,
             amdpal,
@@ -50,6 +53,7 @@ pub const Target = struct {
             hurd,
             wasi,
             emscripten,
+            shadermodel,
             uefi,
             opencl,
             glsl450,
@@ -244,6 +248,7 @@ pub const Target = struct {
                     .nvcl,
                     .amdhsa,
                     .ps4,
+                    .ps5,
                     .elfiamcu,
                     .mesa3d,
                     .contiki,
@@ -252,6 +257,8 @@ pub const Target = struct {
                     .hurd,
                     .wasi,
                     .emscripten,
+                    .driverkit,
+                    .shadermodel,
                     .uefi,
                     .opencl, // TODO: OpenCL versions
                     .glsl450, // TODO: GLSL versions
@@ -419,6 +426,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -427,6 +435,8 @@ pub const Target = struct {
                 .hurd,
                 .wasi,
                 .emscripten,
+                .driverkit,
+                .shadermodel,
                 .uefi,
                 .opencl,
                 .glsl450,
@@ -481,6 +491,21 @@ pub const Target = struct {
         coreclr,
         simulator,
         macabi,
+        pixel,
+        vertex,
+        geometry,
+        hull,
+        domain,
+        compute,
+        library,
+        raygeneration,
+        intersection,
+        anyhit,
+        closesthit,
+        miss,
+        callable,
+        mesh,
+        amplification,
 
         pub fn default(arch: Cpu.Arch, target_os: Os) Abi {
             if (arch.isWasm()) {
@@ -502,6 +527,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -531,6 +557,8 @@ pub const Target = struct {
                 .ios,
                 .tvos,
                 .watchos,
+                .driverkit,
+                .shadermodel,
                 => return .none,
             }
         }
@@ -563,16 +591,18 @@ pub const Target = struct {
     pub const ObjectFormat = enum {
         /// Common Object File Format (Windows)
         coff,
+        /// DirectX Container
+        dxcontainer,
         /// Executable and Linking Format
         elf,
         /// macOS relocatables
         macho,
+        /// Standard, Portable Intermediate Representation V
+        spirv,
         /// WebAssembly
         wasm,
         /// C source code
         c,
-        /// Standard, Portable Intermediate Representation V
-        spirv,
         /// Intel IHEX
         hex,
         /// Machine code with no metadata.
@@ -592,6 +622,21 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
+                .dxcontainer => @panic("TODO what's the extension for these?"),
+            };
+        }
+
+        pub fn default(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
+            return switch (os_tag) {
+                .windows, .uefi => .coff,
+                .ios, .macos, .watchos, .tvos => .macho,
+                .plan9 => .plan9,
+                else => return switch (cpu_arch) {
+                    .wasm32, .wasm64 => .wasm,
+                    .spirv32, .spirv64 => .spirv,
+                    .nvptx, .nvptx64 => .nvptx,
+                    else => .elf,
+                },
             };
         }
     };
@@ -769,7 +814,10 @@ pub const Target = struct {
             bpfel,
             bpfeb,
             csky,
+            dxil,
             hexagon,
+            loongarch32,
+            loongarch64,
             m68k,
             mips,
             mipsel,
@@ -920,6 +968,7 @@ pub const Target = struct {
                     .arm => .ARM,
                     .armeb => .ARM,
                     .hexagon => .HEXAGON,
+                    .dxil => .NONE,
                     .m68k => .@"68K",
                     .le32 => .NONE,
                     .mips => .MIPS,
@@ -970,6 +1019,8 @@ pub const Target = struct {
                     .spu_2 => .SPU_2,
                     .spirv32 => .NONE,
                     .spirv64 => .NONE,
+                    .loongarch32 => .NONE,
+                    .loongarch64 => .NONE,
                 };
             }
 
@@ -980,6 +1031,7 @@ pub const Target = struct {
                     .arc => .Unknown,
                     .arm => .ARM,
                     .armeb => .Unknown,
+                    .dxil => .Unknown,
                     .hexagon => .Unknown,
                     .m68k => .Unknown,
                     .le32 => .Unknown,
@@ -1031,6 +1083,8 @@ pub const Target = struct {
                     .spu_2 => .Unknown,
                     .spirv32 => .Unknown,
                     .spirv64 => .Unknown,
+                    .loongarch32 => .Unknown,
+                    .loongarch64 => .Unknown,
                 };
             }
 
@@ -1079,6 +1133,9 @@ pub const Target = struct {
                     // GPU bitness is opaque. For now, assume little endian.
                     .spirv32,
                     .spirv64,
+                    .dxil,
+                    .loongarch32,
+                    .loongarch64,
                     => .Little,
 
                     .arc,
@@ -1139,6 +1196,8 @@ pub const Target = struct {
                     .renderscript32,
                     .aarch64_32,
                     .spirv32,
+                    .loongarch32,
+                    .dxil,
                     => return 32,
 
                     .aarch64,
@@ -1163,6 +1222,7 @@ pub const Target = struct {
                     .s390x,
                     .ve,
                     .spirv64,
+                    .loongarch64,
                     => return 64,
                 }
             }
@@ -1379,24 +1439,6 @@ pub const Target = struct {
 
     pub fn libPrefix(self: Target) [:0]const u8 {
         return libPrefix_os_abi(self.os.tag, self.abi);
-    }
-
-    pub fn getObjectFormatSimple(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
-        return switch (os_tag) {
-            .windows, .uefi => .coff,
-            .ios, .macos, .watchos, .tvos => .macho,
-            .plan9 => .plan9,
-            else => return switch (cpu_arch) {
-                .wasm32, .wasm64 => .wasm,
-                .spirv32, .spirv64 => .spirv,
-                .nvptx, .nvptx64 => .nvptx,
-                else => .elf,
-            },
-        };
-    }
-
-    pub fn getObjectFormat(self: Target) ObjectFormat {
-        return getObjectFormatSimple(self.os.tag, self.cpu.arch);
     }
 
     pub fn isMinGW(self: Target) bool {
@@ -1636,6 +1678,9 @@ pub const Target = struct {
                 .renderscript32,
                 .renderscript64,
                 .ve,
+                .dxil,
+                .loongarch32,
+                .loongarch64,
                 => return result,
             },
 
@@ -1678,12 +1723,15 @@ pub const Target = struct {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
             .amdpal,
             .hermit,
             .hurd,
+            .driverkit,
+            .shadermodel,
             => return result,
         }
     }
@@ -1806,24 +1854,28 @@ pub const Target = struct {
                 else => 4,
             },
 
-            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
-            // is a better number for two reasons:
-            // 1. Better machine code when loading into SIMD register.
+            // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
+            // is a relevant number in three cases:
+            // 1. Different machine code instruction when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
             // 3. 16-byte cmpxchg needs 16-byte alignment.
-            // Same logic for riscv64, powerpc64, mips64, sparc64.
+            // Same logic for powerpc64, mips64, sparc64.
             .x86_64,
-            .riscv64,
             .powerpc64,
             .powerpc64le,
             .mips64,
             .mips64el,
             .sparc64,
+            => return switch (target.ofmt) {
+                .c => 16,
+                else => 8,
+            },
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,
             .aarch64_be,
             .aarch64_32,
+            .riscv64,
             .bpfel,
             .bpfeb,
             .nvptx,
@@ -1853,6 +1905,9 @@ pub const Target = struct {
             .renderscript64,
             .ve,
             .spirv64,
+            .dxil,
+            .loongarch32,
+            .loongarch64,
             => 16,
         };
     }

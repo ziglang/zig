@@ -6,7 +6,6 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.mingw);
 
 const builtin = @import("builtin");
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const Cache = @import("Cache.zig");
@@ -93,12 +92,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-D_WIN32_WINNT=0x0f00",
                     "-D__MSVCRT_VERSION__=0x700",
                 });
-                if (std.mem.eql(u8, dep, "tlssup.c") and comp.bin_file.options.lto) {
-                    // LLD will incorrectly drop the `_tls_index` symbol. Here we work
-                    // around it by not using LTO for this one file.
-                    // https://github.com/ziglang/zig/issues/8531
-                    try args.append("-fno-lto");
-                }
                 c_source_files[i] = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", dep,
@@ -410,11 +403,12 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
     errdefer comp.gpa.free(lib_final_path);
 
-    const llvm = @import("codegen/llvm/bindings.zig");
-    const arch_type = target_util.archToLLVM(target.cpu.arch);
+    const llvm_bindings = @import("codegen/llvm/bindings.zig");
+    const llvm = @import("codegen/llvm.zig");
+    const arch_tag = llvm.targetArch(target.cpu.arch);
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
     const lib_final_path_z = try arena.dupeZ(u8, lib_final_path);
-    if (llvm.WriteImportLibrary(def_final_path_z.ptr, arch_type, lib_final_path_z.ptr, true)) {
+    if (llvm_bindings.WriteImportLibrary(def_final_path_z.ptr, arch_tag, lib_final_path_z.ptr, true)) {
         // TODO surface a proper error here
         log.err("unable to turn {s}.def into {s}.lib", .{ lib_name, lib_name });
         return error.WritingImportLibFailed;

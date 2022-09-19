@@ -2,8 +2,10 @@ const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 const h = @cImport(@cInclude("behavior/translate_c_macros.h"));
+const latin1 = @cImport(@cInclude("behavior/translate_c_macros_not_utf8.h"));
 
 test "casting to void with a macro" {
     h.IGNORE_ME_1(42);
@@ -112,4 +114,35 @@ test "cast functions" {
     };
     try expectEqual(true, h.CAST_TO_BOOL(S.foo));
     try expect(h.CAST_TO_UINTPTR(S.foo) != 0);
+}
+
+test "large integer macro" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(c_ulonglong, 18446744073709550592), h.LARGE_INT);
+}
+
+test "string literal macro with embedded tab character" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqualStrings("hello\t", h.EMBEDDED_TAB);
+}
+
+test "string and char literals that are not UTF-8 encoded. Issue #12784" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(u8, '\xA9'), latin1.UNPRINTABLE_CHAR);
+    try expectEqualStrings("\xA9\xA9\xA9", latin1.UNPRINTABLE_STRING);
 }

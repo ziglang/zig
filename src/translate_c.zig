@@ -439,6 +439,24 @@ pub fn translate(
     return ast.render(gpa, context.global_scope.nodes.items);
 }
 
+/// Determines whether macro is of the form: `#define FOO FOO` (Possibly with trailing tokens)
+/// Macros of this form will not be translated.
+fn isSelfDefinedMacro(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) bool {
+    const source = getMacroText(unit, c, macro);
+    var tokenizer = std.c.Tokenizer{
+        .buffer = source,
+    };
+    const name_tok = tokenizer.next();
+    const name = source[name_tok.start..name_tok.end];
+
+    const first_tok = tokenizer.next();
+    // We do not just check for `.Identifier` below because keyword tokens are preferentially matched first by
+    // the tokenizer.
+    // In other words we would miss `#define inline inline` (`inline` is a valid c89 identifier)
+    if (first_tok.id == .Eof) return false;
+    return mem.eql(u8, name, source[first_tok.start..first_tok.end]);
+}
+
 fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     if (!ast_unit.visitLocalTopLevelDecls(c, declVisitorNamesOnlyC)) {
         return error.OutOfMemory;
@@ -455,7 +473,10 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
-                try c.global_names.put(c.gpa, name, {});
+
+                if (!isSelfDefinedMacro(ast_unit, c, macro)) {
+                    try c.global_names.put(c.gpa, name, {});
+                }
             },
             else => {},
         }
@@ -1143,6 +1164,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .type = field_type,
                 .alignment = alignment,
             });
+        }
+
+        if (!c.zig_is_stage1 and is_packed) {
+            return failDecl(c, record_loc, name, "cannot translate packed record union", .{});
         }
 
         const record_payload = try c.arena.create(ast.Payload.Record);
@@ -5446,6 +5471,16 @@ fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!voi
     }
 }
 
+fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) []const u8 {
+    const begin_loc = macro.getSourceRange_getBegin();
+    const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
+
+    const begin_c = c.source_manager.getCharacterData(begin_loc);
+    const end_c = c.source_manager.getCharacterData(end_loc);
+    const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+    return begin_c[0..slice_len];
+}
+
 fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
     var it = unit.getLocalPreprocessingEntities_begin();
@@ -5462,22 +5497,18 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const begin_loc = macro.getSourceRange_getBegin();
-                const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
                 if (scope.containsNow(name)) {
                     continue;
                 }
 
-                const begin_c = c.source_manager.getCharacterData(begin_loc);
-                const end_c = c.source_manager.getCharacterData(end_loc);
-                const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
-                const slice = begin_c[0..slice_len];
+                const source = getMacroText(unit, c, macro);
 
-                try tokenizeMacro(slice, &tok_list);
+                try tokenizeMacro(source, &tok_list);
 
                 var macro_ctx = MacroCtx{
-                    .source = slice,
+                    .source = source,
                     .list = tok_list.items,
                     .name = name,
                     .loc = begin_loc,
@@ -5490,7 +5521,8 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
                         const tok = macro_ctx.list[1];
-                        if (mem.eql(u8, name, slice[tok.start..tok.end])) {
+                        if (mem.eql(u8, name, source[tok.start..tok.end])) {
+                            assert(!c.global_names.contains(source[tok.start..tok.end]));
                             continue;
                         }
                     },
@@ -5647,7 +5679,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
     switch (m.list[m.i].id) {
         .IntegerLiteral => |suffix| {
             var radix: []const u8 = "decimal";
-            if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
+            if (lit_bytes.len >= 2 and lit_bytes[0] == '0') {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
@@ -5767,7 +5799,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     for (source) |c| {
-        if (c == '\\') {
+        if (c == '\\' or c == '\t') {
             break;
         }
     } else return source;
@@ -5844,6 +5876,13 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     state = .Start;
             },
             .Start => {
+                if (c == '\t') {
+                    bytes[i] = '\\';
+                    i += 1;
+                    bytes[i] = 't';
+                    i += 1;
+                    continue;
+                }
                 if (c == '\\') {
                     state = .Escape;
                 }
@@ -5918,20 +5957,36 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
     return bytes[0..i];
 }
 
+/// non-ASCII characters (c > 127) are also treated as non-printable by fmtSliceEscapeLower.
+/// If a C string literal or char literal in a macro is not valid UTF-8, we need to escape
+/// non-ASCII characters so that the Zig source we output will itself be UTF-8.
+fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
+    const zigified = try zigifyEscapeSequences(ctx, m);
+    if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
+
+    const formatter = std.fmt.fmtSliceEscapeLower(zigified);
+    const encoded_size = @intCast(usize, std.fmt.count("{s}", .{formatter}));
+    var output = try ctx.arena.alloc(u8, encoded_size);
+    return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+        else => |e| return e,
+    };
+}
+
 fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
         .CharLiteral => {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
-                return Tag.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+                return Tag.char_literal.create(c.arena, try escapeUnprintables(c, m));
             } else {
                 const str = try std.fmt.allocPrint(c.arena, "0x{s}", .{std.fmt.fmtSliceHexLower(slice[1 .. slice.len - 1])});
                 return Tag.integer_literal.create(c.arena, str);
             }
         },
         .StringLiteral => {
-            return Tag.string_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+            return Tag.string_literal.create(c.arena, try escapeUnprintables(c, m));
         },
         .IntegerLiteral, .FloatLiteral => {
             return parseCNumLit(c, m);

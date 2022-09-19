@@ -1339,48 +1339,48 @@ pub const Instruction = union(enum) {
 
     pub fn sll(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0101, .shift32, rs1, rs2, rd),
-            u5 => format3l(0b11, 0b10_0101, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0101, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b10, 0b10_0101, rs1, rs2, rd),
             else => unreachable,
         };
     }
 
     pub fn srl(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0110, .shift32, rs1, rs2, rd),
-            u5 => format3l(0b11, 0b10_0110, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0110, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b10, 0b10_0110, rs1, rs2, rd),
             else => unreachable,
         };
     }
 
     pub fn sra(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0111, .shift32, rs1, rs2, rd),
-            u5 => format3l(0b11, 0b10_0111, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0111, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b10, 0b10_0111, rs1, rs2, rd),
             else => unreachable,
         };
     }
 
     pub fn sllx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0101, .shift64, rs1, rs2, rd),
-            u6 => format3m(0b11, 0b10_0101, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0101, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b10, 0b10_0101, rs1, rs2, rd),
             else => unreachable,
         };
     }
 
     pub fn srlx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0110, .shift64, rs1, rs2, rd),
-            u6 => format3m(0b11, 0b10_0110, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0110, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b10, 0b10_0110, rs1, rs2, rd),
             else => unreachable,
         };
     }
 
     pub fn srax(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3k(0b11, 0b10_0111, .shift64, rs1, rs2, rd),
-            u6 => format3m(0b11, 0b10_0111, rs1, rs2, rd),
+            Register => format3k(0b10, 0b10_0111, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b10, 0b10_0111, rs1, rs2, rd),
             else => unreachable,
         };
     }

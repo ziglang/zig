@@ -12,9 +12,6 @@ comptime { _ = entry2; }
 // backend=stage2
 // target=native
 //
-// :5:12: error: extern function cannot be generic
-// :5:30: note: function is generic because of this parameter
-// :6:12: error: extern function cannot be generic
-// :6:30: note: function is generic because of this parameter
-// :1:8: error: extern function cannot be generic
-// :1:15: note: function is generic because of this parameter
+// :1:15: error: comptime parameters not allowed in function with calling convention 'C'
+// :5:30: error: comptime parameters not allowed in function with calling convention 'C'
+// :6:30: error: generic parameters not allowed in function with calling convention 'C'

@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const mem = std.mem;
 const Tag = std.meta.Tag;
 
@@ -605,7 +606,6 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
 }
 
 test "enum with specified tag values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
@@ -613,7 +613,6 @@ test "enum with specified tag values" {
 }
 
 test "non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -676,7 +675,6 @@ test "empty non-exhaustive enum" {
 }
 
 test "single field non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -740,7 +738,6 @@ test "cast integer literal to enum" {
 }
 
 test "enum with specified and unspecified tag values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
@@ -924,7 +921,6 @@ test "enum literal casting to tagged union" {
 const Bar = enum { A, B, C, D };
 
 test "enum literal casting to error union with payload enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var bar: error{B}!Bar = undefined;
@@ -1127,4 +1123,56 @@ test "tag name functions are unique" {
         var a = @tagName(b);
         _ = a;
     }
+}
+
+test "size of enum with only one tag which has explicit integer tag type" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const E = enum(u8) { nope = 10 };
+    const S0 = struct { e: E };
+    const S1 = extern struct { e: E };
+    //const U = union(E) { nope: void };
+    comptime assert(@sizeOf(E) == 1);
+    comptime assert(@sizeOf(S0) == 1);
+    comptime assert(@sizeOf(S1) == 1);
+    //comptime assert(@sizeOf(U) == 1);
+
+    var s1: S1 = undefined;
+    s1.e = .nope;
+    try expect(s1.e == .nope);
+    const ptr = @ptrCast(*u8, &s1);
+    try expect(ptr.* == 10);
+
+    var s0: S0 = undefined;
+    s0.e = .nope;
+    try expect(s0.e == .nope);
+}
+
+test "switch on an extern enum with negative value" {
+    // TODO x86, wasm backends fail because they assume that enum tag types are unsigned
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const Foo = enum(c_int) {
+        Bar = -1,
+    };
+
+    const v = Foo.Bar;
+
+    switch (v) {
+        Foo.Bar => return,
+    }
+}
+
+test "Non-exhaustive enum with nonstandard int size behaves correctly" {
+    const E = enum(u15) { _ };
+    try expect(@sizeOf(E) == @sizeOf(u15));
+}
+
+test "Non-exhaustive enum backed by comptime_int" {
+    const E = enum(comptime_int) { a, b, c, _ };
+    comptime var e: E = .a;
+    e = @intToEnum(E, 378089457309184723749);
+    try expect(@enumToInt(e) == 378089457309184723749);
 }

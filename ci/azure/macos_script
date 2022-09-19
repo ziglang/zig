@@ -9,7 +9,7 @@ ZIGDIR="$(pwd)"
 ARCH="x86_64"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.2931+bdf3fa12f"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4111+5206832a8"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
@@ -34,13 +34,12 @@ git fetch --tags
 mkdir build
 cd build
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
+  -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_OMIT_STAGE2=ON
+  -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -49,45 +48,23 @@ unset CXX
 
 make $JOBS install
 
-# Here we rebuild zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. See
-# https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
-make $JOBS install
-
-# Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-release/bin/zig build -p stage2 -Denable-llvm
-
-stage2/bin/zig build test-behavior
-
-# TODO: upgrade these to test stage2 instead of stage1
-# TODO: upgrade these to test stage3 instead of stage2
-release/bin/zig build test-behavior         -Denable-macos-sdk -Domit-stage2
-release/bin/zig build test-compiler-rt      -Denable-macos-sdk
-release/bin/zig build test-std              -Denable-macos-sdk
-release/bin/zig build test-universal-libc   -Denable-macos-sdk
-release/bin/zig build test-compare-output   -Denable-macos-sdk
-release/bin/zig build test-standalone       -Denable-macos-sdk
-release/bin/zig build test-stack-traces     -Denable-macos-sdk
-release/bin/zig build test-cli              -Denable-macos-sdk
-release/bin/zig build test-asm-link         -Denable-macos-sdk
-release/bin/zig build test-translate-c      -Denable-macos-sdk
-release/bin/zig build test-run-translated-c -Denable-macos-sdk
-release/bin/zig build docs                  -Denable-macos-sdk
-release/bin/zig build test-fmt              -Denable-macos-sdk
-release/bin/zig build test-cases            -Denable-macos-sdk -Dsingle-threaded
-release/bin/zig build test-link             -Denable-macos-sdk -Domit-stage2
+stage3-release/bin/zig build test docs \
+  --zig-lib-dir "$(pwd)/../lib" \
+  -Denable-macos-sdk \
+  -Dstatic-llvm \
+  -Dskip-non-native \
+  --search-prefix "$PREFIX"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  mv ../LICENSE release/
-  mv ../zig-cache/langref.html release/
-  mv release/bin/zig release/
-  rmdir release/bin
+  mv ../LICENSE stage3-release/
+  mv ../zig-cache/langref.html stage3-release/
+  mv stage3-release/bin/zig stage3-release/
+  rmdir stage3-release/bin
 
-  VERSION=$(release/zig version)
+  VERSION=$(stage3-release/zig version)
   DIRNAME="zig-macos-$ARCH-$VERSION"
   TARBALL="$DIRNAME.tar.xz"
-  mv release "$DIRNAME"
+  mv stage3-release "$DIRNAME"
   tar cfJ "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"

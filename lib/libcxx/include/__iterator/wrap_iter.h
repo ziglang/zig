@@ -18,7 +18,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -50,12 +50,12 @@ public:
             typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = nullptr) _NOEXCEPT
             : __i(__u.base())
     {
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
       if (!__libcpp_is_constant_evaluated())
         __get_db()->__iterator_copy(this, _VSTD::addressof(__u));
 #endif
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
     __wrap_iter(const __wrap_iter& __x)
         : __i(__x.base())
@@ -135,15 +135,15 @@ public:
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 iterator_type base() const _NOEXCEPT {return __i;}
 
 private:
-#if _LIBCPP_DEBUG_LEVEL == 2
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 __wrap_iter(const void* __p, iterator_type __x) : __i(__x)
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+    explicit __wrap_iter(const void* __p, iterator_type __x) _NOEXCEPT : __i(__x)
     {
+        (void)__p;
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
       if (!__libcpp_is_constant_evaluated())
         __get_db()->__insert_ic(this, __p);
-    }
-#else
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 __wrap_iter(iterator_type __x) _NOEXCEPT : __i(__x) {}
 #endif
+    }
 
     template <class _Up> friend class __wrap_iter;
     template <class _CharT, class _Traits, class _Alloc> friend class basic_string;

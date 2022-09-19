@@ -91,7 +91,6 @@ fn max_f64(a: f64, b: f64) f64 {
 
 test "type constructed by comptime function call" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var l: SimpleList(10) = undefined;
@@ -341,4 +340,32 @@ test "generic instantiation of tagged union with only one field" {
 
     try expect(S.foo(.{ .s = "a" }) == 1);
     try expect(S.foo(.{ .s = "ab" }) == 2);
+}
+
+test "nested generic function" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
+            try callback(data);
+        }
+        fn bar(a: u32) anyerror!void {
+            try expect(a == 123);
+        }
+
+        fn g(_: *const fn (anytype) void) void {}
+    };
+    try expect(@typeInfo(@TypeOf(S.g)).Fn.is_generic);
+    try S.foo(u32, S.bar, 123);
+}
+
+test "extern function used as generic parameter" {
+    const S = struct {
+        extern fn foo() void;
+        extern fn bar() void;
+        inline fn baz(comptime _: anytype) type {
+            return struct {};
+        }
+    };
+    try expect(S.baz(S.foo) != S.baz(S.bar));
 }

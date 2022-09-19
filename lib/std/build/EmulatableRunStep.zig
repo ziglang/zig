@@ -158,7 +158,7 @@ fn warnAboutForeignBinaries(step: *EmulatableRunStep) void {
 
     const host_name = builder.host.target.zigTriple(builder.allocator) catch unreachable;
     const foreign_name = artifact.target.zigTriple(builder.allocator) catch unreachable;
-    const target_info = std.zig.system.NativeTargetInfo.detect(builder.allocator, artifact.target) catch unreachable;
+    const target_info = std.zig.system.NativeTargetInfo.detect(artifact.target) catch unreachable;
     const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
     switch (builder.host.getExternalExecutor(target_info, .{
         .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,

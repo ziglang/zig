@@ -232,6 +232,7 @@ const Writer = struct {
             .make_ptr_const,
             .validate_deref,
             .overflow_arithmetic_ptr,
+            .check_comptime_control_flow,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -283,7 +284,6 @@ const Writer = struct {
             .mul_add => try self.writeMulAdd(stream, inst),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
-            .builtin_async_call => try self.writeBuiltinAsyncCall(stream, inst),
 
             .struct_init_anon,
             .struct_init_anon_ref,
@@ -397,7 +397,7 @@ const Writer = struct {
             .field_val_named,
             => try self.writePlNodeFieldNamed(stream, inst),
 
-            .as_node => try self.writeAs(stream, inst),
+            .as_node, .as_shift_operand => try self.writeAs(stream, inst),
 
             .repeat,
             .repeat_inline,
@@ -407,7 +407,6 @@ const Writer = struct {
             .alloc_inferred_comptime_mut,
             .ret_ptr,
             .ret_type,
-            .check_comptime_control_flow,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -446,6 +445,9 @@ const Writer = struct {
             => try stream.writeAll("))"),
 
             .closure_get => try self.writeInstNode(stream, inst),
+
+            .@"defer" => try self.writeDefer(stream, inst),
+            .defer_err_code => try self.writeDeferErrCode(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
         }
@@ -531,6 +533,7 @@ const Writer = struct {
                 try stream.writeAll(") ");
                 try self.writeSrc(stream, src);
             },
+            .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
         }
     }
 
@@ -814,9 +817,8 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.AsyncCall, inst_data.payload_index).data;
+    fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.AsyncCall, extended.operand).data;
         try self.writeInstRef(stream, extra.frame_buffer);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.result_ptr);
@@ -825,7 +827,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.args);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
     }
 
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -1721,13 +1723,13 @@ const Writer = struct {
         const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
+        const prev_parent_decl_node = self.parent_decl_node;
+        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+        try self.writeBracedDecl(stream, body);
         if (fields_len == 0) {
-            assert(body.len == 0);
-            try stream.writeAll("{}, {})");
+            try stream.writeAll(", {})");
+            self.parent_decl_node = prev_parent_decl_node;
         } else {
-            const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
-            try self.writeBracedDecl(stream, body);
             try stream.writeAll(", {\n");
 
             self.indent += 2;
@@ -2363,6 +2365,26 @@ const Writer = struct {
     fn writeDbgStmt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].dbg_stmt;
         try stream.print("{d}, {d})", .{ inst_data.line + 1, inst_data.column + 1 });
+    }
+
+    fn writeDefer(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].@"defer";
+        const body = self.code.extra[inst_data.index..][0..inst_data.len];
+        try self.writeBracedBody(stream, body);
+        try stream.writeByte(')');
+    }
+
+    fn writeDeferErrCode(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].defer_err_code;
+        const extra = self.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, Zir.indexToRef(extra.remapped_err_code));
+        try stream.writeAll(" = ");
+        try self.writeInstRef(stream, inst_data.err_code);
+        try stream.writeAll(", ");
+        const body = self.code.extra[extra.index..][0..extra.len];
+        try self.writeBracedBody(stream, body);
+        try stream.writeByte(')');
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {

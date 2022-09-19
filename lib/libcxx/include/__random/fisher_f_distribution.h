@@ -11,11 +11,12 @@
 
 #include <__config>
 #include <__random/gamma_distribution.h>
+#include <__random/is_valid.h>
 #include <iosfwd>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -114,6 +115,7 @@ template<class _URNG>
 _RealType
 fisher_f_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     gamma_distribution<result_type> __gdm(__p.m() * result_type(.5));
     gamma_distribution<result_type> __gdn(__p.n() * result_type(.5));
     return __p.n() * __gdm(__g) / (__p.m() * __gdn(__g));

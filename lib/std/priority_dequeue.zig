@@ -69,7 +69,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             // The first element is on a min layer;
             // next two are on a max layer;
             // next four are on a min layer, and so on.
-            const leading_zeros = @clz(usize, index + 1);
+            const leading_zeros = @clz(index + 1);
             const highest_set_bit = @bitSizeOf(usize) - 1 - leading_zeros;
             return (highest_set_bit & 1) == 0;
         }
@@ -356,8 +356,6 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             }
             return queue;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Ensure that the dequeue can fit at least `new_capacity` items.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {

@@ -18,7 +18,6 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     {
@@ -77,7 +76,6 @@ const P = packed struct {
 };
 
 test "@offsetOf" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
@@ -300,4 +298,15 @@ test "array access of generic param in typeof expression" {
     };
     try expect(S.first("a") == 'a');
     comptime try expect(S.first("a") == 'a');
+}
+
+test "lazy size cast to float" {
+    {
+        const S = struct { a: u8 };
+        try expect(@intToFloat(f32, @sizeOf(S)) == 1.0);
+    }
+    {
+        const S = struct { a: u8 };
+        try expect(@as(f32, @sizeOf(S)) == 1.0);
+    }
 }

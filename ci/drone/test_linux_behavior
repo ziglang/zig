@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -x
+set -e
+
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+# Tracking issue for the disabled tests:
+# https://github.com/ziglang/zig/issues/12689
+
+# $ZIG build test-behavior    -Dskip-non-native --zig-lib-dir lib
+$ZIG build test-compiler-rt -Dskip-non-native --zig-lib-dir lib
+$ZIG build test-fmt                           --zig-lib-dir lib
+# $ZIG build docs                               --zig-lib-dir lib

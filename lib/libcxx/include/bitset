@@ -112,18 +112,23 @@ template <size_t N> struct hash<std::bitset<N>>;
 
 */
 
+#include <__algorithm/fill.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__bit_reference>
 #include <__config>
-#include <__functional_base>
+#include <__functional/hash.h>
+#include <__functional/unary_function.h>
 #include <climits>
 #include <cstddef>
-#include <iosfwd>
 #include <stdexcept>
-#include <string>
 #include <version>
 
+// standard-mandated includes
+#include <iosfwd>
+#include <string>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -713,9 +718,12 @@ public:
     bitset& flip(size_t __pos);
 
     // element access:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-                              const_reference operator[](size_t __p) const {return base::__make_ref(__p);}
-    _LIBCPP_INLINE_VISIBILITY       reference operator[](size_t __p)       {return base::__make_ref(__p);}
+#ifdef _LIBCPP_ABI_BITSET_VECTOR_BOOL_CONST_SUBSCRIPT_RETURN_BOOL
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR            bool operator[](size_t __p) const {return base::__make_ref(__p);}
+#else
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const_reference operator[](size_t __p) const {return base::__make_ref(__p);}
+#endif
+    _LIBCPP_HIDE_FROM_ABI                         reference operator[](size_t __p)       {return base::__make_ref(__p);}
     _LIBCPP_INLINE_VISIBILITY
     unsigned long to_ulong() const;
     _LIBCPP_INLINE_VISIBILITY
@@ -946,7 +954,7 @@ basic_string<_CharT, _Traits, _Allocator>
 bitset<_Size>::to_string(_CharT __zero, _CharT __one) const
 {
     basic_string<_CharT, _Traits, _Allocator> __r(_Size, __zero);
-    for (size_t __i = 0; __i < _Size; ++__i)
+    for (size_t __i = 0; __i != _Size; ++__i)
     {
         if ((*this)[__i])
             __r[_Size - 1 - __i] = __one;
@@ -1082,7 +1090,7 @@ operator^(const bitset<_Size>& __x, const bitset<_Size>& __y) _NOEXCEPT
 
 template <size_t _Size>
 struct _LIBCPP_TEMPLATE_VIS hash<bitset<_Size> >
-    : public unary_function<bitset<_Size>, size_t>
+    : public __unary_function<bitset<_Size>, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(const bitset<_Size>& __bs) const _NOEXCEPT

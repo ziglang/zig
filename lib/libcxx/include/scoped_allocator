@@ -109,13 +109,14 @@ template <class OuterA1, class OuterA2, class... InnerAllocs>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__utility/forward.h>
 #include <memory>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -218,10 +219,10 @@ protected:
                         is_constructible<outer_allocator_type, _OuterA2>::value
                       >::type>
         _LIBCPP_INLINE_VISIBILITY
-        __scoped_allocator_storage(_OuterA2&& __outerAlloc,
-                                   const _InnerAllocs& ...__innerAllocs) _NOEXCEPT
-            : outer_allocator_type(_VSTD::forward<_OuterA2>(__outerAlloc)),
-              __inner_(__innerAllocs...) {}
+        __scoped_allocator_storage(_OuterA2&& __outer_alloc,
+                                   const _InnerAllocs& ...__inner_allocs) _NOEXCEPT
+            : outer_allocator_type(_VSTD::forward<_OuterA2>(__outer_alloc)),
+              __inner_(__inner_allocs...) {}
 
     template <class _OuterA2,
               class = typename enable_if<
@@ -299,8 +300,8 @@ protected:
                         is_constructible<outer_allocator_type, _OuterA2>::value
                       >::type>
         _LIBCPP_INLINE_VISIBILITY
-        __scoped_allocator_storage(_OuterA2&& __outerAlloc) _NOEXCEPT
-            : outer_allocator_type(_VSTD::forward<_OuterA2>(__outerAlloc)) {}
+        __scoped_allocator_storage(_OuterA2&& __outer_alloc) _NOEXCEPT
+            : outer_allocator_type(_VSTD::forward<_OuterA2>(__outer_alloc)) {}
 
     template <class _OuterA2,
               class = typename enable_if<
@@ -443,9 +444,9 @@ public:
                         is_constructible<outer_allocator_type, _OuterA2>::value
                       >::type>
         _LIBCPP_INLINE_VISIBILITY
-        scoped_allocator_adaptor(_OuterA2&& __outerAlloc,
-                                 const _InnerAllocs& ...__innerAllocs) _NOEXCEPT
-            : base(_VSTD::forward<_OuterA2>(__outerAlloc), __innerAllocs...) {}
+        scoped_allocator_adaptor(_OuterA2&& __outer_alloc,
+                                 const _InnerAllocs& ...__inner_allocs) _NOEXCEPT
+            : base(_VSTD::forward<_OuterA2>(__outer_alloc), __inner_allocs...) {}
     // scoped_allocator_adaptor(const scoped_allocator_adaptor& __other) = default;
     template <class _OuterA2,
               class = typename enable_if<

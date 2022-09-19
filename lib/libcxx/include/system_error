@@ -142,18 +142,21 @@ template <> struct hash<std::error_condition>;
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__errc>
+#include <__functional/hash.h>
 #include <__functional/unary_function.h>
-#include <__functional_base>
-#include <compare>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <version>
 
+// standard-mandated includes
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -184,7 +187,7 @@ template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum<errc>
     : true_type { };
 
-#ifdef _LIBCPP_HAS_NO_STRONG_ENUMS
+#ifdef _LIBCPP_CXX03_LANG
 template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum<errc::__lx>
     : true_type { };
@@ -202,9 +205,8 @@ class _LIBCPP_TYPE_VIS error_category
 public:
     virtual ~error_category() _NOEXCEPT;
 
-#if defined(_LIBCPP_BUILDING_LIBRARY) && \
-    defined(_LIBCPP_DEPRECATED_ABI_LEGACY_LIBRARY_DEFINITIONS_FOR_INLINE_FUNCTIONS)
-    error_category() _NOEXCEPT;
+#if defined(_LIBCPP_ERROR_CATEGORY_DEFINE_LEGACY_INLINE_FUNCTIONS)
+    error_category() noexcept;
 #else
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_AFTER_CXX11 error_category() _NOEXCEPT = default;
@@ -234,7 +236,7 @@ class _LIBCPP_HIDDEN __do_message
     : public error_category
 {
 public:
-    virtual string message(int ev) const;
+    virtual string message(int __ev) const;
 };
 
 _LIBCPP_FUNC_VIS const error_category& generic_category() _NOEXCEPT;
@@ -436,7 +438,7 @@ operator!=(const error_condition& __x, const error_condition& __y) _NOEXCEPT
 
 template <>
 struct _LIBCPP_TEMPLATE_VIS hash<error_code>
-    : public unary_function<error_code, size_t>
+    : public __unary_function<error_code, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(const error_code& __ec) const _NOEXCEPT
@@ -447,7 +449,7 @@ struct _LIBCPP_TEMPLATE_VIS hash<error_code>
 
 template <>
 struct _LIBCPP_TEMPLATE_VIS hash<error_condition>
-    : public unary_function<error_condition, size_t>
+    : public __unary_function<error_condition, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(const error_condition& __ec) const _NOEXCEPT
@@ -480,7 +482,7 @@ private:
 };
 
 _LIBCPP_NORETURN _LIBCPP_FUNC_VIS
-void __throw_system_error(int ev, const char* what_arg);
+void __throw_system_error(int __ev, const char* __what_arg);
 
 _LIBCPP_END_NAMESPACE_STD
 

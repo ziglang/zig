@@ -1,0 +1,62 @@
+#!/bin/sh
+
+set -x
+set -e
+
+ARCH="$(uname -m)"
+DEPS_LOCAL="/deps/local"
+OLD_ZIG="$DEPS_LOCAL/bin/zig"
+TARGET="${ARCH}-linux-musl"
+MCPU="baseline"
+
+export PATH=$DEPS_LOCAL/bin:$PATH
+
+echo "building stage3-debug with zig version $($OLD_ZIG version)"
+
+# Override the cache directories so that we don't clobber with the release
+# testing script which is running concurrently and in the same directory.
+# Normally we want processes to cooperate, but in this case we want them isolated.
+export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-cache-local-debug"
+export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache-global-debug"
+
+export CC="$OLD_ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$OLD_ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+mkdir build-debug
+cd build-debug
+cmake .. \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/stage3" \
+  -DCMAKE_PREFIX_PATH="$DEPS_LOCAL" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_STATIC=ON \
+  -DZIG_USE_LLVM_CONFIG=OFF \
+  -GNinja
+
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+
+ninja install
+
+echo "Looking for non-conforming code formatting..."
+stage3/bin/zig fmt --check .. \
+  --exclude ../test/cases/ \
+  --exclude ../build-debug \
+  --exclude ../build-release \
+  --exclude "$ZIG_LOCAL_CACHE_DIR" \
+  --exclude "$ZIG_GLOBAL_CACHE_DIR"
+
+# simultaneously test building self-hosted without LLVM and with 32-bit arm
+stage3/bin/zig build -Dtarget=arm-linux-musleabihf
+
+stage3/bin/zig build test \
+  -fqemu \
+  -fwasmtime \
+  -Dstatic-llvm \
+  -Dtarget=native-native-musl \
+  --search-prefix "$DEPS_LOCAL" \
+  --zig-lib-dir "$(pwd)/../lib"
+
+# Explicit exit helps show last command duration.
+exit

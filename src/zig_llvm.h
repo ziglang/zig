@@ -125,8 +125,9 @@ enum ZigLLVM_CallAttr {
     ZigLLVM_CallAttrAlwaysTail,
     ZigLLVM_CallAttrAlwaysInline,
 };
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, enum ZigLLVM_CallingConv CC, enum ZigLLVM_CallAttr attr, const char *Name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMTypeRef function_type,
+        LLVMValueRef Fn, LLVMValueRef *Args, unsigned NumArgs, enum ZigLLVM_CallingConv CC,
+        enum ZigLLVM_CallAttr attr, const char *Name);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);
@@ -321,11 +322,15 @@ ZIG_EXTERN_C void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val);
 ZIG_EXTERN_C void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMTypeRef elem_ty);
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
+ZIG_EXTERN_C LLVMTypeRef ZigLLVMGetGEPResultElementType(LLVMValueRef GEP);
+
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
 
 
-// copied from include/llvm/ADT/Triple.h
-// synchronize with target.cpp::arch_list
+// synchronize with llvm/include/ADT/Triple.h::ArchType
+// synchronize with std.Target.Cpu.Arch
+// synchronize with src/stage1/target.cpp::arch_list
+// synchronize with codegen/llvm/bindings.zig::ArchType
 enum ZigLLVM_ArchType {
     ZigLLVM_UnknownArch,
 
@@ -339,7 +344,10 @@ enum ZigLLVM_ArchType {
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     ZigLLVM_csky,           // CSKY: csky
+    ZigLLVM_dxil,           // DXIL 32-bit DirectX bytecode
     ZigLLVM_hexagon,        // Hexagon: hexagon
+    ZigLLVM_loongarch32,    // LoongArch (32-bit): loongarch32
+    ZigLLVM_loongarch64,    // LoongArch (64-bit): loongarch64
     ZigLLVM_m68k,           // M68k: Motorola 680x0 family
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -409,6 +417,10 @@ enum ZigLLVM_VendorType {
     ZigLLVM_LastVendorType = ZigLLVM_OpenEmbedded
 };
 
+// synchronize with llvm/include/ADT/Triple.h::OsType
+// synchronize with std.Target.Os.Tag
+// synchronize with codegen/llvm/bindings.zig::OsType
+// synchronize with src/stage1/target.cpp::os_list
 enum ZigLLVM_OSType {
     ZigLLVM_UnknownOS,
 
@@ -437,9 +449,11 @@ enum ZigLLVM_OSType {
     ZigLLVM_NVCL,       // NVIDIA OpenCL
     ZigLLVM_AMDHSA,     // AMD HSA Runtime
     ZigLLVM_PS4,
+    ZigLLVM_PS5,
     ZigLLVM_ELFIAMCU,
     ZigLLVM_TvOS,       // Apple tvOS
     ZigLLVM_WatchOS,    // Apple watchOS
+    ZigLLVM_DriverKit,  // Apple DriverKit
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
@@ -447,8 +461,8 @@ enum ZigLLVM_OSType {
     ZigLLVM_Hurd,       // GNU/Hurd
     ZigLLVM_WASI,       // Experimental WebAssembly OS
     ZigLLVM_Emscripten,
-
-    ZigLLVM_LastOSType = ZigLLVM_Emscripten
+    ZigLLVM_ShaderModel, // DirectX ShaderModel
+    ZigLLVM_LastOSType = ZigLLVM_ShaderModel
 };
 
 // Synchronize with target.cpp::abi_list
@@ -477,16 +491,35 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator, // Simulator variants of other systems, e.g., Apple's iOS
     ZigLLVM_MacABI, // Mac Catalyst variant of Apple's iOS deployment target.
-    ZigLLVM_LastEnvironmentType = ZigLLVM_MacABI
+
+    ZigLLVM_Pixel,
+    ZigLLVM_Vertex,
+    ZigLLVM_Geometry,
+    ZigLLVM_Hull,
+    ZigLLVM_Domain,
+    ZigLLVM_Compute,
+    ZigLLVM_Library,
+    ZigLLVM_RayGeneration,
+    ZigLLVM_Intersection,
+    ZigLLVM_AnyHit,
+    ZigLLVM_ClosestHit,
+    ZigLLVM_Miss,
+    ZigLLVM_Callable,
+    ZigLLVM_Mesh,
+    ZigLLVM_Amplification,
+
+    ZigLLVM_LastEnvironmentType = ZigLLVM_Amplification
 };
 
 enum ZigLLVM_ObjectFormatType {
     ZigLLVM_UnknownObjectFormat,
 
     ZigLLVM_COFF,
+    ZigLLVM_DXContainer,
     ZigLLVM_ELF,
     ZigLLVM_GOFF,
     ZigLLVM_MachO,
+    ZigLLVM_SPIRV,
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,
 };

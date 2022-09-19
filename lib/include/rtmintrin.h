@@ -29,7 +29,7 @@
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
 _xbegin(void)
 {
-  return __builtin_ia32_xbegin();
+  return (unsigned int)__builtin_ia32_xbegin();
 }
 
 static __inline__ void __DEFAULT_FN_ATTRS

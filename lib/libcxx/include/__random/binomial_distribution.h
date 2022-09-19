@@ -10,12 +10,13 @@
 #define _LIBCPP___RANDOM_BINOMIAL_DISTRIBUTION_H
 
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
 #include <cmath>
 #include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -26,6 +27,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template<class _IntType = int>
 class _LIBCPP_TEMPLATE_VIS binomial_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;
@@ -146,6 +148,7 @@ template<class _URNG>
 _IntType
 binomial_distribution<_IntType>::operator()(_URNG& __g, const param_type& __pr)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     if (__pr.__t_ == 0 || __pr.__p_ == 0)
         return 0;
     if (__pr.__p_ == 1)

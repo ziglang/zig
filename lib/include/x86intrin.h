@@ -59,5 +59,9 @@
 #include <clzerointrin.h>
 #endif
 
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__RDPRU__)
+#include <rdpruintrin.h>
+#endif
 
 #endif /* __X86INTRIN_H */

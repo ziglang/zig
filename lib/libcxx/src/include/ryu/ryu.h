@@ -44,21 +44,22 @@
 // Avoid formatting to keep the changes with the original code minimal.
 // clang-format off
 
-#include "__charconv/chars_format.h"
-#include "__charconv/to_chars_result.h"
-#include "__config"
-#include "__debug"
-#include "__errc"
-#include "cstdint"
-#include "cstring"
-#include "type_traits"
+#include <__charconv/chars_format.h>
+#include <__charconv/to_chars_result.h>
+#include <__config>
+#include <__debug>
+#include <__errc>
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
+
 #include "include/ryu/f2s.h"
 #include "include/ryu/d2s.h"
 #include "include/ryu/d2fixed.h"
 
-#if defined(_M_X64) && defined(_LIBCPP_COMPILER_MSVC)
-#include <intrin0.h> // for _umul128() and __shiftright128()
-#endif // defined(_M_X64) && defined(_LIBCPP_COMPILER_MSVC)
+#if defined(_MSC_VER)
+#include <intrin.h> // for _umul128(), __shiftright128(), _BitScanForward{,64}
+#endif // defined(_MSC_VER)
 
 #if defined(_WIN64) || defined(_M_AMD64) || defined(__x86_64__) ||  defined(__aarch64__)
 #define _LIBCPP_64_BIT
@@ -68,7 +69,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // https://github.com/ulfjack/ryu/tree/59661c3/ryu
 
-#if !defined(_LIBCPP_COMPILER_MSVC)
+#if !defined(_MSC_VER)
 _LIBCPP_HIDE_FROM_ABI inline unsigned char _BitScanForward64(unsigned long* __index, unsigned long long __mask) {
   if (__mask == 0) {
     return false;
@@ -84,7 +85,7 @@ _LIBCPP_HIDE_FROM_ABI inline unsigned char _BitScanForward(unsigned long* __inde
   *__index = __builtin_ctz(__mask);
   return true;
 }
-#endif  // _LIBCPP_COMPILER_MSVC
+#endif  // !_MSC_VER
 
 template <class _Floating>
 [[nodiscard]] to_chars_result _Floating_to_chars_ryu(

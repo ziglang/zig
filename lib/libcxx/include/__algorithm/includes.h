@@ -12,49 +12,58 @@
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__config>
+#include <__functional/identity.h>
+#include <__functional/invoke.h>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/is_callable.h>
+#include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Compare, class _InputIterator1, class _InputIterator2>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 bool
-__includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2,
-           _Compare __comp)
-{
-    for (; __first2 != __last2; ++__first1)
-    {
-        if (__first1 == __last1 || __comp(*__first2, *__first1))
-            return false;
-        if (!__comp(*__first1, *__first2))
-            ++__first2;
-    }
-    return true;
+template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Comp, class _Proj1, class _Proj2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
+__includes(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
+           _Comp&& __comp, _Proj1&& __proj1, _Proj2&& __proj2) {
+  for (; __first2 != __last2; ++__first1) {
+    if (__first1 == __last1 || std::__invoke(
+          __comp, std::__invoke(__proj2, *__first2), std::__invoke(__proj1, *__first1)))
+      return false;
+    if (!std::__invoke(__comp, std::__invoke(__proj1, *__first1), std::__invoke(__proj2, *__first2)))
+      ++__first2;
+  }
+  return true;
 }
 
 template <class _InputIterator1, class _InputIterator2, class _Compare>
-_LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-bool
-includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2,
-         _Compare __comp)
-{
-    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
-    return _VSTD::__includes<_Comp_ref>(__first1, __last1, __first2, __last2, __comp);
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool includes(
+    _InputIterator1 __first1,
+    _InputIterator1 __last1,
+    _InputIterator2 __first2,
+    _InputIterator2 __last2,
+    _Compare __comp) {
+  static_assert(__is_callable<_Compare, decltype(*__first1), decltype(*__first2)>::value,
+      "Comparator has to be callable");
+
+  typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
+  return std::__includes(
+      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
+      static_cast<_Comp_ref>(__comp), __identity(), __identity());
 }
 
 template <class _InputIterator1, class _InputIterator2>
-_LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-bool
-includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2)
-{
-    return _VSTD::includes(__first1, __last1, __first2, __last2,
-                          __less<typename iterator_traits<_InputIterator1>::value_type,
-                                 typename iterator_traits<_InputIterator2>::value_type>());
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
+includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2) {
+  return std::includes(
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      __less<typename iterator_traits<_InputIterator1>::value_type,
+             typename iterator_traits<_InputIterator2>::value_type>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

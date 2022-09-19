@@ -1,6 +1,12 @@
 #!/bin/sh
 
-. ./ci/drone/linux_script_base
+set -x
+set -e
+
+ARCH="$(uname -m)"
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
 
 if [ -n "$DRONE_PULL_REQUEST" ]; then
   exit 0
@@ -12,16 +18,17 @@ pip3 install s3cmd
 
 cd build
 
-mv ../LICENSE "$DISTDIR/"
-mv ../zig-cache/langref.html "$DISTDIR/"
-mv "$DISTDIR/bin/zig" "$DISTDIR/"
-rmdir "$DISTDIR/bin"
+mv ../LICENSE "$INSTALL_PREFIX/"
+# https://github.com/ziglang/zig/issues/12689
+# mv ../zig-cache/langref.html "$INSTALL_PREFIX/"
+mv "$INSTALL_PREFIX/bin/zig" "$INSTALL_PREFIX/"
+rmdir "$INSTALL_PREFIX/bin"
 
 GITBRANCH="$DRONE_BRANCH"
-VERSION="$("$DISTDIR/zig" version)"
-DIRNAME="zig-linux-$TRIPLEARCH-$VERSION"
+VERSION="$("$INSTALL_PREFIX/zig" version)"
+DIRNAME="zig-linux-$ARCH-$VERSION"
 TARBALL="$DIRNAME.tar.xz"
-mv "$DISTDIR" "$DIRNAME"
+mv "$INSTALL_PREFIX" "$DIRNAME"
 tar cfJ "$TARBALL" "$DIRNAME"
 
 s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
@@ -35,7 +42,7 @@ echo "{\"tarball\": \"$TARBALL\"," >>$JSONFILE
 echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
 echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
-s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$TRIPLEARCH-linux-$VERSION.json"
+s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$ARCH-linux-$VERSION.json"
 if [ "$GITBRANCH" = "master" ]; then
   # avoid leaking oauth token
   set +x

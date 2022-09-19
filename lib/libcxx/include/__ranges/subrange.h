@@ -9,13 +9,13 @@
 #ifndef _LIBCPP___RANGES_SUBRANGE_H
 #define _LIBCPP___RANGES_SUBRANGE_H
 
+#include <__assert>
 #include <__concepts/constructible.h>
 #include <__concepts/convertible_to.h>
 #include <__concepts/copyable.h>
 #include <__concepts/derived_from.h>
 #include <__concepts/different_from.h>
 #include <__config>
-#include <__debug>
 #include <__iterator/advance.h>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
@@ -31,12 +31,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
   template<class _From, class _To>
@@ -56,8 +56,8 @@ namespace ranges {
       requires derived_from<tuple_size<_Tp>, integral_constant<size_t, 2>>;
       typename tuple_element_t<0, remove_const_t<_Tp>>;
       typename tuple_element_t<1, remove_const_t<_Tp>>;
-      { _VSTD::get<0>(__t) } -> convertible_to<const tuple_element_t<0, _Tp>&>;
-      { _VSTD::get<1>(__t) } -> convertible_to<const tuple_element_t<1, _Tp>&>;
+      { std::get<0>(__t) } -> convertible_to<const tuple_element_t<0, _Tp>&>;
+      { std::get<1>(__t) } -> convertible_to<const tuple_element_t<1, _Tp>&>;
     };
 
   template<class _Pair, class _Iter, class _Sent>
@@ -77,14 +77,17 @@ namespace ranges {
   class _LIBCPP_TEMPLATE_VIS subrange
     : public view_interface<subrange<_Iter, _Sent, _Kind>>
   {
-  private:
+  public:
+    // Note: this is an internal implementation detail that is public only for internal usage.
     static constexpr bool _StoreSize = (_Kind == subrange_kind::sized && !sized_sentinel_for<_Sent, _Iter>);
+
+  private:
     static constexpr bool _MustProvideSizeAtConstruction = !_StoreSize; // just to improve compiler diagnostics
     struct _Empty { constexpr _Empty(auto) noexcept { } };
     using _Size = conditional_t<_StoreSize, make_unsigned_t<iter_difference_t<_Iter>>, _Empty>;
-    [[no_unique_address]] _Iter __begin_ = _Iter();
-    [[no_unique_address]] _Sent __end_ = _Sent();
-    [[no_unique_address]] _Size __size_ = 0;
+    _LIBCPP_NO_UNIQUE_ADDRESS _Iter __begin_ = _Iter();
+    _LIBCPP_NO_UNIQUE_ADDRESS _Sent __end_ = _Sent();
+    _LIBCPP_NO_UNIQUE_ADDRESS _Size __size_ = 0;
 
   public:
     _LIBCPP_HIDE_FROM_ABI
@@ -93,14 +96,14 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI
     constexpr subrange(__convertible_to_non_slicing<_Iter> auto __iter, _Sent __sent)
       requires _MustProvideSizeAtConstruction
-      : __begin_(_VSTD::move(__iter)), __end_(_VSTD::move(__sent))
+      : __begin_(std::move(__iter)), __end_(std::move(__sent))
     { }
 
     _LIBCPP_HIDE_FROM_ABI
     constexpr subrange(__convertible_to_non_slicing<_Iter> auto __iter, _Sent __sent,
                        make_unsigned_t<iter_difference_t<_Iter>> __n)
       requires (_Kind == subrange_kind::sized)
-      : __begin_(_VSTD::move(__iter)), __end_(_VSTD::move(__sent)), __size_(__n)
+      : __begin_(std::move(__iter)), __end_(std::move(__sent)), __size_(__n)
     {
       if constexpr (sized_sentinel_for<_Sent, _Iter>)
         _LIBCPP_ASSERT((__end_ - __begin_) == static_cast<iter_difference_t<_Iter>>(__n),
@@ -149,7 +152,7 @@ namespace ranges {
     }
 
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Iter begin() requires (!copyable<_Iter>) {
-      return _VSTD::move(__begin_);
+      return std::move(__begin_);
     }
 
     _LIBCPP_HIDE_FROM_ABI
@@ -168,7 +171,7 @@ namespace ranges {
       if constexpr (_StoreSize)
         return __size_;
       else
-        return _VSTD::__to_unsigned_like(__end_ - __begin_);
+        return std::__to_unsigned_like(__end_ - __begin_);
     }
 
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr subrange next(iter_difference_t<_Iter> __n = 1) const&
@@ -181,7 +184,7 @@ namespace ranges {
 
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr subrange next(iter_difference_t<_Iter> __n = 1) && {
       advance(__n);
-      return _VSTD::move(*this);
+      return std::move(*this);
     }
 
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr subrange prev(iter_difference_t<_Iter> __n = 1) const
@@ -198,14 +201,14 @@ namespace ranges {
         if (__n < 0) {
           ranges::advance(__begin_, __n);
           if constexpr (_StoreSize)
-            __size_ += _VSTD::__to_unsigned_like(-__n);
+            __size_ += std::__to_unsigned_like(-__n);
           return *this;
         }
       }
 
       auto __d = __n - ranges::advance(__begin_, __n, __end_);
       if constexpr (_StoreSize)
-        __size_ -= _VSTD::__to_unsigned_like(__d);
+        __size_ -= std::__to_unsigned_like(__d);
       return *this;
     }
   };
@@ -282,7 +285,7 @@ struct tuple_element<1, const ranges::subrange<_Ip, _Sp, _Kp>> {
   using type = _Sp;
 };
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

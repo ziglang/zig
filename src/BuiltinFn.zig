@@ -250,14 +250,14 @@ pub const list = list: {
             "@byteSwap",
             .{
                 .tag = .byte_swap,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@bitReverse",
             .{
                 .tag = .bit_reverse,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -301,7 +301,7 @@ pub const list = list: {
             "@clz",
             .{
                 .tag = .clz,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -336,7 +336,7 @@ pub const list = list: {
             "@ctz",
             .{
                 .tag = .ctz,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -614,7 +614,7 @@ pub const list = list: {
             "@popCount",
             .{
                 .tag = .pop_count,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{

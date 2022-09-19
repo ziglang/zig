@@ -2401,16 +2401,8 @@ const Parser = struct {
                     .rhs = undefined,
                 },
             }),
-            .integer_literal => return p.addNode(.{
-                .tag = .integer_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .float_literal => return p.addNode(.{
-                .tag = .float_literal,
+            .number_literal => return p.addNode(.{
+                .tag = .number_literal,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
@@ -3670,7 +3662,7 @@ const Parser = struct {
     }
 
     /// KEYWORD_if LPAREN Expr RPAREN PtrPayload? Body (KEYWORD_else Payload? Body)?
-    fn parseIf(p: *Parser, bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
+    fn parseIf(p: *Parser, comptime bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
         const if_token = p.eatToken(.keyword_if) orelse return null_node;
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();

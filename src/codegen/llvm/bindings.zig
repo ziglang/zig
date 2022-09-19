@@ -31,6 +31,9 @@ pub const Context = opaque {
     pub const createStringAttribute = LLVMCreateStringAttribute;
     extern fn LLVMCreateStringAttribute(*const Context, Key: [*]const u8, Key_Len: c_uint, Value: [*]const u8, Value_Len: c_uint) *const Attribute;
 
+    pub const pointerType = LLVMPointerTypeInContext;
+    extern fn LLVMPointerTypeInContext(C: *const Context, AddressSpace: c_uint) *const Type;
+
     pub const intType = LLVMIntTypeInContext;
     extern fn LLVMIntTypeInContext(C: *const Context, NumBits: c_uint) *const Type;
 
@@ -141,13 +144,6 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *const Value, Aliasee: *const Value) void;
 
-    pub const constInBoundsGEP = LLVMConstInBoundsGEP;
-    extern fn LLVMConstInBoundsGEP(
-        ConstantVal: *const Value,
-        ConstantIndices: [*]const *const Value,
-        NumIndices: c_uint,
-    ) *const Value;
-
     pub const constBitCast = LLVMConstBitCast;
     extern fn LLVMConstBitCast(ConstantVal: *const Value, ToType: *const Type) *const Value;
 
@@ -223,6 +219,9 @@ pub const Value = opaque {
     pub const setInitializer = LLVMSetInitializer;
     extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
 
+    pub const setDLLStorageClass = LLVMSetDLLStorageClass;
+    extern fn LLVMSetDLLStorageClass(Global: *const Value, Class: DLLStorageClass) void;
+
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *const Value, OnVal: *const Value, Dest: *const BasicBlock) void;
 
@@ -248,6 +247,9 @@ pub const Value = opaque {
 
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
+
+    pub const getGEPResultElementType = ZigLLVMGetGEPResultElementType;
+    extern fn ZigLLVMGetGEPResultElementType(GEP: *const Value) *const Type;
 
     pub const addByValAttr = ZigLLVMAddByValAttr;
     extern fn ZigLLVMAddByValAttr(Fn: *const Value, ArgNo: c_uint, type: *const Type) void;
@@ -316,6 +318,14 @@ pub const Type = opaque {
 
     pub const isSized = LLVMTypeIsSized;
     extern fn LLVMTypeIsSized(Ty: *const Type) Bool;
+
+    pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
+    extern fn LLVMConstInBoundsGEP2(
+        Ty: *const Type,
+        ConstantVal: *const Value,
+        ConstantIndices: [*]const *const Value,
+        NumIndices: c_uint,
+    ) *const Value;
 };
 
 pub const Module = opaque {
@@ -512,6 +522,7 @@ pub const Builder = opaque {
     pub const buildCall = ZigLLVMBuildCall;
     extern fn ZigLLVMBuildCall(
         *const Builder,
+        *const Type,
         Fn: *const Value,
         Args: [*]const *const Value,
         NumArgs: c_uint,
@@ -535,8 +546,8 @@ pub const Builder = opaque {
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*const Builder, Val: *const Value, Ptr: *const Value) *const Value;
 
-    pub const buildLoad = LLVMBuildLoad;
-    extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
+    pub const buildLoad = LLVMBuildLoad2;
+    extern fn LLVMBuildLoad2(*const Builder, Ty: *const Type, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNeg = LLVMBuildNeg;
     extern fn LLVMBuildNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
@@ -661,16 +672,7 @@ pub const Builder = opaque {
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
 
-    pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
-    extern fn LLVMBuildInBoundsGEP(
-        B: *const Builder,
-        Pointer: *const Value,
-        Indices: [*]const *const Value,
-        NumIndices: c_uint,
-        Name: [*:0]const u8,
-    ) *const Value;
-
-    pub const buildInBoundsGEP2 = LLVMBuildInBoundsGEP2;
+    pub const buildInBoundsGEP = LLVMBuildInBoundsGEP2;
     extern fn LLVMBuildInBoundsGEP2(
         B: *const Builder,
         Ty: *const Type,
@@ -747,9 +749,10 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
-    pub const buildStructGEP = LLVMBuildStructGEP;
-    extern fn LLVMBuildStructGEP(
+    pub const buildStructGEP = LLVMBuildStructGEP2;
+    extern fn LLVMBuildStructGEP2(
         B: *const Builder,
+        Ty: *const Type,
         Pointer: *const Value,
         Idx: c_uint,
         Name: [*:0]const u8,
@@ -1218,9 +1221,11 @@ pub const LinkWasm = ZigLLDLinkWasm;
 pub const ObjectFormatType = enum(c_int) {
     Unknown,
     COFF,
+    DXContainer,
     ELF,
     GOFF,
     MachO,
+    SPIRV,
     Wasm,
     XCOFF,
 };
@@ -1260,9 +1265,11 @@ pub const OSType = enum(c_int) {
     NVCL,
     AMDHSA,
     PS4,
+    PS5,
     ELFIAMCU,
     TvOS,
     WatchOS,
+    DriverKit,
     Mesa3D,
     Contiki,
     AMDPAL,
@@ -1270,6 +1277,7 @@ pub const OSType = enum(c_int) {
     Hurd,
     WASI,
     Emscripten,
+    ShaderModel,
 };
 
 pub const ArchType = enum(c_int) {
@@ -1284,7 +1292,10 @@ pub const ArchType = enum(c_int) {
     bpfel,
     bpfeb,
     csky,
+    dxil,
     hexagon,
+    loongarch32,
+    loongarch64,
     m68k,
     mips,
     mipsel,
@@ -1320,6 +1331,8 @@ pub const ArchType = enum(c_int) {
     hsail64,
     spir,
     spir64,
+    spirv32,
+    spirv64,
     kalimba,
     shave,
     lanai,
@@ -1480,6 +1493,12 @@ pub const CallAttr = enum(c_int) {
     NeverInline,
     AlwaysTail,
     AlwaysInline,
+};
+
+pub const DLLStorageClass = enum(c_uint) {
+    Default,
+    DLLImport,
+    DLLExport,
 };
 
 pub const address_space = struct {
@@ -1715,8 +1734,8 @@ pub const DIBuilder = opaque {
         dib: *DIBuilder,
         tag: c_uint,
         name: [*:0]const u8,
-        scope: *DIScope,
-        file: *DIFile,
+        scope: ?*DIScope,
+        file: ?*DIFile,
         line: c_uint,
     ) *DIType;
 

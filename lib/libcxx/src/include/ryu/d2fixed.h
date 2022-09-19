@@ -42,8 +42,8 @@
 // Avoid formatting to keep the changes with the original code minimal.
 // clang-format off
 
-#include "__config"
-#include "cstdint"
+#include <__config>
+#include <cstdint>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 

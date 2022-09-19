@@ -155,6 +155,7 @@ test "correct sizeOf and offsets in packed structs" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const PStruct = packed struct {
         bool_a: bool,
@@ -225,6 +226,7 @@ test "nested packed structs" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S1 = packed struct { a: u8, b: u8, c: u8 };
 
@@ -272,6 +274,7 @@ test "regular in irregular packed struct" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Irregular = packed struct {
         bar: Regular = Regular{},
@@ -294,6 +297,7 @@ test "byte-aligned field pointer offsets" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const A = packed struct {
@@ -433,4 +437,175 @@ test "@ptrToInt on a packed struct field" {
         };
     };
     try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
+}
+
+test "optional pointer in packed struct" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const T = packed struct { ptr: ?*const u8 };
+    var n: u8 = 0;
+    const x = T{ .ptr = &n };
+    try expect(x.ptr.? == &n);
+}
+
+test "nested packed struct field access test" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    //
+    const Vec2 = packed struct {
+        x: f32,
+        y: f32,
+    };
+
+    const Vec3 = packed struct {
+        x: f32,
+        y: f32,
+        z: f32,
+    };
+
+    const NestedVec2 = packed struct {
+        nested: Vec2,
+    };
+
+    const NestedVec3 = packed struct {
+        nested: Vec3,
+    };
+
+    const vec2 = Vec2{
+        .x = 1.0,
+        .y = 2.0,
+    };
+
+    try std.testing.expectEqual(vec2.x, 1.0);
+    try std.testing.expectEqual(vec2.y, 2.0);
+
+    var vec2_o: Vec2 = undefined;
+    const vec2_o_ptr: *Vec2 = &vec2_o;
+    vec2_o_ptr.* = vec2;
+
+    try std.testing.expectEqual(vec2_o.x, 1.0);
+    try std.testing.expectEqual(vec2_o.y, 2.0);
+
+    const nested_vec2 = NestedVec2{
+        .nested = Vec2{
+            .x = 1.0,
+            .y = 2.0,
+        },
+    };
+
+    try std.testing.expectEqual(nested_vec2.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec2.nested.y, 2.0);
+
+    var nested_o: NestedVec2 = undefined;
+    const nested_o_ptr: *NestedVec2 = &nested_o;
+    nested_o_ptr.* = nested_vec2;
+
+    try std.testing.expectEqual(nested_o.nested.x, 1.0);
+    try std.testing.expectEqual(nested_o.nested.y, 2.0);
+
+    const vec3 = Vec3{
+        .x = 1.0,
+        .y = 2.0,
+        .z = 3.0,
+    };
+
+    try std.testing.expectEqual(vec3.x, 1.0);
+    try std.testing.expectEqual(vec3.y, 2.0);
+    try std.testing.expectEqual(vec3.z, 3.0);
+
+    var vec3_o: Vec3 = undefined;
+    const vec3_o_ptr: *Vec3 = &vec3_o;
+    vec3_o_ptr.* = vec3;
+
+    try std.testing.expectEqual(vec3_o.x, 1.0);
+    try std.testing.expectEqual(vec3_o.y, 2.0);
+    try std.testing.expectEqual(vec3_o.z, 3.0);
+
+    const nested_vec3 = NestedVec3{
+        .nested = Vec3{
+            .x = 1.0,
+            .y = 2.0,
+            .z = 3.0,
+        },
+    };
+
+    try std.testing.expectEqual(nested_vec3.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec3.nested.y, 2.0);
+    try std.testing.expectEqual(nested_vec3.nested.z, 3.0);
+
+    var nested_vec3_o: NestedVec3 = undefined;
+    const nested_vec3_o_ptr: *NestedVec3 = &nested_vec3_o;
+    nested_vec3_o_ptr.* = nested_vec3;
+
+    try std.testing.expectEqual(nested_vec3_o.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec3_o.nested.y, 2.0);
+    try std.testing.expectEqual(nested_vec3_o.nested.z, 3.0);
+
+    const hld = packed struct {
+        c: u64,
+        d: u32,
+    };
+
+    const mld = packed struct {
+        h: u64,
+        i: u64,
+    };
+
+    const a = packed struct {
+        b: hld,
+        g: mld,
+    };
+
+    var arg = a{ .b = hld{ .c = 1, .d = 2 }, .g = mld{ .h = 6, .i = 8 } };
+    try std.testing.expect(arg.b.c == 1);
+    try std.testing.expect(arg.b.d == 2);
+    try std.testing.expect(arg.g.h == 6);
+    try std.testing.expect(arg.g.i == 8);
+}
+
+test "runtime init of unnamed packed struct type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var z: u8 = 123;
+    try (packed struct {
+        x: u8,
+        pub fn m(s: @This()) !void {
+            try expect(s.x == 123);
+        }
+    }{ .x = z }).m();
+}
+
+test "packed struct passed to callconv(.C) function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const S = struct {
+        const Packed = packed struct {
+            a: u16,
+            b: bool = true,
+            c: bool = true,
+            d: u46 = 0,
+        };
+
+        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.C) bool {
+            return p.a == 12345 and p.b == true and p.c == true and p.d == 0 and a1 == 5 and a2 == 4 and a3 == 3 and a4 == 2 and a5 == 1;
+        }
+    };
+    const result = S.foo(S.Packed{
+        .a = 12345,
+        .b = true,
+        .c = true,
+    }, 5, 4, 3, 2, 1);
+    try expect(result);
 }

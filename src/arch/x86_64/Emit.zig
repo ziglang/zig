@@ -137,7 +137,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .fld => try emit.mirFld(inst),
 
             .lea => try emit.mirLea(inst),
-            .lea_pie => try emit.mirLeaPie(inst),
+            .lea_pic => try emit.mirLeaPic(inst),
 
             .shl => try emit.mirShift(.shl, inst),
             .sal => try emit.mirShift(.sal, inst),
@@ -283,10 +283,11 @@ fn mirPushPopRegisterList(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerErro
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const save_reg_list = emit.mir.extraData(Mir.SaveRegisterList, payload).data;
-    const reg_list = Mir.RegisterList(Register, &abi.callee_preserved_regs).fromInt(save_reg_list.register_list);
     var disp: i32 = -@intCast(i32, save_reg_list.stack_end);
-    inline for (abi.callee_preserved_regs) |reg| {
-        if (reg_list.isSet(reg)) {
+    const reg_list = Mir.RegisterList.fromInt(save_reg_list.register_list);
+    const callee_preserved_regs = abi.getCalleePreservedRegs(emit.target.*);
+    for (callee_preserved_regs) |reg| {
+        if (reg_list.isSet(callee_preserved_regs, reg)) {
             switch (tag) {
                 .push => try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
                     .disp = @bitCast(u32, disp),
@@ -338,7 +339,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 .base = ops.reg1,
             }), emit.code);
         },
-        0b11 => return emit.fail("TODO unused JMP/CALL variant 0b11", .{}),
+        0b11 => return emit.fail("TODO unused variant jmp/call 0b11", .{}),
     }
 }
 
@@ -614,14 +615,15 @@ inline fn immOpSize(u_imm: u32) u6 {
 fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
-    // OP reg1, [reg2 + scale*rcx + imm32]
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
+    // OP reg1, [reg2 + scale*index + imm32]
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rcx,
+        .index = index_reg_disp.index,
     };
     return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
-        .disp = imm,
+        .disp = index_reg_disp.disp,
         .base = ops.reg2,
         .scale_index = scale_index,
     }), emit.code);
@@ -630,22 +632,16 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rax,
+        .index = index_reg_disp.index,
     };
-    if (ops.reg2 == .none) {
-        // OP qword ptr [reg1 + scale*rax + 0], imm32
-        return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
-            .disp = 0,
-            .base = ops.reg1,
-            .scale_index = scale_index,
-        }), imm, emit.code);
-    }
-    // OP [reg1 + scale*rax + imm32], reg2
+    assert(ops.reg2 != .none);
+    // OP [reg1 + scale*index + imm32], reg2
     return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg2.size()), .{
-        .disp = imm,
+        .disp = index_reg_disp.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
     }), ops.reg2, emit.code);
@@ -655,24 +651,24 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const index_reg_disp_imm = emit.mir.extraData(Mir.IndexRegisterDispImm, payload).data.decode();
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rax,
+        .index = index_reg_disp_imm.index,
     };
-    // OP qword ptr [reg1 + scale*rax + imm32], imm32
+    // OP qword ptr [reg1 + scale*index + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
-        .disp = imm_pair.dest_off,
+        .disp = index_reg_disp_imm.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code);
+    }), index_reg_disp_imm.imm, emit.code);
 }
 
 fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     assert(ops.reg2 == .none);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const index_reg_disp_imm = emit.mir.extraData(Mir.IndexRegisterDispImm, payload).data.decode();
     const ptr_size: Memory.PtrSize = switch (ops.flags) {
         0b00 => .byte_ptr,
         0b01 => .word_ptr,
@@ -681,14 +677,14 @@ fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!v
     };
     const scale_index = ScaleIndex{
         .scale = 0,
-        .index = .rax,
+        .index = index_reg_disp_imm.index,
     };
-    // OP ptr [reg1 + rax*1 + imm32], imm32
+    // OP ptr [reg1 + index + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(ptr_size, .{
-        .disp = imm_pair.dest_off,
+        .disp = index_reg_disp_imm.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code);
+    }), index_reg_disp_imm.imm, emit.code);
 }
 
 fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -784,7 +780,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             // FD
             return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
         },
-        else => return emit.fail("TODO unused variant: movabs 0b{b}", .{ops.flags}),
+        else => return emit.fail("TODO unused movabs variant", .{}),
     }
 }
 
@@ -956,18 +952,19 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             mem.writeIntLittle(i32, emit.code.items[end_offset - 4 ..][0..4], disp);
         },
         0b10 => {
-            // lea reg, [rbp + rcx + imm32]
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            // lea reg, [rbp + index + imm32]
+            const payload = emit.mir.instructions.items(.data)[inst].payload;
+            const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
             const src_reg: ?Register = if (ops.reg2 != .none) ops.reg2 else null;
             const scale_index = ScaleIndex{
                 .scale = 0,
-                .index = .rcx,
+                .index = index_reg_disp.index,
             };
             return lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
-                    .disp = imm,
+                    .disp = index_reg_disp.disp,
                     .base = src_reg,
                     .scale_index = scale_index,
                 }),
@@ -978,11 +975,16 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    assert(tag == .lea_pie);
+    assert(tag == .lea_pic);
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
+
+    switch (ops.flags) {
+        0b00, 0b01, 0b10 => {},
+        else => return emit.fail("TODO unused LEA PIC variant 0b11", .{}),
+    }
 
     // lea reg1, [rip + reloc]
     // RM
@@ -999,24 +1001,38 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         const reloc_type = switch (ops.flags) {
             0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
             0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
-            else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+            else => unreachable,
         };
-        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
-        log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, relocation.sym_index });
-        try atom.relocs.append(emit.bin_file.allocator, .{
-            .offset = @intCast(u32, end_offset - 4),
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        try atom.addRelocation(macho_file, .{
+            .@"type" = reloc_type,
             .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .offset = @intCast(u32, end_offset - 4),
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
-            .@"type" = reloc_type,
+        });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        try atom.addRelocation(coff_file, .{
+            .@"type" = switch (ops.flags) {
+                0b00 => .got,
+                0b01 => .direct,
+                0b10 => .import,
+                else => unreachable,
+            },
+            .target = switch (ops.flags) {
+                0b00, 0b01 => .{ .sym_index = relocation.sym_index, .file = null },
+                0b10 => coff_file.getGlobalByIndex(relocation.sym_index),
+                else => unreachable,
+            },
+            .offset = @intCast(u32, end_offset - 4),
+            .addend = 0,
+            .pcrel = true,
+            .length = 2,
         });
     } else {
-        return emit.fail(
-            "TODO implement lea reg, [rip + reloc] for linking backends different than MachO",
-            .{},
-        );
+        return emit.fail("TODO implement lea reg, [rip + reloc] for linking backends different than MachO", .{});
     }
 }
 
@@ -1126,21 +1142,30 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
-        try atom.relocs.append(emit.bin_file.allocator, .{
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const target = macho_file.getGlobalByIndex(relocation.sym_index);
+        try atom.addRelocation(macho_file, .{
+            .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+            .target = target,
             .offset = offset,
-            .target = .{
-                .sym_index = relocation.sym_index,
-                .file = null,
-            },
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
-            .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+        });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        // Add relocation to the decl.
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const target = coff_file.getGlobalByIndex(relocation.sym_index);
+        try atom.addRelocation(coff_file, .{
+            .@"type" = .direct,
+            .target = target,
+            .offset = offset,
+            .addend = 0,
+            .pcrel = true,
+            .length = 2,
         });
     } else {
-        return emit.fail("TODO implement call_extern for linking backends different than MachO", .{});
+        return emit.fail("TODO implement call_extern for linking backends different than MachO and COFF", .{});
     }
 }
 
@@ -2223,6 +2248,7 @@ fn lowerToMxEnc(tag: Tag, reg_or_mem: RegisterOrMemory, enc: Encoding, code: *st
                 encoder.rex(.{
                     .w = wide,
                     .b = base.isExtended(),
+                    .x = if (mem_op.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2328,10 +2354,12 @@ fn lowerToMiXEnc(
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2383,11 +2411,13 @@ fn lowerToRmEnc(
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2428,11 +2458,13 @@ fn lowerToMrEnc(
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2472,11 +2504,13 @@ fn lowerToRmiEnc(
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2513,10 +2547,12 @@ fn lowerToVmEnc(
                 vex.rex(.{
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 vex.rex(.{
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             encoder.vex(enc.prefix);
@@ -2553,10 +2589,12 @@ fn lowerToMvEnc(
                 vex.rex(.{
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 vex.rex(.{
                     .r = reg.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             encoder.vex(enc.prefix);

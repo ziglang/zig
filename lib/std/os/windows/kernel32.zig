@@ -357,6 +357,14 @@ pub extern "kernel32" fn WriteFile(
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) callconv(WINAPI) BOOL;
 
+pub extern "kernel32" fn WriteFileEx(
+    hFile: HANDLE,
+    lpBuffer: [*]const u8,
+    nNumberOfBytesToWrite: DWORD,
+    lpOverlapped: *OVERLAPPED,
+    lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE,
+) callconv(WINAPI) BOOL;
+
 pub extern "kernel32" fn WriteConsoleW(
     in_hConsoleOutput: HANDLE,
     in_lpBuffer: [*]const u16,
@@ -364,8 +372,6 @@ pub extern "kernel32" fn WriteConsoleW(
     out_lpNumberOfCharsWritten: ?*DWORD,
     reserved_lpReserved: ?LPVOID,
 ) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const u8, nNumberOfBytesToWrite: DWORD, lpOverlapped: *OVERLAPPED, lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn LoadLibraryW(lpLibFileName: [*:0]const u16) callconv(WINAPI) ?HMODULE;
 

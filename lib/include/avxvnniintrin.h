@@ -50,7 +50,7 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.word := Signed(ZeroExtend16(__A.byte[4*j]) * SignExtend16(__B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(__A.byte[4*j+1]) * SignExtend16(__B.byte[4*j+1]))
@@ -59,7 +59,7 @@
 ///      DST.dword[j] := __S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_dpbusd_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 {
@@ -73,7 +73,7 @@ _mm256_dpbusd_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.word := Signed(ZeroExtend16(__A.byte[4*j]) * SignExtend16(__B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(__A.byte[4*j+1]) * SignExtend16(__B.byte[4*j+1]))
@@ -82,7 +82,7 @@ _mm256_dpbusd_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///      DST.dword[j] := Saturate32(__S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4)
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_dpbusds_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 {
@@ -96,14 +96,14 @@ _mm256_dpbusds_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.dword := SignExtend32(__A.word[2*j]) * SignExtend32(__B.word[2*j])
 ///      tmp2.dword := SignExtend32(__A.word[2*j+1]) * SignExtend32(__B.word[2*j+1])
 ///      DST.dword[j] := __S.dword[j] + tmp1 + tmp2
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_dpwssd_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 {
@@ -117,14 +117,14 @@ _mm256_dpwssd_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.dword := SignExtend32(__A.word[2*j]) * SignExtend32(__B.word[2*j])
 ///      tmp2.dword := SignExtend32(__A.word[2*j+1]) * SignExtend32(__B.word[2*j+1])
 ///      DST.dword[j] := Saturate32(__S.dword[j] + tmp1 + tmp2)
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_dpwssds_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 {
@@ -138,7 +138,7 @@ _mm256_dpwssds_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.word := Signed(ZeroExtend16(__A.byte[4*j]) * SignExtend16(__B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(__A.byte[4*j+1]) * SignExtend16(__B.byte[4*j+1]))
@@ -147,7 +147,7 @@ _mm256_dpwssds_avx_epi32(__m256i __S, __m256i __A, __m256i __B)
 ///      DST.dword[j] := __S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
 _mm_dpbusd_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 {
@@ -161,7 +161,7 @@ _mm_dpbusd_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.word := Signed(ZeroExtend16(__A.byte[4*j]) * SignExtend16(__B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(__A.byte[4*j+1]) * SignExtend16(__B.byte[4*j+1]))
@@ -170,7 +170,7 @@ _mm_dpbusd_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 ///      DST.dword[j] := Saturate32(__S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4)
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
 _mm_dpbusds_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 {
@@ -184,14 +184,14 @@ _mm_dpbusds_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.dword := SignExtend32(__A.word[2*j]) * SignExtend32(__B.word[2*j])
 ///      tmp2.dword := SignExtend32(__A.word[2*j+1]) * SignExtend32(__B.word[2*j+1])
 ///      DST.dword[j] := __S.dword[j] + tmp1 + tmp2
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
 _mm_dpwssd_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 {
@@ -205,14 +205,14 @@ _mm_dpwssd_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.dword := SignExtend32(__A.word[2*j]) * SignExtend32(__B.word[2*j])
 ///      tmp2.dword := SignExtend32(__A.word[2*j+1]) * SignExtend32(__B.word[2*j+1])
 ///      DST.dword[j] := Saturate32(__S.dword[j] + tmp1 + tmp2)
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
 _mm_dpwssds_avx_epi32(__m128i __S, __m128i __A, __m128i __B)
 {

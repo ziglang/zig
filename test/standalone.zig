@@ -9,9 +9,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/6025
         cases.add("test/standalone/issue_9693/main.zig");
     }
+    cases.add("test/standalone/issue_12471/main.zig");
     cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
+    cases.add("test/standalone/noreturn_call/inline.zig");
+    cases.add("test/standalone/noreturn_call/as_arg.zig");
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig", .{});
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});
@@ -43,9 +46,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
-        if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) { // https://github.com/ziglang/zig/issues/12222
+        if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
             cases.addBuildFile("test/c_abi/build.zig", .{});
         }
+    }
+    if (builtin.cpu.arch.isAARCH64() and builtin.zig_backend == .stage2_llvm) {
+        cases.addBuildFile("test/c_abi/build.zig", .{});
     }
     // C ABI tests only pass for the Wasm target when using stage2
     cases.addBuildFile("test/c_abi/build_wasm.zig", .{
@@ -65,6 +71,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.os.tag == .linux) {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
+    cases.addBuildFile("test/standalone/issue_12706/build.zig", .{});
 
     // Ensure the development tools are buildable.
 

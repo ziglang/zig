@@ -290,7 +290,7 @@
       }
 
       .fieldDocs {
-        border: 1px solid #2A2A2A;
+        border: 1px solid #F5F5F5;
         border-top: 0px;
         padding: 1px 1em;
       }
@@ -352,10 +352,24 @@
         box-shadow: inset 0 -0.2em 0 #c6cbd1;
         cursor: default;
       }
+      
+      #listFns > div {
+        padding-bottom: 10px;
+      }
 
       #listFns dt {
         font-family: var(--mono);
+        display: flex;
+        flex-direction: colunm;
+        justify-content: space-between;
       }
+      
+      #listFns dt .fnSignature {
+        overflow-x: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      
       .argBreaker {
         display: none;
       }
@@ -413,6 +427,9 @@
 
         .docs pre {
           background-color:#2A2A2A;
+        }
+        .fieldDocs {
+          border-color:#2A2A2A;
         }
         #listNav {
           background-color: #333;
@@ -704,7 +721,11 @@
               <h2>Examples</h2>
               <ul id="listFnExamples" class="examples"></ul>
             </div>
-             <div id="sectTests" class="hidden">
+            <div id="sectDocTests" class="hidden">
+              <h2>DocTests</h2>
+              <pre id="docTestsCode"></pre>
+            </div>
+            <div id="sectTests" class="hidden">
               <h2>Tests</h2>
               <div class="table-container">
                 <table>

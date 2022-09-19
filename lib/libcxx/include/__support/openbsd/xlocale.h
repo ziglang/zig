@@ -22,13 +22,13 @@ extern "C" {
 
 
 inline _LIBCPP_HIDE_FROM_ABI long
-strtol_l(const char *nptr, char **endptr, int base, locale_t) {
-  return ::strtol(nptr, endptr, base);
+strtol_l(const char *__nptr, char **__endptr, int __base, locale_t) {
+  return ::strtol(__nptr, __endptr, __base);
 }
 
 inline _LIBCPP_HIDE_FROM_ABI unsigned long
-strtoul_l(const char *nptr, char **endptr, int base, locale_t) {
-  return ::strtoul(nptr, endptr, base);
+strtoul_l(const char *__nptr, char **__endptr, int __base, locale_t) {
+  return ::strtoul(__nptr, __endptr, __base);
 }
 
 

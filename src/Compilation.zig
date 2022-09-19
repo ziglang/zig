@@ -154,6 +154,12 @@ owned_link_dir: ?std.fs.Dir,
 /// Don't use this for anything other than stage1 compatibility.
 color: Color = .auto,
 
+/// How many lines of reference trace should be included per compile error.
+/// Null means only show snippet on first error.
+reference_trace: ?u32 = null,
+
+libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
+
 /// This mutex guards all `Compilation` mutable state.
 mutex: std.Thread.Mutex = .{},
 
@@ -173,6 +179,7 @@ astgen_wait_group: WaitGroup = .{},
 /// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
 export_symbol_names: std.ArrayListUnmanaged([]const u8) = .{},
 
+pub const default_stack_protector_buffer_size = 4;
 pub const SemaError = Module.SemaError;
 
 pub const CRTFile = struct {
@@ -345,6 +352,7 @@ pub const AllErrors = struct {
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
+            reference_trace: []Message = &.{},
 
             /// Splits the error message up into lines to properly indent them
             /// to allow for long, good-looking error messages.
@@ -443,6 +451,34 @@ pub const AllErrors = struct {
                     }
                     for (src.notes) |note| {
                         try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
+                    }
+                    if (src.reference_trace.len != 0) {
+                        ttyconf.setColor(stderr, .Reset);
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print("referenced by:\n", .{});
+                        for (src.reference_trace) |reference| {
+                            switch (reference) {
+                                .src => |ref_src| try stderr.print("    {s}: {s}:{d}:{d}\n", .{
+                                    ref_src.msg,
+                                    ref_src.src_path,
+                                    ref_src.line + 1,
+                                    ref_src.column + 1,
+                                }),
+                                .plain => |plain| if (plain.count != 0) {
+                                    try stderr.print(
+                                        "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
+                                        .{ plain.count, plain.count + src.reference_trace.len - 1 },
+                                    );
+                                } else {
+                                    try stderr.print(
+                                        "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
+                                        .{},
+                                    );
+                                },
+                            }
+                        }
+                        try stderr.writeByte('\n');
+                        ttyconf.setColor(stderr, .Reset);
                     }
                 },
                 .plain => |plain| {
@@ -569,6 +605,32 @@ pub const AllErrors = struct {
             });
             return;
         }
+
+        const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
+        for (reference_trace) |*reference, i| {
+            const module_reference = module_err_msg.reference_trace[i];
+            if (module_reference.hidden != 0) {
+                reference.* = .{ .plain = .{ .msg = undefined, .count = module_reference.hidden } };
+                break;
+            } else if (module_reference.decl == null) {
+                reference.* = .{ .plain = .{ .msg = undefined, .count = 0 } };
+                break;
+            }
+            const source = try module_reference.src_loc.file_scope.getSource(module.gpa);
+            const span = try module_reference.src_loc.span(module.gpa);
+            const loc = std.zig.findLineColumn(source.bytes, span.main);
+            const file_path = try module_reference.src_loc.file_scope.fullPath(allocator);
+            reference.* = .{
+                .src = .{
+                    .src_path = file_path,
+                    .msg = try allocator.dupe(u8, std.mem.sliceTo(module_reference.decl.?, 0)),
+                    .span = span,
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
+                    .source_line = null,
+                },
+            };
+        }
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
         try errors.append(.{
             .src = .{
@@ -578,6 +640,7 @@ pub const AllErrors = struct {
                 .line = @intCast(u32, err_loc.line),
                 .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
+                .reference_trace = reference_trace,
                 .source_line = try allocator.dupe(u8, err_loc.source_line),
             },
         });
@@ -607,7 +670,7 @@ pub const AllErrors = struct {
                 }
                 const token_starts = file.tree.tokens.items(.start);
                 const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len);
+                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len) - item.data.byte_offset;
                 break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
             };
             const err_loc = std.zig.findLineColumn(file.source, err_span.main);
@@ -626,7 +689,7 @@ pub const AllErrors = struct {
                         }
                         const token_starts = file.tree.tokens.items(.start);
                         const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len);
+                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len) - item.data.byte_offset;
                         break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
                     };
                     const loc = std.zig.findLineColumn(file.source, span.main);
@@ -810,7 +873,6 @@ pub const InitOptions = struct {
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
     cache_mode: CacheMode = .incremental,
-    object_format: ?std.Target.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
@@ -838,6 +900,10 @@ pub const InitOptions = struct {
     want_pie: ?bool = null,
     want_sanitize_c: ?bool = null,
     want_stack_check: ?bool = null,
+    /// null means default.
+    /// 0 means no stack protector.
+    /// other number means stack protection with that buffer size.
+    want_stack_protector: ?u32 = null,
     want_red_zone: ?bool = null,
     omit_frame_pointer: ?bool = null,
     want_valgrind: ?bool = null,
@@ -874,6 +940,9 @@ pub const InitOptions = struct {
     linker_shared_memory: bool = false,
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
+    linker_print_gc_sections: bool = false,
+    linker_print_icf_sections: bool = false,
+    linker_print_map: bool = false,
     each_lib_rpath: ?bool = null,
     build_id: ?bool = null,
     disable_c_depfile: bool = false,
@@ -920,6 +989,7 @@ pub const InitOptions = struct {
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
+    reference_trace: ?u32 = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
@@ -943,6 +1013,7 @@ pub const InitOptions = struct {
     headerpad_max_install_names: bool = false,
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
+    libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 };
 
 fn addPackageTableToCacheHash(
@@ -1015,6 +1086,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         return error.ExportTableAndImportTableConflict;
     }
 
+    // The `have_llvm` condition is here only because native backends cannot yet build compiler-rt.
+    // Once they are capable this condition could be removed. When removing this condition,
+    // also test the use case of `build-obj -fcompiler-rt` with the native backends
+    // and make sure the compiler-rt symbols are emitted.
+    const capable_of_building_compiler_rt = build_options.have_llvm;
+
+    const capable_of_building_zig_libc = build_options.have_llvm;
+    const capable_of_building_ssp = build_options.have_llvm;
+
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().
@@ -1027,26 +1107,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
-        const ofmt = options.object_format orelse options.target.getObjectFormat();
-
-        const use_stage1 = options.use_stage1 orelse blk: {
-            // Even though we may have no Zig code to compile (depending on `options.main_pkg`),
-            // we may need to use stage1 for building compiler-rt and other dependencies.
-
-            if (build_options.omit_stage2)
-                break :blk true;
-            if (options.use_llvm) |use_llvm| {
-                if (!use_llvm) {
-                    break :blk false;
-                }
-            }
-
-            // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target, ofmt))
-                break :blk false;
-
-            break :blk build_options.is_stage1;
-        };
+        const use_stage1 = options.use_stage1 orelse false;
 
         const cache_mode = if (use_stage1 and !options.disable_lld_caching)
             CacheMode.whole
@@ -1072,7 +1133,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 break :blk true;
 
             // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target, ofmt))
+            if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
                 break :blk false;
 
             // Prefer LLVM for release builds.
@@ -1115,7 +1176,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (!build_options.have_llvm)
                 break :blk false;
 
-            if (ofmt == .c)
+            if (options.target.ofmt == .c)
                 break :blk false;
 
             if (options.want_lto) |lto| {
@@ -1133,7 +1194,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 link_eh_frame_hdr or
                 options.link_emit_relocs or
                 options.output_mode == .Lib or
-                options.image_base_override != null or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
                 build_id)
@@ -1170,9 +1230,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 // See https://github.com/ziglang/zig/issues/8680
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
-                break :blk false;
-            } else if (options.target.os.tag == .windows and link_libcpp) {
-                // https://github.com/ziglang/zig/issues/8531
                 break :blk false;
             } else if (options.target.cpu.arch.isRISCV()) {
                 // Clang and LLVM currently don't support RISC-V target-abi for LTO.
@@ -1237,7 +1294,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk lm;
         } else default_link_mode;
 
-        const dll_export_fns = if (options.dll_export_fns) |explicit| explicit else is_dyn_lib or options.rdynamic;
+        const dll_export_fns = options.dll_export_fns orelse (is_dyn_lib or options.rdynamic);
 
         const libc_dirs = try detectLibCIncludeDirs(
             arena,
@@ -1245,7 +1302,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
-            options.system_lib_names.len != 0 or options.frameworks.count() != 0,
             options.libc_installation,
             options.native_darwin_sdk != null,
         );
@@ -1292,11 +1348,36 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const sanitize_c = options.want_sanitize_c orelse is_safe_mode;
 
-        const stack_check: bool = b: {
-            if (!target_util.supportsStackProbing(options.target))
-                break :b false;
-            break :b options.want_stack_check orelse is_safe_mode;
+        const stack_check: bool = options.want_stack_check orelse b: {
+            if (!target_util.supportsStackProbing(options.target)) break :b false;
+            break :b is_safe_mode;
         };
+        if (stack_check and !target_util.supportsStackProbing(options.target))
+            return error.StackCheckUnsupportedByTarget;
+
+        const stack_protector: u32 = options.want_stack_protector orelse b: {
+            if (!target_util.supportsStackProtector(options.target)) break :b @as(u32, 0);
+
+            // This logic is checking for linking libc because otherwise our start code
+            // which is trying to set up TLS (i.e. the fs/gs registers) but the stack
+            // protection code depends on fs/gs registers being already set up.
+            // If we were able to annotate start code, or perhaps the entire std lib,
+            // as being exempt from stack protection checks, we could change this logic
+            // to supporting stack protection even when not linking libc.
+            // TODO file issue about this
+            if (!link_libc) break :b 0;
+            if (!capable_of_building_ssp) break :b 0;
+            if (is_safe_mode) break :b default_stack_protector_buffer_size;
+            break :b 0;
+        };
+        if (stack_protector != 0) {
+            if (!target_util.supportsStackProtector(options.target))
+                return error.StackProtectorUnsupportedByTarget;
+            if (!capable_of_building_ssp)
+                return error.StackProtectorUnsupportedByBackend;
+            if (!link_libc)
+                return error.StackProtectorUnavailableWithoutLibC;
+        }
 
         const valgrind: bool = b: {
             if (!target_util.hasValgrindSupport(options.target))
@@ -1374,13 +1455,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.target.os.getVersionRange());
         cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
-        cache.hash.add(ofmt);
+        cache.hash.add(options.target.ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
         cache.hash.add(lto);
         cache.hash.add(unwind_tables);
         cache.hash.add(tsan);
         cache.hash.add(stack_check);
+        cache.hash.add(stack_protector);
         cache.hash.add(red_zone);
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
@@ -1682,7 +1764,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .sysroot = sysroot,
             .output_mode = options.output_mode,
             .link_mode = link_mode,
-            .object_format = ofmt,
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
@@ -1712,6 +1793,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .shared_memory = options.linker_shared_memory,
             .global_base = options.linker_global_base,
             .export_symbol_names = options.linker_export_symbol_names,
+            .print_gc_sections = options.linker_print_gc_sections,
+            .print_icf_sections = options.linker_print_icf_sections,
+            .print_map = options.linker_print_map,
             .z_nodelete = options.linker_z_nodelete,
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,
@@ -1745,6 +1829,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .valgrind = valgrind,
             .tsan = tsan,
             .stack_check = stack_check,
+            .stack_protector = stack_protector,
             .red_zone = red_zone,
             .omit_frame_pointer = omit_frame_pointer,
             .single_threaded = single_threaded,
@@ -1773,6 +1858,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
+            .force_undefined_symbols = .{},
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1813,6 +1899,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
             .color = options.color,
+            .reference_trace = options.reference_trace,
             .time_report = options.time_report,
             .stack_report = options.stack_report,
             .unwind_tables = unwind_tables,
@@ -1821,10 +1908,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
+            .libcxx_abi_version = options.libcxx_abi_version,
         };
         break :comp comp;
     };
     errdefer comp.destroy();
+
+    const target = comp.getTarget();
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1841,9 +1931,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
 
-    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
-        if (comp.getTarget().isDarwin()) {
-            switch (comp.getTarget().abi) {
+    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies and target.ofmt != .c) {
+        if (target.isDarwin()) {
+            switch (target.abi) {
                 .none,
                 .simulator,
                 .macabi,
@@ -1854,9 +1944,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
-            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
-            if (glibc.needsCrtiCrtn(comp.getTarget())) {
+            if (glibc.needsCrtiCrtn(target)) {
                 try comp.work_queue.write(&[_]Job{
                     .{ .glibc_crt_file = .crti_o },
                     .{ .glibc_crt_file = .crtn_o },
@@ -1869,10 +1959,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMuslFromSource()) {
-            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
             try comp.work_queue.ensureUnusedCapacity(6);
-            if (musl.needsCrtiCrtn(comp.getTarget())) {
+            if (musl.needsCrtiCrtn(target)) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
                     .{ .musl_crt_file = .crti_o },
                     .{ .musl_crt_file = .crtn_o },
@@ -1889,7 +1979,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildWasiLibcFromSource()) {
-            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
             const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
             try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
@@ -1904,7 +1994,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
-            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
@@ -1921,9 +2011,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             for (mingw.always_link_libs) |name| {
                 try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
             }
+
+            // LLD might drop some symbols as unused during LTO and GCing, therefore,
+            // we force mark them for resolution here.
+            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, "_tls_index", {});
         }
         // Generate Windows import libs.
-        if (comp.getTarget().os.tag == .windows) {
+        if (target.os.tag == .windows) {
             const count = comp.bin_file.options.system_libs.count();
             try comp.work_queue.ensureUnusedCapacity(count);
             var i: usize = 0;
@@ -1942,15 +2036,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        // The `have_llvm` condition is here only because native backends cannot yet build compiler-rt.
-        // Once they are capable this condition could be removed. When removing this condition,
-        // also test the use case of `build-obj -fcompiler-rt` with the native backends
-        // and make sure the compiler-rt symbols are emitted.
-        const capable_of_building_compiler_rt = build_options.have_llvm;
-
-        const capable_of_building_zig_libc = build_options.have_llvm;
-        const capable_of_building_ssp = comp.bin_file.options.use_stage1;
-
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
                 log.debug("queuing a job to build compiler_rt_lib", .{});
@@ -1964,8 +2049,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
         }
         if (needs_c_symbols) {
-            // MinGW provides no libssp, use our own implementation.
-            if (comp.getTarget().isMinGW() and capable_of_building_ssp) {
+            // Related: https://github.com/ziglang/zig/issues/7265.
+            if (comp.bin_file.options.stack_protector != 0 and
+                (!comp.bin_file.options.link_libc or
+                !target_util.libcProvidesStackProtector(target)))
+            {
                 try comp.work_queue.writeItem(.{ .libssp = {} });
             }
 
@@ -2180,8 +2268,7 @@ pub fn update(comp: *Compilation) !void {
         comp.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
-    const use_stage1 = build_options.omit_stage2 or
-        (build_options.is_stage1 and comp.bin_file.options.use_stage1);
+    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
     if (comp.bin_file.options.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
@@ -2357,8 +2444,7 @@ fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     };
     comp.link_error_flags = comp.bin_file.errorFlags();
 
-    const use_stage1 = build_options.omit_stage2 or
-        (build_options.is_stage1 and comp.bin_file.options.use_stage1);
+    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
     if (!use_stage1) {
         if (comp.bin_file.options.module) |module| {
             try link.File.C.flushEmitH(module);
@@ -2500,6 +2586,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
     man.hash.addOptional(comp.bin_file.options.version);
     link.hashAddSystemLibs(&man.hash, comp.bin_file.options.system_libs);
+    man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
     man.hash.addOptional(comp.bin_file.options.allow_shlib_undefined);
     man.hash.add(comp.bin_file.options.bind_global_refs_locally);
     man.hash.add(comp.bin_file.options.tsan);
@@ -2816,7 +2903,7 @@ pub fn performAllTheWork(
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
 
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
@@ -2919,9 +3006,6 @@ pub fn performAllTheWork(
 fn processOneJob(comp: *Compilation, job: Job) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const module = comp.bin_file.options.module.?;
             const decl = module.declPtr(decl_index);
 
@@ -2956,9 +3040,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             }
         },
         .codegen_func => |func| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const named_frame = tracy.namedFrame("codegen_func");
             defer named_frame.end();
 
@@ -2969,9 +3050,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             };
         },
         .emit_h_decl => |decl_index| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const module = comp.bin_file.options.module.?;
             const decl = module.declPtr(decl_index);
 
@@ -3030,9 +3108,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             }
         },
         .analyze_decl => |decl_index| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const module = comp.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -3040,9 +3115,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             };
         },
         .update_embed_file => |embed_file| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const named_frame = tracy.namedFrame("update_embed_file");
             defer named_frame.end();
 
@@ -3053,9 +3125,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             };
         },
         .update_line_number => |decl_index| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const named_frame = tracy.namedFrame("update_line_number");
             defer named_frame.end();
 
@@ -3074,9 +3143,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             };
         },
         .analyze_pkg => |pkg| {
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
             const named_frame = tracy.namedFrame("analyze_pkg");
             defer named_frame.end();
 
@@ -3422,7 +3488,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     var man = comp.obtainCObjectCacheManifest();
     defer man.deinit();
 
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     man.hash.add(use_stage1);
@@ -3739,7 +3805,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
-    const o_ext = comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch);
+    const target = comp.getTarget();
+    const o_ext = target.ofmt.fileExt(target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
@@ -3759,22 +3826,67 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         };
         const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, out_ext });
 
+        try argv.appendSlice(&[_][]const u8{
+            self_exe_path,
+            "clang",
+            c_object.src.src_path,
+        });
+
+        const ext = classifyFileExt(c_object.src.src_path);
+
+        // When all these flags are true, it means that the entire purpose of
+        // this compilation is to perform a single zig cc operation. This means
+        // that we could "tail call" clang by doing an execve, and any use of
+        // the caching system would actually be problematic since the user is
+        // presumably doing their own caching by using dep file flags.
+        if (std.process.can_execv and direct_o and
+            comp.disable_c_depfile and comp.clang_passthrough_mode)
+        {
+            try comp.addCCArgs(arena, &argv, ext, null);
+            try argv.appendSlice(c_object.src.extra_flags);
+
+            const out_obj_path = if (comp.bin_file.options.emit) |emit|
+                try emit.directory.join(arena, &.{emit.sub_path})
+            else
+                "/dev/null";
+
+            try argv.ensureUnusedCapacity(5);
+            switch (comp.clang_preprocessor_mode) {
+                .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
+                .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+                .stdout => argv.appendAssumeCapacity("-E"),
+            }
+
+            if (comp.emit_asm != null) {
+                argv.appendAssumeCapacity("-S");
+            } else if (comp.emit_llvm_ir != null) {
+                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+            } else if (comp.emit_llvm_bc != null) {
+                argv.appendAssumeCapacity("-emit-llvm");
+            }
+
+            if (comp.verbose_cc) {
+                dump_argv(argv.items);
+            }
+
+            const err = std.process.execv(arena, argv.items);
+            fatal("unable to execv clang: {s}", .{@errorName(err)});
+        }
+
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
-        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
-
-        const ext = classifyFileExt(c_object.src.src_path);
         const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
             null
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
+        try argv.appendSlice(c_object.src.extra_flags);
 
-        try argv.ensureUnusedCapacity(6 + c_object.src.extra_flags.len);
+        try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
@@ -3789,8 +3901,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 argv.appendAssumeCapacity("-emit-llvm");
             }
         }
-        argv.appendAssumeCapacity(c_object.src.src_path);
-        argv.appendSliceAssumeCapacity(c_object.src.extra_flags);
 
         if (comp.verbose_cc) {
             dump_argv(argv.items);
@@ -3982,6 +4092,13 @@ pub fn addCCArgs(
         if (comp.bin_file.options.single_threaded) {
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
         }
+
+        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
+            @enumToInt(comp.libcxx_abi_version),
+        }));
+        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
+            @enumToInt(comp.libcxx_abi_version),
+        }));
     }
 
     if (comp.bin_file.options.link_libunwind) {
@@ -4091,10 +4208,10 @@ pub fn addCCArgs(
             }
 
             if (!comp.bin_file.options.strip) {
-                try argv.append("-g");
-                switch (comp.bin_file.options.object_format) {
+                switch (target.ofmt) {
                     .coff => try argv.append("-gcodeview"),
-                    else => {},
+                    .elf, .macho => try argv.append("-gdwarf-4"),
+                    else => try argv.append("-g"),
                 }
             }
 
@@ -4124,6 +4241,17 @@ pub fn addCCArgs(
                 try argv.append("-fno-omit-frame-pointer");
             }
 
+            const ssp_buf_size = comp.bin_file.options.stack_protector;
+            if (ssp_buf_size != 0) {
+                try argv.appendSlice(&[_][]const u8{
+                    "-fstack-protector-strong",
+                    "--param",
+                    try std.fmt.allocPrint(arena, "ssp-buffer-size={d}", .{ssp_buf_size}),
+                });
+            } else {
+                try argv.append("-fno-stack-protector");
+            }
+
             switch (comp.bin_file.options.optimize_mode) {
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
@@ -4132,27 +4260,12 @@ pub fn addCCArgs(
                     // to -O1. Besides potentially impairing debugging, -O1/-Og significantly
                     // increases compile times.
                     try argv.append("-O0");
-
-                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
-                        try argv.append("-fstack-protector-strong");
-                        try argv.append("--param");
-                        try argv.append("ssp-buffer-size=4");
-                    } else {
-                        try argv.append("-fno-stack-protector");
-                    }
                 },
                 .ReleaseSafe => {
                     // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
                     // than -O3 here.
                     try argv.append("-O2");
-                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
-                        try argv.append("-D_FORTIFY_SOURCE=2");
-                        try argv.append("-fstack-protector-strong");
-                        try argv.append("--param");
-                        try argv.append("ssp-buffer-size=4");
-                    } else {
-                        try argv.append("-fno-stack-protector");
-                    }
+                    try argv.append("-D_FORTIFY_SOURCE=2");
                 },
                 .ReleaseFast => {
                     try argv.append("-DNDEBUG");
@@ -4162,12 +4275,10 @@ pub fn addCCArgs(
                     // Zig code than it is for C code. Also, C programmers are used to their code
                     // running in -O2 and thus the -O3 path has been tested less.
                     try argv.append("-O2");
-                    try argv.append("-fno-stack-protector");
                 },
                 .ReleaseSmall => {
                     try argv.append("-DNDEBUG");
                     try argv.append("-Os");
-                    try argv.append("-fno-stack-protector");
                 },
             }
 
@@ -4483,7 +4594,6 @@ fn detectLibCIncludeDirs(
     target: Target,
     is_native_abi: bool,
     link_libc: bool,
-    link_system_libs: bool,
     libc_installation: ?*const LibCInstallation,
     has_macos_sdk: bool,
 ) !LibCDirs {
@@ -4500,7 +4610,7 @@ fn detectLibCIncludeDirs(
 
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
-    if (link_system_libs and is_native_abi and !target.isMinGW()) {
+    if (is_native_abi and !target.isMinGW()) {
         if (target.isDarwin()) {
             return if (has_macos_sdk)
                 // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
@@ -4512,74 +4622,29 @@ fn detectLibCIncludeDirs(
                 getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
         }
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
+        libc.* = LibCInstallation.findNative(.{ .allocator = arena }) catch |err| switch (err) {
+            error.CCompilerExitCode,
+            error.CCompilerCrashed,
+            error.CCompilerCannotFindHeaders,
+            error.UnableToSpawnCCompiler,
+            => |e| {
+                // We tried to integrate with the native system C compiler,
+                // however, it is not installed. So we must rely on our bundled
+                // libc files.
+                if (target_util.canBuildLibC(target)) {
+                    return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+                }
+                return e;
+            },
+            else => |e| return e,
+        };
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
     if (target_util.canBuildLibC(target)) {
-        switch (target.os.tag) {
-            .macos => return if (has_macos_sdk)
-                // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-                LibCDirs{
-                    .libc_include_dir_list = &[0][]u8{},
-                    .libc_installation = null,
-                }
-            else
-                getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target),
-            else => {
-                const generic_name = target_util.libCGenericName(target);
-                // Some architectures are handled by the same set of headers.
-                const arch_name = if (target.abi.isMusl())
-                    musl.archName(target.cpu.arch)
-                else if (target.cpu.arch.isThumb())
-                    // ARM headers are valid for Thumb too.
-                    switch (target.cpu.arch) {
-                        .thumb => "arm",
-                        .thumbeb => "armeb",
-                        else => unreachable,
-                    }
-                else
-                    @tagName(target.cpu.arch);
-                const os_name = @tagName(target.os.tag);
-                // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-                const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
-                const s = std.fs.path.sep_str;
-                const arch_include_dir = try std.fmt.allocPrint(
-                    arena,
-                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
-                    .{ zig_lib_dir, arch_name, os_name, abi_name },
-                );
-                const generic_include_dir = try std.fmt.allocPrint(
-                    arena,
-                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
-                    .{ zig_lib_dir, generic_name },
-                );
-                const generic_arch_name = target_util.osArchName(target);
-                const arch_os_include_dir = try std.fmt.allocPrint(
-                    arena,
-                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
-                    .{ zig_lib_dir, generic_arch_name, os_name },
-                );
-                const generic_os_include_dir = try std.fmt.allocPrint(
-                    arena,
-                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-                    .{ zig_lib_dir, os_name },
-                );
-
-                const list = try arena.alloc([]const u8, 4);
-                list[0] = arch_include_dir;
-                list[1] = generic_include_dir;
-                list[2] = arch_os_include_dir;
-                list[3] = generic_os_include_dir;
-
-                return LibCDirs{
-                    .libc_include_dir_list = list,
-                    .libc_installation = null,
-                };
-            },
-        }
+        return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
     }
 
     // If zig can't build the libc for the target and we are targeting the
@@ -4638,6 +4703,75 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
     };
 }
 
+fn detectLibCFromBuilding(
+    arena: Allocator,
+    zig_lib_dir: []const u8,
+    target: std.Target,
+    has_macos_sdk: bool,
+) !LibCDirs {
+    switch (target.os.tag) {
+        .macos => return if (has_macos_sdk)
+            // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
+            LibCDirs{
+                .libc_include_dir_list = &[0][]u8{},
+                .libc_installation = null,
+            }
+        else
+            getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target),
+        else => {
+            const generic_name = target_util.libCGenericName(target);
+            // Some architectures are handled by the same set of headers.
+            const arch_name = if (target.abi.isMusl())
+                musl.archName(target.cpu.arch)
+            else if (target.cpu.arch.isThumb())
+                // ARM headers are valid for Thumb too.
+                switch (target.cpu.arch) {
+                    .thumb => "arm",
+                    .thumbeb => "armeb",
+                    else => unreachable,
+                }
+            else
+                @tagName(target.cpu.arch);
+            const os_name = @tagName(target.os.tag);
+            // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
+            const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+            const s = std.fs.path.sep_str;
+            const arch_include_dir = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
+                .{ zig_lib_dir, arch_name, os_name, abi_name },
+            );
+            const generic_include_dir = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
+                .{ zig_lib_dir, generic_name },
+            );
+            const generic_arch_name = target_util.osArchName(target);
+            const arch_os_include_dir = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
+                .{ zig_lib_dir, generic_arch_name, os_name },
+            );
+            const generic_os_include_dir = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+                .{ zig_lib_dir, os_name },
+            );
+
+            const list = try arena.alloc([]const u8, 4);
+            list[0] = arch_include_dir;
+            list[1] = generic_include_dir;
+            list[2] = arch_os_include_dir;
+            list[3] = generic_os_include_dir;
+
+            return LibCDirs{
+                .libc_include_dir_list = list,
+                .libc_installation = null,
+            };
+        },
+    }
+}
+
 pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
@@ -4660,7 +4794,7 @@ fn wantBuildLibCFromSource(comp: Compilation) bool {
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
-        comp.bin_file.options.object_format != .c;
+        comp.bin_file.options.target.ofmt != .c;
 }
 
 fn wantBuildGLibCFromSource(comp: Compilation) bool {
@@ -4688,7 +4822,7 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         .Exe => true,
     };
     return is_exe_or_dyn_lib and comp.bin_file.options.link_libunwind and
-        comp.bin_file.options.object_format != .c;
+        comp.bin_file.options.target.ofmt != .c;
 }
 
 fn setAllocFailure(comp: *Compilation) void {
@@ -4733,6 +4867,24 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
+pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
+    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
+    if (use_stage1) return .stage1;
+    if (build_options.have_llvm and comp.bin_file.options.use_llvm) return .stage2_llvm;
+    const target = comp.bin_file.options.target;
+    if (target.ofmt == .c) return .stage2_c;
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .x86_64 => .stage2_x86_64,
+        .i386 => .stage2_x86,
+        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+        .riscv64 => .stage2_riscv64,
+        .sparc64 => .stage2_sparc64,
+        else => .other,
+    };
+}
+
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![:0]u8 {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -4742,23 +4894,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
 
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
-
-    const zig_backend: std.builtin.CompilerBackend = blk: {
-        if (use_stage1) break :blk .stage1;
-        if (build_options.have_llvm and comp.bin_file.options.use_llvm) break :blk .stage2_llvm;
-        if (comp.bin_file.options.object_format == .c) break :blk .stage2_c;
-        break :blk switch (target.cpu.arch) {
-            .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
-            .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-            .x86_64 => .stage2_x86_64,
-            .i386 => .stage2_x86,
-            .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
-            .riscv64 => .stage2_riscv64,
-            .sparc64 => .stage2_sparc64,
-            else => .other,
-        };
-    };
+    const zig_backend = comp.getZigBackend();
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
@@ -4895,6 +5031,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\    .cpu = cpu,
         \\    .os = os,
         \\    .abi = abi,
+        \\    .ofmt = object_format,
         \\}};
         \\pub const object_format = std.Target.ObjectFormat.{};
         \\pub const mode = std.builtin.Mode.{};
@@ -4909,7 +5046,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const code_model = std.builtin.CodeModel.{};
         \\
     , .{
-        std.zig.fmtId(@tagName(comp.bin_file.options.object_format)),
+        std.zig.fmtId(@tagName(target.ofmt)),
         std.zig.fmtId(@tagName(comp.bin_file.options.optimize_mode)),
         link_libc,
         comp.bin_file.options.link_libcpp,
@@ -5028,9 +5165,10 @@ fn buildOutputFromZig(
         .link_mode = .Static,
         .function_sections = true,
         .no_builtin = true,
-        .use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1,
+        .use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1,
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
@@ -5311,6 +5449,7 @@ pub fn build_crt_file(
         .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,

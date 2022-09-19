@@ -45,19 +45,22 @@ using binary_semaphore = counting_semaphore<1>;
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
+#include <__chrono/time_point.h>
 #include <__config>
 #include <__thread/timed_backoff_policy.h>
 #include <__threading_support>
 #include <atomic>
+#include <limits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifdef _LIBCPP_HAS_NO_THREADS
-# error <semaphore> is not supported on this single threaded system
+# error "<semaphore> is not supported since libc++ has been configured without support for threads."
 #endif
 
 _LIBCPP_PUSH_MACROS

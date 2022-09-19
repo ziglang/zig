@@ -320,11 +320,7 @@ pub fn MultiArrayList(comptime S: type) type {
             inline for (fields) |field_info, i| {
                 if (@sizeOf(field_info.field_type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(other_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -337,8 +333,6 @@ pub fn MultiArrayList(comptime S: type) type {
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             self.len = new_len;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
@@ -388,11 +382,7 @@ pub fn MultiArrayList(comptime S: type) type {
             inline for (fields) |field_info, i| {
                 if (@sizeOf(field_info.field_type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(other_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -411,11 +401,7 @@ pub fn MultiArrayList(comptime S: type) type {
             inline for (fields) |field_info, i| {
                 if (@sizeOf(field_info.field_type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(result_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.field_type, result_slice.items(field), self_slice.items(field));
                 }
             }
             return result;
@@ -459,7 +445,7 @@ pub fn MultiArrayList(comptime S: type) type {
             return self.bytes[0..capacityInBytes(self.capacity)];
         }
 
-        fn FieldType(field: Field) type {
+        fn FieldType(comptime field: Field) type {
             return meta.fieldInfo(S, field).field_type;
         }
 

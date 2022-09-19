@@ -108,6 +108,14 @@ const test_targets = blk: {
             },
             .backend = .stage2_x86_64,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .backend = .stage2_x86_64,
+        },
 
         .{
             .target = .{
@@ -605,7 +613,6 @@ pub fn addPkgTests(
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
-    is_stage1: bool,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
 
@@ -633,8 +640,9 @@ pub fn addPkgTests(
 
         if (test_target.backend) |backend| switch (backend) {
             .stage1 => if (skip_stage1) continue,
+            .stage2_llvm => {},
             else => if (skip_stage2) continue,
-        } else if (is_stage1 and skip_stage1) continue;
+        };
 
         const want_this_mode = for (modes) |m| {
             if (m == test_target.mode) break true;
@@ -693,6 +701,8 @@ pub fn addPkgTests(
             else => {
                 these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
+                // TODO: force self-hosted linkers to avoid LLD creeping in until the auto-select mechanism deems them worthy
+                these_tests.use_lld = false;
             },
         };
 
@@ -924,7 +934,7 @@ pub const StackTracesContext = struct {
                         pos = marks[i] + delim.len;
                     }
                     // locate source basename
-                    pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
+                    pos = mem.lastIndexOfAny(u8, line[0..marks[0]], "\\/") orelse {
                         // unexpected pattern: emit raw line and cont
                         try buf.appendSlice(line);
                         try buf.appendSlice("\n");
@@ -936,9 +946,9 @@ pub const StackTracesContext = struct {
                     try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
                     try buf.appendSlice(" [address]");
                     if (self.mode == .Debug) {
-                        if (mem.lastIndexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
-                            // On certain platforms (windows) or possibly depending on how we choose to link main
-                            // the object file extension may be present so we simply strip any extension.
+                        // On certain platforms (windows) or possibly depending on how we choose to link main
+                        // the object file extension may be present so we simply strip any extension.
+                        if (mem.indexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
                             try buf.appendSlice(line[marks[3] .. marks[4] + idot]);
                             try buf.appendSlice(line[marks[5]..]);
                         } else {

@@ -312,22 +312,10 @@ pub const pthread_cond_t = extern struct {
 pub const pthread_rwlock_t = switch (native_abi) {
     .android => switch (@sizeOf(usize)) {
         4 => extern struct {
-            lock: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
-            cond: std.c.pthread_cond_t = std.c.PTHREAD_COND_INITIALIZER,
-            numLocks: c_int = 0,
-            writerThreadId: c_int = 0,
-            pendingReaders: c_int = 0,
-            pendingWriters: c_int = 0,
-            attr: i32 = 0,
-            __reserved: [12]u8 = [_]u8{0} ** 2,
+            size: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
         },
         8 => extern struct {
-            numLocks: c_int = 0,
-            writerThreadId: c_int = 0,
-            pendingReaders: c_int = 0,
-            pendingWriters: c_int = 0,
-            attr: i32 = 0,
-            __reserved: [36]u8 = [_]u8{0} ** 36,
+            size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
         },
         else => @compileError("impossible pointer size"),
     },

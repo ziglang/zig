@@ -1316,7 +1316,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -1598,7 +1597,6 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
 }
 fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
     _ = operand;
     _ = ty;
     _ = index;
@@ -1615,7 +1613,6 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
-    _ = self;
     _ = inst;
     return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }
@@ -1718,7 +1715,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         for (info.args) |mc_arg, arg_i| {
             const arg = args[arg_i];
             const arg_ty = self.air.typeOf(arg);
@@ -1752,13 +1749,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const mod = self.bin_file.options.module.?;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
+                const got_addr = blk: {
                     const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                     break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                    coff_file.offset_table_virtual_address + fn_owner_decl.link.coff.offset_table_index * ptr_bytes
-                else
-                    unreachable;
+                };
 
                 try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{
@@ -1777,6 +1771,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         } else {
             return self.fail("TODO implement calling runtime known function pointer", .{});
         }
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
@@ -2591,9 +2587,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         // TODO I'm hacking my way through here by repurposing .memory for storing
         // index to the GOT target symbol index.
         return MCValue{ .memory = decl.link.macho.sym_index };
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;

@@ -24,8 +24,11 @@ mtime: u64,
 contents: []align(@alignOf(u64)) const u8,
 
 header: macho.mach_header_64 = undefined,
-in_symtab: []align(1) const macho.nlist_64 = undefined,
-in_strtab: []const u8 = undefined,
+
+/// Symtab and strtab might not exist for empty object files so we use an optional
+/// to signal this.
+in_symtab: ?[]align(1) const macho.nlist_64 = null,
+in_strtab: ?[]const u8 = null,
 
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
@@ -105,7 +108,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
                     self.contents.ptr + symtab.symoff,
                 )[0..symtab.nsyms];
                 self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
-                try self.symtab.appendUnalignedSlice(allocator, self.in_symtab);
+                try self.symtab.appendUnalignedSlice(allocator, self.in_symtab.?);
             },
             else => {},
         }
@@ -217,15 +220,15 @@ fn filterRelocs(
 
 pub fn scanInputSections(self: Object, macho_file: *MachO) !void {
     for (self.sections.items) |sect| {
-        const match = (try macho_file.getOutputSection(sect)) orelse {
+        const sect_id = (try macho_file.getOutputSection(sect)) orelse {
             log.debug("  unhandled section", .{});
             continue;
         };
-        const output = macho_file.sections.items(.header)[match];
+        const output = macho_file.sections.items(.header)[sect_id];
         log.debug("mapping '{s},{s}' into output sect({d}, '{s},{s}')", .{
             sect.segName(),
             sect.sectName(),
-            match + 1,
+            sect_id + 1,
             output.segName(),
             output.sectName(),
         });
@@ -233,7 +236,7 @@ pub fn scanInputSections(self: Object, macho_file: *MachO) !void {
 }
 
 /// Splits object into atoms assuming one-shot linking mode.
-pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) !void {
+pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
     assert(macho_file.mode == .one_shot);
 
     const tracy = trace(@src());
@@ -243,6 +246,50 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
 
     log.debug("splitting object({d}, {s}) into atoms: one-shot mode", .{ object_id, self.name });
 
+    const in_symtab = self.in_symtab orelse {
+        for (self.sections.items) |sect, id| {
+            if (sect.isDebug()) continue;
+            const out_sect_id = (try macho_file.getOutputSection(sect)) orelse {
+                log.debug("  unhandled section", .{});
+                continue;
+            };
+            if (sect.size == 0) continue;
+
+            const sect_id = @intCast(u8, id);
+            const sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+                const sym_index = @intCast(u32, self.symtab.items.len);
+                try self.symtab.append(gpa, .{
+                    .n_strx = 0,
+                    .n_type = macho.N_SECT,
+                    .n_sect = out_sect_id + 1,
+                    .n_desc = 0,
+                    .n_value = sect.addr,
+                });
+                try self.sections_as_symbols.putNoClobber(gpa, sect_id, sym_index);
+                break :blk sym_index;
+            };
+            const code: ?[]const u8 = if (!sect.isZerofill()) try self.getSectionContents(sect) else null;
+            const relocs = @ptrCast(
+                [*]align(1) const macho.relocation_info,
+                self.contents.ptr + sect.reloff,
+            )[0..sect.nreloc];
+            const atom = try self.createAtomFromSubsection(
+                macho_file,
+                object_id,
+                sym_index,
+                sect.size,
+                sect.@"align",
+                code,
+                relocs,
+                &.{},
+                out_sect_id,
+                sect,
+            );
+            try macho_file.addAtomToSection(atom);
+        }
+        return;
+    };
+
     // You would expect that the symbol table is at least pre-sorted based on symbol's type:
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
     // the GO compiler does not necessarily respect that therefore we sort immediately by type
@@ -250,10 +297,10 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
     const context = Context{
         .object = self,
     };
-    var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(gpa, self.in_symtab.len);
+    var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(gpa, in_symtab.len);
     defer sorted_all_syms.deinit();
 
-    for (self.in_symtab) |_, index| {
+    for (in_symtab) |_, index| {
         sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
     }
 
@@ -282,19 +329,21 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
     const subsections_via_symbols = self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
 
     for (self.sections.items) |sect, id| {
+        if (sect.isDebug()) continue;
+
         const sect_id = @intCast(u8, id);
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get matching segment/section in the final artifact.
-        const match = (try macho_file.getOutputSection(sect)) orelse {
+        const out_sect_id = (try macho_file.getOutputSection(sect)) orelse {
             log.debug("  unhandled section", .{});
             continue;
         };
 
         log.debug("  output sect({d}, '{s},{s}')", .{
-            match + 1,
-            macho_file.sections.items(.header)[match].segName(),
-            macho_file.sections.items(.header)[match].sectName(),
+            out_sect_id + 1,
+            macho_file.sections.items(.header)[out_sect_id].segName(),
+            macho_file.sections.items(.header)[out_sect_id].sectName(),
         });
 
         const cpu_arch = macho_file.base.options.target.cpu.arch;
@@ -327,7 +376,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     try self.symtab.append(gpa, .{
                         .n_strx = 0,
                         .n_type = macho.N_SECT,
-                        .n_sect = match + 1,
+                        .n_sect = out_sect_id + 1,
                         .n_desc = 0,
                         .n_value = sect.addr,
                     });
@@ -348,10 +397,10 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     atom_code,
                     relocs,
                     &.{},
-                    match,
+                    out_sect_id,
                     sect,
                 );
-                try macho_file.addAtomToSection(atom, match);
+                try macho_file.addAtomToSection(atom);
             }
 
             var next_sym_count: usize = 0;
@@ -391,7 +440,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     break :blk cc[start..][0..size];
                 } else null;
                 const atom_align = if (addr > 0)
-                    math.min(@ctz(u64, addr), sect.@"align")
+                    math.min(@ctz(addr), sect.@"align")
                 else
                     sect.@"align";
                 const atom = try self.createAtomFromSubsection(
@@ -403,7 +452,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     atom_code,
                     relocs,
                     sorted_atom_syms.items[1..],
-                    match,
+                    out_sect_id,
                     sect,
                 );
 
@@ -416,7 +465,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                         try self.symtab.append(gpa, .{
                             .n_strx = 0,
                             .n_type = macho.N_SECT,
-                            .n_sect = match + 1,
+                            .n_sect = out_sect_id + 1,
                             .n_desc = 0,
                             .n_value = addr,
                         });
@@ -430,7 +479,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     try self.atom_by_index_table.put(gpa, alias, atom);
                 }
 
-                try macho_file.addAtomToSection(atom, match);
+                try macho_file.addAtomToSection(atom);
             }
         } else {
             // If there is no symbol to refer to this atom, we create
@@ -441,7 +490,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                 try self.symtab.append(gpa, .{
                     .n_strx = 0,
                     .n_type = macho.N_SECT,
-                    .n_sect = match + 1,
+                    .n_sect = out_sect_id + 1,
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -457,10 +506,10 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                 code,
                 relocs,
                 filtered_syms,
-                match,
+                out_sect_id,
                 sect,
             );
-            try macho_file.addAtomToSection(atom, match);
+            try macho_file.addAtomToSection(atom);
         }
     }
 }
@@ -475,21 +524,21 @@ fn createAtomFromSubsection(
     code: ?[]const u8,
     relocs: []align(1) const macho.relocation_info,
     indexes: []const SymbolAtIndex,
-    match: u8,
+    out_sect_id: u8,
     sect: macho.section_64,
 ) !*Atom {
     const gpa = macho_file.base.allocator;
     const sym = self.symtab.items[sym_index];
     const atom = try MachO.createEmptyAtom(gpa, sym_index, size, alignment);
     atom.file = object_id;
-    self.symtab.items[sym_index].n_sect = match + 1;
+    self.symtab.items[sym_index].n_sect = out_sect_id + 1;
 
     log.debug("creating ATOM(%{d}, '{s}') in sect({d}, '{s},{s}') in object({d})", .{
         sym_index,
         self.getString(sym.n_strx),
-        match + 1,
-        macho_file.sections.items(.header)[match].segName(),
-        macho_file.sections.items(.header)[match].sectName(),
+        out_sect_id + 1,
+        macho_file.sections.items(.header)[out_sect_id].segName(),
+        macho_file.sections.items(.header)[out_sect_id].sectName(),
         object_id,
     });
 
@@ -517,7 +566,7 @@ fn createAtomFromSubsection(
     try atom.contained.ensureTotalCapacity(gpa, indexes.len);
     for (indexes) |inner_sym_index| {
         const inner_sym = &self.symtab.items[inner_sym_index.index];
-        inner_sym.n_sect = match + 1;
+        inner_sym.n_sect = out_sect_id + 1;
         atom.contained.appendAssumeCapacity(.{
             .sym_index = inner_sym_index.index,
             .offset = inner_sym.n_value - sym.n_value,
@@ -530,8 +579,9 @@ fn createAtomFromSubsection(
 }
 
 pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
-    if (index >= self.in_symtab.len) return null;
-    return self.in_symtab[index];
+    const symtab = self.in_symtab.?;
+    if (index >= symtab.len) return null;
+    return symtab[index];
 }
 
 pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
@@ -580,9 +630,15 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
         .debug_info = &[0]u8{},
         .debug_abbrev = &[0]u8{},
         .debug_str = &[0]u8{},
+        .debug_str_offsets = &[0]u8{},
         .debug_line = &[0]u8{},
         .debug_line_str = &[0]u8{},
         .debug_ranges = &[0]u8{},
+        .debug_loclists = &[0]u8{},
+        .debug_rnglists = &[0]u8{},
+        .debug_addr = &[0]u8{},
+        .debug_names = &[0]u8{},
+        .debug_frame = &[0]u8{},
     };
     for (self.sections.items) |sect| {
         const segname = sect.segName();
@@ -594,12 +650,24 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
                 di.debug_abbrev = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_str")) {
                 di.debug_str = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_str_offsets")) {
+                di.debug_str_offsets = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_line")) {
                 di.debug_line = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_line_str")) {
                 di.debug_line_str = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_ranges")) {
                 di.debug_ranges = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_loclists")) {
+                di.debug_loclists = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_rnglists")) {
+                di.debug_rnglists = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_addr")) {
+                di.debug_addr = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_names")) {
+                di.debug_names = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_frame")) {
+                di.debug_frame = try self.getSectionContents(sect);
             }
         }
     }
@@ -618,8 +686,9 @@ pub fn getSectionContents(self: Object, sect: macho.section_64) error{Overflow}!
 }
 
 pub fn getString(self: Object, off: u32) []const u8 {
-    assert(off < self.in_strtab.len);
-    return mem.sliceTo(@ptrCast([*:0]const u8, self.in_strtab.ptr + off), 0);
+    const strtab = self.in_strtab.?;
+    assert(off < strtab.len);
+    return mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + off), 0);
 }
 
 pub fn getAtomForSymbol(self: Object, sym_index: u32) ?*Atom {

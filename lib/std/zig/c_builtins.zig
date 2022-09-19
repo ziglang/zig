@@ -1,13 +1,13 @@
 const std = @import("std");
 
 pub inline fn __builtin_bswap16(val: u16) u16 {
-    return @byteSwap(u16, val);
+    return @byteSwap(val);
 }
 pub inline fn __builtin_bswap32(val: u32) u32 {
-    return @byteSwap(u32, val);
+    return @byteSwap(val);
 }
 pub inline fn __builtin_bswap64(val: u64) u64 {
-    return @byteSwap(u64, val);
+    return @byteSwap(val);
 }
 
 pub inline fn __builtin_signbit(val: f64) c_int {
@@ -20,19 +20,19 @@ pub inline fn __builtin_signbitf(val: f32) c_int {
 pub inline fn __builtin_popcount(val: c_uint) c_int {
     // popcount of a c_uint will never exceed the capacity of a c_int
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @popCount(c_uint, val)));
+    return @bitCast(c_int, @as(c_uint, @popCount(val)));
 }
 pub inline fn __builtin_ctz(val: c_uint) c_int {
     // Returns the number of trailing 0-bits in val, starting at the least significant bit position.
     // In C if `val` is 0, the result is undefined; in zig it's the number of bits in a c_uint
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @ctz(c_uint, val)));
+    return @bitCast(c_int, @as(c_uint, @ctz(val)));
 }
 pub inline fn __builtin_clz(val: c_uint) c_int {
     // Returns the number of leading 0-bits in x, starting at the most significant bit position.
     // In C if `val` is 0, the result is undefined; in zig it's the number of bits in a c_uint
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @clz(c_uint, val)));
+    return @bitCast(c_int, @as(c_uint, @clz(val)));
 }
 
 pub inline fn __builtin_sqrt(val: f64) f64 {

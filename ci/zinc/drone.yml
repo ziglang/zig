@@ -9,26 +9,80 @@ workspace:
   path: /workspace
 
 steps:
-- name: test
-  image: ci/debian-amd64:11.1-6
+- name: configure_git
+  image: ci/debian-amd64:11.1-11
   commands:
-  - ./ci/zinc/linux_test.sh
+  - ./ci/zinc/configure_git
 
-- name: package
+- name: test_stage3_debug
   depends_on:
-  - test
+  - configure_git
+  image: ci/debian-amd64:11.1-11
+  commands:
+  - ./ci/zinc/linux_test_stage3_debug
+
+- name: test_stage3_release
+  depends_on:
+  - configure_git
+  image: ci/debian-amd64:11.1-11
+  commands:
+  - ./ci/zinc/linux_test_stage3_release
+
+- name: build_aarch64_macos
+  depends_on:
+  - test_stage3_release
+  image: ci/debian-amd64:11.1-11
+  commands:
+  - ./ci/zinc/build_aarch64_macos
+
+- name: linux_package
+  depends_on:
+  - test_stage3_debug
+  - test_stage3_release
   when:
     branch:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-6
+  image: ci/debian-amd64:11.1-11
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID
     AWS_SECRET_ACCESS_KEY:
       from_secret: AWS_SECRET_ACCESS_KEY
+  commands:
+  - ./ci/zinc/linux_package
+
+- name: macos_package
+  depends_on:
+  - test_stage3_debug
+  - build_aarch64_macos
+  when:
+    branch:
+      - master
+    event:
+      - push
+  image: ci/debian-amd64:11.1-11
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: AWS_SECRET_ACCESS_KEY
+  commands:
+  - ./ci/zinc/macos_package
+
+- name: notify_lavahut
+  depends_on:
+  - macos_package
+  - linux_package
+  when:
+    branch:
+      - master
+    event:
+      - push
+  image: ci/debian-amd64:11.1-11
+  environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN
   commands:
-  - ./ci/zinc/linux_package.sh
+  - ./ci/zinc/notify_lavahut

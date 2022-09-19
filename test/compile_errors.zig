@@ -184,7 +184,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        const case = ctx.obj("argument causes error ", .{});
+        const case = ctx.obj("argument causes error", .{});
         case.backend = .stage2;
 
         case.addSourceFile("b.zig",
@@ -204,6 +204,24 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":3:12: error: unable to resolve comptime value",
             ":3:12: note: argument to function being called at comptime must be comptime known",
+            ":2:55: note: generic function is instantiated with a comptime only return type",
+        });
+    }
+
+    {
+        const case = ctx.obj("astgen failure in file struct", .{});
+        case.backend = .stage2;
+
+        case.addSourceFile("b.zig",
+            \\bad
+        );
+
+        case.addError(
+            \\pub export fn entry() void {
+            \\    _ = (@sizeOf(@import("b.zig")));
+            \\}
+        , &[_][]const u8{
+            ":1:1: error: struct field missing type",
         });
     }
 

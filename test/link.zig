@@ -28,9 +28,20 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
 }
 
 fn addWasmCases(cases: *tests.StandaloneContext) void {
+    cases.addBuildFile("test/link/wasm/archive/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
     cases.addBuildFile("test/link/wasm/bss/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/extern/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+        .use_emulation = true,
     });
 
     cases.addBuildFile("test/link/wasm/segments/build.zig", .{
@@ -60,6 +71,10 @@ fn addMachOCases(cases: *tests.StandaloneContext) void {
     });
 
     cases.addBuildFile("test/link/macho/dylib/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/macho/empty/build.zig", .{
         .build_modes = true,
     });
 

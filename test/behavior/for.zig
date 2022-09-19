@@ -5,7 +5,6 @@ const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "continue in for loop" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const array = [_]i32{ 1, 2, 3, 4, 5 };
@@ -130,7 +129,6 @@ test "for with null and T peer types and inferred result location type" {
 }
 
 test "2 break statements and an else" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -177,7 +175,6 @@ fn mangleString(s: []u8) void {
 }
 
 test "for copies its payload" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -213,7 +210,6 @@ test "for on slice with allowzero ptr" {
 
 test "else continue outer for" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var i: usize = 6;
     var buf: [5]u8 = undefined;

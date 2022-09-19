@@ -14,12 +14,12 @@ if(ZIG_USE_LLVM_CONFIG)
   while(1)
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
-        NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
+        NAMES llvm-config-15 llvm-config-15.0 llvm-config150 llvm-config15 llvm-config NAMES_PER_DIR
         PATHS
             "/mingw64/bin"
             "/c/msys64/mingw64/bin"
             "c:/msys64/mingw64/bin"
-            "C:/Libraries/llvm-14.0.0/bin")
+            "C:/Libraries/llvm-15.0.0/bin")
 
     if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
       if (NOT LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
@@ -37,9 +37,9 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 16 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 16)
       # Save the error message, in case this is the last llvm-config we find
-      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 15.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
       # Ignore this directory and try the search again
       list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -63,9 +63,9 @@ if(ZIG_USE_LLVM_CONFIG)
       if (LLVM_CONFIG_ERROR) 
         # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
         # Ignore this directory and try the search again
@@ -202,6 +202,7 @@ else()
   # reformatting using your favorite text editor. Note we do not execute
   # `llvm-config` here because we are cross compiling.
   FIND_AND_ADD_LLVM_LIB(LLVMWindowsManifest)
+  FIND_AND_ADD_LLVM_LIB(LLVMWindowsDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMXRay)
   FIND_AND_ADD_LLVM_LIB(LLVMLibDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMDlltoolDriver)
@@ -309,11 +310,10 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMOrcTargetProcess)
   FIND_AND_ADD_LLVM_LIB(LLVMOrcShared)
   FIND_AND_ADD_LLVM_LIB(LLVMDWP)
-  FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoGSYM)
   FIND_AND_ADD_LLVM_LIB(LLVMOption)
   FIND_AND_ADD_LLVM_LIB(LLVMObjectYAML)
+  FIND_AND_ADD_LLVM_LIB(LLVMObjCopy)
   FIND_AND_ADD_LLVM_LIB(LLVMMCA)
   FIND_AND_ADD_LLVM_LIB(LLVMMCDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMLTO)
@@ -332,7 +332,6 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMGlobalISel)
   FIND_AND_ADD_LLVM_LIB(LLVMMIRParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAsmPrinter)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoMSF)
   FIND_AND_ADD_LLVM_LIB(LLVMSelectionDAG)
   FIND_AND_ADD_LLVM_LIB(LLVMCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMIRReader)
@@ -348,6 +347,9 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMBitWriter)
   FIND_AND_ADD_LLVM_LIB(LLVMAnalysis)
   FIND_AND_ADD_LLVM_LIB(LLVMProfileData)
+  FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoMSF)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoDWARF)
   FIND_AND_ADD_LLVM_LIB(LLVMObject)
   FIND_AND_ADD_LLVM_LIB(LLVMTextAPI)
@@ -355,6 +357,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMMC)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoCodeView)
   FIND_AND_ADD_LLVM_LIB(LLVMBitReader)
+  FIND_AND_ADD_LLVM_LIB(LLVMFuzzerCLI)
   FIND_AND_ADD_LLVM_LIB(LLVMCore)
   FIND_AND_ADD_LLVM_LIB(LLVMRemarks)
   FIND_AND_ADD_LLVM_LIB(LLVMBitstreamReader)

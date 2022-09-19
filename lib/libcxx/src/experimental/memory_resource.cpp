@@ -6,15 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "experimental/memory_resource"
+#include <experimental/memory_resource>
 
 #ifndef _LIBCPP_HAS_NO_ATOMIC_HEADER
-#include "atomic"
+#  include <atomic>
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
-#include "mutex"
-#if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
-#pragma comment(lib, "pthread")
-#endif
+#  include <mutex>
+#  if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
+#    pragma comment(lib, "pthread")
+#  endif
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR
@@ -97,7 +97,7 @@ static memory_resource *
 __default_memory_resource(bool set = false, memory_resource * new_res = nullptr) noexcept
 {
 #ifndef _LIBCPP_HAS_NO_ATOMIC_HEADER
-    _LIBCPP_SAFE_STATIC static atomic<memory_resource*> __res{&res_init.resources.new_delete_res};
+    static constinit atomic<memory_resource*> __res{&res_init.resources.new_delete_res};
     if (set) {
         new_res = new_res ? new_res : new_delete_resource();
         // TODO: Can a weaker ordering be used?
@@ -109,7 +109,7 @@ __default_memory_resource(bool set = false, memory_resource * new_res = nullptr)
             &__res, memory_order_acquire);
     }
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
-    _LIBCPP_SAFE_STATIC static memory_resource * res = &res_init.resources.new_delete_res;
+    static constinit memory_resource *res = &res_init.resources.new_delete_res;
     static mutex res_lock;
     if (set) {
         new_res = new_res ? new_res : new_delete_resource();
@@ -122,7 +122,7 @@ __default_memory_resource(bool set = false, memory_resource * new_res = nullptr)
         return res;
     }
 #else
-    _LIBCPP_SAFE_STATIC static memory_resource* res = &res_init.resources.new_delete_res;
+    static constinit memory_resource *res = &res_init.resources.new_delete_res;
     if (set) {
         new_res = new_res ? new_res : new_delete_resource();
         memory_resource * old_res = res;

@@ -762,23 +762,42 @@ typedef regex_token_iterator<wstring::const_iterator> wsregex_token_iterator;
 } // std
 */
 
+#include <__algorithm/find.h>
+#include <__algorithm/search.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
+#include <__iterator/back_insert_iterator.h>
 #include <__iterator/wrap_iter.h>
 #include <__locale>
-#include <compare>
+#include <__utility/move.h>
+#include <__utility/swap.h>
 #include <deque>
-#include <initializer_list>
-#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#  include <utility>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [re.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -1311,9 +1330,9 @@ regex_traits<_CharT>::isctype(char_type __c, char_class_type __m) const
 }
 
 inline _LIBCPP_INLINE_VISIBILITY
-bool __is_07(unsigned char c)
+bool __is_07(unsigned char __c)
 {
-    return (c & 0xF8u) ==
+    return (__c & 0xF8u) ==
 #if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
         0xF0;
 #else
@@ -1322,9 +1341,9 @@ bool __is_07(unsigned char c)
 }
 
 inline _LIBCPP_INLINE_VISIBILITY
-bool __is_89(unsigned char c)
+bool __is_89(unsigned char __c)
 {
-    return (c & 0xFEu) ==
+    return (__c & 0xFEu) ==
 #if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
         0xF8;
 #else
@@ -1333,12 +1352,12 @@ bool __is_89(unsigned char c)
 }
 
 inline _LIBCPP_INLINE_VISIBILITY
-unsigned char __to_lower(unsigned char c)
+unsigned char __to_lower(unsigned char __c)
 {
 #if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
     return c & 0xBF;
 #else
-    return c | 0x20;
+    return __c | 0x20;
 #endif
 }
 
@@ -2038,9 +2057,9 @@ __word_boundary<_CharT, _Traits>::__exec(__state& __s) const
 
 template <class _CharT>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-bool __is_eol(_CharT c)
+bool __is_eol(_CharT __c)
 {
-    return c == '\r' || c == '\n';
+    return __c == '\r' || __c == '\n';
 }
 
 template <class _CharT>
@@ -2093,14 +2112,14 @@ class __r_anchor_multiline
 {
     typedef __owns_one_state<_CharT> base;
 
-    bool __multiline;
+    bool __multiline_;
 
 public:
     typedef _VSTD::__state<_CharT> __state;
 
     _LIBCPP_INLINE_VISIBILITY
     __r_anchor_multiline(bool __multiline, __node<_CharT>* __s)
-        : base(__s), __multiline(__multiline) {}
+        : base(__s), __multiline_(__multiline) {}
 
     virtual void __exec(__state&) const;
 };
@@ -2115,7 +2134,7 @@ __r_anchor_multiline<_CharT>::__exec(__state& __s) const
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
     }
-    else if (__multiline && __is_eol(*__s.__current_))
+    else if (__multiline_ && __is_eol(*__s.__current_))
     {
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
@@ -2729,12 +2748,7 @@ public:
 
     template <class _InputIterator>
         _LIBCPP_INLINE_VISIBILITY
-        typename enable_if
-        <
-             __is_cpp17_input_iterator  <_InputIterator>::value &&
-            !__is_cpp17_forward_iterator<_InputIterator>::value,
-            basic_regex&
-        >::type
+        typename enable_if<__is_exactly_cpp17_input_iterator<_InputIterator>::value, basic_regex&>::type
         assign(_InputIterator __first, _InputIterator __last,
                             flag_type __f = regex_constants::ECMAScript)
         {
@@ -2949,7 +2963,7 @@ private:
         __parse_awk_escape(_ForwardIterator __first, _ForwardIterator __last,
                           basic_string<_CharT>* __str = nullptr);
 
-    bool __test_back_ref(_CharT c);
+    bool __test_back_ref(_CharT);
 
     _LIBCPP_INLINE_VISIBILITY
     void __push_l_anchor();
@@ -4768,9 +4782,9 @@ basic_regex<_CharT, _Traits>::__parse_egrep(_ForwardIterator __first,
 
 template <class _CharT, class _Traits>
 bool
-basic_regex<_CharT, _Traits>::__test_back_ref(_CharT c)
+basic_regex<_CharT, _Traits>::__test_back_ref(_CharT __c)
 {
-    unsigned __val = __traits_.value(c, 10);
+    unsigned __val = __traits_.value(__c, 10);
     if (__val >= 1 && __val <= 9)
     {
         if (__val > mark_count())

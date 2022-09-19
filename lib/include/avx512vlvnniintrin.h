@@ -25,7 +25,7 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.word := Signed(ZeroExtend16(A.byte[4*j]) * SignExtend16(B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(A.byte[4*j+1]) * SignExtend16(B.byte[4*j+1]))
@@ -34,7 +34,7 @@
 ///      DST.dword[j] := S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 #define _mm256_dpbusd_epi32(S, A, B) \
   ((__m256i)__builtin_ia32_vpdpbusd256((__v8si)(S), (__v8si)(A), (__v8si)(B)))
 
@@ -45,7 +45,7 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.word := Signed(ZeroExtend16(A.byte[4*j]) * SignExtend16(B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(A.byte[4*j+1]) * SignExtend16(B.byte[4*j+1]))
@@ -54,7 +54,7 @@
 ///      DST.dword[j] := Saturate32(S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4)
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 #define _mm256_dpbusds_epi32(S, A, B) \
   ((__m256i)__builtin_ia32_vpdpbusds256((__v8si)(S), (__v8si)(A), (__v8si)(B)))
 
@@ -65,14 +65,14 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.dword := SignExtend32(A.word[2*j]) * SignExtend32(B.word[2*j])
 ///      tmp2.dword := SignExtend32(A.word[2*j+1]) * SignExtend32(B.word[2*j+1])
 ///      DST.dword[j] := S.dword[j] + tmp1 + tmp2
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 #define _mm256_dpwssd_epi32(S, A, B) \
   ((__m256i)__builtin_ia32_vpdpwssd256((__v8si)(S), (__v8si)(A), (__v8si)(B)))
 
@@ -83,14 +83,14 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 7
 ///      tmp1.dword := SignExtend32(A.word[2*j]) * SignExtend32(B.word[2*j])
 ///      tmp2.dword := SignExtend32(A.word[2*j+1]) * SignExtend32(B.word[2*j+1])
 ///      DST.dword[j] := Saturate32(S.dword[j] + tmp1 + tmp2)
 ///    ENDFOR
 ///    DST[MAX:256] := 0
-/// \endoperation
+/// \endcode
 #define _mm256_dpwssds_epi32(S, A, B) \
   ((__m256i)__builtin_ia32_vpdpwssds256((__v8si)(S), (__v8si)(A), (__v8si)(B)))
 
@@ -101,7 +101,7 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.word := Signed(ZeroExtend16(A.byte[4*j]) * SignExtend16(B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(A.byte[4*j+1]) * SignExtend16(B.byte[4*j+1]))
@@ -110,7 +110,7 @@
 ///      DST.dword[j] := S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 #define _mm_dpbusd_epi32(S, A, B) \
   ((__m128i)__builtin_ia32_vpdpbusd128((__v4si)(S), (__v4si)(A), (__v4si)(B)))
 
@@ -121,7 +121,7 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPBUSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.word := Signed(ZeroExtend16(A.byte[4*j]) * SignExtend16(B.byte[4*j]))
 ///      tmp2.word := Signed(ZeroExtend16(A.byte[4*j+1]) * SignExtend16(B.byte[4*j+1]))
@@ -130,7 +130,7 @@
 ///      DST.dword[j] := Saturate32(S.dword[j] + tmp1 + tmp2 + tmp3 + tmp4)
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 #define _mm_dpbusds_epi32(S, A, B) \
   ((__m128i)__builtin_ia32_vpdpbusds128((__v4si)(S), (__v4si)(A), (__v4si)(B)))
 
@@ -141,14 +141,14 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSD </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.dword := SignExtend32(A.word[2*j]) * SignExtend32(B.word[2*j])
 ///      tmp2.dword := SignExtend32(A.word[2*j+1]) * SignExtend32(B.word[2*j+1])
 ///      DST.dword[j] := S.dword[j] + tmp1 + tmp2
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 #define _mm_dpwssd_epi32(S, A, B) \
   ((__m128i)__builtin_ia32_vpdpwssd128((__v4si)(S), (__v4si)(A), (__v4si)(B)))
 
@@ -159,14 +159,14 @@
 ///
 /// This intrinsic corresponds to the <c> VPDPWSSDS </c> instructions.
 ///
-/// \operation
+/// \code{.operation}
 ///    FOR j := 0 to 3
 ///      tmp1.dword := SignExtend32(A.word[2*j]) * SignExtend32(B.word[2*j])
 ///      tmp2.dword := SignExtend32(A.word[2*j+1]) * SignExtend32(B.word[2*j+1])
 ///      DST.dword[j] := Saturate32(S.dword[j] + tmp1 + tmp2)
 ///    ENDFOR
 ///    DST[MAX:128] := 0
-/// \endoperation
+/// \endcode
 #define _mm_dpwssds_epi32(S, A, B) \
   ((__m128i)__builtin_ia32_vpdpwssds128((__v4si)(S), (__v4si)(A), (__v4si)(B)))
 

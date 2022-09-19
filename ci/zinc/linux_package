@@ -1,0 +1,45 @@
+#!/bin/sh
+
+set -x
+set -e
+
+ARCH="$(uname -m)"
+OS="linux"
+RELEASE_STAGING="$DRONE_WORKSPACE/_release/staging"
+VERSION=$($RELEASE_STAGING/bin/zig version)
+BASENAME="zig-$OS-$ARCH-$VERSION"
+TARBALL="$BASENAME.tar.xz"
+
+# This runs concurrently with the macos_package script, so it should not make
+# any changes to the filesystem that will cause problems for the other script.
+
+cp -r "$RELEASE_STAGING" "$BASENAME"
+
+# Remove the unnecessary bin dir in $prefix/bin/zig
+mv $BASENAME/bin/zig $BASENAME/
+rmdir $BASENAME/bin
+
+# Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+mv $BASENAME/lib/zig $BASENAME/lib2
+rmdir $BASENAME/lib
+mv $BASENAME/lib2 $BASENAME/lib
+
+tar cfJ "$TARBALL" "$BASENAME"
+
+SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
+BYTESIZE=$(wc -c < $TARBALL)
+
+MANIFEST="manifest-$TARGET.json"
+touch $MANIFEST
+echo "{\"tarball\": \"$TARBALL\"," >>$MANIFEST
+echo "\"shasum\": \"$SHASUM\"," >>$MANIFEST
+echo "\"size\": \"$BYTESIZE\"}" >>$MANIFEST
+
+# Publish artifact.
+s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+
+# Publish manifest.
+s3cmd put -P --add-header="cache-control: max-age=0, must-revalidate" "$MANIFEST" "s3://ziglang.org/builds/$ARCH-$OS-$VERSION.json"
+
+# Explicit exit helps show last command duration.
+exit

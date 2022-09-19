@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <new>
 #include <stdlib.h>
 
-#include "new"
 #include "include/atomic_support.h"
 
 #if defined(_LIBCPP_ABI_MICROSOFT)

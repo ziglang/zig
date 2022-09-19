@@ -666,6 +666,10 @@ pub fn deinit(self: *Self) void {
     self.locals.deinit(self.gpa);
     self.mir_instructions.deinit(self.gpa);
     self.mir_extra.deinit(self.gpa);
+    self.free_locals_i32.deinit(self.gpa);
+    self.free_locals_i64.deinit(self.gpa);
+    self.free_locals_f32.deinit(self.gpa);
+    self.free_locals_f64.deinit(self.gpa);
     self.* = undefined;
 }
 
@@ -2394,9 +2398,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         const decl_index = decl_ref_mut.data.decl_index;
         return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
     }
-
     const target = self.target;
-
     switch (ty.zigTypeTag()) {
         .Void => return WValue{ .none = {} },
         .Int => {

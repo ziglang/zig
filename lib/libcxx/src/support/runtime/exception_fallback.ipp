@@ -11,9 +11,8 @@
 
 namespace std {
 
-_LIBCPP_SAFE_STATIC static std::terminate_handler  __terminate_handler;
-_LIBCPP_SAFE_STATIC static std::unexpected_handler __unexpected_handler;
-
+static constinit std::terminate_handler  __terminate_handler = nullptr;
+static constinit std::unexpected_handler __unexpected_handler = nullptr;
 
 // libcxxrt provides implementations of these functions itself.
 unexpected_handler
@@ -26,7 +25,6 @@ unexpected_handler
 get_unexpected() noexcept
 {
   return __libcpp_atomic_load(&__unexpected_handler);
-
 }
 
 _LIBCPP_NORETURN

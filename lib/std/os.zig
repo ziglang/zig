@@ -1814,7 +1814,7 @@ pub fn execvpeZ_expandArg0(
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
     var it = mem.tokenize(u8, PATH, ":");
     var seen_eacces = false;
-    var err: ExecveError = undefined;
+    var err: ExecveError = error.FileNotFound;
 
     // In case of expanding arg0 we must put it back if we return with an error.
     const prev_arg0 = child_argv[0];
@@ -3447,6 +3447,9 @@ pub const BindError = error{
     /// A nonexistent interface was requested or the requested address was not local.
     AddressNotAvailable,
 
+    /// The address is not valid for the address family of socket.
+    AddressFamilyNotSupported,
+
     /// Too many symbolic links were encountered in resolving addr.
     SymLinkLoop,
 
@@ -3502,6 +3505,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
             .NOTSOCK => unreachable, // invalid `sockfd`
+            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
             .ADDRNOTAVAIL => return error.AddressNotAvailable,
             .FAULT => unreachable, // invalid `addr` pointer
             .LOOP => return error.SymLinkLoop,
@@ -5447,11 +5451,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
 /// if this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-/// The self-hosted compiler is not fully capable of handle the related code.
-/// Until then, unexpected error tracing is disabled for the self-hosted compiler.
-/// TODO remove this once self-hosted is capable enough to handle printing and
-/// stack trace dumping.
-pub const unexpected_error_tracing = builtin.zig_backend == .stage1 and builtin.mode == .Debug;
+pub const unexpected_error_tracing = (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
@@ -6255,7 +6255,7 @@ pub const CopyFileRangeError = error{
     NoSpaceLeft,
     Unseekable,
     PermissionDenied,
-    FileBusy,
+    SwapFile,
 } || PReadError || PWriteError || UnexpectedError;
 
 var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
@@ -6309,7 +6309,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             .NOSPC => return error.NoSpaceLeft,
             .OVERFLOW => return error.Unseekable,
             .PERM => return error.PermissionDenied,
-            .TXTBSY => return error.FileBusy,
+            .TXTBSY => return error.SwapFile,
             // these may not be regular files, try fallback
             .INVAL => {},
             // support for cross-filesystem copy added in Linux 5.3, use fallback

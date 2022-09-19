@@ -10,6 +10,7 @@
 #ifndef _LIBCPP_EXECUTION
 #define _LIBCPP_EXECUTION
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <version>
 
@@ -18,7 +19,7 @@
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_EXECUTION

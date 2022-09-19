@@ -11,6 +11,7 @@ const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;
 const ErrorMsg = Module.ErrorMsg;
+const Target = std.Target;
 const assert = std.debug.assert;
 const DW = std.dwarf;
 const leb128 = std.leb;
@@ -92,6 +93,8 @@ pub fn emitMir(
             .rsb => try emit.mirDataProcessing(inst),
             .sub => try emit.mirDataProcessing(inst),
             .subs => try emit.mirDataProcessing(inst),
+
+            .sub_sp_scratch_r0 => try emit.mirSubStackPointer(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -190,6 +193,24 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_epilogue_begin,
         .dbg_prologue_end,
         => return 0,
+
+        .sub_sp_scratch_r0 => {
+            const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
+
+            if (imm32 == 0) {
+                return 0 * 4;
+            } else if (Instruction.Operand.fromU32(imm32) != null) {
+                // sub
+                return 1 * 4;
+            } else if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+                // movw; movt; sub
+                return 3 * 4;
+            } else {
+                // mov; orr; orr; orr; sub
+                return 5 * 4;
+            }
+        },
+
         else => return 4,
     }
 }
@@ -385,20 +406,75 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
-    const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
 
     switch (tag) {
-        .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
-        .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .mov => try emit.writeInstruction(Instruction.mov(cond, rr_op.rd, rr_op.op)),
-        .mvn => try emit.writeInstruction(Instruction.mvn(cond, rr_op.rd, rr_op.op)),
-        .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .add,
+        .adds,
+        .@"and",
+        .eor,
+        .orr,
+        .rsb,
+        .sub,
+        .subs,
+        => {
+            const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
+            switch (tag) {
+                .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                else => unreachable,
+            }
+        },
+        .cmp => {
+            const r_op_cmp = emit.mir.instructions.items(.data)[inst].r_op_cmp;
+            try emit.writeInstruction(Instruction.cmp(cond, r_op_cmp.rn, r_op_cmp.op));
+        },
+        .mov,
+        .mvn,
+        => {
+            const r_op_mov = emit.mir.instructions.items(.data)[inst].r_op_mov;
+            switch (tag) {
+                .mov => try emit.writeInstruction(Instruction.mov(cond, r_op_mov.rd, r_op_mov.op)),
+                .mvn => try emit.writeInstruction(Instruction.mvn(cond, r_op_mov.rd, r_op_mov.op)),
+                else => unreachable,
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn mirSubStackPointer(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
+
+    switch (tag) {
+        .sub_sp_scratch_r0 => {
+            if (imm32 == 0) return;
+
+            const operand = Instruction.Operand.fromU32(imm32) orelse blk: {
+                const scratch: Register = .r0;
+
+                if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+                    try emit.writeInstruction(Instruction.movw(cond, scratch, @truncate(u16, imm32)));
+                    try emit.writeInstruction(Instruction.movt(cond, scratch, @truncate(u16, imm32 >> 16)));
+                } else {
+                    try emit.writeInstruction(Instruction.mov(cond, scratch, Instruction.Operand.imm(@truncate(u8, imm32), 0)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 8), 12)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 16), 8)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 24), 4)));
+                }
+
+                break :blk Instruction.Operand.reg(scratch, Instruction.Operand.Shift.none);
+            };
+
+            try emit.writeInstruction(Instruction.sub(cond, .sp, .sp, operand));
+        },
         else => unreachable,
     }
 }

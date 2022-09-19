@@ -218,7 +218,7 @@ pub const Inst = struct {
         /// Used by e.g. call
         branch_link: struct {
             inst: Index,
-            link: Register = .o7,
+            // link is always %o7
         },
 
         /// Branch with prediction, checking the integer status code
@@ -328,7 +328,7 @@ pub const Inst = struct {
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
-        if (builtin.mode != .Debug) {
+        if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
             assert(@sizeOf(Data) == 8);
         }
     }

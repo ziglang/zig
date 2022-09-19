@@ -425,12 +425,8 @@ fn generic2(comptime T: type, param: T, param2: u8) void {
     _ = param;
     _ = param2;
 }
-fn generic3(param: anytype) @TypeOf(param) {
-    _ = param;
-}
-fn generic4(comptime param: anytype) @TypeOf(param) {
-    _ = param;
-}
+fn generic3(param: anytype) @TypeOf(param) {}
+fn generic4(comptime param: anytype) @TypeOf(param) {}
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
