@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:15: error: cast discards const qualifier
+// :3:15: error: cast discards const qualifier

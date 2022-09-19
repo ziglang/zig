@@ -5,9 +5,9 @@ export fn entry() u32 {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:17: error: cast increases pointer alignment
-// tmp.zig:3:38: note: '*u8' has alignment 1
-// tmp.zig:3:26: note: '*u32' has alignment 4
+// :3:17: error: cast increases pointer alignment
+// :3:32: note: '*u8' has alignment '1'
+// :3:26: note: '*u32' has alignment '4'
