@@ -3123,7 +3123,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append(builder.pathJoin(&.{
                 search_prefix, "lib",
             }));
-            try zig_args.append("-isystem");
+            try zig_args.append("-I");
             try zig_args.append(builder.pathJoin(&.{
                 search_prefix, "include",
             }));
