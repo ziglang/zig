@@ -415,7 +415,7 @@ const usage_build_generic =
     \\    plan9                   Plan 9 from Bell Labs object format
     \\    hex  (planned feature)  Intel IHEX
     \\    raw  (planned feature)  Dump machine code directly
-    \\  -dirafter [dir]           Add directory to AFTER include search path
+    \\  -idirafter [dir]          Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
@@ -844,10 +844,21 @@ fn buildOutputType(
                     defer it.i += 1;
                     return it.args[it.i];
                 }
+                fn nextOrFatal(it: *@This()) []const u8 {
+                    if (it.i >= it.args.len) {
+                        if (it.resp_file) |*resp| if (resp.next()) |sentinel| return std.mem.span(sentinel);
+                        fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+                    }
+                    defer it.i += 1;
+                    return it.args[it.i];
+                }
             };
             var args_iter = Iterator{
                 .args = all_args[2..],
             };
+
+            var cssan = ClangSearchSanitizer.init(gpa, &clang_argv);
+            defer cssan.map.deinit();
 
             args_loop: while (args_iter.next()) |arg| {
                 if (mem.startsWith(u8, arg, "@")) {
@@ -894,9 +905,7 @@ fn buildOutputType(
                         cur_pkg = cur_pkg.parent orelse
                             fatal("encountered --pkg-end with no matching --pkg-begin", .{});
                     } else if (mem.eql(u8, arg, "--main-pkg-path")) {
-                        main_pkg_path = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        main_pkg_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -914,67 +923,37 @@ fn buildOutputType(
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
                     } else if (mem.eql(u8, arg, "--subsystem")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
-                        subsystem = try parseSubSystem(next_arg);
+                        subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
-                        optimize_mode_string = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        optimize_mode_string = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--entry")) {
-                        entry = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        entry = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--stack")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                             fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--image-base")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         image_base_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                             fatal("unable to parse image base override '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
-                        provided_name = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        provided_name = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-rpath")) {
-                        try rpath_list.append(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        try rpath_list.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
-                        try lib_dirs.append(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        try lib_dirs.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-F")) {
-                        try framework_dirs.append(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        try framework_dirs.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-framework")) {
-                        const path = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
-                        try frameworks.put(gpa, path, .{});
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{});
                     } else if (mem.eql(u8, arg, "-weak_framework")) {
-                        const path = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
-                        try frameworks.put(gpa, path, .{ .weak = true });
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .weak = true });
                     } else if (mem.eql(u8, arg, "-needed_framework")) {
-                        const path = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
-                        try frameworks.put(gpa, path, .{ .needed = true });
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-install_name")) {
-                        install_name = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        install_name = args_iter.nextOrFatal();
                     } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
                         const param = arg["--compress-debug-sections=".len..];
                         linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
@@ -983,9 +962,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                         linker_compress_debug_sections = link.CompressDebugSections.zlib;
                     } else if (mem.eql(u8, arg, "-pagezero_size")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                             fatal("unable to parse pagezero size'{s}': {s}", .{ next_arg, @errorName(err) });
                         };
@@ -994,9 +971,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         search_strategy = .dylibs_first;
                     } else if (mem.eql(u8, arg, "-headerpad")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
                             fatal("unable to parse headerpat size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
@@ -1007,65 +982,44 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                         dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
-                        linker_script = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--version-script")) {
-                        version_script = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        version_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(next_arg, .{});
+                        try system_libs.put(args_iter.nextOrFatal(), .{});
                     } else if (mem.eql(u8, arg, "--needed-library") or
                         mem.eql(u8, arg, "-needed-l") or
                         mem.eql(u8, arg, "-needed_library"))
                     {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         try system_libs.put(next_arg, .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
-                        try system_libs.put(next_arg, .{ .weak = true });
-                    } else if (mem.eql(u8, arg, "-D") or
-                        mem.eql(u8, arg, "-isystem") or
-                        mem.eql(u8, arg, "-I") or
-                        mem.eql(u8, arg, "-dirafter") or
-                        mem.eql(u8, arg, "-iwithsysroot") or
-                        mem.eql(u8, arg, "-iframework") or
-                        mem.eql(u8, arg, "-iframeworkwithsysroot"))
-                    {
+                        try system_libs.put(args_iter.nextOrFatal(), .{ .weak = true });
+                    } else if (mem.eql(u8, arg, "-D")) {
                         try clang_argv.append(arg);
-                        try clang_argv.append(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        try clang_argv.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "-I")) {
+                        try cssan.addIncludePath(.I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-isystem") or mem.eql(u8, arg, "-iwithsysroot")) {
+                        try cssan.addIncludePath(.isystem, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-idirafter")) {
+                        try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iframework") or mem.eql(u8, arg, "-iframeworkwithsysroot")) {
+                        try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "--version")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const next_arg = args_iter.nextOrFatal();
                         version = std.builtin.Version.parse(next_arg) catch |err| {
                             fatal("unable to parse --version '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                         have_version = true;
                     } else if (mem.eql(u8, arg, "-target")) {
-                        target_arch_os_abi = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        target_arch_os_abi = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-mcpu")) {
-                        target_mcpu = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        target_mcpu = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-mcmodel")) {
-                        machine_code_model = parseCodeModel(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        machine_code_model = parseCodeModel(args_iter.nextOrFatal());
                     } else if (mem.startsWith(u8, arg, "-ofmt=")) {
                         target_ofmt = arg["-ofmt=".len..];
                     } else if (mem.startsWith(u8, arg, "-mcpu=")) {
@@ -1075,51 +1029,29 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, arg, "-O")) {
                         optimize_mode_string = arg["-O".len..];
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
-                        target_dynamic_linker = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        target_dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
-                        sysroot = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
                         try clang_argv.append("-isysroot");
-                        try clang_argv.append(sysroot.?);
+                        try clang_argv.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--libc")) {
-                        libc_paths_file = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
-                        test_filter = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        test_filter = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-name-prefix")) {
-                        test_name_prefix = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        test_name_prefix = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
-                        try test_exec_args.append(args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        });
+                        try test_exec_args.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
-                        override_local_cache_dir = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        override_local_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
-                        override_global_cache_dir = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        override_global_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                        override_lib_dir = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        override_lib_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--debug-log")) {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
                         if (!build_options.enable_logging) {
                             std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
                         } else {
-                            try log_scopes.append(gpa, next_arg);
+                            try log_scopes.append(gpa, args_iter.nextOrFatal());
                         }
                     } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
                         if (!build_options.enable_link_snapshots) {
@@ -1128,9 +1060,7 @@ fn buildOutputType(
                             enable_link_snapshots = true;
                         }
                     } else if (mem.eql(u8, arg, "--entitlements")) {
-                        entitlements = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        entitlements = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
                         want_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
@@ -1319,9 +1249,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-z")) {
-                        const z_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
+                        const z_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, z_arg, "nodelete")) {
                             linker_z_nodelete = true;
                         } else if (mem.eql(u8, z_arg, "notext")) {
@@ -1391,10 +1319,10 @@ fn buildOutputType(
                         try system_libs.put(arg["-needed-l".len..], .{ .needed = true });
                     } else if (mem.startsWith(u8, arg, "-weak-l")) {
                         try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
-                    } else if (mem.startsWith(u8, arg, "-D") or
-                        mem.startsWith(u8, arg, "-I"))
-                    {
+                    } else if (mem.startsWith(u8, arg, "-D")) {
                         try clang_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "-I")) {
+                        try cssan.addIncludePath(.I, arg, arg[2..], true);
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
                         wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
@@ -5485,3 +5413,69 @@ fn parseSubSystem(next_arg: []const u8) !std.Target.SubSystem {
         });
     }
 }
+
+/// Model a header searchlist as a group.
+/// Silently ignore superfluous search dirs.
+/// Warn when a dir is added to multiple searchlists.
+const ClangSearchSanitizer = struct {
+    argv: *std.ArrayList([]const u8),
+    map: std.StringHashMap(Membership),
+
+    fn init(gpa: Allocator, argv: *std.ArrayList([]const u8)) @This() {
+        return .{
+            .argv = argv,
+            .map = std.StringHashMap(Membership).init(gpa),
+        };
+    }
+
+    fn addIncludePath(self: *@This(), group: Group, arg: []const u8, dir: []const u8, joined: bool) !void {
+        const gopr = try self.map.getOrPut(dir);
+        const m = gopr.value_ptr;
+        if (!gopr.found_existing) {
+            // init empty membership
+            m.* = .{};
+        }
+        const wtxt = "add '{s}' to header searchlist '-{s}' conflicts with '-{s}'";
+        switch (group) {
+            .I => {
+                if (m.I) return;
+                m.I = true;
+                if (m.isystem) std.log.warn(wtxt, .{ dir, "I", "isystem" });
+                if (m.idirafter) std.log.warn(wtxt, .{ dir, "I", "idirafter" });
+                if (m.iframework) std.log.warn(wtxt, .{ dir, "I", "iframework" });
+            },
+            .isystem => {
+                if (m.isystem) return;
+                m.isystem = true;
+                if (m.I) std.log.warn(wtxt, .{ dir, "isystem", "I" });
+                if (m.idirafter) std.log.warn(wtxt, .{ dir, "isystem", "idirafter" });
+                if (m.iframework) std.log.warn(wtxt, .{ dir, "isystem", "iframework" });
+            },
+            .idirafter => {
+                if (m.idirafter) return;
+                m.idirafter = true;
+                if (m.I) std.log.warn(wtxt, .{ dir, "idirafter", "I" });
+                if (m.isystem) std.log.warn(wtxt, .{ dir, "idirafter", "isystem" });
+                if (m.iframework) std.log.warn(wtxt, .{ dir, "idirafter", "iframework" });
+            },
+            .iframework => {
+                if (m.iframework) return;
+                m.iframework = true;
+                if (m.I) std.log.warn(wtxt, .{ dir, "iframework", "I" });
+                if (m.isystem) std.log.warn(wtxt, .{ dir, "iframework", "isystem" });
+                if (m.idirafter) std.log.warn(wtxt, .{ dir, "iframework", "idirafter" });
+            },
+        }
+        try self.argv.append(arg);
+        if (!joined) try self.argv.append(dir);
+    }
+
+    const Group = enum { I, isystem, idirafter, iframework };
+
+    const Membership = packed struct {
+        I: bool = false,
+        isystem: bool = false,
+        idirafter: bool = false,
+        iframework: bool = false,
+    };
+};
