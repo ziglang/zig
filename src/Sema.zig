@@ -22692,7 +22692,7 @@ fn elemPtrSlice(
         break :o index;
     } else null;
 
-    const elem_ptr_ty = try sema.elemPtrType(slice_ty, null);
+    const elem_ptr_ty = try sema.elemPtrType(slice_ty, offset);
 
     if (maybe_undef_slice_val) |slice_val| {
         if (slice_val.isUndef()) {

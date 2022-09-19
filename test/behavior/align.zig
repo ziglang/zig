@@ -564,3 +564,8 @@ test "@alignCast null" {
     const aligned: ?*anyopaque = @alignCast(@alignOf(?*anyopaque), ptr);
     try expect(aligned == null);
 }
+
+test "alignment of slice element" {
+    const a: []align(1024) const u8 = undefined;
+    try expect(@TypeOf(&a[0]) == *align(1024) const u8);
+}
