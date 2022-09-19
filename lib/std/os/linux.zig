@@ -3010,31 +3010,31 @@ pub const S = struct {
     pub const IXOTH = 0o001;
     pub const IRWXO = 0o007;
 
-    pub fn ISREG(m: u32) bool {
+    pub fn ISREG(m: mode_t) bool {
         return m & IFMT == IFREG;
     }
 
-    pub fn ISDIR(m: u32) bool {
+    pub fn ISDIR(m: mode_t) bool {
         return m & IFMT == IFDIR;
     }
 
-    pub fn ISCHR(m: u32) bool {
+    pub fn ISCHR(m: mode_t) bool {
         return m & IFMT == IFCHR;
     }
 
-    pub fn ISBLK(m: u32) bool {
+    pub fn ISBLK(m: mode_t) bool {
         return m & IFMT == IFBLK;
     }
 
-    pub fn ISFIFO(m: u32) bool {
+    pub fn ISFIFO(m: mode_t) bool {
         return m & IFMT == IFIFO;
     }
 
-    pub fn ISLNK(m: u32) bool {
+    pub fn ISLNK(m: mode_t) bool {
         return m & IFMT == IFLNK;
     }
 
-    pub fn ISSOCK(m: u32) bool {
+    pub fn ISSOCK(m: mode_t) bool {
         return m & IFMT == IFSOCK;
     }
 };
