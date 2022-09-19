@@ -25190,6 +25190,11 @@ fn beginComptimePtrLoad(
             break :blk deref;
         },
 
+        .slice => blk: {
+            const slice = ptr_val.castTag(.slice).?.data;
+            break :blk try beginComptimePtrLoad(sema, block, src, slice.ptr, null);
+        },
+
         .field_ptr => blk: {
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
             const field_index = @intCast(u32, field_ptr.field_index);
