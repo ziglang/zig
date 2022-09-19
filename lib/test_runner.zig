@@ -32,7 +32,7 @@ pub fn main() void {
     for (test_fn_list) |test_fn, i| {
         std.testing.allocator_instance = .{};
         defer {
-            if (!std.testing.allocator_instance.deinit()) {
+            if (std.testing.allocator_instance.deinit() == std.heap.GPADeinitResult.leaking) {
                 leaks += 1;
             }
         }
