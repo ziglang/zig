@@ -2613,7 +2613,7 @@ fn buildOutputType(
             }
         },
         .yes_a_out => Compilation.EmitLoc{
-            .directory = null,
+            .directory = .{ .path = null, .handle = fs.cwd() },
             .basename = a_out_basename,
         },
     };
