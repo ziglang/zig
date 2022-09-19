@@ -297,7 +297,7 @@ pub fn zeroes(comptime T: type) T {
         },
         .Array => |info| {
             if (info.sentinel) |sentinel_ptr| {
-                const sentinel = @ptrCast(*const info.child, sentinel_ptr).*;
+                const sentinel = @ptrCast(*align(1) const info.child, sentinel_ptr).*;
                 return [_:sentinel]info.child{zeroes(info.child)} ** info.len;
             }
             return [_]info.child{zeroes(info.child)} ** info.len;
@@ -443,7 +443,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
 
                     inline for (struct_info.fields) |field| {
                         if (field.default_value) |default_value_ptr| {
-                            const default_value = @ptrCast(*const field.field_type, default_value_ptr).*;
+                            const default_value = @ptrCast(*align(1) const field.field_type, default_value_ptr).*;
                             @field(value, field.name) = default_value;
                         }
                     }
@@ -687,7 +687,7 @@ pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     const l = len(ptr);
     const ptr_info = @typeInfo(Result).Pointer;
     if (ptr_info.sentinel) |s_ptr| {
-        const s = @ptrCast(*const ptr_info.child, s_ptr).*;
+        const s = @ptrCast(*align(1) const ptr_info.child, s_ptr).*;
         return ptr[0..l :s];
     } else {
         return ptr[0..l];
@@ -719,7 +719,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
                         // to find the value searched for, which is only the case if it matches
                         // the sentinel of the type passed.
                         if (array_info.sentinel) |sentinel_ptr| {
-                            const sentinel = @ptrCast(*const array_info.child, sentinel_ptr).*;
+                            const sentinel = @ptrCast(*align(1) const array_info.child, sentinel_ptr).*;
                             if (end == sentinel) {
                                 new_ptr_info.sentinel = &end;
                             } else {
@@ -734,7 +734,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
                     // to find the value searched for, which is only the case if it matches
                     // the sentinel of the type passed.
                     if (ptr_info.sentinel) |sentinel_ptr| {
-                        const sentinel = @ptrCast(*const ptr_info.child, sentinel_ptr).*;
+                        const sentinel = @ptrCast(*align(1) const ptr_info.child, sentinel_ptr).*;
                         if (end == sentinel) {
                             new_ptr_info.sentinel = &end;
                         } else {
@@ -772,7 +772,7 @@ pub fn sliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) SliceTo(@Typ
     const length = lenSliceTo(ptr, end);
     const ptr_info = @typeInfo(Result).Pointer;
     if (ptr_info.sentinel) |s_ptr| {
-        const s = @ptrCast(*const ptr_info.child, s_ptr).*;
+        const s = @ptrCast(*align(1) const ptr_info.child, s_ptr).*;
         return ptr[0..length :s];
     } else {
         return ptr[0..length];
@@ -825,7 +825,7 @@ fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => |array_info| {
                     if (array_info.sentinel) |sentinel_ptr| {
-                        const sentinel = @ptrCast(*const array_info.child, sentinel_ptr).*;
+                        const sentinel = @ptrCast(*align(1) const array_info.child, sentinel_ptr).*;
                         if (sentinel == end) {
                             return indexOfSentinel(array_info.child, end, ptr);
                         }
@@ -835,7 +835,7 @@ fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
                 else => {},
             },
             .Many => if (ptr_info.sentinel) |sentinel_ptr| {
-                const sentinel = @ptrCast(*const ptr_info.child, sentinel_ptr).*;
+                const sentinel = @ptrCast(*align(1) const ptr_info.child, sentinel_ptr).*;
                 // We may be looking for something other than the sentinel,
                 // but iterating past the sentinel would be a bug so we need
                 // to check for both.
@@ -849,7 +849,7 @@ fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
             },
             .Slice => {
                 if (ptr_info.sentinel) |sentinel_ptr| {
-                    const sentinel = @ptrCast(*const ptr_info.child, sentinel_ptr).*;
+                    const sentinel = @ptrCast(*align(1) const ptr_info.child, sentinel_ptr).*;
                     if (sentinel == end) {
                         return indexOfSentinel(ptr_info.child, sentinel, ptr);
                     }
@@ -911,7 +911,7 @@ pub fn len(value: anytype) usize {
             .Many => {
                 const sentinel_ptr = info.sentinel orelse
                     @compileError("length of pointer with no sentinel");
-                const sentinel = @ptrCast(*const info.child, sentinel_ptr).*;
+                const sentinel = @ptrCast(*align(1) const info.child, sentinel_ptr).*;
                 return indexOfSentinel(info.child, sentinel, value);
             },
             .C => {
@@ -2882,7 +2882,8 @@ fn AsBytesReturnType(comptime P: type) type {
 /// Given a pointer to a single item, returns a slice of the underlying bytes, preserving pointer attributes.
 pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
     const P = @TypeOf(ptr);
-    return @ptrCast(AsBytesReturnType(P), ptr);
+    const T = AsBytesReturnType(P);
+    return @ptrCast(T, @alignCast(meta.alignment(T), ptr));
 }
 
 test "asBytes" {

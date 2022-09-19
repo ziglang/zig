@@ -888,7 +888,7 @@ else
 const vdso_clock_gettime_ty = if (builtin.zig_backend == .stage1)
     fn (i32, *timespec) callconv(.C) usize
 else
-    *const fn (i32, *timespec) callconv(.C) usize;
+    *align(1) const fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {

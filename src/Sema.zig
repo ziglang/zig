@@ -22811,6 +22811,7 @@ fn coerceExtra(
             if (dest_ty.isPtrLikeOptional() and dest_ty.elemType2().tag() == .anyopaque and
                 inst_ty.isPtrLikeOptional() and inst_ty.elemType2().zigTypeTag() != .Pointer)
             {
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :optional;
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -22843,14 +22844,12 @@ fn coerceExtra(
             single_item: {
                 if (dest_info.size != .One) break :single_item;
                 if (!inst_ty.isSinglePointer()) break :single_item;
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const ptr_elem_ty = inst_ty.childType();
                 const array_ty = dest_info.pointee_type;
                 if (array_ty.zigTypeTag() != .Array) break :single_item;
                 const array_elem_ty = array_ty.childType();
                 const dest_is_mut = dest_info.mutable;
-                if (inst_ty.isConstPtr() and dest_is_mut) break :single_item;
-                if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :single_item;
-                if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :single_item;
                 switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     else => break :single_item,
@@ -22861,14 +22860,11 @@ fn coerceExtra(
             // Coercions where the source is a single pointer to an array.
             src_array_ptr: {
                 if (!inst_ty.isSinglePointer()) break :src_array_ptr;
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const array_ty = inst_ty.childType();
                 if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
-                const len0 = array_ty.arrayLen() == 0;
                 const array_elem_type = array_ty.childType();
                 const dest_is_mut = dest_info.mutable;
-                if (inst_ty.isConstPtr() and dest_is_mut and !len0) break :src_array_ptr;
-                if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :src_array_ptr;
-                if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :src_array_ptr;
 
                 const dst_elem_type = dest_info.pointee_type;
                 switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src)) {
@@ -22905,6 +22901,7 @@ fn coerceExtra(
 
             // coercion from C pointer
             if (inst_ty.isCPtr()) src_c_ptr: {
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :src_c_ptr;
                 // In this case we must add a safety check because the C pointer
                 // could be null.
                 const src_elem_ty = inst_ty.childType();
@@ -22920,7 +22917,7 @@ fn coerceExtra(
             // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
             if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
-                inst_ty.childType().zigTypeTag() != .Pointer)
+                inst_ty.childType().zigTypeTag() != .Pointer and sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
             {
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
@@ -22954,6 +22951,7 @@ fn coerceExtra(
                         return try sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
                     },
                     .Pointer => p: {
+                        if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :p;
                         const inst_info = inst_ty.ptrInfo().data;
                         switch (try sema.coerceInMemoryAllowed(
                             block,
@@ -22984,7 +22982,7 @@ fn coerceExtra(
                         // pointer to anonymous struct to pointer to union
                         if (inst_ty.isSinglePointer() and
                             inst_ty.childType().isAnonStruct() and
-                            !dest_info.mutable)
+                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
                             return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                         }
@@ -22993,7 +22991,7 @@ fn coerceExtra(
                         // pointer to anonymous struct to pointer to struct
                         if (inst_ty.isSinglePointer() and
                             inst_ty.childType().isAnonStruct() and
-                            !dest_info.mutable)
+                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
                             return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                         }
@@ -23002,7 +23000,7 @@ fn coerceExtra(
                         // pointer to tuple to pointer to array
                         if (inst_ty.isSinglePointer() and
                             inst_ty.childType().isTuple() and
-                            !dest_info.mutable)
+                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
                             return sema.coerceTupleToArrayPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                         }
@@ -23011,10 +23009,8 @@ fn coerceExtra(
                 },
                 .Slice => {
                     // pointer to tuple to slice
-                    if (inst_ty.isSinglePointer() and
-                        inst_ty.childType().isTuple() and
-                        (!dest_info.mutable or inst_ty.ptrIsMutable() or inst_ty.childType().tupleFields().types.len == 0) and
-                        dest_info.size == .Slice)
+                    if (inst_ty.isSinglePointer() and inst_ty.childType().isTuple() and dest_info.size == .Slice and
+                        sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                     {
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }
@@ -23043,6 +23039,7 @@ fn coerceExtra(
                 },
                 .Many => p: {
                     if (!inst_ty.isSlice()) break :p;
+                    if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :p;
                     const inst_info = inst_ty.ptrInfo().data;
 
                     switch (try sema.coerceInMemoryAllowed(
@@ -25438,6 +25435,57 @@ fn coerceArrayPtrToSlice(
     return block.addTyOp(.array_to_slice, dest_ty, inst);
 }
 
+fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_result: *InMemoryCoercionResult) bool {
+    const dest_info = dest_ty.ptrInfo().data;
+    const inst_info = inst_ty.ptrInfo().data;
+    const len0 = (inst_info.pointee_type.zigTypeTag() == .Array and (inst_info.pointee_type.arrayLenIncludingSentinel() == 0 or
+        (inst_info.pointee_type.arrayLen() == 0 and dest_info.sentinel == null and dest_info.size != .C and dest_info.size != .Many))) or
+        (inst_info.pointee_type.isTuple() and inst_info.pointee_type.tupleFields().types.len == 0);
+
+    const ok_cv_qualifiers =
+        ((inst_info.mutable or !dest_info.mutable) or len0) and
+        (!inst_info.@"volatile" or dest_info.@"volatile");
+
+    if (!ok_cv_qualifiers) {
+        in_memory_result.* = .{ .ptr_qualifiers = .{
+            .actual_const = !inst_info.mutable,
+            .wanted_const = !dest_info.mutable,
+            .actual_volatile = inst_info.@"volatile",
+            .wanted_volatile = dest_info.@"volatile",
+        } };
+        return false;
+    }
+    if (dest_info.@"addrspace" != inst_info.@"addrspace") {
+        in_memory_result.* = .{ .ptr_addrspace = .{
+            .actual = inst_info.@"addrspace",
+            .wanted = dest_info.@"addrspace",
+        } };
+        return false;
+    }
+    if (inst_info.@"align" == 0 and dest_info.@"align" == 0) return true;
+    if (len0) return true;
+    const target = sema.mod.getTarget();
+
+    const inst_align = if (inst_info.@"align" != 0)
+        inst_info.@"align"
+    else
+        inst_info.pointee_type.abiAlignment(target);
+
+    const dest_align = if (dest_info.@"align" != 0)
+        dest_info.@"align"
+    else
+        dest_info.pointee_type.abiAlignment(target);
+
+    if (dest_align > inst_align) {
+        in_memory_result.* = .{ .ptr_alignment = .{
+            .actual = inst_align,
+            .wanted = dest_align,
+        } };
+        return false;
+    }
+    return true;
+}
+
 fn coerceCompatiblePtrs(
     sema: *Sema,
     block: *Block,
@@ -25445,13 +25493,12 @@ fn coerceCompatiblePtrs(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    // TODO check const/volatile/alignment
+    const inst_ty = sema.typeOf(inst);
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         // The comptime Value representation is compatible with both types.
         return sema.addConstant(dest_ty, val);
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
-    const inst_ty = sema.typeOf(inst);
     const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
     if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
         try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))

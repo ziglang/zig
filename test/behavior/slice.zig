@@ -322,11 +322,12 @@ test "empty array to slice" {
 
 test "@ptrCast slice to pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
             var array align(@alignOf(u16)) = [5]u8{ 0xff, 0xff, 0xff, 0xff, 0xff };
-            var slice: []u8 = &array;
+            var slice: []align(@alignOf(u16)) u8 = &array;
             var ptr = @ptrCast(*u16, slice);
             try expect(ptr.* == 65535);
         }
