@@ -27673,6 +27673,14 @@ fn cmpNumeric(
     if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
         if (lhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
+        if (lhs_val.isNan()) switch (op) {
+            .neq => return Air.Inst.Ref.bool_true,
+            else => return Air.Inst.Ref.bool_false,
+        };
+        if (lhs_val.isInf()) switch (op) {
+            .gt, .neq => return Air.Inst.Ref.bool_true,
+            .lt, .lte, .eq, .gte => return Air.Inst.Ref.bool_false,
+        };
         if (!rhs_is_signed) {
             switch (lhs_val.orderAgainstZero()) {
                 .gt => {},
@@ -27688,8 +27696,7 @@ fn cmpNumeric(
             }
         }
         if (lhs_is_float) {
-            var bigint_space: Value.BigIntSpace = undefined;
-            var bigint = try lhs_val.toBigInt(&bigint_space, target).toManaged(sema.gpa);
+            var bigint = try float128IntPartToBigInt(sema.gpa, lhs_val.toFloat(f128));
             defer bigint.deinit();
             if (lhs_val.floatHasFraction()) {
                 switch (op) {
@@ -27719,6 +27726,14 @@ fn cmpNumeric(
     if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
         if (rhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
+        if (rhs_val.isNan()) switch (op) {
+            .neq => return Air.Inst.Ref.bool_true,
+            else => return Air.Inst.Ref.bool_false,
+        };
+        if (rhs_val.isInf()) switch (op) {
+            .lt, .neq => return Air.Inst.Ref.bool_true,
+            .gt, .lte, .eq, .gte => return Air.Inst.Ref.bool_false,
+        };
         if (!lhs_is_signed) {
             switch (rhs_val.orderAgainstZero()) {
                 .gt => {},
@@ -27734,8 +27749,7 @@ fn cmpNumeric(
             }
         }
         if (rhs_is_float) {
-            var bigint_space: Value.BigIntSpace = undefined;
-            var bigint = try rhs_val.toBigInt(&bigint_space, target).toManaged(sema.gpa);
+            var bigint = try float128IntPartToBigInt(sema.gpa, rhs_val.toFloat(f128));
             defer bigint.deinit();
             if (rhs_val.floatHasFraction()) {
                 switch (op) {
@@ -31110,6 +31124,31 @@ fn floatToInt(
     return sema.floatToIntScalar(block, src, val, float_ty, int_ty);
 }
 
+// float is expected to be finite and non-NaN
+fn float128IntPartToBigInt(
+    arena: Allocator,
+    float: f128,
+) !std.math.big.int.Managed {
+    const is_negative = std.math.signbit(float);
+    const floored = @floor(@fabs(float));
+
+    var rational = try std.math.big.Rational.init(arena);
+    defer rational.q.deinit();
+    rational.setFloat(f128, floored) catch |err| switch (err) {
+        error.NonFiniteFloat => unreachable,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+
+    // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
+    const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
+    assert(rational.q.toConst().eqAbs(big_one));
+
+    if (is_negative) {
+        rational.negate();
+    }
+    return rational.p;
+}
+
 fn floatToIntScalar(
     sema: *Sema,
     block: *Block,
@@ -31132,22 +31171,11 @@ fn floatToIntScalar(
         });
     }
 
-    const is_negative = std.math.signbit(float);
-    const floored = @floor(@fabs(float));
+    var big_int = try float128IntPartToBigInt(sema.arena, float);
+    defer big_int.deinit();
 
-    var rational = try std.math.big.Rational.init(sema.arena);
-    defer rational.deinit();
-    rational.setFloat(f128, floored) catch |err| switch (err) {
-        error.NonFiniteFloat => unreachable,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-
-    // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
-    const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-    assert(rational.q.toConst().eqAbs(big_one));
-
-    const result_limbs = try sema.arena.dupe(Limb, rational.p.toConst().limbs);
-    const result = if (is_negative)
+    const result_limbs = try sema.arena.dupe(Limb, big_int.toConst().limbs);
+    const result = if (!big_int.isPositive())
         try Value.Tag.int_big_negative.create(sema.arena, result_limbs)
     else
         try Value.Tag.int_big_positive.create(sema.arena, result_limbs);
