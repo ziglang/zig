@@ -3361,12 +3361,12 @@ pub usingnamespace switch (native_arch) {
         pub const RUNTIME_FUNCTION = extern struct {
             BeginAddress: DWORD,
             EndAddress: DWORD,
-            UnwindData: DWORD
+            UnwindData: DWORD,
         };
 
         pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
             FloatingContext: [16]?*M128A,
-            IntegerContext: [16]?*ULONG64
+            IntegerContext: [16]?*ULONG64,
         };
     },
     .aarch64 => struct {
@@ -3451,7 +3451,7 @@ pub usingnamespace switch (native_arch) {
             BeginAddress: DWORD,
             DUMMYUNIONNAME: extern union {
                 UnwindData: DWORD,
-                DUMMYSTRUCTNAME: packed  struct {
+                DUMMYSTRUCTNAME: packed struct {
                     Flag: u2,
                     FunctionLength: u11,
                     RegF: u3,
@@ -3459,8 +3459,8 @@ pub usingnamespace switch (native_arch) {
                     H: u1,
                     CR: u2,
                     FrameSize: u9,
-                }
-            }
+                },
+            },
         };
 
         pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
@@ -3474,7 +3474,7 @@ pub usingnamespace switch (native_arch) {
             X26: ?*DWORD64,
             X27: ?*DWORD64,
             X28: ?*DWORD64,
-            Fp :?*DWORD64,
+            Fp: ?*DWORD64,
             Lr: ?*DWORD64,
             D8: ?*DWORD64,
             D9: ?*DWORD64,
@@ -3483,7 +3483,7 @@ pub usingnamespace switch (native_arch) {
             D12: ?*DWORD64,
             D13: ?*DWORD64,
             D14: ?*DWORD64,
-            D15: ?*DWORD64
+            D15: ?*DWORD64,
         };
     },
     else => struct {},
@@ -3501,13 +3501,13 @@ pub const EXCEPTION_ROUTINE = *const fn (
     ExceptionRecord: ?*EXCEPTION_RECORD,
     EstablisherFrame: PVOID,
     ContextRecord: *(Self.CONTEXT),
-    DispatcherContext: PVOID
+    DispatcherContext: PVOID,
 ) callconv(WINAPI) EXCEPTION_DISPOSITION;
 
 pub const UNWIND_HISTORY_TABLE_SIZE = 12;
 pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
     ImageBase: ULONG64,
-    FunctionEntry: *Self.RUNTIME_FUNCTION
+    FunctionEntry: *Self.RUNTIME_FUNCTION,
 };
 
 pub const UNWIND_HISTORY_TABLE = extern struct {
@@ -3518,7 +3518,7 @@ pub const UNWIND_HISTORY_TABLE = extern struct {
     Once: BYTE,
     LowAddress: ULONG64,
     HighAddress: ULONG64,
-    Entry: [UNWIND_HISTORY_TABLE_SIZE]UNWIND_HISTORY_TABLE_ENTRY
+    Entry: [UNWIND_HISTORY_TABLE_SIZE]UNWIND_HISTORY_TABLE_ENTRY,
 };
 
 pub const UNW_FLAG_NHANDLER = 0x0;
@@ -3576,7 +3576,7 @@ pub const TEB = extern struct {
 
 pub const EXCEPTION_REGISTRATION_RECORD = struct {
     Next: ?*EXCEPTION_REGISTRATION_RECORD,
-    Handler: ?*EXCEPTION_DISPOSITION
+    Handler: ?*EXCEPTION_DISPOSITION,
 };
 
 pub const NT_TIB = extern struct {
@@ -3584,10 +3584,7 @@ pub const NT_TIB = extern struct {
     StackBase: PVOID,
     StackLimit: PVOID,
     SubSystemTib: PVOID,
-    DUMMYUNIONNAME: extern union {
-        FiberData: PVOID,
-        Version: DWORD
-    },
+    DUMMYUNIONNAME: extern union { FiberData: PVOID, Version: DWORD },
     ArbitraryUserPointer: PVOID,
     Self: ?*@This(),
 };

@@ -303,7 +303,7 @@ pub extern "kernel32" fn RtlCaptureContext(ContextRecord: *CONTEXT) callconv(WIN
 pub extern "kernel32" fn RtlLookupFunctionEntry(
     ControlPc: DWORD64,
     ImageBase: *DWORD64,
-    HistoryTable: *UNWIND_HISTORY_TABLE
+    HistoryTable: *UNWIND_HISTORY_TABLE,
 ) callconv(WINAPI) ?*RUNTIME_FUNCTION;
 
 pub extern "kernel32" fn RtlVirtualUnwind(
