@@ -606,6 +606,18 @@ test "std.meta.tags" {
 
 pub fn FieldEnum(comptime T: type) type {
     const field_infos = fields(T);
+
+    if (@typeInfo(T) == .Union) {
+        if (@typeInfo(T).Union.tag_type) |tag_type| {
+            for (std.enums.values(tag_type)) |v, i| {
+                if (@enumToInt(v) != i) break; // enum values not consecutive
+                if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
+            } else {
+                return tag_type;
+            }
+        }
+    }
+
     var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (field_infos) |field, i| {
@@ -669,6 +681,17 @@ test "std.meta.FieldEnum" {
     try expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
+
+    const Tagged = union(enum) { a: u8, b: void, c: f32 };
+    try testing.expectEqual(Tag(Tagged), FieldEnum(Tagged));
+
+    const Tag2 = enum { b, c, a };
+    const Tagged2 = union(Tag2) { a: u8, b: void, c: f32 };
+    try testing.expect(Tag(Tagged2) != FieldEnum(Tagged2));
+
+    const Tag3 = enum(u8) { a, b, c = 7 };
+    const Tagged3 = union(Tag3) { a: u8, b: void, c: f32 };
+    try testing.expect(Tag(Tagged3) != FieldEnum(Tagged3));
 }
 
 pub fn DeclEnum(comptime T: type) type {
