@@ -113,9 +113,9 @@ pub const Inst = struct {
         sub,
         /// Pseudo-instruction: Subtract 32-bit immediate from stack
         ///
-        /// r0 can be used by Emit as a scratch register for loading
+        /// r4 can be used by Emit as a scratch register for loading
         /// the immediate
-        sub_sp_scratch_r0,
+        sub_sp_scratch_r4,
         /// Subtract, update condition flags
         subs,
         /// Supervisor Call
