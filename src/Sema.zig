@@ -20401,7 +20401,7 @@ fn requireFunctionBlock(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
     if (block.is_comptime) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, src, "unable to evalutate comptime expression", .{});
+            const msg = try sema.errMsg(block, src, "unable to evaluate comptime expression", .{});
             errdefer msg.destroy(sema.gpa);
 
             if (runtime_src) |some| {
