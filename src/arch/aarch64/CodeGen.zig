@@ -4472,16 +4472,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
         },
         .ptr_stack_offset => |off| {
-            // TODO: maybe addressing from sp instead of fp
-            const imm12 = math.cast(u12, off) orelse
-                return self.fail("TODO larger stack offsets", .{});
-
             _ = try self.addInst(.{
-                .tag = .sub_immediate,
-                .data = .{ .rr_imm12_sh = .{
-                    .rd = reg,
-                    .rn = .x29,
-                    .imm12 = imm12,
+                .tag = .ldr_ptr_stack,
+                .data = .{ .load_store_stack = .{
+                    .rt = reg,
+                    .offset = @intCast(u32, off),
                 } },
             });
         },
