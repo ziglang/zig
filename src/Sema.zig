@@ -16866,7 +16866,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy);
         },
         .Enum => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
+            const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // layout: ContainerLayout,
             const layout_val = struct_val[0];
@@ -16950,7 +16950,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             var i: usize = 0;
             while (i < fields_len) : (i += 1) {
                 const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                const field_struct_val: []const Value = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // name: []const u8
                 const name_val = field_struct_val[0];
@@ -16962,6 +16962,15 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                     new_decl_arena_allocator,
                     sema.mod,
                 );
+
+                if (!try sema.intFitsInType(block, src, value_val, enum_obj.tag_ty, null)) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "field '{s}' with enumeration value '{}' is too large for backing int type '{}'", .{
+                        field_name,
+                        value_val.fmtValue(Type.@"comptime_int", mod),
+                        enum_obj.tag_ty.fmt(mod),
+                    });
+                }
 
                 const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
                 if (gop.found_existing) {
