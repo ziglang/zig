@@ -1198,41 +1198,8 @@ pub const Value = union(enum) {
             .Float => |inner| try stringify(inner, options, out_stream),
             .NumberString => |inner| try out_stream.writeAll(inner),
             .String => |inner| try stringify(inner, options, out_stream),
-            .Array => |inner| try stringify(inner.items, options, out_stream),
-            .Object => |inner| {
-                try out_stream.writeByte('{');
-                var field_output = false;
-                var child_options = options;
-                if (child_options.whitespace) |*child_whitespace| {
-                    child_whitespace.indent_level += 1;
-                }
-                var it = inner.iterator();
-                while (it.next()) |entry| {
-                    if (!field_output) {
-                        field_output = true;
-                    } else {
-                        try out_stream.writeByte(',');
-                    }
-                    if (child_options.whitespace) |child_whitespace| {
-                        try child_whitespace.outputIndent(out_stream);
-                    }
-
-                    try stringify(entry.key_ptr.*, options, out_stream);
-                    try out_stream.writeByte(':');
-                    if (child_options.whitespace) |child_whitespace| {
-                        if (child_whitespace.separator) {
-                            try out_stream.writeByte(' ');
-                        }
-                    }
-                    try stringify(entry.value_ptr.*, child_options, out_stream);
-                }
-                if (field_output) {
-                    if (options.whitespace) |whitespace| {
-                        try whitespace.outputIndent(out_stream);
-                    }
-                }
-                try out_stream.writeByte('}');
-            },
+            .Array => |inner| try stringify(inner, options, out_stream),
+            .Object => |inner| try stringify(inner, options, out_stream),
         }
     }
 

@@ -5,6 +5,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const json = std.json;
 const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
@@ -433,6 +434,14 @@ pub fn ArrayHashMap(
         /// Otherwise returns null.
         pub fn popOrNull(self: *Self) ?KV {
             return self.unmanaged.popOrNullContext(self.ctx);
+        }
+
+        pub fn jsonStringify(
+            self: Self,
+            options: json.StringifyOptions,
+            out_stream: anytype,
+        ) @TypeOf(out_stream).Error!void {
+            return self.unmanaged.jsonStringify(options, out_stream);
         }
     };
 }
@@ -1254,6 +1263,52 @@ pub fn ArrayHashMapUnmanaged(
         }
         pub fn popOrNullContext(self: *Self, ctx: Context) ?KV {
             return if (self.entries.len == 0) null else self.popContext(ctx);
+        }
+
+        pub fn jsonStringify(
+            self: Self,
+            options: json.StringifyOptions,
+            out_stream: anytype,
+        ) @TypeOf(out_stream).Error!void {
+            if (K != []const u8) {
+                @compileError("jsonStringify is only supported if the Key (" ++
+                    @typeName(K) ++
+                    ") is []const u8 because JSON Object keys are always strings." ++
+                    "Consider writing your own jsonStringify function");
+            }
+
+            try out_stream.writeByte('{');
+            var field_output = false;
+            var child_options = options;
+            if (child_options.whitespace) |*child_whitespace| {
+                child_whitespace.indent_level += 1;
+            }
+            var it = self.iterator();
+            while (it.next()) |entry| {
+                if (!field_output) {
+                    field_output = true;
+                } else {
+                    try out_stream.writeByte(',');
+                }
+                if (child_options.whitespace) |child_whitespace| {
+                    try child_whitespace.outputIndent(out_stream);
+                }
+
+                try json.stringify(entry.key_ptr.*, options, out_stream);
+                try out_stream.writeByte(':');
+                if (child_options.whitespace) |child_whitespace| {
+                    if (child_whitespace.separator) {
+                        try out_stream.writeByte(' ');
+                    }
+                }
+                try json.stringify(entry.value_ptr.*, child_options, out_stream);
+            }
+            if (field_output) {
+                if (options.whitespace) |whitespace| {
+                    try whitespace.outputIndent(out_stream);
+                }
+            }
+            try out_stream.writeByte('}');
         }
 
         // ------------------ No pub fns below this point ------------------

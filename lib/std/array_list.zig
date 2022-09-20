@@ -4,6 +4,7 @@ const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
+const json = std.json;
 const Allocator = mem.Allocator;
 
 /// A contiguous, growable list of items in memory.
@@ -443,6 +444,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn unusedCapacitySlice(self: Self) Slice {
             return self.allocatedSlice()[self.items.len..];
         }
+
+        pub fn jsonStringify(
+            self: Self,
+            options: json.StringifyOptions,
+            out_stream: anytype,
+        ) @TypeOf(out_stream).Error!void {
+            return json.stringify(self.items, options, out_stream);
+        }
     };
 }
 
@@ -829,6 +838,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// modification of `self.items.len`.
         pub fn unusedCapacitySlice(self: Self) Slice {
             return self.allocatedSlice()[self.items.len..];
+        }
+
+        pub fn jsonStringify(
+            self: Self,
+            options: json.StringifyOptions,
+            out_stream: anytype,
+        ) @TypeOf(out_stream).Error!void {
+            return json.stringify(self.items, options, out_stream);
         }
     };
 }
