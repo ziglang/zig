@@ -25676,8 +25676,7 @@ fn coerceAnonStructToUnion(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
-    const anon_struct = inst_ty.castTag(.anon_struct).?.data;
-    if (anon_struct.types.len != 1) {
+    if (inst_ty.structFieldCount() != 1) {
         const msg = msg: {
             const msg = try sema.errMsg(
                 block,
@@ -25696,6 +25695,7 @@ fn coerceAnonStructToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
+    const anon_struct = inst_ty.castTag(.anon_struct).?.data;
     const field_name = anon_struct.names[0];
     const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
     return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
