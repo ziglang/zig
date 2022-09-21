@@ -284,13 +284,14 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
-    panicExtra(null, format, args);
+    panicExtra(null, null, format, args);
 }
 
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
 /// and also print out some values.
 pub fn panicExtra(
     trace: ?*std.builtin.StackTrace,
+    ret_addr: ?usize,
     comptime format: []const u8,
     args: anytype,
 ) noreturn {
@@ -308,7 +309,7 @@ pub fn panicExtra(
             break :blk &buf;
         },
     };
-    std.builtin.panic(msg, trace);
+    std.builtin.panic(msg, trace, ret_addr);
 }
 
 /// Non-zero whenever the program triggered a panic.
