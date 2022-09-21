@@ -193,7 +193,7 @@ pub fn sizeof(target: anytype) usize {
                 const array_info = @typeInfo(ptr.child).Array;
                 if ((array_info.child == u8 or array_info.child == u16) and
                     array_info.sentinel != null and
-                    @ptrCast(*const array_info.child, array_info.sentinel.?).* == 0)
+                    @ptrCast(*align(1) const array_info.child, array_info.sentinel.?).* == 0)
                 {
                     // length of the string plus one for the null terminator.
                     return (array_info.len + 1) * @sizeOf(array_info.child);

@@ -521,7 +521,7 @@ test "packed struct fields are ordered from LSB to MSB" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var all: u64 = 0x7765443322221111;
-    var bytes: [8]u8 = undefined;
+    var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;
     @memcpy(&bytes, @ptrCast([*]u8, &all), 8);
     var bitfields = @ptrCast(*Bitfields, &bytes).*;
 

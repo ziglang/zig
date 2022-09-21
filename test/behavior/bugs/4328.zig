@@ -13,7 +13,7 @@ extern fn fopen([*c]const u8, [*c]const u8) [*c]FILE;
 const S = extern struct {
     state: c_short,
 
-    extern fn s_do_thing([*c]S, b: c_int) c_short;
+    extern fn s_do_thing([*c]const S, b: c_int) c_short;
 };
 
 test "Extern function calls in @TypeOf" {

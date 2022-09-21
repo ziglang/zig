@@ -204,12 +204,12 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
             switch (info.size) {
                 .Many, .Slice => {
                     const sentinel_ptr = info.sentinel orelse return null;
-                    return @ptrCast(*const info.child, sentinel_ptr).*;
+                    return @ptrCast(*align(1) const info.child, sentinel_ptr).*;
                 },
                 .One => switch (@typeInfo(info.child)) {
                     .Array => |array_info| {
                         const sentinel_ptr = array_info.sentinel orelse return null;
-                        return @ptrCast(*const array_info.child, sentinel_ptr).*;
+                        return @ptrCast(*align(1) const array_info.child, sentinel_ptr).*;
                     },
                     else => {},
                 },

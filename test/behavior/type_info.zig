@@ -295,8 +295,8 @@ fn testStruct() !void {
     try expect(unpacked_struct_info.Struct.is_tuple == false);
     try expect(unpacked_struct_info.Struct.backing_integer == null);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
-    try expect(@ptrCast(*const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
-    try expect(mem.eql(u8, "foobar", @ptrCast(*const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*));
+    try expect(@ptrCast(*align(1) const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
+    try expect(mem.eql(u8, "foobar", @ptrCast(*align(1) const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*));
 }
 
 const TestStruct = struct {
@@ -321,7 +321,7 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.fields[0].alignment == 0);
     try expect(struct_info.Struct.fields[2].field_type == f32);
     try expect(struct_info.Struct.fields[2].default_value == null);
-    try expect(@ptrCast(*const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
+    try expect(@ptrCast(*align(1) const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);
     try expect(struct_info.Struct.decls.len == 2);
     try expect(struct_info.Struct.decls[0].is_pub);

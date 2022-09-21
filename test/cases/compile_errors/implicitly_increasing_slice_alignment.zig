@@ -14,9 +14,8 @@ fn bar(x: []u32) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:9:26: error: cast increases pointer alignment
-// tmp.zig:9:26: note: '*align(1) u32' has alignment 1
-// tmp.zig:9:26: note: '*[1]u32' has alignment 4
+// :9:22: error: expected type '*[1]u32', found '*align(1) u32'
+// :9:22: note: pointer alignment '1' cannot cast into pointer alignment '4'

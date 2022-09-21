@@ -9,3 +9,4 @@ export fn entry() void {
 // target=native
 //
 // :3:22: error: expected type '[]u32', found '*const u32'
+// :3:22: note: cast discards const qualifier

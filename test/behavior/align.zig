@@ -556,3 +556,16 @@ test "comptime alloc alignment" {
     var bytes2_addr = @ptrToInt(&bytes2);
     try expect(bytes2_addr & 0xff == 0);
 }
+
+test "@alignCast null" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var ptr: ?*anyopaque = null;
+    const aligned: ?*anyopaque = @alignCast(@alignOf(?*anyopaque), ptr);
+    try expect(aligned == null);
+}
+
+test "alignment of slice element" {
+    const a: []align(1024) const u8 = undefined;
+    try expect(@TypeOf(&a[0]) == *align(1024) const u8);
+}

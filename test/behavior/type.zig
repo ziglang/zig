@@ -293,7 +293,7 @@ test "Type.Struct" {
     try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
     try testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
     try testing.expectEqual(u32, infoB.fields[1].field_type);
-    try testing.expectEqual(@as(u32, 5), @ptrCast(*const u32, infoB.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(u32, 5), @ptrCast(*align(1) const u32, infoB.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoB.decls.len);
     try testing.expectEqual(@as(bool, false), infoB.is_tuple);
 
@@ -305,7 +305,7 @@ test "Type.Struct" {
     try testing.expectEqual(@as(u8, 3), @ptrCast(*const u8, infoC.fields[0].default_value.?).*);
     try testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
     try testing.expectEqual(u32, infoC.fields[1].field_type);
-    try testing.expectEqual(@as(u32, 5), @ptrCast(*const u32, infoC.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(u32, 5), @ptrCast(*align(1) const u32, infoC.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoC.decls.len);
     try testing.expectEqual(@as(bool, false), infoC.is_tuple);
 

@@ -1,7 +1,7 @@
 comptime {
     const array: [4]u8 = "aoeu".*;
     const sub_array = array[1..];
-    const int_ptr = @ptrCast(*const u24, sub_array);
+    const int_ptr = @ptrCast(*const u24, @alignCast(@alignOf(u24), sub_array));
     const deref = int_ptr.*;
     _ = deref;
 }

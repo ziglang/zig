@@ -9,8 +9,8 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// :5:28: error: cannot cast pointer to array literal to slice type '[]u8'
-// :5:28: note: cast discards const qualifier
+// :4:22: error: expected type '[]u8', found '*const [3:0]u8'
+// :4:22: note: cast discards const qualifier
