@@ -839,8 +839,6 @@ fn analyzeBodyInner(
             .bit_reverse                  => try sema.zirBitReverse(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
             .offset_of                    => try sema.zirOffsetOf(block, inst),
-            .cmpxchg_strong               => try sema.zirCmpxchg(block, inst, .cmpxchg_strong),
-            .cmpxchg_weak                 => try sema.zirCmpxchg(block, inst, .cmpxchg_weak),
             .splat                        => try sema.zirSplat(block, inst),
             .reduce                       => try sema.zirReduce(block, inst),
             .shuffle                      => try sema.zirShuffle(block, inst),
@@ -957,6 +955,8 @@ fn analyzeBodyInner(
                     .int_to_error          => try sema.zirIntToError(        block, extended),
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
+                    .cmpxchg               => try sema.zirCmpxchg(           block, extended),
+
                     // zig fmt: on
                     .fence => {
                         try sema.zirFence(block, extended);
@@ -18891,19 +18891,22 @@ fn resolveAtomicRmwOp(
 fn zirCmpxchg(
     sema: *Sema,
     block: *Block,
-    inst: Zir.Inst.Index,
-    air_tag: Air.Inst.Tag,
+    extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Cmpxchg, inst_data.payload_index).data;
-    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.Cmpxchg, extended.operand).data;
+    const air_tag: Air.Inst.Tag = switch (extended.small) {
+        0 => .cmpxchg_weak,
+        1 => .cmpxchg_strong,
+        else => unreachable,
+    };
+    const src = LazySrcLoc.nodeOffset(extra.node);
     // zig fmt: off
-    const elem_ty_src      : LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const ptr_src          : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const expected_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const new_value_src    : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
-    const success_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg4 = inst_data.src_node };
-    const failure_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg5 = inst_data.src_node };
+    const elem_ty_src      : LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const ptr_src          : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const expected_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+    const new_value_src    : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = extra.node };
+    const success_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg4 = extra.node };
+    const failure_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg5 = extra.node };
     // zig fmt: on
     const expected_value = try sema.resolveInst(extra.expected_value);
     const elem_ty = sema.typeOf(expected_value);

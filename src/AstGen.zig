@@ -2439,8 +2439,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .shr_exact,
             .bit_offset_of,
             .offset_of,
-            .cmpxchg_strong,
-            .cmpxchg_weak,
             .splat,
             .reduce,
             .shuffle,
@@ -7753,8 +7751,8 @@ fn builtinCall(
         .c_undef   => return simpleCBuiltin(gz, scope, rl, node, params[0], .c_undef),
         .c_include => return simpleCBuiltin(gz, scope, rl, node, params[0], .c_include),
 
-        .cmpxchg_strong => return cmpxchg(gz, scope, rl, node, params, .cmpxchg_strong),
-        .cmpxchg_weak   => return cmpxchg(gz, scope, rl, node, params, .cmpxchg_weak),
+        .cmpxchg_strong => return cmpxchg(gz, scope, rl, node, params, 1),
+        .cmpxchg_weak   => return cmpxchg(gz, scope, rl, node, params, 0),
         // zig fmt: on
 
         .wasm_memory_size => {
@@ -8080,11 +8078,12 @@ fn cmpxchg(
     rl: ResultLoc,
     node: Ast.Node.Index,
     params: []const Ast.Node.Index,
-    tag: Zir.Inst.Tag,
+    small: u16,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    const result = try gz.addPlNode(tag, node, Zir.Inst.Cmpxchg{
+    const result = try gz.addExtendedPayloadSmall(.cmpxchg, small, Zir.Inst.Cmpxchg{
         // zig fmt: off
+        .node           = gz.nodeIndexToRelative(node),
         .ptr            = try expr(gz, scope, .none,                                 params[1]),
         .expected_value = try expr(gz, scope, .{ .ty = int_type },                   params[2]),
         .new_value      = try expr(gz, scope, .{ .coerced_ty = int_type },           params[3]),
@@ -10904,9 +10903,14 @@ const GenZir = struct {
         return new_index;
     }
 
-    fn addExtendedPayload(
+    fn addExtendedPayload(gz: *GenZir, opcode: Zir.Inst.Extended, extra: anytype) !Zir.Inst.Ref {
+        return addExtendedPayloadSmall(gz, opcode, undefined, extra);
+    }
+
+    fn addExtendedPayloadSmall(
         gz: *GenZir,
         opcode: Zir.Inst.Extended,
+        small: u16,
         extra: anytype,
     ) !Zir.Inst.Ref {
         const gpa = gz.astgen.gpa;
@@ -10920,7 +10924,7 @@ const GenZir = struct {
             .tag = .extended,
             .data = .{ .extended = .{
                 .opcode = opcode,
-                .small = undefined,
+                .small = small,
                 .operand = payload_index,
             } },
         });

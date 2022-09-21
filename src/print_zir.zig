@@ -272,7 +272,6 @@ const Writer = struct {
             .struct_init_ref,
             => try self.writeStructInit(stream, inst),
 
-            .cmpxchg_strong, .cmpxchg_weak => try self.writeCmpxchg(stream, inst),
             .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
@@ -532,6 +531,7 @@ const Writer = struct {
                 try self.writeSrc(stream, src);
             },
             .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
+            .cmpxchg => try self.writeCmpxchg(stream, extended),
         }
     }
 
@@ -912,9 +912,9 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeCmpxchg(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Cmpxchg, inst_data.payload_index).data;
+    fn writeCmpxchg(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.Cmpxchg, extended.operand).data;
+        const src = LazySrcLoc.nodeOffset(extra.node);
 
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(", ");
@@ -926,7 +926,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.failure_order);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, src);
     }
 
     fn writeAtomicLoad(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
