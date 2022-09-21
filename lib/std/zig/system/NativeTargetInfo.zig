@@ -35,8 +35,6 @@ pub const DetectError = error{
 /// natively, which should be standard or default, and which are provided explicitly, this function
 /// resolves the native components by detecting the native system, and then resolves standard/default parts
 /// relative to that.
-/// Any resources this function allocates are released before returning, and so there is no
-/// deinitialization method.
 pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
     if (cross_target.os_tag == null) {
