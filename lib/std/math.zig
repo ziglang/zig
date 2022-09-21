@@ -1062,10 +1062,11 @@ test "negateCast" {
 /// return null.
 pub fn cast(comptime T: type, x: anytype) ?T {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
-    comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
-    if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
+    const is_comptime = @TypeOf(x) == comptime_int;
+    comptime assert(is_comptime or @typeInfo(@TypeOf(x)) == .Int); // must pass an integer
+    if ((is_comptime or maxInt(@TypeOf(x)) > maxInt(T)) and x > maxInt(T)) {
         return null;
-    } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
+    } else if ((is_comptime or minInt(@TypeOf(x)) < minInt(T)) and x < minInt(T)) {
         return null;
     } else {
         return @intCast(T, x);
@@ -1073,12 +1074,18 @@ pub fn cast(comptime T: type, x: anytype) ?T {
 }
 
 test "cast" {
+    try testing.expect(cast(u8, 300) == null);
     try testing.expect(cast(u8, @as(u32, 300)) == null);
+    try testing.expect(cast(i8, -200) == null);
     try testing.expect(cast(i8, @as(i32, -200)) == null);
+    try testing.expect(cast(u8, -1) == null);
     try testing.expect(cast(u8, @as(i8, -1)) == null);
+    try testing.expect(cast(u64, -1) == null);
     try testing.expect(cast(u64, @as(i8, -1)) == null);
 
+    try testing.expect(cast(u8, 255).? == @as(u8, 255));
     try testing.expect(cast(u8, @as(u32, 255)).? == @as(u8, 255));
+    try testing.expect(@TypeOf(cast(u8, 255).?) == u8);
     try testing.expect(@TypeOf(cast(u8, @as(u32, 255)).?) == u8);
 }
 
