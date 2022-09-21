@@ -4903,12 +4903,12 @@ test "errdefer unwinding" {
       {#header_close#}
       {#header_open|unreachable#}
       <p>
-      In {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, and when using <kbd>zig test</kbd>,
+      In {#link|Debug#} and {#link|ReleaseSafe#} mode, and when using <kbd>zig test</kbd>,
       {#syntax#}unreachable{#endsyntax#} emits a call to {#syntax#}panic{#endsyntax#} with the message <code>reached unreachable code</code>.
       </p>
       <p>
-      In {#syntax#}ReleaseFast{#endsyntax#} and {#syntax#}ReleaseSmall{#endsyntax#} mode, the optimizer uses the assumption that {#syntax#}unreachable{#endsyntax#} code
-      will never be hit to perform optimizations. However, <kbd>zig test</kbd> still emits {#syntax#}unreachable{#endsyntax#} as calls to {#syntax#}panic{#endsyntax#}.
+      In {#link|ReleaseFast#} and {#link|ReleaseSmall#} mode, the optimizer uses the assumption that {#syntax#}unreachable{#endsyntax#} code
+      will never be hit to perform optimizations.
       </p>
       {#header_open|Basics#}
       {#code_begin|test|test_unreachable#}
