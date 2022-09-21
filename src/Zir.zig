@@ -318,6 +318,11 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `AsyncCall`
         /// AST node is the entire variable declaration, with the init node being a call.
         async_call,
+        /// Combination of `field_call` and `async_call`.
+        /// Corresponds with the syntax `var foo = async bar.baz();`.
+        /// Uses the `pl_node` union field with payload `AsyncFieldCall`
+        /// AST node is the entire variable declaration, with the init node being a field call.
+        async_field_call,
         /// `<`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
@@ -1032,6 +1037,7 @@ pub const Inst = struct {
                 .call,
                 .field_call,
                 .async_call,
+                .async_field_call,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1310,6 +1316,8 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .async_call,
+                .async_field_call,
                 .make_ptr_const,
                 .array_cat,
                 .array_mul,
@@ -1336,7 +1344,6 @@ pub const Inst = struct {
                 .bool_not,
                 .call,
                 .field_call,
-                .async_call,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1572,6 +1579,7 @@ pub const Inst = struct {
                 .call = .pl_node,
                 .field_call = .pl_node,
                 .async_call = .pl_node,
+                .async_field_call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
                 .cmp_eq = .pl_node,
@@ -2547,6 +2555,14 @@ pub const Inst = struct {
     pub const AsyncCall = struct {
         callee: Ref,
         args_len: u32,
+    };
+
+    /// Same trailing data as `AsyncCall`, `FieldCall`, and `Call`.
+    pub const AsyncFieldCall = struct {
+        args_len: u32,
+        obj_ptr: Ref,
+        /// Offset into `string_bytes`.
+        field_name_start: u32,
     };
 
     pub const TypeOfPeer = struct {

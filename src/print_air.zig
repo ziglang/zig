@@ -701,7 +701,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Call, pl_op.payload);
         const args: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]);
-        return finishWriteCall(w, s, inst, pl_op.operand, args);
+        return finishWriteCall(w, s, inst, .none, pl_op.operand, args);
     }
 
     fn writeCallAsync(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -709,21 +709,31 @@ const Writer = struct {
         const extra = w.air.extraData(Air.AsyncCall, ty_pl.payload);
         const callee = extra.data.callee;
         const args: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]);
-        return finishWriteCall(w, s, inst, callee, args);
+        const frame_ptr = extra.data.frame_ptr;
+        return finishWriteCall(w, s, inst, frame_ptr, callee, args);
     }
 
     fn finishWriteCall(
         w: *Writer,
         s: anytype,
         inst: Air.Inst.Index,
+        frame_ptr: Air.Inst.Ref,
         callee: Air.Inst.Ref,
         args: []const Air.Inst.Ref,
     ) @TypeOf(s).Error!void {
-        try w.writeOperand(s, inst, 0, callee);
+        var op_index: usize = 0;
+        if (frame_ptr != .none) {
+            try w.writeOperand(s, inst, op_index, frame_ptr);
+            op_index += 1;
+            try s.writeAll(", ");
+        }
+        try w.writeOperand(s, inst, op_index, callee);
+        op_index += 1;
         try s.writeAll(", [");
         for (args, 0..) |arg, i| {
             if (i != 0) try s.writeAll(", ");
-            try w.writeOperand(s, inst, 1 + i, arg);
+            try w.writeOperand(s, inst, op_index, arg);
+            op_index += 1;
         }
         try s.writeAll("]");
     }

@@ -360,9 +360,10 @@ const Writer = struct {
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
 
-            .call => try self.writeCall(stream, inst, .direct),
-            .field_call => try self.writeCall(stream, inst, .field),
-            .async_call => try self.writeAsyncCall(stream, inst),
+            .call => try self.writeCall(stream, inst, Zir.Inst.Call),
+            .field_call => try self.writeCall(stream, inst, Zir.Inst.FieldCall),
+            .async_call => try self.writeCall(stream, inst, Zir.Inst.AsyncCall),
+            .async_field_call => try self.writeCall(stream, inst, Zir.Inst.AsyncFieldCall),
 
             .block,
             .block_comptime,
@@ -1188,47 +1189,45 @@ const Writer = struct {
         try self.writeSrc(stream, src);
     }
 
-    const CallKind = enum { direct, field };
-
     fn writeCall(
         self: *Writer,
         stream: anytype,
         inst: Zir.Inst.Index,
-        comptime kind: CallKind,
+        comptime ExtraType: type,
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const ExtraType = switch (kind) {
-            .direct => Zir.Inst.Call,
-            .field => Zir.Inst.FieldCall,
-        };
         const extra = self.code.extraData(ExtraType, inst_data.payload_index);
-        const args_len = extra.data.flags.args_len;
+        const args_len = switch (ExtraType) {
+            Zir.Inst.Call, Zir.Inst.FieldCall => extra.data.flags.args_len,
+            Zir.Inst.AsyncCall, Zir.Inst.AsyncFieldCall => extra.data.args_len,
+            else => @compileError("unreachable"),
+        };
         const body = self.code.extra[extra.end..];
-        const modifier: std.builtin.CallModifier = @enumFromInt(extra.data.flags.packed_modifier);
-
-        if (extra.data.flags.ensure_result_used) {
-            try stream.writeAll("nodiscard ");
+        switch (ExtraType) {
+            Zir.Inst.Call, Zir.Inst.FieldCall => if (extra.data.flags.ensure_result_used) {
+                try stream.writeAll("nodiscard ");
+            },
+            Zir.Inst.AsyncCall, Zir.Inst.AsyncFieldCall => {},
+            else => @compileError("unreachable"),
         }
+
+        const modifier: std.builtin.CallModifier = switch (ExtraType) {
+            Zir.Inst.Call, Zir.Inst.FieldCall => @enumFromInt(extra.data.flags.packed_modifier),
+            Zir.Inst.AsyncCall, Zir.Inst.AsyncFieldCall => std.builtin.CallModifier.async_kw,
+            else => @compileError("unreachable"),
+        };
+
         try stream.print(".{s}, ", .{@tagName(modifier)});
-        switch (kind) {
-            .direct => try self.writeInstRef(stream, extra.data.callee),
-            .field => {
+
+        switch (ExtraType) {
+            Zir.Inst.Call, Zir.Inst.AsyncCall => try self.writeInstRef(stream, extra.data.callee),
+            Zir.Inst.FieldCall, Zir.Inst.AsyncFieldCall => {
                 const field_name = self.code.nullTerminatedString(extra.data.field_name_start);
                 try self.writeInstRef(stream, extra.data.obj_ptr);
                 try stream.print(", \"{}\"", .{std.zig.fmtEscapes(field_name)});
             },
+            else => @compileError("unreachable"),
         }
-        return finishWriteCall(self, stream, body, args_len, extra.end, inst_data.src());
-    }
-
-    fn writeAsyncCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.AsyncCall, inst_data.payload_index);
-        const args_len = extra.data.args_len;
-        const body = self.code.extra[extra.end..];
-        const callee = extra.data.callee;
-        try stream.print(".{s}, ", .{@tagName(std.builtin.CallModifier.async_kw)});
-        try self.writeInstRef(stream, callee);
         return finishWriteCall(self, stream, body, args_len, extra.end, inst_data.src());
     }
 

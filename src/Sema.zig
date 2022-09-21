@@ -409,11 +409,7 @@ pub const Block = struct {
         return mod.namespacePtr(block.namespace).file_scope;
     }
 
-    fn addTy(
-        block: *Block,
-        tag: Air.Inst.Tag,
-        ty: Type,
-    ) error{OutOfMemory}!Air.Inst.Ref {
+    fn addTy(block: *Block, tag: Air.Inst.Tag, ty: Type) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
             .tag = tag,
             .data = .{ .ty = ty },
@@ -943,7 +939,8 @@ fn analyzeBodyInner(
             .c_import                     => try sema.zirCImport(block, inst),
             .call                         => try sema.zirCall(block, inst, Zir.Inst.Call),
             .field_call                   => try sema.zirCall(block, inst, Zir.Inst.FieldCall),
-            .async_call                   => try sema.zirAsyncCall(block, inst),
+            .async_call                   => try sema.zirAsyncCall(block, inst, Zir.Inst.AsyncCall),
+            .async_field_call             => try sema.zirAsyncCall(block, inst, Zir.Inst.AsyncFieldCall),
             .closure_get                  => try sema.zirClosureGet(block, inst),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
@@ -6477,18 +6474,33 @@ fn zirCall(
     );
 }
 
-fn zirAsyncCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirAsyncCall(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    comptime ExtraType: type,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const func_src: LazySrcLoc = .{ .node_offset_async_call_func = inst_data.src_node };
+    const callee_src: LazySrcLoc = .{ .node_offset_async_call_func = inst_data.src_node };
     const call_src: LazySrcLoc = .{ .node_offset_var_decl_init = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.AsyncCall, inst_data.payload_index);
+    const extra = sema.code.extraData(ExtraType, inst_data.payload_index);
     const args_len = extra.data.args_len;
-    const callee: ResolvedFieldCallee = .{ .direct = try sema.resolveInst(extra.data.callee) };
+    const callee: ResolvedFieldCallee = switch (ExtraType) {
+        Zir.Inst.AsyncCall => .{ .direct = try sema.resolveInst(extra.data.callee) },
+        Zir.Inst.AsyncFieldCall => blk: {
+            const object_ptr = try sema.resolveInst(extra.data.obj_ptr);
+            const field_name = try mod.intern_pool.getOrPutString(sema.gpa, sema.code.nullTerminatedString(extra.data.field_name_start));
+            const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
+            break :blk try sema.fieldCallBind(block, callee_src, object_ptr, field_name, field_name_src);
+        },
+        else => @compileError("unreachable"),
+    };
     return callCommon(
         sema,
         block,
         inst,
-        func_src,
+        callee_src,
         call_src,
         callee,
         args_len,
@@ -7286,8 +7298,9 @@ fn addAsyncCallInst(
     args: []const Air.Inst.Ref,
 ) Allocator.Error!Air.Inst.Ref {
     const mod = sema.mod;
-    const frame_ty = try mod.asyncFrameType(callee_fn);
-    const frame_ty_ref = try sema.addType(frame_ty);
+    const ptr_frame_ty = try mod.singleMutPtrType(try mod.asyncFrameType(callee_fn));
+    const frame_ptr = try block.addTy(.alloc, ptr_frame_ty);
+    const ptr_frame_ty_ref = try sema.addType(ptr_frame_ty);
     try sema.air_extra.ensureUnusedCapacity(
         sema.gpa,
         @typeInfo(Air.AsyncCall).Struct.fields.len + args.len,
@@ -7295,8 +7308,9 @@ fn addAsyncCallInst(
     const call_inst = try block.addInst(.{
         .tag = .call_async,
         .data = .{ .ty_pl = .{
-            .ty = frame_ty_ref,
+            .ty = ptr_frame_ty_ref,
             .payload = sema.addExtraAssumeCapacity(Air.AsyncCall{
+                .frame_ptr = frame_ptr,
                 .callee = callee,
                 .args_len = @intCast(args.len),
             }),
