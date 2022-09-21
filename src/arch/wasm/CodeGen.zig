@@ -1930,6 +1930,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .call_always_tail => func.airCall(inst, .always_tail),
         .call_never_tail => func.airCall(inst, .never_tail),
         .call_never_inline => func.airCall(inst, .never_inline),
+        .call_async => func.airCall(inst, .async_kw),
 
         .is_err => func.airIsErr(inst, .i32_ne),
         .is_non_err => func.airIsErr(inst, .i32_eq),
@@ -2180,6 +2181,7 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for wasm", .{});
+    if (modifier == .async_kw) return func.fail("TODO implement async calls for wasm", .{});
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
     const extra = func.air.extraData(Air.Call, pl_op.payload);
     const args = @as([]const Air.Inst.Ref, @ptrCast(func.air.extra[extra.end..][0..extra.data.args_len]));
@@ -3125,6 +3127,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
+        .async_frame_type,
         => unreachable, // types, not values
 
         .undef, .runtime_value => unreachable, // handled above

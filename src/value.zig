@@ -349,6 +349,7 @@ pub const Value = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
+            .async_frame_type,
 
             .undef,
             .runtime_value,

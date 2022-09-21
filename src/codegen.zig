@@ -222,6 +222,7 @@ pub fn generateSymbol(
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
+        .async_frame_type,
         => unreachable, // types, not values
 
         .undef, .runtime_value => unreachable, // handled above

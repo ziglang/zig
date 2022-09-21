@@ -192,6 +192,7 @@ pub fn print(
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
+            .async_frame_type,
             => return Type.print(val.toType(), writer, mod),
             .undef => return writer.writeAll("undefined"),
             .runtime_value => return writer.writeAll("(runtime value)"),

@@ -941,8 +941,9 @@ fn analyzeBodyInner(
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
             .c_import                     => try sema.zirCImport(block, inst),
-            .call                         => try sema.zirCall(block, inst, .direct),
-            .field_call                   => try sema.zirCall(block, inst, .field),
+            .call                         => try sema.zirCall(block, inst, Zir.Inst.Call),
+            .field_call                   => try sema.zirCall(block, inst, Zir.Inst.FieldCall),
+            .async_call                   => try sema.zirAsyncCall(block, inst),
             .closure_get                  => try sema.zirClosureGet(block, inst),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
@@ -6435,7 +6436,7 @@ fn zirCall(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    comptime kind: enum { direct, field },
+    comptime ExtraType: type,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -6444,10 +6445,6 @@ fn zirCall(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const callee_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
-    const ExtraType = switch (kind) {
-        .direct => Zir.Inst.Call,
-        .field => Zir.Inst.FieldCall,
-    };
     const extra = sema.code.extraData(ExtraType, inst_data.payload_index);
     const args_len = extra.data.flags.args_len;
 
@@ -6455,38 +6452,90 @@ fn zirCall(
     const ensure_result_used = extra.data.flags.ensure_result_used;
     const pop_error_return_trace = extra.data.flags.pop_error_return_trace;
 
-    const callee: ResolvedFieldCallee = switch (kind) {
-        .direct => .{ .direct = try sema.resolveInst(extra.data.callee) },
-        .field => blk: {
+    const callee: ResolvedFieldCallee = switch (ExtraType) {
+        Zir.Inst.Call => .{ .direct = try sema.resolveInst(extra.data.callee) },
+        Zir.Inst.FieldCall => blk: {
             const object_ptr = try sema.resolveInst(extra.data.obj_ptr);
             const field_name = try mod.intern_pool.getOrPutString(sema.gpa, sema.code.nullTerminatedString(extra.data.field_name_start));
             const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
             break :blk try sema.fieldCallBind(block, callee_src, object_ptr, field_name, field_name_src);
         },
+        else => @compileError("unreachable"),
     };
+    return callCommon(
+        sema,
+        block,
+        inst,
+        callee_src,
+        call_src,
+        callee,
+        args_len,
+        modifier,
+        extra.end,
+        ensure_result_used,
+        pop_error_return_trace,
+    );
+}
+
+fn zirAsyncCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const func_src: LazySrcLoc = .{ .node_offset_async_call_func = inst_data.src_node };
+    const call_src: LazySrcLoc = .{ .node_offset_var_decl_init = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.AsyncCall, inst_data.payload_index);
+    const args_len = extra.data.args_len;
+    const callee: ResolvedFieldCallee = .{ .direct = try sema.resolveInst(extra.data.callee) };
+    return callCommon(
+        sema,
+        block,
+        inst,
+        func_src,
+        call_src,
+        callee,
+        args_len,
+        .async_kw,
+        extra.end,
+        false,
+        false,
+    );
+}
+
+fn callCommon(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    callee_src: LazySrcLoc,
+    call_src: LazySrcLoc,
+    callee: ResolvedFieldCallee,
+    args_len: u32,
+    modifier: std.builtin.CallModifier,
+    extra_end: usize,
+    ensure_result_used: bool,
+    pop_error_return_trace: bool,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+
     var resolved_args: []Air.Inst.Ref = undefined;
     var bound_arg_src: ?LazySrcLoc = null;
-    var func: Air.Inst.Ref = undefined;
     var arg_index: u32 = 0;
-    switch (callee) {
-        .direct => |func_inst| {
+    const func: Air.Inst.Ref = switch (callee) {
+        .direct => |func_inst| f: {
             resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len);
-            func = func_inst;
+            break :f func_inst;
         },
-        .method => |method| {
+        .method => |method| f: {
             resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len + 1);
-            func = method.func_inst;
             resolved_args[0] = method.arg0_inst;
             arg_index += 1;
             bound_arg_src = callee_src;
+            break :f method.func_inst;
         },
-    }
+    };
 
     const callee_ty = sema.typeOf(func);
     const total_args = args_len + @intFromBool(bound_arg_src != null);
     const func_ty = try sema.checkCallArgumentCount(block, func, callee_src, callee_ty, total_args, bound_arg_src != null);
 
-    const args_body = sema.code.extra[extra.end..];
+    const args_body = sema.code.extra[extra_end..];
 
     var input_is_error = false;
     const block_index = @as(Air.Inst.Index, @intCast(block.instructions.items.len));
@@ -6501,7 +6550,7 @@ fn zirCall(
         arg_index += 1;
     }) {
         const func_ty_info = mod.typeToFunc(func_ty).?;
-        const arg_end = sema.code.extra[extra.end + extra_index];
+        const arg_end = sema.code.extra[extra_end + extra_index];
         defer arg_start = arg_end;
 
         // Generate args to comptime params in comptime block.
@@ -6730,8 +6779,7 @@ fn analyzeCall(
         .never_tail => Air.Inst.Tag.call_never_tail,
         .never_inline => Air.Inst.Tag.call_never_inline,
         .always_tail => Air.Inst.Tag.call_always_tail,
-
-        .async_kw => return sema.failWithUseOfAsync(block, call_src),
+        .async_kw => Air.Inst.Tag.call_async,
     };
 
     if (modifier == .never_inline and func_ty_info.cc == .Inline) {
@@ -7158,18 +7206,20 @@ fn analyzeCall(
             }
         }
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
-            args.len);
-        const func_inst = try block.addInst(.{
-            .tag = call_tag,
-            .data = .{ .pl_op = .{
-                .operand = func,
-                .payload = sema.addExtraAssumeCapacity(Air.Call{
-                    .args_len = @as(u32, @intCast(args.len)),
-                }),
-            } },
-        });
-        sema.appendRefsAssumeCapacity(args);
+        if (call_tag == .call_async) {
+            const func_val = sema.resolveConstValue(block, func_src, func, "function is not comptime-known; @asyncCall required") catch |err| {
+                if (err == error.AnalysisFail and comptime_reason != null) try comptime_reason.?.explain(sema, sema.err);
+                return err;
+            };
+            const module_fn_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
+                .func => |function| function.index,
+                .ptr => |ptr| mod.declPtr(ptr.addr.decl).val.getFunctionIndex(mod).unwrap().?,
+                else => unreachable,
+            };
+            break :res try addAsyncCallInst(sema, block, func, module_fn_index, args);
+        }
+
+        const func_inst = try addCallInst(sema, block, func, args, call_tag);
 
         if (call_tag == .call_always_tail) {
             if (ensure_result_used) {
@@ -7204,6 +7254,56 @@ fn analyzeCall(
         try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
     }
     return result;
+}
+
+fn addCallInst(
+    sema: *Sema,
+    block: *Block,
+    callee: Air.Inst.Ref,
+    args: []const Air.Inst.Ref,
+    call_tag: Air.Inst.Tag,
+) Allocator.Error!Air.Inst.Ref {
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
+        args.len);
+    const call_inst = try block.addInst(.{
+        .tag = call_tag,
+        .data = .{ .pl_op = .{
+            .operand = callee,
+            .payload = sema.addExtraAssumeCapacity(Air.Call{
+                .args_len = @intCast(args.len),
+            }),
+        } },
+    });
+    sema.appendRefsAssumeCapacity(args);
+    return call_inst;
+}
+
+fn addAsyncCallInst(
+    sema: *Sema,
+    block: *Block,
+    callee: Air.Inst.Ref,
+    callee_fn: Module.Fn.Index,
+    args: []const Air.Inst.Ref,
+) Allocator.Error!Air.Inst.Ref {
+    const mod = sema.mod;
+    const frame_ty = try mod.asyncFrameType(callee_fn);
+    const frame_ty_ref = try sema.addType(frame_ty);
+    try sema.air_extra.ensureUnusedCapacity(
+        sema.gpa,
+        @typeInfo(Air.AsyncCall).Struct.fields.len + args.len,
+    );
+    const call_inst = try block.addInst(.{
+        .tag = .call_async,
+        .data = .{ .ty_pl = .{
+            .ty = frame_ty_ref,
+            .payload = sema.addExtraAssumeCapacity(Air.AsyncCall{
+                .callee = callee,
+                .args_len = @intCast(args.len),
+            }),
+        } },
+    });
+    sema.appendRefsAssumeCapacity(args);
+    return call_inst;
 }
 
 fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Type, result: Air.Inst.Ref) !Air.Inst.Ref {
@@ -7664,19 +7764,10 @@ fn instantiateGenericCall(
     }
 
     try mod.ensureFuncBodyAnalysisQueued(callee_index);
-
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
-        runtime_args_len);
-    const result = try block.addInst(.{
-        .tag = call_tag,
-        .data = .{ .pl_op = .{
-            .operand = callee_inst,
-            .payload = sema.addExtraAssumeCapacity(Air.Call{
-                .args_len = runtime_args_len,
-            }),
-        } },
-    });
-    sema.appendRefsAssumeCapacity(runtime_args);
+    const result = switch (call_tag) {
+        .call_async => try addAsyncCallInst(sema, block, callee_inst, callee_index, runtime_args),
+        else => try addCallInst(sema, block, callee_inst, runtime_args, call_tag),
+    };
 
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
@@ -9221,6 +9312,7 @@ fn funcCommon(
     const generic_owner_decl = if (comptime_args == null) .none else new_func.generic_owner_decl;
     new_func.* = .{
         .state = anal_state,
+        .async_status = .unknown,
         .zir_body_inst = func_inst,
         .owner_decl = sema.owner_decl_index,
         .generic_owner_decl = generic_owner_decl,
@@ -33730,6 +33822,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_set_type, .inferred_error_set_type => false,
 
             .func_type => true,
+            .async_frame_type => false,
 
             .simple_type => |t| switch (t) {
                 .f16,
@@ -35271,6 +35364,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_inferred_error_set,
             .type_opaque,
             .type_function,
+            .type_async_frame,
             => null,
             .simple_type, // handled above
             // values, not types
@@ -35934,6 +36028,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
 
             .opaque_type => false,
+            .async_frame_type => false,
             .enum_type => |enum_type| try sema.typeRequiresComptime(enum_type.tag_ty.toType()),
 
             // values, not types

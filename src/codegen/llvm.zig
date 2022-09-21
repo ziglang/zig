@@ -3017,9 +3017,56 @@ pub const Object = struct {
             .Null => unreachable,
             .EnumLiteral => unreachable,
 
-            .Frame => @panic("TODO implement llvmType for Frame types"),
-            .AnyFrame => @panic("TODO implement llvmType for AnyFrame types"),
+            .Frame => {
+                const gop = try o.type_map.getOrPut(gpa, t.toIntern());
+                if (gop.found_existing) return gop.value_ptr.*;
+
+                const func_index = mod.intern_pool.indexToKey(t.toIntern()).async_frame_type;
+                const func = mod.funcPtr(func_index);
+                const owner_decl = mod.declPtr(func.owner_decl);
+
+                var name_buf = std.ArrayList(u8).init(gpa);
+                defer name_buf.deinit();
+                try name_buf.appendSlice("@Frame(");
+                try owner_decl.renderFullyQualifiedName(mod, name_buf.writer());
+                try name_buf.appendSlice(")\x00");
+                const name = name_buf.items[0 .. name_buf.items.len - 1 :0];
+
+                const llvm_struct_ty = o.context.structCreateNamed(name);
+                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+
+                return lowerAsyncFrameType(o, func, llvm_struct_ty);
+                //if (func.isAsync()) {
+                //    return lowerAsyncFrameType(o, func, llvm_struct_ty);
+                //} else {
+                //    @panic("lower llvm @Frame() type of non-async function");
+                //}
+            },
+            .AnyFrame => return o.context.pointerType(0),
         }
+    }
+
+    fn lowerAsyncFrameType(
+        o: *Object,
+        func: *Module.Fn,
+        llvm_struct_ty: *llvm.Type,
+    ) Allocator.Error!*llvm.Type {
+        const gpa = o.gpa;
+        var llvm_field_types: std.ArrayListUnmanaged(*llvm.Type) = .{};
+        defer llvm_field_types.deinit(gpa);
+
+        try llvm_field_types.ensureUnusedCapacity(gpa, 1);
+        _ = func;
+        llvm_field_types.appendAssumeCapacity(o.context.intType(32));
+
+        const any_underaligned_fields = false;
+        llvm_struct_ty.structSetBody(
+            llvm_field_types.items.ptr,
+            @intCast(llvm_field_types.items.len),
+            llvm.Bool.fromBool(any_underaligned_fields),
+        );
+
+        return llvm_struct_ty;
     }
 
     fn lowerTypeFn(o: *Object, fn_ty: Type) Allocator.Error!*llvm.Type {
@@ -3148,6 +3195,7 @@ pub const Object = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
+            .async_frame_type,
             => unreachable, // types, not values
 
             .undef, .runtime_value => unreachable, // handled above
@@ -4474,6 +4522,7 @@ pub const FuncGen = struct {
                 .call_always_tail  => try self.airCall(inst, .AlwaysTail),
                 .call_never_tail   => try self.airCall(inst, .NeverTail),
                 .call_never_inline => try self.airCall(inst, .NeverInline),
+                .call_async        => try self.airCallAsync(inst),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -4937,6 +4986,11 @@ pub const FuncGen = struct {
             "",
         );
         _ = fg.builder.buildUnreachable();
+    }
+
+    fn airCallAsync(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        return self.todo("lower async call", .{});
     }
 
     fn airRet(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

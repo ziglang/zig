@@ -310,6 +310,9 @@ pub const Inst = struct {
         call_never_tail,
         /// Same as `call` except with the `never_inline` attribute.
         call_never_inline,
+        /// Async function call.
+        /// Uses `ty_pl` field with the `AsyncCall` payload.
+        call_async,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
@@ -1070,6 +1073,12 @@ pub const Call = struct {
     args_len: u32,
 };
 
+/// Trailing is a list of `Inst.Ref` for every `args_len`.
+pub const AsyncCall = struct {
+    callee: Inst.Ref,
+    args_len: u32,
+};
+
 /// This data is stored inside extra, with two sets of trailing `Inst.Ref`:
 /// * 0. the then body, according to `then_body_len`.
 /// * 1. the else body, according to `else_body_len`.
@@ -1340,6 +1349,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_add,
         .ptr_sub,
         .try_ptr,
+        .call_async,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .interned => return ip.typeOf(datas[inst].interned).toType(),
@@ -1583,6 +1593,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_always_tail,
         .call_never_tail,
         .call_never_inline,
+        .call_async,
         .cond_br,
         .switch_br,
         .@"try",

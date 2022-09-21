@@ -484,28 +484,15 @@ pub fn categorizeOperand(
             const inst_data = air_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(air.extra[extra.end..][0..extra.data.args_len]));
-            if (args.len + 1 <= bpi - 1) {
-                if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-                for (args, 0..) |arg, i| {
-                    if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @as(OperandInt, @intCast(i + 1)), .write);
-                }
-                return .write;
-            }
-            var bt = l.iterateBigTomb(inst);
-            if (bt.feed()) {
-                if (callee == operand_ref) return .tomb;
-            } else {
-                if (callee == operand_ref) return .write;
-            }
-            for (args) |arg| {
-                if (bt.feed()) {
-                    if (arg == operand_ref) return .tomb;
-                } else {
-                    if (arg == operand_ref) return .write;
-                }
-            }
-            return .write;
+            const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
+            return categorizeOperandCall(l, inst, operand_ref, callee, args);
+        },
+        .call_async => {
+            const inst_data = air_datas[inst].ty_pl;
+            const extra = air.extraData(Air.AsyncCall, inst_data.payload);
+            const callee = extra.data.callee;
+            const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
+            return categorizeOperandCall(l, inst, operand_ref, callee, args);
         },
         .select => {
             const pl_op = air_datas[inst].pl_op;
@@ -672,6 +659,36 @@ pub fn categorizeOperand(
             return .none;
         },
     }
+}
+
+fn categorizeOperandCall(
+    l: Liveness,
+    inst: Air.Inst.Index,
+    operand_ref: Air.Inst.Ref,
+    callee: Air.Inst.Ref,
+    args: []const Air.Inst.Ref,
+) OperandCategory {
+    if (args.len + 1 <= bpi - 1) {
+        if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+        for (args, 0..) |arg, i| {
+            if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(i + 1), .write);
+        }
+        return .write;
+    }
+    var bt = l.iterateBigTomb(inst);
+    if (bt.feed()) {
+        if (callee == operand_ref) return .tomb;
+    } else {
+        if (callee == operand_ref) return .write;
+    }
+    for (args) |arg| {
+        if (bt.feed()) {
+            if (arg == operand_ref) return .tomb;
+        } else {
+            if (arg == operand_ref) return .write;
+        }
+    }
+    return .write;
 }
 
 fn matchOperandSmallIndex(
@@ -1108,23 +1125,15 @@ fn analyzeInst(
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]));
-            if (args.len + 1 <= bpi - 1) {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                buf[0] = callee;
-                @memcpy(buf[1..][0..args.len], args);
-                return analyzeOperands(a, pass, data, inst, buf);
-            }
-
-            var big = try AnalyzeBigOperands(pass).init(a, data, inst, args.len + 1);
-            defer big.deinit();
-            var i: usize = args.len;
-            while (i > 0) {
-                i -= 1;
-                try big.feed(args[i]);
-            }
-            try big.feed(callee);
-            return big.finish();
+            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]);
+            return analyzeInstCall(a, pass, data, inst, callee, args);
+        },
+        .call_async => {
+            const inst_data = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.AsyncCall, inst_data.payload);
+            const callee = extra.data.callee;
+            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]);
+            return analyzeInstCall(a, pass, data, inst, callee, args);
         },
         .select => {
             const pl_op = inst_datas[inst].pl_op;
@@ -1251,6 +1260,32 @@ fn analyzeInst(
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, .none, .none });
         },
     }
+}
+
+fn analyzeInstCall(
+    a: *Analysis,
+    comptime pass: LivenessPass,
+    data: *LivenessPassData(pass),
+    inst: Air.Inst.Index,
+    callee: Air.Inst.Ref,
+    args: []const Air.Inst.Ref,
+) Allocator.Error!void {
+    if (args.len + 1 <= bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+        buf[0] = callee;
+        @memcpy(buf[1..][0..args.len], args);
+        return analyzeOperands(a, pass, data, inst, buf);
+    }
+
+    var big = try AnalyzeBigOperands(pass).init(a, data, inst, args.len + 1);
+    defer big.deinit();
+    var i: usize = args.len;
+    while (i > 0) {
+        i -= 1;
+        try big.feed(args[i]);
+    }
+    try big.feed(callee);
+    return big.finish();
 }
 
 /// Every instruction should hit this (after handling any nested bodies), in every pass. In the

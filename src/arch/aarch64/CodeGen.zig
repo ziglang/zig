@@ -819,6 +819,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
+            .call_async        => try self.airCall(inst, .async_kw),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -4242,6 +4243,7 @@ fn airFence(self: *Self) !void {
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for aarch64", .{});
+    if (modifier == .async_kw) return self.fail("TODO implement async calls for aarch64", .{});
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);

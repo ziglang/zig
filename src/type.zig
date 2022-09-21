@@ -409,6 +409,13 @@ pub const Type = struct {
                 try writer.writeAll("anyframe->");
                 return print(child.toType(), writer, mod);
             },
+            .async_frame_type => |func_index| {
+                const func = mod.funcPtr(func_index);
+                const owner_decl = mod.declPtr(func.owner_decl);
+                try writer.writeAll("@Frame(");
+                try owner_decl.renderFullyQualifiedName(mod, writer);
+                try writer.writeAll(")");
+            },
 
             // values, not types
             .undef,
@@ -506,6 +513,7 @@ pub const Type = struct {
                 .error_union_type,
                 .error_set_type,
                 .inferred_error_set_type,
+                .async_frame_type,
                 => true,
 
                 // These are function *bodies*, not pointers.
@@ -666,6 +674,7 @@ pub const Type = struct {
             .anon_struct_type,
             .opaque_type,
             .anyframe_type,
+            .async_frame_type,
             // These are function bodies, not function pointers.
             .func_type,
             => false,
@@ -1067,6 +1076,9 @@ pub const Type = struct {
                 },
                 .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
                 .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
+
+                // TODO: revisit this
+                .async_frame_type => return AbiAlignmentAdvanced{ .scalar = 16 },
 
                 // values, not types
                 .undef,
@@ -1484,6 +1496,25 @@ pub const Type = struct {
                 .opaque_type => unreachable, // no size available
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
+                .async_frame_type => {
+                    switch (strat) {
+                        .sema => |sema| {
+                            _ = sema;
+                            @panic("they asked for the size of an async frame from sema");
+                        },
+                        .lazy => {
+                            // TODO: sometimes this might already be resolved
+                            return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_size = ty.toIntern() },
+                            } })).toValue() };
+                        },
+                        .eager => {
+                            @panic("they eagerly asked for the size of an async frame");
+                        },
+                    }
+                },
+
                 // values, not types
                 .undef,
                 .runtime_value,
@@ -1509,7 +1540,7 @@ pub const Type = struct {
         }
     }
 
-    pub fn abiSizeAdvancedUnion(
+    fn abiSizeAdvancedUnion(
         ty: Type,
         mod: *Module,
         strat: AbiAlignmentAdvancedStrat,
@@ -1717,6 +1748,9 @@ pub const Type = struct {
             },
             .opaque_type => unreachable,
             .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
+            .async_frame_type => {
+                @panic("TODO bitSize async_frame_type");
+            },
 
             // values, not types
             .undef,
@@ -2263,6 +2297,7 @@ pub const Type = struct {
 
                 .ptr_type => unreachable,
                 .anyframe_type => unreachable,
+                .async_frame_type => unreachable,
                 .array_type => unreachable,
 
                 .opt_type => unreachable,
@@ -2445,6 +2480,7 @@ pub const Type = struct {
                 .anyframe_type,
                 .error_set_type,
                 .inferred_error_set_type,
+                .async_frame_type,
                 => return null,
 
                 inline .array_type, .vector_type => |seq_type, seq_tag| {
@@ -2760,6 +2796,7 @@ pub const Type = struct {
                 },
 
                 .opaque_type => false,
+                .async_frame_type => false,
 
                 .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 

@@ -927,6 +927,7 @@ pub const DeclGen = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
+            .async_frame_type,
             // memoization, not values
             .memoized_call,
             => unreachable,
@@ -2999,6 +3000,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .call_always_tail  => .none,
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
+            .call_async        => try airCall(f, inst, .async_kw),
 
             .float_from_int,
             .int_from_float,
