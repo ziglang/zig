@@ -900,12 +900,6 @@ pub const Inst = struct {
         /// Implements the `@offsetOf` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         offset_of,
-        /// Implements the `@cmpxchgStrong` builtin.
-        /// Uses the `pl_node` union field with payload `Cmpxchg`.
-        cmpxchg_strong,
-        /// Implements the `@cmpxchgWeak` builtin.
-        /// Uses the `pl_node` union field with payload `Cmpxchg`.
-        cmpxchg_weak,
         /// Implements the `@splat` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         splat,
@@ -1223,8 +1217,6 @@ pub const Inst = struct {
                 .shr_exact,
                 .bit_offset_of,
                 .offset_of,
-                .cmpxchg_strong,
-                .cmpxchg_weak,
                 .splat,
                 .reduce,
                 .shuffle,
@@ -1512,8 +1504,6 @@ pub const Inst = struct {
                 .shr_exact,
                 .bit_offset_of,
                 .offset_of,
-                .cmpxchg_strong,
-                .cmpxchg_weak,
                 .splat,
                 .reduce,
                 .shuffle,
@@ -1797,8 +1787,6 @@ pub const Inst = struct {
 
                 .bit_offset_of = .pl_node,
                 .offset_of = .pl_node,
-                .cmpxchg_strong = .pl_node,
-                .cmpxchg_weak = .pl_node,
                 .splat = .pl_node,
                 .reduce = .pl_node,
                 .shuffle = .pl_node,
@@ -1988,6 +1976,10 @@ pub const Inst = struct {
         /// Implements the `@asyncCall` builtin.
         /// `operand` is payload index to `AsyncCall`.
         builtin_async_call,
+        /// Implements the `@cmpxchgStrong` and `@cmpxchgWeak` builtins.
+        /// `small` 0=>weak 1=>strong
+        /// `operand` is payload index to `Cmpxchg`.
+        cmpxchg,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3408,6 +3400,7 @@ pub const Inst = struct {
     };
 
     pub const Cmpxchg = struct {
+        node: i32,
         ptr: Ref,
         expected_value: Ref,
         new_value: Ref,
