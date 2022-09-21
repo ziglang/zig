@@ -804,6 +804,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
             .call_async        => try self.airCall(inst, .async_kw),
+            .call_async_alloc  => try self.airCall(inst, .async_kw),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),

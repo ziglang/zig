@@ -1931,6 +1931,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .call_never_tail => func.airCall(inst, .never_tail),
         .call_never_inline => func.airCall(inst, .never_inline),
         .call_async => func.airCall(inst, .async_kw),
+        .call_async_alloc => func.airCall(inst, .async_kw),
 
         .is_err => func.airIsErr(inst, .i32_ne),
         .is_non_err => func.airIsErr(inst, .i32_eq),

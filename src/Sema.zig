@@ -7299,18 +7299,16 @@ fn addAsyncCallInst(
 ) Allocator.Error!Air.Inst.Ref {
     const mod = sema.mod;
     const ptr_frame_ty = try mod.singleMutPtrType(try mod.asyncFrameType(callee_fn));
-    const frame_ptr = try block.addTy(.alloc, ptr_frame_ty);
     const ptr_frame_ty_ref = try sema.addType(ptr_frame_ty);
     try sema.air_extra.ensureUnusedCapacity(
         sema.gpa,
         @typeInfo(Air.AsyncCall).Struct.fields.len + args.len,
     );
     const call_inst = try block.addInst(.{
-        .tag = .call_async,
+        .tag = .call_async_alloc,
         .data = .{ .ty_pl = .{
             .ty = ptr_frame_ty_ref,
-            .payload = sema.addExtraAssumeCapacity(Air.AsyncCall{
-                .frame_ptr = frame_ptr,
+            .payload = sema.addExtraAssumeCapacity(Air.AsyncCallAlloc{
                 .callee = callee,
                 .args_len = @intCast(args.len),
             }),

@@ -330,6 +330,7 @@ const Writer = struct {
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
             .call_async => try w.writeCallAsync(s, inst),
+            .call_async_alloc => try w.writeCallAsyncAlloc(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
 
@@ -705,11 +706,20 @@ const Writer = struct {
     }
 
     fn writeCallAsync(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.AsyncCall, ty_pl.payload);
-        const callee = extra.data.callee;
-        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]);
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.AsyncCall, pl_op.payload);
+        const callee = pl_op.operand;
         const frame_ptr = extra.data.frame_ptr;
+        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]);
+        return finishWriteCall(w, s, inst, frame_ptr, callee, args);
+    }
+
+    fn writeCallAsyncAlloc(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.AsyncCallAlloc, ty_pl.payload);
+        const callee = extra.data.callee;
+        const frame_ptr: Air.Inst.Ref = .none;
+        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]);
         return finishWriteCall(w, s, inst, frame_ptr, callee, args);
     }
 

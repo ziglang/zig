@@ -484,15 +484,25 @@ pub fn categorizeOperand(
             const inst_data = air_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = air.extraData(Air.Call, inst_data.payload);
+            const frame_ptr: Air.Inst.Ref = .none;
             const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
-            return categorizeOperandCall(l, inst, operand_ref, callee, args);
+            return categorizeOperandCall(l, inst, operand_ref, frame_ptr, callee, args);
         },
         .call_async => {
-            const inst_data = air_datas[inst].ty_pl;
+            const inst_data = air_datas[inst].pl_op;
             const extra = air.extraData(Air.AsyncCall, inst_data.payload);
-            const callee = extra.data.callee;
+            const callee = inst_data.operand;
+            const frame_ptr = extra.data.frame_ptr;
             const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
-            return categorizeOperandCall(l, inst, operand_ref, callee, args);
+            return categorizeOperandCall(l, inst, operand_ref, frame_ptr, callee, args);
+        },
+        .call_async_alloc => {
+            const inst_data = air_datas[inst].ty_pl;
+            const extra = air.extraData(Air.AsyncCallAlloc, inst_data.payload);
+            const callee = extra.data.callee;
+            const frame_ptr: Air.Inst.Ref = .none;
+            const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
+            return categorizeOperandCall(l, inst, operand_ref, frame_ptr, callee, args);
         },
         .select => {
             const pl_op = air_datas[inst].pl_op;
@@ -661,21 +671,37 @@ pub fn categorizeOperand(
     }
 }
 
-fn categorizeOperandCall(
+pub fn categorizeOperandCall(
     l: Liveness,
     inst: Air.Inst.Index,
     operand_ref: Air.Inst.Ref,
+    frame_ptr: Air.Inst.Ref,
     callee: Air.Inst.Ref,
     args: []const Air.Inst.Ref,
 ) OperandCategory {
-    if (args.len + 1 <= bpi - 1) {
-        if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-        for (args, 0..) |arg, i| {
-            if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(i + 1), .write);
+    const total = args.len + 1 + @intFromBool(frame_ptr != .none);
+    if (total <= bpi - 1) {
+        var op_index: OperandInt = 0;
+        if (frame_ptr != .none) {
+            if (frame_ptr == operand_ref) return matchOperandSmallIndex(l, inst, op_index, .write);
+            op_index += 1;
+        }
+        if (callee == operand_ref) return matchOperandSmallIndex(l, inst, op_index, .write);
+
+        for (args) |arg| {
+            op_index += 1;
+            if (arg == operand_ref) return matchOperandSmallIndex(l, inst, op_index, .write);
         }
         return .write;
     }
     var bt = l.iterateBigTomb(inst);
+    if (frame_ptr != .none) {
+        if (bt.feed()) {
+            if (frame_ptr == operand_ref) return .tomb;
+        } else {
+            if (frame_ptr == operand_ref) return .write;
+        }
+    }
     if (bt.feed()) {
         if (callee == operand_ref) return .tomb;
     } else {
@@ -1122,18 +1148,28 @@ fn analyzeInst(
         },
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const inst_data = inst_datas[inst].pl_op;
-            const callee = inst_data.operand;
-            const extra = a.air.extraData(Air.Call, inst_data.payload);
+            const pl_op = inst_datas[inst].pl_op;
+            const callee = pl_op.operand;
+            const frame_ptr: Air.Inst.Ref = .none;
+            const extra = a.air.extraData(Air.Call, pl_op.payload);
             const args: []const Air.Inst.Ref = @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]);
-            return analyzeInstCall(a, pass, data, inst, callee, args);
+            return analyzeInstCall(a, pass, data, inst, frame_ptr, callee, args);
         },
         .call_async => {
-            const inst_data = inst_datas[inst].ty_pl;
+            const inst_data = inst_datas[inst].pl_op;
             const extra = a.air.extraData(Air.AsyncCall, inst_data.payload);
-            const callee = extra.data.callee;
+            const callee = inst_data.operand;
             const args: []const Air.Inst.Ref = @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]);
-            return analyzeInstCall(a, pass, data, inst, callee, args);
+            const frame_ptr = extra.data.frame_ptr;
+            return analyzeInstCall(a, pass, data, inst, frame_ptr, callee, args);
+        },
+        .call_async_alloc => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.AsyncCallAlloc, ty_pl.payload);
+            const callee = extra.data.callee;
+            const frame_ptr: Air.Inst.Ref = .none;
+            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]);
+            return analyzeInstCall(a, pass, data, inst, frame_ptr, callee, args);
         },
         .select => {
             const pl_op = inst_datas[inst].pl_op;
@@ -1267,24 +1303,33 @@ fn analyzeInstCall(
     comptime pass: LivenessPass,
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
+    frame_ptr: Air.Inst.Ref,
     callee: Air.Inst.Ref,
     args: []const Air.Inst.Ref,
 ) Allocator.Error!void {
-    if (args.len + 1 <= bpi - 1) {
+    const total = args.len + 1 + @intFromBool(frame_ptr != .none);
+    if (total <= bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-        buf[0] = callee;
-        @memcpy(buf[1..][0..args.len], args);
+        var op_index: OperandInt = 0;
+        if (frame_ptr != .none) {
+            buf[op_index] = frame_ptr;
+            op_index += 1;
+        }
+        buf[op_index] = callee;
+        op_index += 1;
+        @memcpy(buf[op_index..][0..args.len], args);
         return analyzeOperands(a, pass, data, inst, buf);
     }
 
     var big = try AnalyzeBigOperands(pass).init(a, data, inst, args.len + 1);
     defer big.deinit();
+    if (frame_ptr != .none) try big.feed(frame_ptr);
+    try big.feed(callee);
     var i: usize = args.len;
     while (i > 0) {
         i -= 1;
         try big.feed(args[i]);
     }
-    try big.feed(callee);
     return big.finish();
 }
 

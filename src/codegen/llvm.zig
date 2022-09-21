@@ -3035,12 +3035,11 @@ pub const Object = struct {
                 const llvm_struct_ty = o.context.structCreateNamed(name);
                 gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
 
-                return lowerAsyncFrameType(o, func, llvm_struct_ty);
-                //if (func.isAsync()) {
-                //    return lowerAsyncFrameType(o, func, llvm_struct_ty);
-                //} else {
-                //    @panic("lower llvm @Frame() type of non-async function");
-                //}
+                if (func.isAsync()) {
+                    return lowerAsyncFrameType(o, func, llvm_struct_ty);
+                } else {
+                    @panic("lower llvm @Frame() type of non-async function");
+                }
             },
             .AnyFrame => return o.context.pointerType(0),
         }
@@ -4522,6 +4521,7 @@ pub const FuncGen = struct {
                 .call_always_tail  => try self.airCall(inst, .AlwaysTail),
                 .call_never_tail   => try self.airCall(inst, .NeverTail),
                 .call_never_inline => try self.airCall(inst, .NeverInline),
+                .call_async_alloc  => try self.airCallAsyncAlloc(inst),
                 .call_async        => try self.airCallAsync(inst),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
@@ -4990,7 +4990,12 @@ pub const FuncGen = struct {
 
     fn airCallAsync(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         _ = inst;
-        return self.todo("lower async call", .{});
+        return self.todo("lower call_async", .{});
+    }
+
+    fn airCallAsyncAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        return self.todo("lower call_async_alloc", .{});
     }
 
     fn airRet(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

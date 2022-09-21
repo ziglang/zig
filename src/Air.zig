@@ -310,9 +310,14 @@ pub const Inst = struct {
         call_never_tail,
         /// Same as `call` except with the `never_inline` attribute.
         call_never_inline,
-        /// Async function call.
-        /// Uses `ty_pl` field with the `AsyncCall` payload.
+        /// Async function call, using a provided frame pointer.
+        /// Uses `pl_op` field with the `AsyncCall` payload. operand is the callee.
+        /// Result type is always void.
         call_async,
+        /// Async function call, which allocates the frame for the callee on the stack.
+        /// This instruction also acts as an alloc.
+        /// Uses `ty_pl` field with the `AsyncCallAlloc` payload.
+        call_async_alloc,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
@@ -1076,6 +1081,11 @@ pub const Call = struct {
 /// Trailing is a list of `Inst.Ref` for every `args_len`.
 pub const AsyncCall = struct {
     frame_ptr: Inst.Ref,
+    args_len: u32,
+};
+
+/// Trailing is a list of `Inst.Ref` for every `args_len`.
+pub const AsyncCallAlloc = struct {
     callee: Inst.Ref,
     args_len: u32,
 };
@@ -1350,7 +1360,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_add,
         .ptr_sub,
         .try_ptr,
-        .call_async,
+        .call_async_alloc,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .interned => return ip.typeOf(datas[inst].interned).toType(),
@@ -1429,6 +1439,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .set_err_return_trace,
         .vector_store_elem,
         .c_va_end,
+        .call_async,
         => return Type.void,
 
         .int_from_ptr,
@@ -1595,6 +1606,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_never_tail,
         .call_never_inline,
         .call_async,
+        .call_async_alloc,
         .cond_br,
         .switch_br,
         .@"try",

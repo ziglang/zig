@@ -350,8 +350,24 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 try self.verifyInst(inst);
             },
             .call_async => {
+                const pl_op = data[inst].pl_op;
+                const extra = self.air.extraData(Air.AsyncCall, pl_op.payload);
+                const args: []const Air.Inst.Ref = @ptrCast(
+                    self.air.extra[extra.end..][0..extra.data.args_len],
+                );
+                const callee = pl_op.operand;
+
+                var bt = self.liveness.iterateBigTomb(inst);
+                try self.verifyOperand(inst, extra.data.frame_ptr, bt.feed());
+                try self.verifyOperand(inst, callee, bt.feed());
+                for (args) |arg| {
+                    try self.verifyOperand(inst, arg, bt.feed());
+                }
+                try self.verifyInst(inst);
+            },
+            .call_async_alloc => {
                 const ty_pl = data[inst].ty_pl;
-                const extra = self.air.extraData(Air.AsyncCall, ty_pl.payload);
+                const extra = self.air.extraData(Air.AsyncCallAlloc, ty_pl.payload);
                 const args: []const Air.Inst.Ref = @ptrCast(
                     self.air.extra[extra.end..][0..extra.data.args_len],
                 );
