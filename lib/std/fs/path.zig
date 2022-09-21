@@ -1271,11 +1271,13 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 
 /// Returns the extension of the file name (if any).
 /// This function will search for the file extension (separated by a `.`) and will return the text after the `.`.
-/// Files that end with `.` are considered to have no extension, files that start with `.`
+/// Files that end with `.`, or that start with `.` and have no other `.` in their name,
+/// are considered to have no extension.
 /// Examples:
 /// - `"main.zig"`     ⇒ `".zig"`
 /// - `"src/main.zig"` ⇒ `".zig"`
 /// - `".gitignore"`   ⇒ `""`
+/// - `".image.png"`   ⇒ `".png"`
 /// - `"keep."`        ⇒ `"."`
 /// - `"src.keep.me"`  ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
@@ -1301,6 +1303,7 @@ test "extension" {
     try testExtension(".a", "");
     try testExtension(".file", "");
     try testExtension(".gitignore", "");
+    try testExtension(".image.png", ".png");
     try testExtension("file.ext", ".ext");
     try testExtension("file.ext.", ".");
     try testExtension("very-long-file.bruh", ".bruh");
