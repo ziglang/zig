@@ -4903,7 +4903,7 @@ test "errdefer unwinding" {
       {#header_close#}
       {#header_open|unreachable#}
       <p>
-      In {#link|Debug#} and {#link|ReleaseSafe#} mode, and when using <kbd>zig test</kbd>,
+      In {#link|Debug#} and {#link|ReleaseSafe#} mode
       {#syntax#}unreachable{#endsyntax#} emits a call to {#syntax#}panic{#endsyntax#} with the message <code>reached unreachable code</code>.
       </p>
       <p>
