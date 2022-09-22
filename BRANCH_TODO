@@ -1,0 +1,13 @@
+ * detect when a called function is async and make the caller async too
+ * generate the async frame type *after* lowering the function to LLVM IR
+ * calculate frame size after llvm lowering, ability to inspect with `@sizeOf`
+ * spill only values that span across suspension points based on Liveness info
+   - handle variable lifetimes correctly - don't die until end curly brace
+   - don't pay for spill bytes that are not used - if an i32 spans across suspension point 1
+     and a different value which is an f32 spans across suspension point 2, only 4 bytes
+     of spill data should be allocated.
+   - detect when first N spilled values are the same and avoid redundant stores
+ * solve safety panics for bad resume
+ * use function pointers instead of resume index to...
+   - reduce the number of runtime branches from 2 to 1
+   - pass function arguments as normal arguments to the first segment

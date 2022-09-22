@@ -259,6 +259,9 @@ pub const Value = opaque {
 
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
+
+    pub const functionSetPrefixData = ZigLLVMFunctionSetPrefixData;
+    extern fn ZigLLVMFunctionSetPrefixData(func: *Value, data: *Value) void;
 };
 
 pub const Type = opaque {

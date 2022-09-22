@@ -52,6 +52,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .dbg_block_begin,
             .dbg_block_end,
             .fence,
+            .suspend_begin,
+            .suspend_end,
             .ret_addr,
             .frame_addr,
             .wasm_memory_size,

@@ -3003,6 +3003,9 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .call_async        => try airCall(f, inst, .async_kw),
             .call_async_alloc  => try airCall(f, inst, .async_kw),
 
+            .suspend_begin => try airSuspendBegin(f, inst),
+            .suspend_end   => try airSuspendEnd  (f, inst),
+
             .float_from_int,
             .int_from_float,
             .fptrunc,
@@ -4085,6 +4088,16 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
         try a.end(f, writer);
     }
     return local;
+}
+
+fn airSuspendBegin(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: lower suspend_begin", .{});
+}
+
+fn airSuspendEnd(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: lower suspend_end", .{});
 }
 
 fn airCall(

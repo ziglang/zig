@@ -318,6 +318,18 @@ pub const Inst = struct {
         /// This instruction also acts as an alloc.
         /// Uses `ty_pl` field with the `AsyncCallAlloc` payload.
         call_async_alloc,
+        /// Enter a suspend block. After this instruction, the function is
+        /// still executing but is considered to be in a "suspended" state, and
+        /// can be resumed, which will send control flow to just after the next
+        /// suspend_end instruction.
+        /// Result type is always void.
+        /// Uses the `no_op` field.
+        suspend_begin,
+        /// Exit a suspend block. This causes an async function to return
+        /// control flow to the resumer.
+        /// Result type is always void.
+        /// Uses the `no_op` field.
+        suspend_end,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
@@ -1440,6 +1452,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .vector_store_elem,
         .c_va_end,
         .call_async,
+        .suspend_begin,
+        .suspend_end,
         => return Type.void,
 
         .int_from_ptr,
@@ -1632,6 +1646,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .cmpxchg_weak,
         .cmpxchg_strong,
         .fence,
+        .suspend_begin,
+        .suspend_end,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,

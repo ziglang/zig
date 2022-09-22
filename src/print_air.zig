@@ -217,6 +217,8 @@ const Writer = struct {
             .ret_addr,
             .frame_addr,
             .save_err_return_trace_index,
+            .suspend_begin,
+            .suspend_end,
             => try w.writeNoOp(s, inst),
 
             .alloc,

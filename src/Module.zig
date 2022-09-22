@@ -5742,6 +5742,9 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
     func.state = .success;
+    if (func.async_status == .unknown) {
+        func.async_status = .not_async;
+    }
 
     // Finally we must resolve the return type and parameter types so that backends
     // have full access to type information.

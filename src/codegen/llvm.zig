@@ -1207,8 +1207,34 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+
+            .resume_block_index = 0,
+            .resume_bb = undefined,
+            .async_switch = undefined,
+            .resume_index_ptr = undefined,
         };
         defer fg.deinit();
+
+        if (func.isAsync()) {
+            const frame_ty = try mod.asyncFrameType(func_index);
+            const frame_size = frame_ty.abiSize(mod);
+            const llvm_usize = dg.context.intType(target.ptrBitWidth());
+            const size_val = llvm_usize.constInt(frame_size, .False);
+            llvm_func.functionSetPrefixData(size_val);
+
+            const async_preamble_bb = dg.context.appendBasicBlock(llvm_func, "AsyncSwitch");
+            const bad_resume_bb = dg.context.appendBasicBlock(llvm_func, "BadResume");
+            builder.positionBuilderAtEnd(bad_resume_bb);
+            _ = builder.buildUnreachable(); // TODO make this a safety panic
+
+            builder.positionBuilderAtEnd(async_preamble_bb);
+            const l = asyncFrameLayout();
+            const frame_llvm_ty = try dg.lowerType(frame_ty);
+            const frame_ptr = llvm_func.getParam(0);
+            fg.resume_index_ptr = builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.resume_index, "");
+            const resume_index = builder.buildLoad(llvm_usize, fg.resume_index_ptr, "");
+            fg.async_switch = builder.buildSwitch(resume_index, bad_resume_bb, 4);
+        }
 
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
@@ -4308,6 +4334,12 @@ pub const FuncGen = struct {
     prev_dbg_line: c_uint,
     prev_dbg_column: c_uint,
 
+    // async stuff
+    resume_block_index: u32,
+    resume_bb: *llvm.BasicBlock,
+    async_switch: *llvm.Value,
+    resume_index_ptr: *llvm.Value,
+
     /// Stack of locations where a call was inlined.
     dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
@@ -4549,8 +4581,11 @@ pub const FuncGen = struct {
                 .call_always_tail  => try self.airCall(inst, .AlwaysTail),
                 .call_never_tail   => try self.airCall(inst, .NeverTail),
                 .call_never_inline => try self.airCall(inst, .NeverInline),
-                .call_async_alloc  => try self.airCallAsyncAlloc(inst),
-                .call_async        => try self.airCallAsync(inst),
+
+                .call_async_alloc => try self.airCallAsyncAlloc(inst),
+                .call_async       => try self.airCallAsync(inst),
+                .suspend_begin    => try self.airSuspendBegin(),
+                .suspend_end      => try self.airSuspendEnd(),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -4819,9 +4854,37 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airCallAsync(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airSuspendBegin(fg: *FuncGen) !?*llvm.Value {
+        fg.resume_bb = genSuspendBegin(fg, "SuspendResume");
+        return null;
+    }
+
+    fn genSuspendBegin(fg: *FuncGen, name_hint: [*:0]const u8) *llvm.BasicBlock {
+        const target = fg.getTarget();
+        const llvm_usize = fg.dg.context.intType(target.ptrBitWidth());
+        const resume_bb = fg.context.appendBasicBlock(fg.llvm_func, name_hint);
+        const new_block_index = fg.resume_block_index;
+        fg.resume_block_index += 1;
+        const new_block_index_llvm_val = llvm_usize.constInt(new_block_index, .False);
+        fg.async_switch.addCase(new_block_index_llvm_val, resume_bb);
+        _ = fg.builder.buildStore(new_block_index_llvm_val, fg.resume_index_ptr);
+        return resume_bb;
+    }
+
+    fn airSuspendEnd(fg: *FuncGen) !?*llvm.Value {
+        _ = fg.builder.buildRetVoid();
+        fg.builder.positionBuilderAtEnd(fg.resume_bb);
+        fg.resume_bb = undefined;
+
+        // TODO safety, store the index of the "not suspended" panic basic
+        // block into resume_index_ptr
+
+        return null;
+    }
+
+    fn airCallAsync(fg: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         _ = inst;
-        return self.todo("lower call_async", .{});
+        return fg.todo("lower call_async", .{});
     }
 
     fn airCallAsyncAlloc(fg: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
