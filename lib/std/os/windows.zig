@@ -3447,7 +3447,7 @@ pub usingnamespace switch (native_arch) {
             }
         };
 
-        pub const RUNTIME_FUNCTION = struct {
+        pub const RUNTIME_FUNCTION = extern struct {
             BeginAddress: DWORD,
             DUMMYUNIONNAME: extern union {
                 UnwindData: DWORD,
@@ -3574,7 +3574,7 @@ pub const TEB = extern struct {
     TlsExpansionSlots: PVOID,
 };
 
-pub const EXCEPTION_REGISTRATION_RECORD = struct {
+pub const EXCEPTION_REGISTRATION_RECORD = extern struct {
     Next: ?*EXCEPTION_REGISTRATION_RECORD,
     Handler: ?*EXCEPTION_DISPOSITION,
 };
