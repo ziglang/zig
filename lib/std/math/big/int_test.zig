@@ -573,7 +573,7 @@ test "big.int add sign" {
     try testing.expect((try a.to(i32)) == -3);
 }
 
-test "big.int add scalar" {
+test "big.int add comptime scalar" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
 
@@ -582,6 +582,17 @@ test "big.int add scalar" {
     try b.addScalar(&a, 5);
 
     try testing.expect((try b.to(u32)) == 55);
+}
+
+test "big.int add scalar" {
+    var a = try Managed.initSet(testing.allocator, 123);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+    try b.addScalar(&a, @as(u32, 31));
+
+    try testing.expect((try b.to(u32)) == 154);
 }
 
 test "big.int addWrap single-single, unsigned" {
