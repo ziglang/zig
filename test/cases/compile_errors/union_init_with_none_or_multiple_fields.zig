@@ -27,10 +27,10 @@ export fn entry() void {u1z();u1m();u2z();u2m();}
 // backend=stage2
 // target=native
 //
-// :9:1: error: cannot initialize multiple union fields at once, unions can only have one active field
+// :9:1: error: cannot initialize none union fields, unions can only have one active field
 // :14:20: error: cannot initialize multiple union fields at once, unions can only have one active field
 // :14:31: note: additional initializer here
-// :17:1: error: cannot initialize multiple union fields at once, unions can only have one active field
+// :17:1: error: cannot initialize none union fields, unions can only have one active field
 // :22:20: error: cannot initialize multiple union fields at once, unions can only have one active field
 // :22:31: note: additional initializer here
 // :1:12: note: union declared here

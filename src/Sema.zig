@@ -25676,12 +25676,18 @@ fn coerceAnonStructToUnion(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
-    if (inst_ty.structFieldCount() != 1) {
+    const field_count = inst_ty.structFieldCount();
+    if (field_count != 1) {
         const msg = msg: {
-            const msg = try sema.errMsg(
+            const msg = if (field_count > 1) try sema.errMsg(
                 block,
                 inst_src,
                 "cannot initialize multiple union fields at once, unions can only have one active field",
+                .{},
+            ) else try sema.errMsg(
+                block,
+                inst_src,
+                "cannot initialize none union fields, unions can only have one active field",
                 .{},
             );
             errdefer msg.destroy(sema.gpa);
