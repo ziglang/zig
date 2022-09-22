@@ -1222,7 +1222,7 @@ fn updateLazySymbolAtom(
         Module.SrcLoc{
             .file_scope = undefined,
             .parent_decl_node = undefined,
-            .lazy = .unneeded,
+            .lazy = Module.LazySrcLoc.un(),
         };
     const res = try codegen.generateLazySymbol(
         &self.base,

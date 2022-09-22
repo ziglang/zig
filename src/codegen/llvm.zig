@@ -2348,7 +2348,24 @@ pub const Object = struct {
             .Null => unreachable,
             .EnumLiteral => unreachable,
 
-            .Frame => @panic("TODO implement lowerDebugType for Frame types"),
+            .Frame => {
+                // TODO make this more useful than just a pointer to u8
+                // TODO this also does not account for async functions with
+                // any spilled locals that are aligned to more than 16 bytes
+                const elem_di_ty = try o.lowerDebugType(Type.u8, .full);
+                const name = try o.allocTypeName(ty);
+                defer gpa.free(name);
+                const ptr_di_ty = dib.createPointerType(
+                    elem_di_ty,
+                    target.ptrBitWidth(),
+                    target.ptrBitWidth() * 2, // alignment
+                    name,
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(ptr_di_ty));
+                return ptr_di_ty;
+            },
+
             .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
         }
     }
@@ -3043,6 +3060,17 @@ pub const Object = struct {
             },
             .AnyFrame => return o.context.pointerType(0),
         }
+    }
+
+    fn lowerAsyncFrameHeader(o: *Object, ret_ty: Type) !*llvm.Type {
+        const opaque_ptr_ty = o.context.pointerType(0);
+        const l = asyncFrameLayout();
+        var fields: [4]*llvm.Type = undefined;
+        fields[l.fn_ptr] = opaque_ptr_ty;
+        fields[l.resume_index] = try o.lowerType(Type.usize);
+        fields[l.awaiter] = opaque_ptr_ty;
+        fields[l.ret_val] = try o.lowerType(ret_ty);
+        return o.context.structType(&fields, fields.len, .False);
     }
 
     fn lowerAsyncFrameType(
@@ -4668,6 +4696,200 @@ pub const FuncGen = struct {
             try llvm_args.append(self.err_ret_trace.?);
         }
 
+        try addCallArgs(self, args, &llvm_args, fn_info);
+
+        const call = self.builder.buildCall(
+            try o.lowerType(zig_fn_ty),
+            llvm_fn,
+            llvm_args.items.ptr,
+            @intCast(llvm_args.items.len),
+            toLlvmCallConv(fn_info.cc, target),
+            attr,
+            "",
+        );
+
+        if (callee_ty.zigTypeTag(mod) == .Pointer) {
+            // Add argument attributes for function pointer calls.
+            var it = iterateParamTypes(o, fn_info);
+            it.llvm_index += @intFromBool(sret);
+            it.llvm_index += @intFromBool(err_return_tracing);
+            while (it.next()) |lowering| switch (lowering) {
+                .byval => {
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index].toType();
+                    if (!isByRef(param_ty, mod)) {
+                        o.addByValParamAttrs(call, param_ty, param_index, fn_info, it.llvm_index - 1);
+                    }
+                },
+                .byref => {
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index].toType();
+                    const param_llvm_ty = try o.lowerType(param_ty);
+                    const alignment = param_ty.abiAlignment(mod);
+                    o.addByRefParamAttrs(call, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
+                },
+                .byref_mut => {
+                    o.addArgAttr(call, it.llvm_index - 1, "noundef");
+                },
+                // No attributes needed for these.
+                .no_bits,
+                .abi_sized_int,
+                .multiple_llvm_types,
+                .as_u16,
+                .float_array,
+                .i32_array,
+                .i64_array,
+                => continue,
+
+                .slice => {
+                    assert(!it.byval_attr);
+                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const ptr_info = param_ty.ptrInfo(mod);
+                    const llvm_arg_i = it.llvm_index - 2;
+
+                    if (math.cast(u5, it.zig_index - 1)) |i| {
+                        if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
+                            o.addArgAttr(call, llvm_arg_i, "noalias");
+                        }
+                    }
+                    if (param_ty.zigTypeTag(mod) != .Optional) {
+                        o.addArgAttr(call, llvm_arg_i, "nonnull");
+                    }
+                    if (ptr_info.flags.is_const) {
+                        o.addArgAttr(call, llvm_arg_i, "readonly");
+                    }
+                    const elem_align = ptr_info.flags.alignment.toByteUnitsOptional() orelse
+                        @max(ptr_info.child.toType().abiAlignment(mod), 1);
+                    o.addArgAttrInt(call, llvm_arg_i, "align", elem_align);
+                },
+            };
+        }
+
+        if (fn_info.return_type == .noreturn_type and attr != .AlwaysTail) {
+            return null;
+        }
+
+        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBitsIgnoreComptime(mod)) {
+            return null;
+        }
+
+        const llvm_ret_ty = try o.lowerType(return_type);
+
+        if (ret_ptr) |rp| {
+            call.setCallSret(llvm_ret_ty);
+            if (isByRef(return_type, mod)) {
+                return rp;
+            } else {
+                // our by-ref status disagrees with sret so we must load.
+                const loaded = self.builder.buildLoad(llvm_ret_ty, rp, "");
+                loaded.setAlignment(return_type.abiAlignment(mod));
+                return loaded;
+            }
+        }
+
+        const abi_ret_ty = try lowerFnRetTy(o, fn_info);
+
+        if (abi_ret_ty != llvm_ret_ty) {
+            // In this case the function return type is honoring the calling convention by having
+            // a different LLVM type than the usual one. We solve this here at the callsite
+            // by using our canonical type, then loading it if necessary.
+            const alignment = o.target_data.abiAlignmentOfType(abi_ret_ty);
+            const rp = self.buildAlloca(llvm_ret_ty, alignment);
+            const store_inst = self.builder.buildStore(call, rp);
+            store_inst.setAlignment(alignment);
+            if (isByRef(return_type, mod)) {
+                return rp;
+            } else {
+                const load_inst = self.builder.buildLoad(llvm_ret_ty, rp, "");
+                load_inst.setAlignment(alignment);
+                return load_inst;
+            }
+        }
+
+        if (isByRef(return_type, mod)) {
+            // our by-ref status disagrees with sret so we must allocate, store,
+            // and return the allocation pointer.
+            const alignment = return_type.abiAlignment(mod);
+            const rp = self.buildAlloca(llvm_ret_ty, alignment);
+            const store_inst = self.builder.buildStore(call, rp);
+            store_inst.setAlignment(alignment);
+            return rp;
+        } else {
+            return call;
+        }
+    }
+
+    fn airCallAsync(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        return self.todo("lower call_async", .{});
+    }
+
+    fn airCallAsyncAlloc(fg: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        const o = fg.dg.object;
+        const mod = o.module;
+        const ty_pl = fg.air.instructions.items(.data)[inst].ty_pl;
+        const extra = fg.air.extraData(Air.AsyncCallAlloc, ty_pl.payload);
+        const args: []const Air.Inst.Ref = @ptrCast(fg.air.extra[extra.end..][0..extra.data.args_len]);
+        const callee = try fg.resolveInst(extra.data.callee);
+        const callee_ty = fg.typeOf(extra.data.callee);
+        const zig_fn_ty = switch (callee_ty.zigTypeTag(mod)) {
+            .Fn => callee_ty,
+            .Pointer => callee_ty.childType(mod),
+            else => unreachable,
+        };
+        const fn_info = mod.typeToFunc(zig_fn_ty).?;
+        // Remember that we want to lower calls to functions which have not yet
+        // been semantically analyzed. So we must not call lowerType on the
+        // frame type. Instead we runtime-call a function to learn the frame
+        // size of the callee, allocate that many bytes, and then pointer-cast
+        // it to the anytype->T header that we know based on the type alone.
+        const target = mod.getTarget();
+        const llvm_i8 = o.context.intType(8);
+        const frame_size = fg.genFrameSize(callee);
+        const frame_alloca = fg.builder.buildArrayAlloca(llvm_i8, frame_size, "");
+        frame_alloca.setAlignment(target.ptrBitWidth() / 4);
+        const frame_llvm_ty = try o.lowerAsyncFrameHeader(fn_info.return_type.toType());
+        const llvm_ptr_ty = fg.context.pointerType(0);
+        const frame_ptr = fg.builder.buildBitCast(frame_alloca, llvm_ptr_ty, "");
+        const l = asyncFrameLayout();
+        const fn_ptr_ptr = fg.builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.fn_ptr, "");
+        _ = fg.builder.buildStore(callee, fn_ptr_ptr);
+
+        const resume_index_ptr = fg.builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.resume_index, "");
+        const llvm_usize = o.context.intType(target.ptrBitWidth());
+        const zero = llvm_usize.constNull();
+        _ = fg.builder.buildStore(zero, resume_index_ptr);
+
+        const awaiter_ptr = fg.builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.awaiter, "");
+        _ = fg.builder.buildStore(zero, awaiter_ptr);
+
+        var llvm_args = std.ArrayList(*llvm.Value).init(fg.gpa);
+        defer llvm_args.deinit();
+
+        try addCallArgs(fg, args, &llvm_args, fn_info);
+
+        _ = fg.builder.buildCall(
+            try o.lowerType(zig_fn_ty),
+            callee,
+            llvm_args.items.ptr,
+            @intCast(llvm_args.items.len),
+            .Fast,
+            .Auto,
+            "",
+        );
+
+        return frame_ptr;
+    }
+
+    fn addCallArgs(
+        self: *FuncGen,
+        args: []const Air.Inst.Ref,
+        llvm_args: *std.ArrayList(*llvm.Value),
+        fn_info: InternPool.Key.FuncType,
+    ) !void {
+        const o = self.dg.object;
+        const mod = o.module;
+        const target = mod.getTarget();
         var it = iterateParamTypes(o, fn_info);
         while (it.nextCall(self, args)) |lowering| switch (lowering) {
             .no_bits => continue,
@@ -4824,126 +5046,6 @@ pub const FuncGen = struct {
                 try llvm_args.append(load_inst);
             },
         };
-
-        const call = self.builder.buildCall(
-            try o.lowerType(zig_fn_ty),
-            llvm_fn,
-            llvm_args.items.ptr,
-            @as(c_uint, @intCast(llvm_args.items.len)),
-            toLlvmCallConv(fn_info.cc, target),
-            attr,
-            "",
-        );
-
-        if (callee_ty.zigTypeTag(mod) == .Pointer) {
-            // Add argument attributes for function pointer calls.
-            it = iterateParamTypes(o, fn_info);
-            it.llvm_index += @intFromBool(sret);
-            it.llvm_index += @intFromBool(err_return_tracing);
-            while (it.next()) |lowering| switch (lowering) {
-                .byval => {
-                    const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
-                    if (!isByRef(param_ty, mod)) {
-                        o.addByValParamAttrs(call, param_ty, param_index, fn_info, it.llvm_index - 1);
-                    }
-                },
-                .byref => {
-                    const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
-                    const param_llvm_ty = try o.lowerType(param_ty);
-                    const alignment = param_ty.abiAlignment(mod);
-                    o.addByRefParamAttrs(call, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
-                },
-                .byref_mut => {
-                    o.addArgAttr(call, it.llvm_index - 1, "noundef");
-                },
-                // No attributes needed for these.
-                .no_bits,
-                .abi_sized_int,
-                .multiple_llvm_types,
-                .as_u16,
-                .float_array,
-                .i32_array,
-                .i64_array,
-                => continue,
-
-                .slice => {
-                    assert(!it.byval_attr);
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
-                    const ptr_info = param_ty.ptrInfo(mod);
-                    const llvm_arg_i = it.llvm_index - 2;
-
-                    if (math.cast(u5, it.zig_index - 1)) |i| {
-                        if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
-                            o.addArgAttr(call, llvm_arg_i, "noalias");
-                        }
-                    }
-                    if (param_ty.zigTypeTag(mod) != .Optional) {
-                        o.addArgAttr(call, llvm_arg_i, "nonnull");
-                    }
-                    if (ptr_info.flags.is_const) {
-                        o.addArgAttr(call, llvm_arg_i, "readonly");
-                    }
-                    const elem_align = ptr_info.flags.alignment.toByteUnitsOptional() orelse
-                        @max(ptr_info.child.toType().abiAlignment(mod), 1);
-                    o.addArgAttrInt(call, llvm_arg_i, "align", elem_align);
-                },
-            };
-        }
-
-        if (fn_info.return_type == .noreturn_type and attr != .AlwaysTail) {
-            return null;
-        }
-
-        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBitsIgnoreComptime(mod)) {
-            return null;
-        }
-
-        const llvm_ret_ty = try o.lowerType(return_type);
-
-        if (ret_ptr) |rp| {
-            call.setCallSret(llvm_ret_ty);
-            if (isByRef(return_type, mod)) {
-                return rp;
-            } else {
-                // our by-ref status disagrees with sret so we must load.
-                const loaded = self.builder.buildLoad(llvm_ret_ty, rp, "");
-                loaded.setAlignment(return_type.abiAlignment(mod));
-                return loaded;
-            }
-        }
-
-        const abi_ret_ty = try lowerFnRetTy(o, fn_info);
-
-        if (abi_ret_ty != llvm_ret_ty) {
-            // In this case the function return type is honoring the calling convention by having
-            // a different LLVM type than the usual one. We solve this here at the callsite
-            // by using our canonical type, then loading it if necessary.
-            const alignment = o.target_data.abiAlignmentOfType(abi_ret_ty);
-            const rp = self.buildAlloca(llvm_ret_ty, alignment);
-            const store_inst = self.builder.buildStore(call, rp);
-            store_inst.setAlignment(alignment);
-            if (isByRef(return_type, mod)) {
-                return rp;
-            } else {
-                const load_inst = self.builder.buildLoad(llvm_ret_ty, rp, "");
-                load_inst.setAlignment(alignment);
-                return load_inst;
-            }
-        }
-
-        if (isByRef(return_type, mod)) {
-            // our by-ref status disagrees with sret so we must allocate, store,
-            // and return the allocation pointer.
-            const alignment = return_type.abiAlignment(mod);
-            const rp = self.buildAlloca(llvm_ret_ty, alignment);
-            const store_inst = self.builder.buildStore(call, rp);
-            store_inst.setAlignment(alignment);
-            return rp;
-        } else {
-            return call;
-        }
     }
 
     fn buildSimplePanic(fg: *FuncGen, panic_id: Module.PanicId) !void {
@@ -4988,14 +5090,27 @@ pub const FuncGen = struct {
         _ = fg.builder.buildUnreachable();
     }
 
-    fn airCallAsync(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        _ = inst;
-        return self.todo("lower call_async", .{});
-    }
+    fn genFrameSize(fg: *FuncGen, llvm_fn: *llvm.Value) *llvm.Value {
+        const o = fg.dg.object;
+        const mod = o.module;
+        const target = mod.getTarget();
+        const llvm_usize = o.context.intType(target.ptrBitWidth());
+        const llvm_ptr_ty = o.context.pointerType(0);
+        const casted_fn_val = fg.builder.buildBitCast(llvm_fn, llvm_ptr_ty, "");
+        const indices: [1]*llvm.Value = .{
+            o.context.intType(32).constInt(@bitCast(@as(c_longlong, -1)), .True),
+        };
+        const prefix_ptr = fg.builder.buildInBoundsGEP(llvm_usize, casted_fn_val, &indices, indices.len, "");
+        const load_inst = fg.builder.buildLoad(llvm_usize, prefix_ptr, "");
 
-    fn airCallAsyncAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        _ = inst;
-        return self.todo("lower call_async_alloc", .{});
+        // Some architectures (e.g SPARCv9) has different alignment
+        // requirements between a function/usize pointer and also require all
+        // loads to be aligned. On those architectures, not explicitly setting
+        // the alignment will lead into @frameSize generating usize-aligned
+        // load instruction that could crash if the function pointer happens to
+        // be not usize-aligned.
+        load_inst.setAlignment(1);
+        return load_inst;
     }
 
     fn airRet(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -11451,4 +11566,30 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
             else => return true,
         }
     } else return false;
+}
+
+/// Each field is the index in the LLVM struct. The doc comments describe what
+/// the corresponding field of the LLVM struct does; not the field of the
+/// AsyncFrameLayout struct.
+const AsyncFrameLayout = struct {
+    /// Points to the return value inside the frame.
+    ret_val: u16,
+    /// This field of the frame points to the owner function so that a resume
+    /// on the frame pointer knows which function to call.
+    fn_ptr: u16,
+    /// This field tells which suspension point to resume from next time the function is called.
+    resume_index: u16,
+    /// This field tracks which frame is the one awaiting the frame for the purposes of resuming
+    /// on return.
+    /// A value of zero means the async function has been started, and there is no awaiter yet.
+    awaiter: u16,
+};
+
+fn asyncFrameLayout() AsyncFrameLayout {
+    return .{
+        .fn_ptr = 0,
+        .resume_index = 1,
+        .awaiter = 2,
+        .ret_val = 3,
+    };
 }

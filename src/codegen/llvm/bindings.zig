@@ -549,6 +549,9 @@ pub const Builder = opaque {
     pub const buildAlloca = LLVMBuildAlloca;
     extern fn LLVMBuildAlloca(*Builder, Ty: *Type, Name: [*:0]const u8) *Value;
 
+    pub const buildArrayAlloca = LLVMBuildArrayAlloca;
+    extern fn LLVMBuildArrayAlloca(*Builder, Ty: *Type, Val: *Value, Name: [*:0]const u8) *Value;
+
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*Builder, Val: *Value, Ptr: *Value) *Value;
 

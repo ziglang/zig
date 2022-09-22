@@ -2178,7 +2178,10 @@ pub const SrcLoc = struct {
 
     pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
         switch (src_loc.lazy) {
-            .unneeded => unreachable,
+            .unneeded => |t| {
+                t.dump();
+                unreachable;
+            },
             .entire_file => return Span{ .start = 0, .end = 1, .main = 0 },
 
             .byte_abs => |byte_index| return Span{ .start = byte_index, .end = byte_index + 1, .main = byte_index },
@@ -2905,7 +2908,7 @@ pub const LazySrcLoc = union(enum) {
     /// unreachable. If you are debugging this tag incorrectly being this value,
     /// look into using reverse-continue with a memory watchpoint to see where the
     /// value is being set to this tag.
-    unneeded,
+    unneeded: std.debug.Trace,
     /// Means the source location points to an entire file; not any particular
     /// location within the file. `file_scope` union field will be active.
     entire_file,
@@ -3197,6 +3200,7 @@ pub const LazySrcLoc = union(enum) {
     for_capture_from_input: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
+    pub const un = if (TracedOffset.want_tracing) unneededDebug else unneededRelease;
 
     noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
         var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
@@ -3204,8 +3208,18 @@ pub const LazySrcLoc = union(enum) {
         return result;
     }
 
-    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
+    noinline fn unneededDebug() LazySrcLoc {
+        var result: LazySrcLoc = .{ .unneeded = .{} };
+        result.unneeded.addAddr(@returnAddress(), "init");
+        return result;
+    }
+
+    inline fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
         return .{ .node_offset = .{ .x = node_offset } };
+    }
+
+    inline fn unneededRelease() LazySrcLoc {
+        return .{ .unneeded = .{} };
     }
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
