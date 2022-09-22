@@ -44,7 +44,6 @@ EOF
 jq <$YML_FILE -sR '{
       "manifest": .,
     }' | curl \
-  --fail-with-body \
   -H Authorization:"token $OAUTH_TOKEN" \
   -H Content-Type:application/json \
   -X POST \
