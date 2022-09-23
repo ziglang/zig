@@ -8277,8 +8277,21 @@ fn zirParam(
             else => |e| return e,
         }
     };
-    const is_comptime = comptime_syntax or
-        try sema.typeRequiresComptime(param_ty);
+    const is_comptime = sema.typeRequiresComptime(param_ty) catch |err| switch (err) {
+        error.GenericPoison => {
+            // The type is not available until the generic instantiation.
+            // We result the param instruction with a poison value and
+            // insert an anytype parameter.
+            try block.params.append(sema.gpa, .{
+                .ty = Type.initTag(.generic_poison),
+                .is_comptime = comptime_syntax,
+                .name = param_name,
+            });
+            try sema.inst_map.putNoClobber(sema.gpa, inst, .generic_poison);
+            return;
+        },
+        else => |e| return e,
+    } or comptime_syntax;
     if (sema.inst_map.get(inst)) |arg| {
         if (is_comptime) {
             // We have a comptime value for this parameter so it should be elided from the
