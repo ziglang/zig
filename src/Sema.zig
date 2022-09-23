@@ -17030,14 +17030,14 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             const payload_val = union_val.val.optionalValue() orelse
                 return sema.addType(Type.initTag(.anyerror));
             const slice_val = payload_val.castTag(.slice).?.data;
-            const decl_index = slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decl_index);
-            const decl = mod.declPtr(decl_index);
-            const array_val: []Value = if (decl.val.castTag(.aggregate)) |some| some.data else &.{};
 
+            const len = try sema.usizeCast(block, src, slice_val.len.toUnsignedInt(mod.getTarget()));
             var names: Module.ErrorSet.NameMap = .{};
-            try names.ensureUnusedCapacity(sema.arena, array_val.len);
-            for (array_val) |elem_val| {
+            try names.ensureUnusedCapacity(sema.arena, len);
+            var i: usize = 0;
+            while (i < len) : (i += 1) {
+                var buf: Value.ElemValueBuffer = undefined;
+                const elem_val = slice_val.ptr.elemValueBuffer(mod, i, &buf);
                 const struct_val = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // error_set: type,
@@ -17429,14 +17429,14 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             var buf: Value.ToTypeBuffer = undefined;
 
             const args_slice_val = args_val.castTag(.slice).?.data;
-            const args_decl_index = args_slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(args_decl_index);
-            const args_decl = mod.declPtr(args_decl_index);
-            const args: []Value = if (args_decl.val.castTag(.aggregate)) |some| some.data else &.{};
-            var param_types = try sema.arena.alloc(Type, args.len);
-            var comptime_params = try sema.arena.alloc(bool, args.len);
+            const args_len = try sema.usizeCast(block, src, args_slice_val.len.toUnsignedInt(mod.getTarget()));
+            var param_types = try sema.arena.alloc(Type, args_len);
+            var comptime_params = try sema.arena.alloc(bool, args_len);
             var noalias_bits: u32 = 0;
-            for (args) |arg, i| {
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                var arg_buf: Value.ElemValueBuffer = undefined;
+                const arg = args_slice_val.ptr.elemValueBuffer(mod, i, &arg_buf);
                 const arg_val = arg.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // is_generic: bool,
