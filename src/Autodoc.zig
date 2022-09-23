@@ -853,7 +853,7 @@ fn walkInstruction(
             var path = str_tok.get(file.zir);
 
             const maybe_other_package: ?*Package = blk: {
-                if (self.module.main_pkg_in_std and std.mem.eql(u8, path, "std")) {
+                if (self.module.main_pkg_is_std and std.mem.eql(u8, path, "std")) {
                     path = "root";
                     break :blk self.module.main_pkg;
                 } else {
