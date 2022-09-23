@@ -142,7 +142,7 @@ job_queued_update_builtin_zig: bool = true,
 /// This makes it so that we can run `zig test` on the standard library.
 /// Otherwise, the logic for scanning test decls skips all of them because
 /// `main_pkg != std_pkg`.
-main_pkg_in_std: bool,
+main_pkg_is_std: bool,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
@@ -5174,7 +5174,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
                 // the test name filter.
                 if (!comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) {
-                    if (!mod.main_pkg_in_std) break :blk false;
+                    if (!mod.main_pkg_is_std) break :blk false;
                     const std_pkg = mod.main_pkg.table.get("std").?;
                     if (std_pkg != decl_pkg) break :blk false;
                 }
@@ -5185,7 +5185,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
                 if (!is_named_test) break :blk false;
                 if (!comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) {
-                    if (!mod.main_pkg_in_std) break :blk false;
+                    if (!mod.main_pkg_is_std) break :blk false;
                     const std_pkg = mod.main_pkg.table.get("std").?;
                     if (std_pkg != decl_pkg) break :blk false;
                 }
