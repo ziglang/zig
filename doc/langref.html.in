@@ -7840,9 +7840,8 @@ fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
       {#header_open|@alignCast#}
       <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
-      {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
-                      {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
-      except with the alignment adjusted to the new value.
+      {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}?*T{#endsyntax#}, or {#syntax#}[]T{#endsyntax#}.
+      It returns the same type as {#syntax#}ptr{#endsyntax#} except with the alignment adjusted to the new value.
       </p>
       <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
       to the generated code to make sure the pointer is aligned as promised.</p>
@@ -9066,14 +9065,9 @@ pub const PrefetchOptions = struct {
       {#header_open|@ptrToInt#}
       <pre>{#syntax#}@ptrToInt(value: anytype) usize{#endsyntax#}</pre>
       <p>
-      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer. {#syntax#}value{#endsyntax#} can be one of these types:
+      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer.
+      {#syntax#}value{#endsyntax#} can be {#syntax#}*T{#endsyntax#} or {#syntax#}?*T{#endsyntax#}.
       </p>
-      <ul>
-          <li>{#syntax#}*T{#endsyntax#}</li>
-          <li>{#syntax#}?*T{#endsyntax#}</li>
-          <li>{#syntax#}fn(){#endsyntax#}</li>
-          <li>{#syntax#}?fn(){#endsyntax#}</li>
-      </ul>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
       {#header_close#}
