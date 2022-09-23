@@ -11107,6 +11107,7 @@ fn maybeErrorUnwrapCondbr(sema: *Sema, block: *Block, body: []const Zir.Inst.Ind
         return;
     }
     if (try sema.resolveDefinedValue(block, cond_src, err_operand)) |val| {
+        if (!operand_ty.isError()) return;
         if (val.getError() == null) return;
         try sema.maybeErrorUnwrapComptime(block, body, err_operand);
     }
