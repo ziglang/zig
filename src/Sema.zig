@@ -15731,6 +15731,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         .Struct => return sema.structInitEmpty(block, obj_ty, src, src),
         .Array, .Vector => return sema.arrayInitEmpty(block, src, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
+        .Union => return sema.fail(block, src, "union initializer must initialize one field", .{}),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
 }
@@ -25687,7 +25688,7 @@ fn coerceAnonStructToUnion(
             ) else try sema.errMsg(
                 block,
                 inst_src,
-                "cannot initialize none union fields, unions can only have one active field",
+                "union initializer must initialize one field",
                 .{},
             );
             errdefer msg.destroy(sema.gpa);
