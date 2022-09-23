@@ -5692,10 +5692,9 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     inner_block.error_return_trace_index = error_return_trace_index;
 
     sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
-        // TODO make these unreachable instead of @panic
-        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
-        error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
-        error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        error.ComptimeReturn => unreachable,
         else => |e| return e,
     };
 
@@ -5717,11 +5716,10 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
         !sema.fn_ret_ty.isError(mod))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
-            // TODO make these unreachable instead of @panic
-            error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
-            error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
-            error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
-            error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            error.ComptimeBreak => unreachable,
             else => |e| return e,
         };
     }
@@ -5742,6 +5740,59 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
     func.state = .success;
+
+    // Next we must look at all the function calls and determine two pieces of information:
+    // * for each call, whether the called function is async
+    // * whether this function making the calls is async
+    // This happens *after* setting func.state to success above so that any
+    // recursive check on this function will not cause an infinite loop.
+    // Both of these pieces of information are needed by backends for machine code lowering.
+    {
+        const air = sema.getTmpAir();
+        const air_tags = air.instructions.items(.tag);
+        const air_datas = air.instructions.items(.data);
+        for (air_tags, 0..) |air_tag, inst| {
+            var is_suspend_point = false;
+            const callee = switch (air_tag) {
+                .call, .call_always_tail, .call_never_tail, .call_never_inline => c: {
+                    is_suspend_point = true;
+                    const pl_op = air_datas[inst].pl_op;
+                    break :c pl_op.operand;
+                },
+                .call_async => c: {
+                    const pl_op = air_datas[inst].pl_op;
+                    break :c pl_op.operand;
+                },
+                .call_async_alloc => c: {
+                    const ty_pl = air.instructions.items(.data)[inst].ty_pl;
+                    const extra = air.extraData(Air.AsyncCallAlloc, ty_pl.payload);
+                    break :c extra.data.callee;
+                },
+                else => continue,
+            };
+            const callee_val = (try air.value(callee, mod)) orelse continue;
+            const callee_decl_index = switch (mod.intern_pool.indexToKey(callee_val.toIntern())) {
+                .extern_func => continue, // extern functions cannot be async
+                .func => |f| mod.funcPtr(f.index).owner_decl,
+                else => unreachable,
+            };
+            const callee_decl = mod.declPtr(callee_decl_index);
+            const callee_func_index = callee_decl.getOwnedFunctionIndex(mod).unwrap() orelse continue;
+            const callee_status = sema.getFuncAsyncStatus(callee_func_index) catch |err| switch (err) {
+                error.NeededSourceLocation => unreachable,
+                error.GenericPoison => unreachable,
+                error.ComptimeReturn => unreachable,
+                error.ComptimeBreak => unreachable,
+                error.AnalysisFail => continue, // treat this callee as non-async
+                else => |e| return e,
+            };
+            if (is_suspend_point) switch (callee_status) {
+                .unknown => unreachable,
+                .not_async => continue,
+                .yes_async => func.async_status = .yes_async,
+            };
+        }
+    }
     if (func.async_status == .unknown) {
         func.async_status = .not_async;
     }

@@ -1,3 +1,9 @@
+ * calling getFuncAsyncStatus is triggering machine code lowering too early,
+   because the function which does not yet know its own async status may get called
+   recursively by one of the callees.
+   - don't do any lowering to machine code until async status has been resolved for
+     the local call graph sub-tree.
+
  * detect when a called function is async and make the caller async too
  * generate the async frame type *after* lowering the function to LLVM IR
  * calculate frame size after llvm lowering, ability to inspect with `@sizeOf`
@@ -11,3 +17,4 @@
  * use function pointers instead of resume index to...
    - reduce the number of runtime branches from 2 to 1
    - pass function arguments as normal arguments to the first segment
+

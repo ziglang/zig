@@ -961,7 +961,11 @@ pub const Object = struct {
         defer args.deinit();
 
         {
-            var llvm_arg_i = @as(c_uint, @intFromBool(ret_ptr != null)) + @intFromBool(err_return_tracing);
+            var llvm_arg_i =
+                @as(c_uint, @intFromBool(ret_ptr != null)) +
+                @intFromBool(err_return_tracing) +
+                @intFromBool(func.isAsync());
+
             var it = iterateParamTypes(o, fn_info);
             while (it.next()) |lowering| switch (lowering) {
                 .no_bits => continue,
@@ -1215,25 +1219,27 @@ pub const Object = struct {
         };
         defer fg.deinit();
 
-        if (func.isAsync()) {
-            const frame_ty = try mod.asyncFrameType(func_index);
-            const frame_size = frame_ty.abiSize(mod);
-            const llvm_usize = dg.context.intType(target.ptrBitWidth());
-            const size_val = llvm_usize.constInt(frame_size, .False);
-            llvm_func.functionSetPrefixData(size_val);
+        const llvm_usize = o.context.intType(target.ptrBitWidth());
 
-            const async_preamble_bb = dg.context.appendBasicBlock(llvm_func, "AsyncSwitch");
-            const bad_resume_bb = dg.context.appendBasicBlock(llvm_func, "BadResume");
+        if (func.isAsync()) {
+            const bad_resume_bb = o.context.appendBasicBlock(llvm_func, "BadResume");
             builder.positionBuilderAtEnd(bad_resume_bb);
             _ = builder.buildUnreachable(); // TODO make this a safety panic
 
-            builder.positionBuilderAtEnd(async_preamble_bb);
+            builder.positionBuilderAtEnd(entry_block);
             const l = asyncFrameLayout();
-            const frame_llvm_ty = try dg.lowerType(frame_ty);
+            const frame_llvm_ty = try o.lowerAsyncFrameHeader(fn_info.return_type.toType());
             const frame_ptr = llvm_func.getParam(0);
             fg.resume_index_ptr = builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.resume_index, "");
             const resume_index = builder.buildLoad(llvm_usize, fg.resume_index_ptr, "");
             fg.async_switch = builder.buildSwitch(resume_index, bad_resume_bb, 4);
+
+            const init_bb = o.context.appendBasicBlock(llvm_func, "Init");
+            const new_block_index = fg.resume_block_index;
+            fg.resume_block_index += 1;
+            const new_block_index_llvm_val = llvm_usize.constInt(new_block_index, .False);
+            fg.async_switch.addCase(new_block_index_llvm_val, init_bb);
+            builder.positionBuilderAtEnd(init_bb);
         }
 
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
@@ -1245,6 +1251,12 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+
+        if (func.isAsync()) {
+            const frame_size = 3 * (target.ptrBitWidth() / 8);
+            const size_val = llvm_usize.constInt(frame_size, .False);
+            llvm_func.functionSetPrefixData(size_val);
+        }
 
         try o.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
     }
@@ -2499,16 +2511,20 @@ pub const Object = struct {
         const mod = o.module;
         const gpa = o.gpa;
         const decl = mod.declPtr(decl_index);
-        const zig_fn_type = decl.ty;
         const gop = try o.decl_map.getOrPut(gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.*;
 
         assert(decl.has_tv);
-        const fn_info = mod.typeToFunc(zig_fn_type).?;
+        const func = decl.getOwnedFunction(mod).?;
+        const zig_fn_type = decl.ty;
+        const fn_info = info: {
+            var info = mod.typeToFunc(zig_fn_type).?;
+            if (func.isAsync()) info.cc = .Async;
+            break :info info;
+        };
         const target = mod.getTarget();
         const sret = firstParamSRet(fn_info, mod);
-
-        const fn_type = try o.lowerType(zig_fn_type);
+        const fn_type = try o.lowerTypeFn(fn_info);
 
         const fqn = try decl.getFullyQualifiedName(mod);
 
@@ -2531,31 +2547,32 @@ pub const Object = struct {
             }
         }
 
+        var llvm_param_i: u32 = 0;
+
         if (sret) {
-            o.addArgAttr(llvm_fn, 0, "nonnull"); // Sret pointers must not be address 0
-            o.addArgAttr(llvm_fn, 0, "noalias");
+            o.addArgAttr(llvm_fn, llvm_param_i, "nonnull"); // Sret pointers must not be address 0
+            o.addArgAttr(llvm_fn, llvm_param_i, "noalias");
 
             const raw_llvm_ret_ty = try o.lowerType(fn_info.return_type.toType());
             llvm_fn.addSretAttr(raw_llvm_ret_ty);
+
+            llvm_param_i += 1;
         }
 
         const err_return_tracing = fn_info.return_type.toType().isError(mod) and
             mod.comp.bin_file.options.error_return_tracing;
 
         if (err_return_tracing) {
-            o.addArgAttr(llvm_fn, @intFromBool(sret), "nonnull");
+            o.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
+            llvm_param_i += 1;
         }
 
         switch (fn_info.cc) {
-            .Unspecified, .Inline => {
+            .Unspecified, .Inline, .Async => {
                 llvm_fn.setFunctionCallConv(.Fast);
             },
             .Naked => {
                 o.addFnAttr(llvm_fn, "naked");
-            },
-            .Async => {
-                llvm_fn.setFunctionCallConv(.Fast);
-                @panic("TODO: LLVM backend lower async function");
             },
             else => {
                 llvm_fn.setFunctionCallConv(toLlvmCallConv(fn_info.cc, target));
@@ -2577,8 +2594,7 @@ pub const Object = struct {
         // because functions with bodies are handled in `updateFunc`.
         if (is_extern) {
             var it = iterateParamTypes(o, fn_info);
-            it.llvm_index += @intFromBool(sret);
-            it.llvm_index += @intFromBool(err_return_tracing);
+            it.llvm_index += llvm_param_i;
             while (it.next()) |lowering| switch (lowering) {
                 .byval => {
                     const param_index = it.zig_index - 1;
@@ -3052,7 +3068,7 @@ pub const Object = struct {
                 llvm_union_ty.structSetBody(&llvm_fields, llvm_fields_len, .False);
                 return llvm_union_ty;
             },
-            .Fn => return lowerTypeFn(o, t),
+            .Fn => return lowerTypeFn(o, mod.typeToFunc(t).?),
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
             .Type => unreachable,
@@ -3089,12 +3105,16 @@ pub const Object = struct {
     }
 
     fn lowerAsyncFrameHeader(o: *Object, ret_ty: Type) !*llvm.Type {
+        const mod = o.module;
         const opaque_ptr_ty = o.context.pointerType(0);
         const l = asyncFrameLayout();
         var fields: [4]*llvm.Type = undefined;
         fields[l.fn_ptr] = opaque_ptr_ty;
         fields[l.resume_index] = try o.lowerType(Type.usize);
         fields[l.awaiter] = opaque_ptr_ty;
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            return o.context.structType(&fields, 3, .False);
+        }
         fields[l.ret_val] = try o.lowerType(ret_ty);
         return o.context.structType(&fields, fields.len, .False);
     }
@@ -3122,23 +3142,29 @@ pub const Object = struct {
         return llvm_struct_ty;
     }
 
-    fn lowerTypeFn(o: *Object, fn_ty: Type) Allocator.Error!*llvm.Type {
+    fn lowerTypeFn(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!*llvm.Type {
         const mod = o.module;
-        const fn_info = mod.typeToFunc(fn_ty).?;
         const llvm_ret_ty = try lowerFnRetTy(o, fn_info);
 
         var llvm_params = std.ArrayList(*llvm.Type).init(o.gpa);
         defer llvm_params.deinit();
 
+        try llvm_params.ensureUnusedCapacity(3);
+
         if (firstParamSRet(fn_info, mod)) {
-            try llvm_params.append(o.context.pointerType(0));
+            llvm_params.appendAssumeCapacity(o.context.pointerType(0));
+        }
+
+        if (fn_info.cc == .Async) {
+            // frame_ptr
+            llvm_params.appendAssumeCapacity(o.context.pointerType(0));
         }
 
         if (fn_info.return_type.toType().isError(mod) and
             mod.comp.bin_file.options.error_return_tracing)
         {
             const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
-            try llvm_params.append(try o.lowerType(ptr_ty));
+            llvm_params.appendAssumeCapacity(try o.lowerType(ptr_ty));
         }
 
         var it = iterateParamTypes(o, fn_info);
@@ -4860,9 +4886,11 @@ pub const FuncGen = struct {
     }
 
     fn genSuspendBegin(fg: *FuncGen, name_hint: [*:0]const u8) *llvm.BasicBlock {
-        const target = fg.getTarget();
-        const llvm_usize = fg.dg.context.intType(target.ptrBitWidth());
-        const resume_bb = fg.context.appendBasicBlock(fg.llvm_func, name_hint);
+        const o = fg.dg.object;
+        const mod = o.module;
+        const target = mod.getTarget();
+        const llvm_usize = o.context.intType(target.ptrBitWidth());
+        const resume_bb = o.context.appendBasicBlock(fg.llvm_func, name_hint);
         const new_block_index = fg.resume_block_index;
         fg.resume_block_index += 1;
         const new_block_index_llvm_val = llvm_usize.constInt(new_block_index, .False);
