@@ -20841,9 +20841,9 @@ fn validateExternType(
         .Opaque,
         .Bool,
         .Float,
-        .Pointer,
         .AnyFrame,
         => return true,
+        .Pointer => return !ty.isSlice(),
         .Int => switch (ty.intInfo(sema.mod.getTarget()).bits) {
             8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -20886,7 +20886,6 @@ fn explainWhyTypeIsNotExtern(
         .Opaque,
         .Bool,
         .Float,
-        .Pointer,
         .AnyFrame,
         => return,
 
@@ -20902,6 +20901,7 @@ fn explainWhyTypeIsNotExtern(
         .Frame,
         => return,
 
+        .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
         .NoReturn => try mod.errNoteNonLazy(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
         .Int => if (ty.intInfo(sema.mod.getTarget()).bits > 128) {
@@ -20960,11 +20960,11 @@ fn validatePackedType(ty: Type) bool {
         .Void,
         .Bool,
         .Float,
-        .Pointer,
         .Int,
         .Vector,
         .Enum,
         => return true,
+        .Pointer => return !ty.isSlice(),
         .Struct, .Union => return ty.containerLayout() == .Packed,
     }
 }
@@ -20980,7 +20980,6 @@ fn explainWhyTypeIsNotPacked(
         .Void,
         .Bool,
         .Float,
-        .Pointer,
         .Int,
         .Vector,
         .Enum,
@@ -21001,6 +21000,7 @@ fn explainWhyTypeIsNotPacked(
         .Optional,
         .Array,
         => try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{}),
+        .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
         .Fn => {
             try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
             try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
