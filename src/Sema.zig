@@ -15966,8 +15966,8 @@ fn zirStructInit(
     const first_item = sema.code.extraData(Zir.Inst.StructInit.Item, extra.end).data;
     const first_field_type_data = zir_datas[first_item.field_type].pl_node;
     const first_field_type_extra = sema.code.extraData(Zir.Inst.FieldType, first_field_type_data.payload_index).data;
-    const unresolved_struct_type = try sema.resolveType(block, src, first_field_type_extra.container_type);
-    const resolved_ty = try sema.resolveTypeFields(block, src, unresolved_struct_type);
+    const resolved_ty = try sema.resolveType(block, src, first_field_type_extra.container_type);
+    try sema.resolveTypeLayout(block, src, resolved_ty);
 
     if (resolved_ty.zigTypeTag() == .Struct) {
         // This logic must be synchronized with that in `zirStructInitEmpty`.
