@@ -23014,9 +23014,37 @@ fn coerceExtra(
                 const dest_is_mut = dest_info.mutable;
 
                 const dst_elem_type = dest_info.pointee_type;
-                switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src)) {
+                const elem_res = try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src);
+                switch (elem_res) {
                     .ok => {},
-                    else => break :src_array_ptr,
+                    else => {
+                        in_memory_result = .{ .ptr_child = .{
+                            .child = try elem_res.dupe(sema.arena),
+                            .actual = array_elem_type,
+                            .wanted = dst_elem_type,
+                        } };
+                        break :src_array_ptr;
+                    },
+                }
+
+                if (dest_info.sentinel) |dest_sent| {
+                    if (array_ty.sentinel()) |inst_sent| {
+                        if (!dest_sent.eql(inst_sent, dst_elem_type, sema.mod)) {
+                            in_memory_result = .{ .ptr_sentinel = .{
+                                .actual = inst_sent,
+                                .wanted = dest_sent,
+                                .ty = dst_elem_type,
+                            } };
+                            break :src_array_ptr;
+                        }
+                    } else {
+                        in_memory_result = .{ .ptr_sentinel = .{
+                            .actual = Value.initTag(.unreachable_value),
+                            .wanted = dest_sent,
+                            .ty = dst_elem_type,
+                        } };
+                        break :src_array_ptr;
+                    }
                 }
 
                 switch (dest_info.size) {
@@ -23030,17 +23058,7 @@ fn coerceExtra(
                     },
                     .Many => {
                         // *[N]T to [*]T
-                        // *[N:s]T to [*:s]T
-                        // *[N:s]T to [*]T
-                        if (dest_info.sentinel) |dst_sentinel| {
-                            if (array_ty.sentinel()) |src_sentinel| {
-                                if (src_sentinel.eql(dst_sentinel, dst_elem_type, sema.mod)) {
-                                    return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
-                                }
-                            }
-                        } else {
-                            return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
-                        }
+                        return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
                     .One => {},
                 }
