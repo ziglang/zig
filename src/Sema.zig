@@ -21052,7 +21052,11 @@ fn addSafetyCheck(
 
     defer fail_block.instructions.deinit(gpa);
 
-    _ = try sema.safetyPanic(&fail_block, .unneeded, panic_id);
+    // This function doesn't actually need a src location but if
+    // the panic function interface ever changes passing `.unneeded` here
+    // will cause confusing panics.
+    const src = sema.src;
+    _ = try sema.safetyPanic(&fail_block, src, panic_id);
 
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
