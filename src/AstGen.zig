@@ -335,6 +335,8 @@ pub const ResultInfo = struct {
         error_handling_expr,
         /// The expression is the right-hand side of a shift operation.
         shift_op,
+        /// The expression is an argument in a function call.
+        fn_arg,
         /// No specific operator in particular.
         none,
     };
@@ -5217,9 +5219,9 @@ fn popErrorReturnTrace(
 
     const result_is_err = nodeMayEvalToError(tree, node);
 
-    // If we are breaking to a try/catch/error-union-if/return, the error trace propagates.
+    // If we are breaking to a try/catch/error-union-if/return or a function call, the error trace propagates.
     const propagate_error_trace = switch (ri.ctx) {
-        .error_handling_expr, .@"return" => true,
+        .error_handling_expr, .@"return", .fn_arg => true,
         else => false,
     };
 
@@ -8548,7 +8550,7 @@ fn callExpr(
         defer arg_block.unstack();
 
         // `call_inst` is reused to provide the param type.
-        const arg_ref = try expr(&arg_block, &arg_block.base, .{ .rl = .{ .coerced_ty = call_inst } }, param_node);
+        const arg_ref = try expr(&arg_block, &arg_block.base, .{ .rl = .{ .coerced_ty = call_inst }, .ctx = .fn_arg }, param_node);
         _ = try arg_block.addBreak(.break_inline, call_index, arg_ref);
 
         const body = arg_block.instructionsSlice();
@@ -8562,7 +8564,7 @@ fn callExpr(
     // If our result location is a try/catch/error-union-if/return, the error trace propagates.
     // Otherwise, it should always be popped (handled in Sema).
     const propagate_error_trace = switch (ri.ctx) {
-        .error_handling_expr, .@"return" => true, // Propagate to try/catch/error-union-if and return
+        .error_handling_expr, .@"return", .fn_arg => true, // Propagate to try/catch/error-union-if, return, and other function calls
         else => false,
     };
 

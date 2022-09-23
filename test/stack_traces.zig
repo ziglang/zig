@@ -261,6 +261,75 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
+        .name = "error passed to function has its trace preserved for duration of the call",
+        .source = 
+        \\pub fn expectError(expected_error: anyerror, actual_error: anyerror!void) !void {
+        \\    actual_error catch |err| {
+        \\        if (err == expected_error) return {};
+        \\    };
+        \\    return error.TestExpectedError;
+        \\}
+        \\
+        \\fn alwaysErrors() !void { return error.ThisErrorShouldNotAppearInAnyTrace; }
+        \\fn foo() !void { return error.Foo; }
+        \\
+        \\pub fn main() !void {
+        \\    try expectError(error.ThisErrorShouldNotAppearInAnyTrace, alwaysErrors());
+        \\    try expectError(error.ThisErrorShouldNotAppearInAnyTrace, alwaysErrors());
+        \\    try expectError(error.Foo, foo());
+        \\
+        \\    // Only the error trace for this failing check should appear:
+        \\    try expectError(error.Bar, foo());
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: TestExpectedError
+            \\source.zig:9:18: [address] in foo (test)
+            \\fn foo() !void { return error.Foo; }
+            \\                 ^
+            \\source.zig:5:5: [address] in expectError (test)
+            \\    return error.TestExpectedError;
+            \\    ^
+            \\source.zig:17:5: [address] in main (test)
+            \\    try expectError(error.Bar, foo());
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+            },
+            .expect = 
+            \\error: TestExpectedError
+            \\source.zig:9:18: [address] in [function]
+            \\fn foo() !void { return error.Foo; }
+            \\                 ^
+            \\source.zig:5:5: [address] in [function]
+            \\    return error.TestExpectedError;
+            \\    ^
+            \\source.zig:17:5: [address] in [function]
+            \\    try expectError(error.Bar, foo());
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: TestExpectedError
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: TestExpectedError
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return from within catch",
         .source = 
         \\fn foo() !void {
