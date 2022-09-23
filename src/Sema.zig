@@ -22027,6 +22027,7 @@ fn structFieldPtrByIndex(
     var ptr_ty_data: Type.Payload.Pointer.Data = .{
         .pointee_type = field.ty,
         .mutable = struct_ptr_ty_info.mutable,
+        .@"volatile" = struct_ptr_ty_info.@"volatile",
         .@"addrspace" = struct_ptr_ty_info.@"addrspace",
     };
 
@@ -22246,6 +22247,7 @@ fn unionFieldPtr(
     const ptr_field_ty = try Type.ptr(arena, sema.mod, .{
         .pointee_type = field.ty,
         .mutable = union_ptr_ty.ptrIsMutable(),
+        .@"volatile" = union_ptr_ty.isVolatilePtr(),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
     });
     const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
@@ -22568,6 +22570,7 @@ fn tupleFieldPtr(
     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = field_ty,
         .mutable = tuple_ptr_ty.ptrIsMutable(),
+        .@"volatile" = tuple_ptr_ty.isVolatilePtr(),
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
 
