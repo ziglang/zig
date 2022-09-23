@@ -8772,7 +8772,7 @@ test "@hasDecl" {
               The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
           <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file
-              This is usually `src/main.zig` but it depends on what file is chosen to be built.
+              This is usually <code>src/main.zig</code> but it depends on what file is chosen to be built.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
