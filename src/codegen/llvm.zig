@@ -2399,8 +2399,7 @@ pub const DeclGen = struct {
                     // mismatch, because we don't have the LLVM type until the *value* is created,
                     // whereas the global needs to be created based on the type alone, because
                     // lowering the value may reference the global as a pointer.
-                    const llvm_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
-                    const llvm_global_addrspace = toLlvmGlobalAddressSpace(llvm_addrspace, target);
+                    const llvm_global_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
                     const new_global = dg.object.llvm_module.addGlobalInAddressSpace(
                         llvm_init.typeOf(),
                         "",
@@ -2414,12 +2413,9 @@ pub const DeclGen = struct {
                     // replaceAllUsesWith requires the type to be unchanged. So we convert
                     // the new global to the old type and use that as the thing to replace
                     // old uses.
-                    const new_global_ptr = if (llvm_addrspace != llvm_global_addrspace)
-                        new_global.constAddrSpaceCast(llvm_init.typeOf().pointerType(llvm_addrspace))
-                    else
-                        new_global;
-                    const new_global_casted_ptr = new_global_ptr.constBitCast(global.typeOf());
-                    global.replaceAllUsesWith(new_global_casted_ptr);
+                    // TODO: How should this work then the address space of a global changed?
+                    const new_global_ptr = new_global.constBitCast(global.typeOf());
+                    global.replaceAllUsesWith(new_global_ptr);
                     dg.object.decl_map.putAssumeCapacity(decl_index, new_global);
                     new_global.takeName(global);
                     global.deleteGlobal();
@@ -2617,11 +2613,12 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
 
         const llvm_type = try dg.lowerType(decl.ty);
-        const llvm_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
+        const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
+
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(
             llvm_type,
             fqn,
-            toLlvmGlobalAddressSpace(llvm_addrspace, target),
+            llvm_actual_addrspace,
         );
         gop.value_ptr.* = llvm_global;
 
@@ -3241,16 +3238,18 @@ pub const DeclGen = struct {
                     const decl_index = tv.val.castTag(.variable).?.data.owner_decl;
                     const decl = dg.module.declPtr(decl_index);
                     dg.module.markDeclAlive(decl);
+
+                    const llvm_wanted_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
+                    const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
+
                     const llvm_var_type = try dg.lowerType(tv.ty);
-                    const llvm_var_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
-                    const llvm_global_addrspace = toLlvmGlobalAddressSpace(llvm_var_addrspace, target);
-                    const llvm_var_ptr_type = llvm_var_type.pointerType(llvm_global_addrspace);
+                    const llvm_actual_ptr_type = llvm_var_type.pointerType(llvm_actual_addrspace);
 
                     const val = try dg.resolveGlobalDecl(decl_index);
-                    const val_ptr = val.constBitCast(llvm_var_ptr_type);
-                    if (llvm_global_addrspace != llvm_var_addrspace) {
-                        const llvm_ptr_type = llvm_var_type.pointerType(llvm_var_addrspace);
-                        return val_ptr.constAddrSpaceCast(llvm_ptr_type);
+                    const val_ptr = val.constBitCast(llvm_actual_ptr_type);
+                    if (llvm_actual_addrspace != llvm_wanted_addrspace) {
+                        const llvm_wanted_ptr_type = llvm_var_type.pointerType(llvm_wanted_addrspace);
+                        return val_ptr.constAddrSpaceCast(llvm_wanted_ptr_type);
                     }
                     return val_ptr;
                 },
@@ -4055,12 +4054,12 @@ pub const DeclGen = struct {
             try self.resolveGlobalDecl(decl_index);
 
         const target = self.module.getTarget();
-        const llvm_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
-        const llvm_global_addrspace = toLlvmGlobalAddressSpace(llvm_addrspace, target);
-        const llvm_val = if (llvm_addrspace != llvm_global_addrspace) blk: {
+        const llvm_wanted_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
+        const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
+        const llvm_val = if (llvm_wanted_addrspace != llvm_actual_addrspace) blk: {
             const llvm_decl_ty = try self.lowerType(decl.ty);
-            const llvm_decl_ptr_ty = llvm_decl_ty.pointerType(llvm_addrspace);
-            break :blk llvm_decl_val.constAddrSpaceCast(llvm_decl_ptr_ty);
+            const llvm_decl_wanted_ptr_ty = llvm_decl_ty.pointerType(llvm_wanted_addrspace);
+            break :blk llvm_decl_val.constAddrSpaceCast(llvm_decl_wanted_ptr_ty);
         } else llvm_decl_val;
 
         const llvm_type = try self.lowerType(tv.ty);
@@ -4328,9 +4327,9 @@ pub const FuncGen = struct {
         // We have an LLVM value but we need to create a global constant and
         // set the value as its initializer, and then return a pointer to the global.
         const target = self.dg.module.getTarget();
-        const llvm_addrspace = toLlvmAddressSpace(.generic, target);
-        const llvm_global_addrspace = toLlvmGlobalAddressSpace(llvm_addrspace, target);
-        const global = self.dg.object.llvm_module.addGlobalInAddressSpace(llvm_val.typeOf(), "", llvm_global_addrspace);
+        const llvm_wanted_addrspace = toLlvmAddressSpace(.generic, target);
+        const llvm_actual_addrspace = toLlvmGlobalAddressSpace(.generic, target);
+        const global = self.dg.object.llvm_module.addGlobalInAddressSpace(llvm_val.typeOf(), "", llvm_actual_addrspace);
         global.setInitializer(llvm_val);
         global.setLinkage(.Private);
         global.setGlobalConstant(.True);
@@ -4340,10 +4339,13 @@ pub const FuncGen = struct {
         // the type of global constants might not match the type it is supposed to
         // be, and so we must bitcast the pointer at the usage sites.
         const wanted_llvm_ty = try self.dg.lowerType(ty);
-        const wanted_bitcasted_llvm_ptr_ty = wanted_llvm_ty.pointerType(llvm_global_addrspace);
+        const wanted_bitcasted_llvm_ptr_ty = wanted_llvm_ty.pointerType(llvm_actual_addrspace);
         const bitcasted_ptr = global.constBitCast(wanted_bitcasted_llvm_ptr_ty);
-        const wanted_llvm_ptr_ty = wanted_llvm_ty.pointerType(llvm_addrspace);
-        const casted_ptr = bitcasted_ptr.constAddrSpaceCast(wanted_llvm_ptr_ty);
+        const wanted_llvm_ptr_ty = wanted_llvm_ty.pointerType(llvm_wanted_addrspace);
+        const casted_ptr = if (llvm_wanted_addrspace != llvm_actual_addrspace)
+            bitcasted_ptr.constAddrSpaceCast(wanted_llvm_ptr_ty)
+        else
+            bitcasted_ptr;
         gop.value_ptr.* = casted_ptr;
         return casted_ptr;
     }
@@ -9948,13 +9950,13 @@ fn llvmDefaultGlobalAddressSpace(target: std.Target) c_uint {
     };
 }
 
-/// If `llvm_addrspace` is generic, convert it to the actual address space that globals
-/// should be stored in by default.
-fn toLlvmGlobalAddressSpace(llvm_addrspace: c_uint, target: std.Target) c_uint {
-    return if (llvm_addrspace == llvm.address_space.default)
-        llvmDefaultGlobalAddressSpace(target)
-    else
-        llvm_addrspace;
+/// Return the actual address space that a value should be stored in if its a global address space.
+/// When a value is placed in the resulting address space, it needs to be cast back into wanted_address_space.
+fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, target: std.Target) c_uint {
+    return switch (wanted_address_space) {
+        .generic => llvmDefaultGlobalAddressSpace(target),
+        else => |as| toLlvmAddressSpace(as, target),
+    };
 }
 
 /// Take into account 0 bit fields and padding. Returns null if an llvm
