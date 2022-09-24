@@ -457,6 +457,7 @@ pub const File = struct {
         Unseekable,
         PermissionDenied,
         SwapFile,
+        CorruptedData,
         SystemResources,
         OperationAborted,
         BrokenPipe,

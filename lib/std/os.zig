@@ -6314,6 +6314,7 @@ pub const CopyFileRangeError = error{
     Unseekable,
     PermissionDenied,
     SwapFile,
+    CorruptedData,
 } || PReadError || PWriteError || UnexpectedError;
 
 var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
@@ -6339,44 +6340,56 @@ var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
 ///
 /// These systems support in-kernel data copying:
 /// * Linux 4.5 (cross-filesystem 5.3)
+/// * FreeBSD 13.0
 ///
 /// Other systems fall back to calling `pread` / `pwrite`.
 ///
-/// Maximum offsets on Linux are `math.maxInt(i64)`.
+/// Maximum offsets on Linux and FreeBSD are `math.maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    const call_cfr = comptime if (builtin.os.tag == .wasi)
-        // WASI-libc doesn't have copy_file_range.
-        false
-    else if (builtin.link_libc)
-        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok
-    else
-        builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-
-    if (call_cfr and has_copy_file_range_syscall.load(.Monotonic)) {
+    if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0 }) orelse false) or
+        ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse false and
+        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok) and
+        has_copy_file_range_syscall.load(.Monotonic)))
+    {
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
-        const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
-        switch (system.getErrno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
-            .BADF => return error.FilesOpenedWithWrongFlags,
-            .FBIG => return error.FileTooBig,
-            .IO => return error.InputOutput,
-            .ISDIR => return error.IsDir,
-            .NOMEM => return error.OutOfMemory,
-            .NOSPC => return error.NoSpaceLeft,
-            .OVERFLOW => return error.Unseekable,
-            .PERM => return error.PermissionDenied,
-            .TXTBSY => return error.SwapFile,
-            // these may not be regular files, try fallback
-            .INVAL => {},
-            // support for cross-filesystem copy added in Linux 5.3, use fallback
-            .XDEV => {},
-            // syscall added in Linux 4.5, use fallback
-            .NOSYS => {
-                has_copy_file_range_syscall.store(false, .Monotonic);
-            },
-            else => |err| return unexpectedErrno(err),
+        while (true) {
+            const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+            if (builtin.os.tag == .freebsd) {
+                switch (system.getErrno(rc)) {
+                    .SUCCESS => return @intCast(usize, rc),
+                    .BADF => return error.FilesOpenedWithWrongFlags,
+                    .FBIG => return error.FileTooBig,
+                    .IO => return error.InputOutput,
+                    .ISDIR => return error.IsDir,
+                    .NOSPC => return error.NoSpaceLeft,
+                    .INVAL => break, // these may not be regular files, try fallback
+                    .INTEGRITY => return error.CorruptedData,
+                    .INTR => continue,
+                    else => |err| return unexpectedErrno(err),
+                }
+            } else { // assume linux
+                switch (system.getErrno(rc)) {
+                    .SUCCESS => return @intCast(usize, rc),
+                    .BADF => return error.FilesOpenedWithWrongFlags,
+                    .FBIG => return error.FileTooBig,
+                    .IO => return error.InputOutput,
+                    .ISDIR => return error.IsDir,
+                    .NOSPC => return error.NoSpaceLeft,
+                    .INVAL => break, // these may not be regular files, try fallback
+                    .NOMEM => return error.OutOfMemory,
+                    .OVERFLOW => return error.Unseekable,
+                    .PERM => return error.PermissionDenied,
+                    .TXTBSY => return error.SwapFile,
+                    .XDEV => break, // support for cross-filesystem copy added in Linux 5.3, use fallback
+                    .NOSYS => { // syscall added in Linux 4.5, use fallback
+                        has_copy_file_range_syscall.store(false, .Monotonic);
+                        break;
+                    },
+                    else => |err| return unexpectedErrno(err),
+                }
+            }
         }
     }
 
