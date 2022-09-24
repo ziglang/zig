@@ -2786,6 +2786,12 @@ pub const Type = extern union {
 
             .pointer => self.castTag(.pointer).?.data.@"addrspace",
 
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_type = self.optionalChild(&buf);
+                return child_type.ptrAddressSpace();
+            },
+
             else => unreachable,
         };
     }

@@ -18181,11 +18181,10 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const ptr = try sema.resolveInst(extra.rhs);
     const ptr_ty = sema.typeOf(ptr);
 
-    // TODO in addition to pointers, this instruction is supposed to work for
-    // pointer-like optionals and slices.
     try sema.checkPtrOperand(block, ptr_src, ptr_ty);
 
-    const src_addrspace = ptr_ty.ptrAddressSpace();
+    var ptr_info = ptr_ty.ptrInfo().data;
+    const src_addrspace = ptr_info.@"addrspace";
     if (!target_util.addrSpaceCastIsValid(sema.mod.getTarget(), src_addrspace, dest_addrspace)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "invalid address space cast", .{});
@@ -18196,16 +18195,12 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    const ptr_info = ptr_ty.ptrInfo().data;
-    const dest_ty = try Type.ptr(sema.arena, sema.mod, .{
-        .pointee_type = ptr_info.pointee_type,
-        .@"align" = ptr_info.@"align",
-        .@"addrspace" = dest_addrspace,
-        .mutable = ptr_info.mutable,
-        .@"allowzero" = ptr_info.@"allowzero",
-        .@"volatile" = ptr_info.@"volatile",
-        .size = ptr_info.size,
-    });
+    ptr_info.@"addrspace" = dest_addrspace;
+    const dest_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
+    const dest_ty = if (ptr_ty.zigTypeTag() == .Optional)
+        try Type.optional(sema.arena, dest_ptr_ty)
+    else
+        dest_ptr_ty;
 
     if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |val| {
         // Pointer value should compatible with both address spaces.
@@ -18471,6 +18466,9 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     }
     if (operand_info.@"volatile" and !dest_info.@"volatile") {
         return sema.fail(block, src, "cast discards volatile qualifier", .{});
+    }
+    if (operand_info.@"addrspace" != dest_info.@"addrspace") {
+        return sema.fail(block, src, "cast changes pointer address space", .{});
     }
 
     const dest_is_slice = dest_ty.isSlice();
