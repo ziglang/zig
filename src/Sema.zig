@@ -22572,7 +22572,7 @@ fn panicSentinelMismatch(
     const actual_sentinel = if (ptr_ty.isSlice())
         try parent_block.addBinOp(.slice_elem_val, ptr, sentinel_index)
     else blk: {
-        const elem_ptr_ty = try sema.elemPtrType(ptr_ty, null);
+        const elem_ptr_ty = try sema.elemPtrType(parent_block, sema.src, ptr_ty, null);
         const sentinel_ptr = try parent_block.addPtrElemPtr(ptr, sentinel_index, elem_ptr_ty);
         break :blk try parent_block.addTyOp(.load, sentinel_ty, sentinel_ptr);
     };
@@ -23771,10 +23771,10 @@ fn elemPtr(
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt(target));
                         const elem_ptr = try ptr_val.elemPtr(indexable_ty, sema.arena, index, sema.mod);
-                        const result_ty = try sema.elemPtrType(indexable_ty, index);
+                        const result_ty = try sema.elemPtrType(block, src, indexable_ty, index);
                         return sema.addConstant(result_ty, elem_ptr);
                     };
-                    const result_ty = try sema.elemPtrType(indexable_ty, null);
+                    const result_ty = try sema.elemPtrType(block, src, indexable_ty, null);
 
                     try sema.requireRuntimeBlock(block, src, runtime_src);
                     return block.addPtrElemPtr(indexable, elem_index, result_ty);
@@ -24077,7 +24077,7 @@ fn elemPtrArray(
         break :o index;
     } else null;
 
-    const elem_ptr_ty = try sema.elemPtrType(array_ptr_ty, offset);
+    const elem_ptr_ty = try sema.elemPtrType(block, src, array_ptr_ty, offset);
 
     if (maybe_undef_array_ptr_val) |array_ptr_val| {
         if (array_ptr_val.isUndef()) {
@@ -24182,7 +24182,7 @@ fn elemPtrSlice(
         break :o index;
     } else null;
 
-    const elem_ptr_ty = try sema.elemPtrType(slice_ty, offset);
+    const elem_ptr_ty = try sema.elemPtrType(block, src, slice_ty, offset);
 
     if (maybe_undef_slice_val) |slice_val| {
         if (slice_val.isUndef()) {
@@ -32690,7 +32690,7 @@ fn compareVector(
 /// For []T, returns *T
 /// Handles const-ness and address spaces in particular.
 /// This code is duplicated in `analyzePtrArithmetic`.
-fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
+fn elemPtrType(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_ty: Type, offset: ?usize) !Type {
     const ptr_info = ptr_ty.ptrInfo().data;
     const elem_ty = ptr_ty.elemType2();
     const allow_zero = ptr_info.@"allowzero" and (offset orelse 0) == 0;
@@ -32703,9 +32703,10 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         alignment: u32,
     } = if (parent_ty.tag() == .vector) blk: {
         const elem_bits = elem_ty.bitSize(target);
-        const is_packed = elem_bits != 0 and (elem_bits & (elem_bits - 1)) != 0;
-        // TODO: runtime-known index
-        assert(!is_packed or offset != null);
+        const is_packed = elem_bits != 0 and !math.isPowerOfTwo(elem_bits);
+        if (is_packed and offset == null) {
+            return sema.fail(block, src, "TODO: vector pointer with runtime-known index", .{});
+        }
         const is_packed_with_offset = is_packed and offset != null and offset.? != 0;
         const target_offset = if (is_packed_with_offset) (if (target.cpu.arch.endian() == .Big) (parent_ty.vectorLen() - 1 - offset.?) else offset.?) else 0;
         break :blk .{

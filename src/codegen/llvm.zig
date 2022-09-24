@@ -5781,6 +5781,16 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
         if (ptr_ty.isSinglePointer()) {
+            if (elem_ty.tag() == .vector) {
+                // non-power-of-2 bits case like packed struct.
+                const result_ty = self.air.typeOfIndex(inst);
+                const result_ty_info = result_ty.ptrInfo().data;
+                const result_llvm_ty = try self.dg.lowerType(result_ty);
+
+                if (result_ty_info.host_size != 0) {
+                    return self.builder.buildBitCast(base_ptr, result_llvm_ty, "");
+                }
+            }
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), rhs };
             return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
