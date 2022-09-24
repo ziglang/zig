@@ -1868,9 +1868,11 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
         errdefer msg.destroy(sema.gpa);
 
         const decl_index = container_ty.getOwnerDeclOrNull() orelse break :msg msg;
-
-        const tree = try sema.getAstTree(block);
         const decl = sema.mod.declPtr(decl_index);
+        const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
+            log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
+            return error.AnalysisFail;
+        };
         const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
         const default_value_src: LazySrcLoc = .{ .node_offset_field_default = field_src.node_offset.x };
 
