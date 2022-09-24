@@ -6499,7 +6499,7 @@ export fn entry() void {
   14:	5d                   	pop    %rbp
   15:	c3                   	retq   </code></pre>
       <p>These assembly instructions do not have any code associated with the void values -
-      they only perform the function call prologue and epilog.</p>
+      they only perform the function call prologue and epilogue.</p>
 
       {#header_open|void#}
       <p>
@@ -8334,9 +8334,6 @@ test "main" {
 }
       {#code_end#}
       <p>
-      will output:
-      </p>
-      <p>
       If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
       not encountered by analysis, the
       program compiles successfully and the generated executable prints:
@@ -8679,7 +8676,7 @@ fn func() void {
       This function returns the base pointer of the current stack frame.
       </p>
       <p>
-      The implications of this are target specific and not consistent across all
+      The implications of this are target-specific and not consistent across all
       platforms. The frame address may not be available in release mode due to
       aggressive optimizations.
       </p>
@@ -8768,10 +8765,10 @@ test "@hasDecl" {
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information.
               The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file
+          <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file.
               This is usually <code>src/main.zig</code> but it depends on what file is chosen to be built.
           </li>
       </ul>
@@ -9012,7 +9009,7 @@ test "@wasmMemoryGrow" {
       <p>
       This builtin tells the compiler to emit a prefetch instruction if supported by the
       target CPU. If the target CPU does not support the requested prefetch instruction,
-      this builtin is a noop. This function has no effect on the behavior of the program,
+      this builtin is a no-op. This function has no effect on the behavior of the program,
       only on the performance characteristics.
       </p>
       <p>
@@ -9094,7 +9091,7 @@ pub const PrefetchOptions = struct {
       when the current function returns.
       </p>
       <p>
-      The implications of this are target specific and not consistent across
+      The implications of this are target-specific and not consistent across
       all platforms.
       </p>
       <p>
@@ -9281,7 +9278,7 @@ test "@setRuntimeSafety" {
       Each element in {#syntax#}mask{#endsyntax#} selects an element from either {#syntax#}a{#endsyntax#} or
       {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
       Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
-      It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
+      It is recommended to use the {#syntax#}~{#endsyntax#} operator for indexes from {#syntax#}b{#endsyntax#}
       so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~@as(i32, 0){#endsyntax#} is
       {#syntax#}-1{#endsyntax#}).
       </p>
@@ -9721,7 +9718,7 @@ test "integer truncation" {
       </p>
       <p>
       Type information of {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
-      {#link|error sets|Error Set Type#} has fields which are are guaranteed to be in the same
+      {#link|error sets|Error Set Type#} has fields which are guaranteed to be in the same
       order as appearance in the source file.
       </p>
       <p>
@@ -10545,7 +10542,7 @@ fn concat(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
       {#syntax#}FixedBufferAllocator{#endsyntax#}, which is then passed to a function.
       As a convenience there is a global {#syntax#}FixedBufferAllocator{#endsyntax#}
       available for quick tests at {#syntax#}std.testing.allocator{#endsyntax#},
-      which will also do perform basic leak detection.
+      which will also perform basic leak detection.
       </p>
       <p>
       Zig has a general purpose allocator available to be imported
@@ -11079,7 +11076,7 @@ pub fn main() void {
       <p>
         C Translation makes a best-effort attempt to translate function-like macros into equivalent
         Zig functions. Since C macros operate at the level of lexical tokens, not all C macros
-        can be translated to Zig. Macros that cannot be translated will be be demoted to
+        can be translated to Zig. Macros that cannot be translated will be demoted to
         {#syntax#}@compileError{#endsyntax#}. Note that C code which <em>uses</em> macros will be
         translated without any additional issues (since Zig operates on the pre-processed source
         with macros expanded). It is merely the macros themselves which may not be translatable to
@@ -11138,7 +11135,7 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
         please!</li>
       </ul>
       <p>When a C pointer is pointing to a single struct (not an array), dereference the C pointer to
-        access to the struct's fields or member data. That syntax looks like
+        access the struct's fields or member data. That syntax looks like
         this: </p>
         <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>
         <p>This is comparable to doing {#syntax#}->{#endsyntax#} in C.</p>
