@@ -1440,6 +1440,7 @@ pub const E = enum(u16) {
     CAPMODE = 94, // Not permitted in capability mode
     NOTRECOVERABLE = 95, // State not recoverable
     OWNERDEAD = 96, // Previous owner died
+    INTEGRITY = 97, // Integrity check failed
     _,
 };
 
@@ -1875,3 +1876,4 @@ pub const MFD = struct {
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*off_t, fd_out: fd_t, off_out: ?*off_t, len: usize, flags: u32) usize;
