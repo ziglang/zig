@@ -2572,7 +2572,7 @@ pub const DeclGen = struct {
         }
         dg.addFnAttr(llvm_fn, "nounwind");
         if (comp.unwind_tables) {
-            dg.addFnAttrString(llvm_fn, "uwtable", "sync");
+            dg.addFnAttrInt(llvm_fn, "uwtable", 2);
         }
         if (comp.bin_file.options.skip_linker_dependencies or
             comp.bin_file.options.no_builtin)
