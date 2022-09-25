@@ -3801,6 +3801,26 @@ pub const PEB_LDR_DATA = extern struct {
     ShutdownThreadId: HANDLE,
 };
 
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
+///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
+pub const LDR_DATA_TABLE_ENTRY = extern struct {
+    Reserved1: [2]PVOID,
+    InMemoryOrderLinks: LIST_ENTRY,
+    Reserved2: [2]PVOID,
+    DllBase: PVOID,
+    EntryPoint: PVOID,
+    SizeOfImage: ULONG,
+    FullDllName: UNICODE_STRING,
+    Reserved4: [8]BYTE,
+    Reserved5: [3]PVOID,
+    DUMMYUNIONNAME: extern union {
+        CheckSum: ULONG,
+        Reserved6: PVOID,
+    },
+    TimeDateStamp: ULONG,
+};
+
 pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     AllocationSize: ULONG,
     Size: ULONG,
@@ -4349,3 +4369,25 @@ pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
     return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
 }
+
+pub const TH32CS_SNAPHEAPLIST = 0x00000001;
+pub const TH32CS_SNAPPROCESS = 0x00000002;
+pub const TH32CS_SNAPTHREAD = 0x00000004;
+pub const TH32CS_SNAPMODULE = 0x00000008;
+pub const TH32CS_SNAPMODULE32 = 0x00000010;
+pub const TH32CS_SNAPALL = TH32CS_SNAPHEAPLIST | TH32CS_SNAPPROCESS | TH32CS_SNAPTHREAD | TH32CS_SNAPMODULE;
+pub const TH32CS_INHERIT = 0x80000000;
+
+pub const MAX_MODULE_NAME32 = 255;
+pub const MODULEENTRY32 = extern struct {
+    dwSize: DWORD,
+    th32ModuleID: DWORD,
+    th32ProcessID: DWORD,
+    GlblcntUsage: DWORD,
+    ProccntUsage: DWORD,
+    modBaseAddr: *BYTE,
+    modBaseSize: DWORD,
+    hModule: HMODULE,
+    szModule: [MAX_MODULE_NAME32 + 1]CHAR,
+    szExePath: [MAX_PATH]CHAR,
+};
