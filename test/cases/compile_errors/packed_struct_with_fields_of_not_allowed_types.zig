@@ -60,6 +60,11 @@ const U = extern union {
     A: i32,
     B: u32,
 };
+export fn entry12() void {
+    _ = @sizeOf(packed struct {
+        x: packed struct { a: []u8 },
+    });
+}
 
 // error
 // backend=llvm
@@ -82,3 +87,5 @@ const U = extern union {
 // :38:9: error: packed structs cannot contain fields of type 'fn() void'
 // :38:9: note: type has no guaranteed in-memory representation
 // :38:9: note: use '*const ' to make a function pointer type
+// :65:28: error: packed structs cannot contain fields of type '[]u8'
+// :65:28: note: slices have no guaranteed in-memory representation

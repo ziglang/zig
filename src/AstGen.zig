@@ -577,6 +577,12 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
 
+    const prev_anon_name_strategy = gz.anon_name_strategy;
+    defer gz.anon_name_strategy = prev_anon_name_strategy;
+    if (!nodeUsesAnonNameStrategy(tree, node)) {
+        gz.anon_name_strategy = .anon;
+    }
+
     switch (node_tags[node]) {
         .root => unreachable, // Top-level declaration.
         .@"usingnamespace" => unreachable, // Top-level declaration.
@@ -9341,6 +9347,32 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
                 }
             },
         }
+    }
+}
+
+/// Returns `true` if the node uses `gz.anon_name_strategy`.
+fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
+    const node_tags = tree.nodes.items(.tag);
+    switch (node_tags[node]) {
+        .container_decl,
+        .container_decl_trailing,
+        .container_decl_two,
+        .container_decl_two_trailing,
+        .container_decl_arg,
+        .container_decl_arg_trailing,
+        .tagged_union,
+        .tagged_union_trailing,
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        => return true,
+        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
+            const builtin_token = tree.nodes.items(.main_token)[node];
+            const builtin_name = tree.tokenSlice(builtin_token);
+            return std.mem.eql(u8, builtin_name, "@Type");
+        },
+        else => return false,
     }
 }
 

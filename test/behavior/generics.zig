@@ -369,3 +369,16 @@ test "extern function used as generic parameter" {
     };
     try expect(S.baz(S.foo) != S.baz(S.bar));
 }
+
+test "generic struct as parameter type" {
+    const S = struct {
+        fn doTheTest(comptime Int: type, thing: struct { int: Int }) !void {
+            try expect(thing.int == 123);
+        }
+        fn doTheTest2(comptime Int: type, comptime thing: struct { int: Int }) !void {
+            try expect(thing.int == 456);
+        }
+    };
+    try S.doTheTest(u32, .{ .int = 123 });
+    try S.doTheTest2(i32, .{ .int = 456 });
+}

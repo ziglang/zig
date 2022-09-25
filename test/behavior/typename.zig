@@ -246,3 +246,28 @@ test "comptime parameters not converted to anytype in function type" {
     const T = fn (fn (type) void, void) void;
     try expectEqualStrings("fn(comptime fn(comptime type) void, void) void", @typeName(T));
 }
+
+test "anon name strategy used in sub expression" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 uses line/column for the names but we're moving away from that for
+        // incremental compilation purposes.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn getTheName() []const u8 {
+            return struct {
+                const name = @typeName(@This());
+            }.name;
+        }
+    };
+    try expectEqualStringsIgnoreDigits(
+        "behavior.typename.test.anon name strategy used in sub expression.S.getTheName__struct_0",
+        S.getTheName(),
+    );
+}
