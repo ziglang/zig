@@ -3296,16 +3296,15 @@ pub const LibExeObjStep = struct {
         self.computeOutFileNames();
 
         // Update generated files
+        if (self.emit_h) {
+            self.output_h_path_source.path = builder.pathJoin(
+                &.{ builder.build_root, self.out_h_filename },
+            );
+        }
         if (self.output_dir != null) {
             self.output_path_source.path = builder.pathJoin(
                 &.{ self.output_dir.?, self.out_filename },
             );
-
-            if (self.emit_h) {
-                self.output_h_path_source.path = builder.pathJoin(
-                    &.{ self.output_dir.?, self.out_h_filename },
-                );
-            }
 
             if (self.target.isWindows() or self.target.isUefi()) {
                 self.output_pdb_path_source.path = builder.pathJoin(
