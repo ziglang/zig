@@ -3,7 +3,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 // Greatest common divisor
-fn gcd(a: anytype, b: anytype) @TypeOf(a) {
+pub fn gcd(a: anytype, b: anytype) @TypeOf(a) {
     if (a < 0 or b < 0) @compileError("gcd is only defined for positive numbers (integer)");
 
     var x = a;
