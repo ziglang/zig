@@ -28499,7 +28499,13 @@ fn resolveInferredErrorSet(
     // in this case, it may be a generic function which would cause an assertion failure
     // if we called `ensureFuncBodyAnalyzed` on it here.
     const ies_func_owner_decl = sema.mod.declPtr(ies.func.owner_decl);
-    if (ies_func_owner_decl.ty.fnInfo().return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
+    const ies_func_info = ies_func_owner_decl.ty.fnInfo();
+    // if ies declared by a inline function with generic return type, the return_type should be generic_poison,
+    // because inline function does not create a new declaration, and the ies has been filled with analyzeCall,
+    // so here we can simply skip this case.
+    if (ies_func_info.return_type.tag() == .generic_poison) {
+        assert(ies_func_info.cc == .Inline);
+    } else if (ies_func_info.return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
         try sema.ensureFuncBodyAnalyzed(ies.func);
