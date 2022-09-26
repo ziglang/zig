@@ -296,7 +296,7 @@ const emutls_control = extern struct {
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
             .object = .{ .index = 0 },
-            .default_value = @ptrCast(?*anyopaque, default_value),
+            .default_value = @ptrCast(?*const anyopaque, default_value),
         };
     }
 
