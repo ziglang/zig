@@ -1857,7 +1857,6 @@ const Writer = struct {
         } else 0;
 
         try self.writeInstRef(stream, extra.data.operand);
-        try self.writeFlag(stream, ", ref", extra.data.bits.is_ref);
 
         self.indent += 2;
 

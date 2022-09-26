@@ -8994,9 +8994,10 @@ fn zirSwitchCapture(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index);
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_info.src_node };
-    const operand_is_ref = switch_extra.data.bits.is_ref;
     const cond_inst = Zir.refToIndex(switch_extra.data.operand).?;
-    const cond_info = sema.code.instructions.items(.data)[cond_inst].un_node;
+    const cond_info = zir_datas[cond_inst].un_node;
+    const cond_tag = sema.code.instructions.items(.tag)[cond_inst];
+    const operand_is_ref = cond_tag == .switch_cond_ref;
     const operand_ptr = try sema.resolveInst(cond_info.operand);
     const operand_ptr_ty = sema.typeOf(operand_ptr);
     const operand_ty = if (operand_is_ref) operand_ptr_ty.childType() else operand_ptr_ty;
@@ -9009,7 +9010,6 @@ fn zirSwitchCapture(
     if (capture_info.prong_index == std.math.maxInt(@TypeOf(capture_info.prong_index))) {
         // It is the else/`_` prong.
         if (is_ref) {
-            assert(operand_is_ref);
             return operand_ptr;
         }
 
@@ -9069,8 +9069,6 @@ fn zirSwitchCapture(
             }
 
             if (is_ref) {
-                assert(operand_is_ref);
-
                 const field_ty_ptr = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = first_field.ty,
                     .@"addrspace" = .generic,
@@ -9131,7 +9129,6 @@ fn zirSwitchCapture(
             // In this case the capture value is just the passed-through value of the
             // switch condition.
             if (is_ref) {
-                assert(operand_is_ref);
                 return operand_ptr;
             } else {
                 return operand;

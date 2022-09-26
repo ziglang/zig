@@ -6520,7 +6520,6 @@ fn switchExpr(
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
         .operand = cond,
         .bits = Zir.Inst.SwitchBlock.Bits{
-            .is_ref = any_payload_is_ref,
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",
             .has_under = special_prong == .under,
