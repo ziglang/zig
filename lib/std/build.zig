@@ -2064,7 +2064,7 @@ pub const LibExeObjStep = struct {
 
     /// Run pkg-config for the given library name and parse the output, returning the arguments
     /// that should be passed to zig to link the given library.
-    fn runPkgConfig(self: *LibExeObjStep, lib_name: []const u8) ![]const []const u8 {
+    pub fn runPkgConfig(self: *LibExeObjStep, lib_name: []const u8) ![]const []const u8 {
         const pkg_name = match: {
             // First we have to map the library name to pkg config name. Unfortunately,
             // there are several examples where this is not straightforward:
