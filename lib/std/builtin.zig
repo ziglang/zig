@@ -869,8 +869,10 @@ pub noinline fn returnError(st: *StackTrace) void {
 }
 
 pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-    st.instruction_addresses[st.index & (st.instruction_addresses.len - 1)] = addr;
-    st.index +%= 1;
+    if (st.index < st.instruction_addresses.len)
+        st.instruction_addresses[st.index] = addr;
+
+    st.index += 1;
 }
 
 const std = @import("std.zig");
