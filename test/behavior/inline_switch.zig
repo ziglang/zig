@@ -47,11 +47,21 @@ test "inline switch unions" {
 
     var x: U = .a;
     switch (x) {
-        inline .a, .b => |aorb| {
-            try expect(@TypeOf(aorb) == void or @TypeOf(aorb) == u2);
+        inline .a, .b => |aorb, tag| {
+            if (tag == .a) {
+                try expect(@TypeOf(aorb) == void);
+            } else {
+                try expect(tag == .b);
+                try expect(@TypeOf(aorb) == u2);
+            }
         },
-        inline .c, .d => |cord| {
-            try expect(@TypeOf(cord) == u3 or @TypeOf(cord) == u4);
+        inline .c, .d => |cord, tag| {
+            if (tag == .c) {
+                try expect(@TypeOf(cord) == u3);
+            } else {
+                try expect(tag == .d);
+                try expect(@TypeOf(cord) == u4);
+            }
         },
     }
 }

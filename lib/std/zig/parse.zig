@@ -3100,7 +3100,7 @@ const Parser = struct {
         return identifier;
     }
 
-    /// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrPayload? AssignExpr
+    /// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
     /// SwitchCase
     ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
     ///      / KEYWORD_else
@@ -3123,7 +3123,7 @@ const Parser = struct {
             }
         }
         const arrow_token = try p.expectToken(.equal_angle_bracket_right);
-        _ = try p.parsePtrPayload();
+        _ = try p.parsePtrIndexPayload();
 
         const items = p.scratch.items[scratch_top..];
         switch (items.len) {

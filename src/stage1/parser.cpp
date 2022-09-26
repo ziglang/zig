@@ -2306,17 +2306,17 @@ static Optional<PtrIndexPayload> ast_parse_ptr_index_payload(ParseContext *pc) {
     return Optional<PtrIndexPayload>::some(res);
 }
 
-// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrPayload? AssignExpr
+// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
 static AstNode *ast_parse_switch_prong(ParseContext *pc) {
     AstNode *res = ast_parse_switch_case(pc);
     if (res == nullptr)
         return nullptr;
 
     expect_token(pc, TokenIdFatArrow);
-    Optional<PtrPayload> opt_payload = ast_parse_ptr_payload(pc);
+    Optional<PtrIndexPayload> opt_payload = ast_parse_ptr_index_payload(pc);
     AstNode *expr = ast_expect(pc, ast_parse_assign_expr);
 
-    PtrPayload payload;
+    PtrIndexPayload payload;
     assert(res->type == NodeTypeSwitchProng);
     res->data.switch_prong.expr = expr;
     if (opt_payload.unwrap(&payload)) {

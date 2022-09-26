@@ -2159,7 +2159,7 @@ const RegisterOrMemory = union(enum) {
     /// Returns size in bits.
     fn size(reg_or_mem: RegisterOrMemory) u64 {
         return switch (reg_or_mem) {
-            .register => |reg| reg.size(),
+            .register => |register| register.size(),
             .memory => |memory| memory.size(),
         };
     }
