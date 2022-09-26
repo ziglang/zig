@@ -6312,6 +6312,9 @@ fn switchExpr(
                     },
                 );
             }
+            if (case.inline_token != null) {
+                return astgen.failTok(case_src, "cannot inline '_' prong", .{});
+            }
             special_node = case_node;
             special_prong = .under;
             underscore_src = case_src;
@@ -6365,8 +6368,8 @@ fn switchExpr(
     var scalar_case_index: u32 = 0;
     for (case_nodes) |case_node| {
         const case = switch (node_tags[case_node]) {
-            .switch_case_one => tree.switchCaseOne(case_node),
-            .switch_case => tree.switchCase(case_node),
+            .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+            .switch_case, .switch_case_inline => tree.switchCase(case_node),
             else => unreachable,
         };
 
@@ -6506,7 +6509,8 @@ fn switchExpr(
             const case_slice = case_scope.instructionsSlice();
             const body_len = astgen.countBodyLenAfterFixups(case_slice);
             try payloads.ensureUnusedCapacity(gpa, body_len);
-            payloads.items[body_len_index] = body_len;
+            const inline_bit = @as(u32, @boolToInt(case.inline_token != null)) << 31;
+            payloads.items[body_len_index] = body_len | inline_bit;
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
     }
@@ -6553,7 +6557,7 @@ fn switchExpr(
             end_index += 3 + items_len + 2 * ranges_len;
         }
 
-        const body_len = payloads.items[body_len_index];
+        const body_len = @truncate(u31, payloads.items[body_len_index]);
         end_index += body_len;
 
         switch (strat.tag) {
@@ -9134,7 +9138,9 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,

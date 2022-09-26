@@ -1868,14 +1868,15 @@ const Writer = struct {
                 else => break :else_prong,
             };
 
-            const body_len = self.code.extra[extra_index];
+            const body_len = @truncate(u31, self.code.extra[extra_index]);
+            const inline_text = if (self.code.extra[extra_index] >> 31 != 0) "inline " else "";
             extra_index += 1;
             const body = self.code.extra[extra_index..][0..body_len];
             extra_index += body.len;
 
             try stream.writeAll(",\n");
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s} => ", .{prong_name});
+            try stream.print("{s}{s} => ", .{ inline_text, prong_name });
             try self.writeBracedBody(stream, body);
         }
 
@@ -1885,13 +1886,15 @@ const Writer = struct {
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                 const item_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
-                const body_len = self.code.extra[extra_index];
+                const body_len = @truncate(u31, self.code.extra[extra_index]);
+                const is_inline = self.code.extra[extra_index] >> 31 != 0;
                 extra_index += 1;
                 const body = self.code.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
                 try stream.writeAll(",\n");
                 try stream.writeByteNTimes(' ', self.indent);
+                if (is_inline) try stream.writeAll("inline ");
                 try self.writeInstRef(stream, item_ref);
                 try stream.writeAll(" => ");
                 try self.writeBracedBody(stream, body);
@@ -1904,13 +1907,15 @@ const Writer = struct {
                 extra_index += 1;
                 const ranges_len = self.code.extra[extra_index];
                 extra_index += 1;
-                const body_len = self.code.extra[extra_index];
+                const body_len = @truncate(u31, self.code.extra[extra_index]);
+                const is_inline = self.code.extra[extra_index] >> 31 != 0;
                 extra_index += 1;
                 const items = self.code.refSlice(extra_index, items_len);
                 extra_index += items_len;
 
                 try stream.writeAll(",\n");
                 try stream.writeByteNTimes(' ', self.indent);
+                if (is_inline) try stream.writeAll("inline ");
 
                 for (items) |item_ref, item_i| {
                     if (item_i != 0) try stream.writeAll(", ");

@@ -6987,6 +6987,12 @@ static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
     assert(switch_node->type == NodeTypeSwitchExpr);
     assert(prong_node->type == NodeTypeSwitchProng);
 
+    if (prong_node->data.switch_prong.is_inline) {
+        exec_add_error_node(ag->codegen, ag->exec, prong_node,
+                buf_sprintf("inline switch cases not supported by stage1"));
+        return ag->codegen->invalid_inst_src;
+    }
+
     AstNode *expr_node = prong_node->data.switch_prong.expr;
     AstNode *var_symbol_node = prong_node->data.switch_prong.var_symbol;
     Scope *child_scope;
