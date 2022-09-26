@@ -301,7 +301,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         var files_iterator = self.files.iterator();
 
         while (files_iterator.next()) |entry| {
-            const new_html_path = entry.key_ptr.*.sub_file_path;
+            const new_html_path = try std.mem.concat(self.arena, u8, &.{entry.key_ptr.*.sub_file_path, ".html"});
 
             const html_file = try createFromPath(html_dir, new_html_path);
             defer html_file.close();
