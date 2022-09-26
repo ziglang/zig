@@ -16,7 +16,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
         fields = fields ++ &[_]StructField{.{
             .name = field.name,
             .field_type = Data,
-            .default_value = if (field_default) |d| &d else null,
+            .default_value = if (field_default) |d| @ptrCast(?*const anyopaque, &d) else null,
             .is_comptime = false,
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         }};
@@ -158,6 +158,20 @@ test "std.enums.directEnumArrayDefault" {
     try testing.expectEqual(true, array[4]);
     try testing.expectEqual(false, array[6]);
     try testing.expectEqual(false, array[2]);
+}
+
+test "std.enums.directEnumArrayDefault slice" {
+    const E = enum(i4) { a = 4, b = 6, c = 2 };
+    var runtime_b = "b";
+    const array = directEnumArrayDefault(E, []const u8, "default", 4, .{
+        .a = "a",
+        .b = runtime_b,
+    });
+
+    try testing.expectEqual([7][]const u8, @TypeOf(array));
+    try testing.expectEqualSlices(u8, "a", array[4]);
+    try testing.expectEqualSlices(u8, "b", array[6]);
+    try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
 /// Cast an enum literal, value, or string to the enum value of type E
