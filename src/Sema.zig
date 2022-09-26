@@ -22590,12 +22590,14 @@ fn tupleFieldPtr(
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
 
-    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
-        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
-            .field_ty = field_ty,
-            .field_val = default_val,
-        });
-        return sema.addConstant(ptr_field_ty, val);
+    if(try sema.typeRequiresComptime(tuple_fields.types[field_index])) {
+        if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
+            const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
+                .field_ty = field_ty,
+                .field_val = default_val,
+            });
+            return sema.addConstant(ptr_field_ty, val);
+        }
     }
 
     if (try sema.resolveMaybeUndefVal(block, tuple_ptr_src, tuple_ptr)) |tuple_ptr_val| {

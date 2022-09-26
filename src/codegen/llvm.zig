@@ -9816,7 +9816,7 @@ fn llvmFieldIndex(
         const tuple = ty.tupleFields();
         var llvm_field_index: c_uint = 0;
         for (tuple.types) |field_ty, i| {
-            if (tuple.values[i].tag() != .unreachable_value) continue;
+            if (tuple.values[i].tag() != .unreachable_value or !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = field_ty.abiAlignment(target);
             big_align = @maximum(big_align, field_align);
