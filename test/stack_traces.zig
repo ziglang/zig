@@ -97,6 +97,59 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
     });
+    cases.addCase(.{
+        .name = "non-error return pops error trace",
+        .source = 
+        \\fn bar() !void {
+        \\    return error.UhOh;
+        \\}
+        \\
+        \\fn foo() !void {
+        \\    bar() catch {
+        \\        return; // non-error result: success
+        \\    };
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    try foo();
+        \\    return error.UnrelatedError;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\source.zig:13:5: [address] in main (test)
+            \\    return error.UnrelatedError;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: UnrelatedError
+            \\source.zig:13:5: [address] in [function]
+            \\    return error.UnrelatedError;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\
+            ,
+        },
+    });
 
     cases.addCase(.{
         .name = "try return + handled catch/if-else",
@@ -156,6 +209,59 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
+        .name = "break from inline loop pops error return trace",
+        .source = 
+        \\fn foo() !void { return error.FooBar; }
+        \\
+        \\pub fn main() !void {
+        \\    comptime var i: usize = 0;
+        \\    b: inline while (i < 5) : (i += 1) {
+        \\        foo() catch {
+        \\            break :b; // non-error break, success
+        \\        };
+        \\    }
+        \\    // foo() was successfully handled, should not appear in trace
+        \\
+        \\    return error.BadTime;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: BadTime
+            \\source.zig:12:5: [address] in main (test)
+            \\    return error.BadTime;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: BadTime
+            \\source.zig:12:5: [address] in [function]
+            \\    return error.BadTime;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: BadTime
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: BadTime
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
         .name = "catch and re-throw error",
         .source = 
         \\fn foo() !void {
@@ -209,7 +315,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
-        .name = "stored errors do not contribute to error trace",
+        .name = "errors stored in var do not contribute to error trace",
         .source = 
         \\fn foo() !void {
         \\    return error.TheSkyIsFalling;
@@ -255,6 +361,82 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .ReleaseSmall = .{
             .expect = 
             \\error: SomethingUnrelatedWentWrong
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
+        .name = "error stored in const has trace preserved for duration of block",
+        .source = 
+        \\fn foo() !void { return error.TheSkyIsFalling; }
+        \\fn bar() !void { return error.InternalError; }
+        \\fn baz() !void { return error.UnexpectedReality; }
+        \\
+        \\pub fn main() !void {
+        \\    const x = foo();
+        \\    const y = b: {
+        \\        if (true)
+        \\            break :b bar();
+        \\
+        \\        break :b {};
+        \\    };
+        \\    x catch {};
+        \\    y catch {};
+        \\    // foo()/bar() error traces not popped until end of block
+        \\
+        \\    {
+        \\        const z = baz();
+        \\        z catch {};
+        \\        // baz() error trace still alive here
+        \\    }
+        \\    // baz() error trace popped, foo(), bar() still alive
+        \\    return error.StillUnresolved;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: StillUnresolved
+            \\source.zig:1:18: [address] in foo (test)
+            \\fn foo() !void { return error.TheSkyIsFalling; }
+            \\                 ^
+            \\source.zig:2:18: [address] in bar (test)
+            \\fn bar() !void { return error.InternalError; }
+            \\                 ^
+            \\source.zig:23:5: [address] in main (test)
+            \\    return error.StillUnresolved;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: StillUnresolved
+            \\source.zig:1:18: [address] in [function]
+            \\fn foo() !void { return error.TheSkyIsFalling; }
+            \\                 ^
+            \\source.zig:2:18: [address] in [function]
+            \\fn bar() !void { return error.InternalError; }
+            \\                 ^
+            \\source.zig:23:5: [address] in [function]
+            \\    return error.StillUnresolved;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: StillUnresolved
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: StillUnresolved
             \\
             ,
         },

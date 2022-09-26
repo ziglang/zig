@@ -232,7 +232,6 @@ const Writer = struct {
             .validate_deref,
             .overflow_arithmetic_ptr,
             .check_comptime_control_flow,
-            .restore_err_ret_index,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -254,6 +253,9 @@ const Writer = struct {
             .float128 => try self.writeFloat128(stream, inst),
             .str => try self.writeStr(stream, inst),
             .int_type => try self.writeIntType(stream, inst),
+
+            .save_err_ret_index => try self.writeSaveErrRetIndex(stream, inst),
+            .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, inst),
 
             .@"break",
             .break_inline,
@@ -406,7 +408,6 @@ const Writer = struct {
             .alloc_inferred_comptime_mut,
             .ret_ptr,
             .ret_type,
-            .save_err_ret_index,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -2272,6 +2273,22 @@ const Writer = struct {
         };
         try stream.print("{c}{d}) ", .{ prefix, int_type.bit_count });
         try self.writeSrc(stream, int_type.src());
+    }
+
+    fn writeSaveErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].save_err_ret_index;
+
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
+    }
+
+    fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].restore_err_ret_index;
+
+        try self.writeInstRef(stream, inst_data.block);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
     }
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

@@ -337,6 +337,8 @@ pub const ResultInfo = struct {
         shift_op,
         /// The expression is an argument in a function call.
         fn_arg,
+        /// The expression is the right-hand side of an initializer for a `const` variable
+        const_init,
         /// No specific operator in particular.
         none,
     };
@@ -1850,19 +1852,51 @@ fn comptimeExprAst(
     return result;
 }
 
+/// Restore the error return trace index. Performs the restore only if the result is a non-error or
+/// if the result location is a non-error-handling expression.
+fn restoreErrRetIndex(
+    gz: *GenZir,
+    bt: GenZir.BranchTarget,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    result: Zir.Inst.Ref,
+) !void {
+    const op = switch (nodeMayEvalToError(gz.astgen.tree, node)) {
+        .always => return, // never restore/pop
+        .never => .none, // always restore/pop
+        .maybe => switch (ri.ctx) {
+            .error_handling_expr, .@"return", .fn_arg, .const_init => switch (ri.rl) {
+                .ptr => |ptr_res| try gz.addUnNode(.load, ptr_res.inst, node),
+                .inferred_ptr => |ptr| try gz.addUnNode(.load, ptr, node),
+                .block_ptr => |block_scope| if (block_scope.rvalue_rl_count != block_scope.break_count) b: {
+                    // The result location may have been used by this expression, in which case
+                    // the operand is not the result and we need to load the rl ptr.
+                    switch (gz.astgen.instructions.items(.tag)[Zir.refToIndex(block_scope.rl_ptr).?]) {
+                        .alloc_inferred, .alloc_inferred_mut => {
+                            // This is a terrible workaround for Sema's inability to load from a .alloc_inferred ptr
+                            // before its type has been resolved. The operand we use here instead is not guaranteed
+                            // to be valid, and when it's not, we will pop error traces prematurely.
+                            //
+                            // TODO: Update this to do a proper load from the rl_ptr, once Sema can support it.
+                            break :b result;
+                        },
+                        else => break :b try gz.addUnNode(.load, block_scope.rl_ptr, node),
+                    }
+                } else result,
+                else => result,
+            },
+            else => .none, // always restore/pop
+        },
+    };
+    _ = try gz.addRestoreErrRetIndex(bt, .{ .if_non_error = op });
+}
+
 fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const break_label = node_datas[node].lhs;
     const rhs = node_datas[node].rhs;
-
-    // Breaking out of a `catch { ... }` or `else |err| { ... }` block with a non-error value
-    // means that the corresponding error was correctly handled, and the error trace index
-    // needs to be restored so that any entries from the caught error are effectively "popped"
-    //
-    // Note: We only restore for the outermost block, since that will "pop" any nested blocks.
-    var err_trace_index_to_restore: Zir.Inst.Ref = .none;
 
     // Look for the label in the scope.
     var scope = parent_scope;
@@ -1880,11 +1914,6 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                             .{},
                         ),
                     });
-                }
-
-                if (block_gz.saved_err_trace_index != .none) {
-                    // We are breaking out of a `catch { ... }` or `else |err| { ... }`.
-                    err_trace_index_to_restore = block_gz.saved_err_trace_index;
                 }
 
                 const block_inst = blk: {
@@ -1913,10 +1942,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     try genDefers(parent_gz, scope, parent_scope, .normal_only);
 
                     // As our last action before the break, "pop" the error trace if needed
-                    if (err_trace_index_to_restore != .none) {
-                        // void is a non-error so we always pop - no need to call `popErrorReturnTrace`
-                        _ = try parent_gz.addUnNode(.restore_err_ret_index, err_trace_index_to_restore, node);
-                    }
+                    if (!block_gz.force_comptime)
+                        _ = try parent_gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
 
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
@@ -1929,17 +1956,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 try genDefers(parent_gz, scope, parent_scope, .normal_only);
 
                 // As our last action before the break, "pop" the error trace if needed
-                if (err_trace_index_to_restore != .none) {
-                    // Pop the error trace, unless the operand is an error and breaking to an error-handling expr.
-                    try popErrorReturnTrace(
-                        parent_gz,
-                        scope,
-                        block_gz.break_result_info,
-                        rhs,
-                        operand,
-                        err_trace_index_to_restore,
-                    );
-                }
+                if (!block_gz.force_comptime)
+                    try restoreErrRetIndex(parent_gz, .{ .block = block_inst }, block_gz.break_result_info, rhs, operand);
 
                 switch (block_gz.break_result_info.rl) {
                     .block_ptr => {
@@ -2066,8 +2084,34 @@ fn blockExpr(
         return labeledBlockExpr(gz, scope, ri, block_node, statements);
     }
 
-    var sub_gz = gz.makeSubBlock(scope);
-    try blockExprStmts(&sub_gz, &sub_gz.base, statements);
+    if (!gz.force_comptime) {
+        // Since this block is unlabeled, its control flow is effectively linear and we
+        // can *almost* get away with inlining the block here. However, we actually need
+        // to preserve the .block for Sema, to properly pop the error return trace.
+
+        const block_tag: Zir.Inst.Tag = .block;
+        const block_inst = try gz.makeBlockInst(block_tag, block_node);
+        try gz.instructions.append(astgen.gpa, block_inst);
+
+        var block_scope = gz.makeSubBlock(scope);
+        defer block_scope.unstack();
+
+        try blockExprStmts(&block_scope, &block_scope.base, statements);
+
+        if (!block_scope.endsWithNoReturn()) {
+            // As our last action before the break, "pop" the error trace if needed
+            _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
+
+            const break_tag: Zir.Inst.Tag = if (block_scope.force_comptime) .break_inline else .@"break";
+            _ = try block_scope.addBreak(break_tag, block_inst, .void_value);
+        }
+
+        try block_scope.setBlockBody(block_inst);
+    } else {
+        var sub_gz = gz.makeSubBlock(scope);
+        try blockExprStmts(&sub_gz, &sub_gz.base, statements);
+    }
+
     return rvalue(gz, ri, .void_value, block_node);
 }
 
@@ -2141,6 +2185,9 @@ fn labeledBlockExpr(
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
     if (!block_scope.endsWithNoReturn()) {
+        // As our last action before the return, "pop" the error trace if needed
+        _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
+
         const break_tag: Zir.Inst.Tag = if (block_scope.force_comptime) .break_inline else .@"break";
         _ = try block_scope.addBreak(break_tag, block_inst, .void_value);
     }
@@ -2164,7 +2211,8 @@ fn labeledBlockExpr(
             return indexToRef(block_inst);
         },
         .break_operand => {
-            // All break operands are values that did not use the result location pointer.
+            // All break operands are values that did not use the result location pointer
+            // (except for a single .store_to_block_ptr inst which we re-write here).
             // The break instructions need to have their operands coerced if the
             // block's result location is a `ty`. In this case we overwrite the
             // `store_to_block_ptr` instruction with an `as` instruction and repurpose
@@ -2528,7 +2576,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .try_ptr,
             //.try_inline,
             //.try_ptr_inline,
-            .save_err_ret_index,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
@@ -2591,6 +2638,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_ty,
             .validate_struct_init_ty,
             .validate_deref,
+            .save_err_ret_index,
             .restore_err_ret_index,
             => break :b true,
 
@@ -2877,13 +2925,19 @@ fn varDecl(
             {
                 const result_info: ResultInfo = if (type_node != 0) .{
                     .rl = .{ .ty = try typeExpr(gz, scope, type_node) },
-                } else .{ .rl = .none };
+                    .ctx = .const_init,
+                } else .{ .rl = .none, .ctx = .const_init };
                 const prev_anon_name_strategy = gz.anon_name_strategy;
                 gz.anon_name_strategy = .dbg_var;
                 const init_inst = try reachableExpr(gz, scope, result_info, var_decl.ast.init_node, node);
                 gz.anon_name_strategy = prev_anon_name_strategy;
 
                 try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
+
+                // The const init expression may have modified the error return trace, so signal
+                // to Sema that it should save the new index for restoring later.
+                if (nodeMayAppendToErrorTrace(tree, var_decl.ast.init_node))
+                    _ = try gz.addSaveErrRetIndex(.{ .if_of_error_type = init_inst });
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2950,8 +3004,13 @@ fn varDecl(
                 init_scope.rl_ptr = alloc;
                 init_scope.rl_ty_inst = .none;
             }
-            const init_result_info: ResultInfo = .{ .rl = .{ .block_ptr = &init_scope } };
+            const init_result_info: ResultInfo = .{ .rl = .{ .block_ptr = &init_scope }, .ctx = .const_init };
             const init_inst = try reachableExpr(&init_scope, &init_scope.base, init_result_info, var_decl.ast.init_node, node);
+
+            // The const init expression may have modified the error return trace, so signal
+            // to Sema that it should save the new index for restoring later.
+            if (nodeMayAppendToErrorTrace(tree, var_decl.ast.init_node))
+                _ = try init_scope.addSaveErrRetIndex(.{ .if_of_error_type = init_inst });
 
             const zir_tags = astgen.instructions.items(.tag);
             const zir_datas = astgen.instructions.items(.data);
@@ -3775,6 +3834,9 @@ fn fnDecl(
         try checkUsed(gz, &fn_gz.base, params_scope);
 
         if (!fn_gz.endsWithNoReturn()) {
+            // As our last action before the return, "pop" the error trace if needed
+            _ = try gz.addRestoreErrRetIndex(.ret, .always);
+
             // Since we are adding the return instruction here, we must handle the coercion.
             // We do this by using the `ret_tok` instruction.
             _ = try fn_gz.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
@@ -4217,6 +4279,10 @@ fn testDecl(
 
     const block_result = try expr(&fn_block, &fn_block.base, .{ .rl = .none }, body_node);
     if (fn_block.isEmpty() or !fn_block.refIsNoReturn(block_result)) {
+
+        // As our last action before the return, "pop" the error trace if needed
+        _ = try gz.addRestoreErrRetIndex(.ret, .always);
+
         // Since we are adding the return instruction here, we must handle the coercion.
         // We do this by using the `ret_tok` instruction.
         _ = try fn_block.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
@@ -5196,76 +5262,6 @@ fn tryExpr(
     }
 }
 
-/// Pops the error return trace, unless:
-///  1. the result is a non-error, AND
-///  2. the result location corresponds to an error-handling expression
-///
-/// For reference, the full list of error-handling expressions is:
-///   - try X
-///   - X catch ...
-///   - if (X) |_| { ... } |_| { ... }
-///   - return X
-///
-fn popErrorReturnTrace(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-    result_inst: Zir.Inst.Ref,
-    error_trace_index: Zir.Inst.Ref,
-) InnerError!void {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-
-    const result_is_err = nodeMayEvalToError(tree, node);
-
-    // If we are breaking to a try/catch/error-union-if/return or a function call, the error trace propagates.
-    const propagate_error_trace = switch (ri.ctx) {
-        .error_handling_expr, .@"return", .fn_arg => true,
-        else => false,
-    };
-
-    if (result_is_err == .never or !propagate_error_trace) {
-        // We are returning a non-error, or returning to a non-error-handling operator.
-        // In either case, we need to pop the error trace.
-        _ = try gz.addUnNode(.restore_err_ret_index, error_trace_index, node);
-    } else if (result_is_err == .maybe) {
-        // We are returning to an error-handling operator with a maybe-error.
-        // Restore only if it's a non-error, implying the catch was successfully handled.
-        var block_scope = gz.makeSubBlock(scope);
-        block_scope.setBreakResultInfo(.{ .rl = .discard });
-        defer block_scope.unstack();
-
-        // Emit conditional branch for restoring error trace index
-        const is_non_err = switch (ri.rl) {
-            .ref => try block_scope.addUnNode(.is_non_err_ptr, result_inst, node),
-            .ptr => |ptr| try block_scope.addUnNode(.is_non_err_ptr, ptr.inst, node),
-            .ty, .none => try block_scope.addUnNode(.is_non_err, result_inst, node),
-            else => unreachable, // Error-handling operators only generate the above result locations
-        };
-        const condbr = try block_scope.addCondBr(.condbr, node);
-
-        const block = try gz.makeBlockInst(.block, node);
-        try block_scope.setBlockBody(block);
-        // block_scope unstacked now, can add new instructions to gz
-
-        try gz.instructions.append(astgen.gpa, block);
-
-        var then_scope = block_scope.makeSubBlock(scope);
-        defer then_scope.unstack();
-
-        _ = try then_scope.addUnNode(.restore_err_ret_index, error_trace_index, node);
-        const then_break = try then_scope.makeBreak(.@"break", block, .void_value);
-
-        var else_scope = block_scope.makeSubBlock(scope);
-        defer else_scope.unstack();
-
-        const else_break = try else_scope.makeBreak(.@"break", block, .void_value);
-
-        try setCondBrPayload(condbr, is_non_err, &then_scope, then_break, &else_scope, else_break);
-    }
-}
-
 fn orelseCatchExpr(
     parent_gz: *GenZir,
     scope: *Scope,
@@ -5286,8 +5282,6 @@ fn orelseCatchExpr(
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultInfo(ri);
     defer block_scope.unstack();
-
-    const saved_err_trace_index = if (do_err_trace) try parent_gz.addNode(.save_err_ret_index, node) else .none;
 
     const operand_ri: ResultInfo = switch (block_scope.break_result_info.rl) {
         .ref => .{ .rl = .ref, .ctx = if (do_err_trace) .error_handling_expr else .none },
@@ -5320,11 +5314,10 @@ fn orelseCatchExpr(
     var else_scope = block_scope.makeSubBlock(scope);
     defer else_scope.unstack();
 
-    // Any break (of a non-error value) that navigates out of this scope means
-    // that the error was handled successfully, so this index will be restored.
-    else_scope.saved_err_trace_index = saved_err_trace_index;
-    if (else_scope.outermost_err_trace_index == .none)
-        else_scope.outermost_err_trace_index = saved_err_trace_index;
+    // We know that the operand (almost certainly) modified the error return trace,
+    // so signal to Sema that it should save the new index for restoring later.
+    if (do_err_trace and nodeMayAppendToErrorTrace(tree, lhs))
+        _ = try else_scope.addSaveErrRetIndex(.always);
 
     var err_val_scope: Scope.LocalVal = undefined;
     const else_sub_scope = blk: {
@@ -5352,16 +5345,9 @@ fn orelseCatchExpr(
     if (!else_scope.endsWithNoReturn()) {
         block_scope.break_count += 1;
 
-        if (do_err_trace) {
-            try popErrorReturnTrace(
-                &else_scope,
-                else_sub_scope,
-                block_scope.break_result_info,
-                rhs,
-                else_result,
-                saved_err_trace_index,
-            );
-        }
+        // As our last action before the break, "pop" the error trace if needed
+        if (do_err_trace)
+            try restoreErrRetIndex(&else_scope, .{ .block = block }, block_scope.break_result_info, rhs, else_result);
     }
     try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
 
@@ -5587,8 +5573,6 @@ fn ifExpr(
     block_scope.setBreakResultInfo(ri);
     defer block_scope.unstack();
 
-    const saved_err_trace_index = if (do_err_trace) try parent_gz.addNode(.save_err_ret_index, node) else .none;
-
     const payload_is_ref = if (if_full.payload_token) |payload_token|
         token_tags[payload_token] == .asterisk
     else
@@ -5705,11 +5689,10 @@ fn ifExpr(
     var else_scope = parent_gz.makeSubBlock(scope);
     defer else_scope.unstack();
 
-    // Any break (of a non-error value) that navigates out of this scope means
-    // that the error was handled successfully, so this index will be restored.
-    else_scope.saved_err_trace_index = saved_err_trace_index;
-    if (else_scope.outermost_err_trace_index == .none)
-        else_scope.outermost_err_trace_index = saved_err_trace_index;
+    // We know that the operand (almost certainly) modified the error return trace,
+    // so signal to Sema that it should save the new index for restoring later.
+    if (do_err_trace and nodeMayAppendToErrorTrace(tree, if_full.ast.cond_expr))
+        _ = try else_scope.addSaveErrRetIndex(.always);
 
     const else_node = if_full.ast.else_expr;
     const else_info: struct {
@@ -5747,16 +5730,9 @@ fn ifExpr(
         if (!else_scope.endsWithNoReturn()) {
             block_scope.break_count += 1;
 
-            if (do_err_trace) {
-                try popErrorReturnTrace(
-                    &else_scope,
-                    sub_scope,
-                    block_scope.break_result_info,
-                    else_node,
-                    e,
-                    saved_err_trace_index,
-                );
-            }
+            // As our last action before the break, "pop" the error trace if needed
+            if (do_err_trace)
+                try restoreErrRetIndex(&else_scope, .{ .block = block }, block_scope.break_result_info, else_node, e);
         }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         try else_scope.addDbgBlockEnd();
@@ -6886,6 +6862,10 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     if (operand_node == 0) {
         // Returning a void value; skip error defers.
         try genDefers(gz, defer_outer, scope, .normal_only);
+
+        // As our last action before the return, "pop" the error trace if needed
+        _ = try gz.addRestoreErrRetIndex(.ret, .always);
+
         _ = try gz.addUnNode(.ret_node, .void_value, node);
         return Zir.Inst.Ref.unreachable_value;
     }
@@ -6921,15 +6901,13 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     const operand = try reachableExpr(gz, scope, ri, operand_node, node);
     gz.anon_name_strategy = prev_anon_name_strategy;
 
-    // TODO: This should be almost identical for every break/ret
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
 
             // As our last action before the return, "pop" the error trace if needed
-            if (gz.outermost_err_trace_index != .none)
-                _ = try gz.addUnNode(.restore_err_ret_index, gz.outermost_err_trace_index, node);
+            _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
             try emitDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(ri, operand, node);
@@ -6949,6 +6927,11 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
                 try emitDbgStmt(gz, ret_line, ret_column);
+
+                // As our last action before the return, "pop" the error trace if needed
+                const result = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
+                _ = try gz.addRestoreErrRetIndex(.ret, .{ .if_non_error = result });
+
                 try gz.addRet(ri, operand, node);
                 return Zir.Inst.Ref.unreachable_value;
             }
@@ -6964,8 +6947,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
 
             // As our last action before the return, "pop" the error trace if needed
-            if (then_scope.outermost_err_trace_index != .none)
-                _ = try then_scope.addUnNode(.restore_err_ret_index, then_scope.outermost_err_trace_index, node);
+            _ = try then_scope.addRestoreErrRetIndex(.ret, .always);
 
             try emitDbgStmt(&then_scope, ret_line, ret_column);
             try then_scope.addRet(ri, operand, node);
@@ -8561,10 +8543,11 @@ fn callExpr(
         scratch_index += 1;
     }
 
-    // If our result location is a try/catch/error-union-if/return, the error trace propagates.
+    // If our result location is a try/catch/error-union-if/return, a function argument,
+    // or an initializer for a `const` variable, the error trace propagates.
     // Otherwise, it should always be popped (handled in Sema).
     const propagate_error_trace = switch (ri.ctx) {
-        .error_handling_expr, .@"return", .fn_arg => true, // Propagate to try/catch/error-union-if, return, and other function calls
+        .error_handling_expr, .@"return", .fn_arg, .const_init => true,
         else => false,
     };
 
@@ -8928,6 +8911,33 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
                     .forward1 => node = params[1],
                 }
             },
+        }
+    }
+}
+
+fn nodeMayAppendToErrorTrace(tree: *const Ast, start_node: Ast.Node.Index) bool {
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+
+    var node = start_node;
+    while (true) {
+        switch (node_tags[node]) {
+            // These don't have the opportunity to call any runtime functions.
+            .error_value,
+            .identifier,
+            .@"comptime",
+            => return false,
+
+            // Forward the question to the LHS sub-expression.
+            .grouped_expression,
+            .@"try",
+            .@"nosuspend",
+            .unwrap_optional,
+            => node = node_datas[node].lhs,
+
+            // Anything that does not eval to an error is guaranteed to pop any
+            // additions to the error trace, so it effectively does not append.
+            else => return nodeMayEvalToError(tree, start_node) != .never,
         }
     }
 }
@@ -10494,13 +10504,6 @@ const GenZir = struct {
     /// Keys are the raw instruction index, values are the closure_capture instruction.
     captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
-    /// If this GenZir corresponds to a `catch { ... }` or `else |err| { ... }` block,
-    /// this err_trace_index can be restored to "pop" the trace entries for the block.
-    saved_err_trace_index: Zir.Inst.Ref = .none,
-    /// When returning from a function with a non-error, we must pop all trace entries
-    /// from any containing `catch { ... }` or `else |err| { ... }` blocks.
-    outermost_err_trace_index: Zir.Inst.Ref = .none,
-
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.
     fn unstack(self: *GenZir) void {
@@ -10545,7 +10548,6 @@ const GenZir = struct {
             .any_defer_node = gz.any_defer_node,
             .instructions = gz.instructions,
             .instructions_top = gz.instructions.items.len,
-            .outermost_err_trace_index = gz.outermost_err_trace_index,
         };
     }
 
@@ -11355,6 +11357,46 @@ const GenZir = struct {
             .data = .{ .str_tok = .{
                 .start = str_index,
                 .src_tok = gz.tokenIndexToRelative(abs_tok_index),
+            } },
+        });
+    }
+
+    fn addSaveErrRetIndex(
+        gz: *GenZir,
+        cond: union(enum) {
+            always: void,
+            if_of_error_type: Zir.Inst.Ref,
+        },
+    ) !Zir.Inst.Index {
+        return gz.addAsIndex(.{
+            .tag = .save_err_ret_index,
+            .data = .{ .save_err_ret_index = .{
+                .operand = if (cond == .if_of_error_type) cond.if_of_error_type else .none,
+            } },
+        });
+    }
+
+    const BranchTarget = union(enum) {
+        ret,
+        block: Zir.Inst.Index,
+    };
+
+    fn addRestoreErrRetIndex(
+        gz: *GenZir,
+        bt: BranchTarget,
+        cond: union(enum) {
+            always: void,
+            if_non_error: Zir.Inst.Ref,
+        },
+    ) !Zir.Inst.Index {
+        return gz.addAsIndex(.{
+            .tag = .restore_err_ret_index,
+            .data = .{ .restore_err_ret_index = .{
+                .block = switch (bt) {
+                    .ret => .none,
+                    .block => |b| Zir.indexToRef(b),
+                },
+                .operand = if (cond == .if_non_error) cond.if_non_error else .none,
             } },
         });
     }

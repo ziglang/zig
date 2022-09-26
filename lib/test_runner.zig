@@ -44,24 +44,23 @@ pub fn main() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        if (result: {
-            if (test_fn.async_frame_size) |size| switch (io_mode) {
-                .evented => {
-                    if (async_frame_buffer.len < size) {
-                        std.heap.page_allocator.free(async_frame_buffer);
-                        async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
-                    }
-                    const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn.func);
-                    break :result await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
-                },
-                .blocking => {
-                    skip_count += 1;
-                    test_node.end();
-                    progress.log("SKIP (async test)\n", .{});
-                    continue;
-                },
-            } else break :result test_fn.func();
-        }) |_| {
+        const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
+            .evented => blk: {
+                if (async_frame_buffer.len < size) {
+                    std.heap.page_allocator.free(async_frame_buffer);
+                    async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
+                }
+                const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn.func);
+                break :blk await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
+            },
+            .blocking => {
+                skip_count += 1;
+                test_node.end();
+                progress.log("SKIP (async test)\n", .{});
+                continue;
+            },
+        } else test_fn.func();
+        if (result) |_| {
             ok_count += 1;
             test_node.end();
             if (!have_tty) std.debug.print("OK\n", .{});

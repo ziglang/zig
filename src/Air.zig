@@ -734,7 +734,7 @@ pub const Inst = struct {
         addrspace_cast,
 
         /// Saves the error return trace index, if any. Otherwise, returns 0.
-        /// Uses the `ty_op` field.
+        /// Uses the `ty_pl` field.
         save_err_return_trace_index,
 
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {

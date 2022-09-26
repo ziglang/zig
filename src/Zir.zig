@@ -988,13 +988,13 @@ pub const Inst = struct {
         /// Uses the `err_defer_code` union field.
         defer_err_code,
 
-        /// Saves the current error return case if it exists,
-        /// otherwise just returns zero.
-        /// Uses the `node` union field.
+        /// Requests that Sema update the saved error return trace index for the enclosing
+        /// block, if the operand is .none or of an error/error-union type.
+        /// Uses the `save_err_ret_index` field.
         save_err_ret_index,
         /// Sets error return trace to zero if no operand is given,
         /// otherwise sets the value to the given amount.
-        /// Uses the `un_node` union field.
+        /// Uses the `restore_err_ret_index` union field.
         restore_err_ret_index,
 
         /// The ZIR instruction tag is one of the `Extended` ones.
@@ -1317,6 +1317,7 @@ pub const Inst = struct {
                 .@"defer",
                 .defer_err_code,
                 .restore_err_ret_index,
+                .save_err_ret_index,
                 => true,
 
                 .param,
@@ -1542,7 +1543,6 @@ pub const Inst = struct {
                 .try_ptr,
                 //.try_inline,
                 //.try_ptr_inline,
-                .save_err_ret_index,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1823,8 +1823,8 @@ pub const Inst = struct {
                 .@"defer" = .@"defer",
                 .defer_err_code = .defer_err_code,
 
-                .save_err_ret_index = .node,
-                .restore_err_ret_index = .un_node,
+                .save_err_ret_index = .save_err_ret_index,
+                .restore_err_ret_index = .restore_err_ret_index,
 
                 .extended = .extended,
             });
@@ -2602,6 +2602,13 @@ pub const Inst = struct {
             err_code: Ref,
             payload_index: u32,
         },
+        save_err_ret_index: struct {
+            operand: Ref, // If error type (or .none), save new trace index
+        },
+        restore_err_ret_index: struct {
+            block: Ref, // If restored, the index is from this block's entrypoint
+            operand: Ref, // If non-error (or .none), then restore the index
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2640,6 +2647,8 @@ pub const Inst = struct {
             str_op,
             @"defer",
             defer_err_code,
+            save_err_ret_index,
+            restore_err_ret_index,
         };
     };
 

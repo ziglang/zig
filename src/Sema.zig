@@ -153,6 +153,12 @@ pub const Block = struct {
     is_typeof: bool = false,
     is_coerce_result_ptr: bool = false,
 
+    /// Keep track of the active error return trace index around blocks so that we can correctly
+    /// pop the error trace upon block exit.
+    error_return_trace_index: Air.Inst.Ref = .none,
+    error_return_trace_index_on_block_entry: Air.Inst.Ref = .none,
+    error_return_trace_index_on_function_entry: Air.Inst.Ref = .none,
+
     /// when null, it is determined by build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
 
@@ -226,6 +232,9 @@ pub const Block = struct {
             .float_mode = parent.float_mode,
             .c_import_buf = parent.c_import_buf,
             .switch_else_err_ty = parent.switch_else_err_ty,
+            .error_return_trace_index = parent.error_return_trace_index,
+            .error_return_trace_index_on_block_entry = parent.error_return_trace_index,
+            .error_return_trace_index_on_function_entry = parent.error_return_trace_index_on_function_entry,
         };
     }
 
@@ -945,8 +954,6 @@ fn analyzeBodyInner(
             .ret_ptr  => try sema.zirRetPtr(block, inst),
             .ret_type => try sema.addType(sema.fn_ret_ty),
 
-            .save_err_ret_index => try sema.zirSaveErrRetIndex(block, inst),
-
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
@@ -1229,6 +1236,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .save_err_ret_index => {
+                try sema.zirSaveErrRetIndex(block, inst);
+                i += 1;
+                continue;
+            },
             .restore_err_ret_index => {
                 try sema.zirRestoreErrRetIndex(block, inst);
                 i += 1;
@@ -1326,31 +1338,32 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
                 const gpa = sema.gpa;
-                // If this block contains a function prototype, we need to reset the
-                // current list of parameters and restore it later.
-                // Note: this probably needs to be resolved in a more general manner.
-                const prev_params = block.params;
-                const need_sub_block = tags[inline_body[inline_body.len - 1]] == .repeat_inline;
-                var sub_block = block;
-                var block_space: Block = undefined;
-                // NOTE: this has to be done like this because branching in
-                // defers here breaks stage1.
-                block_space.instructions = .{};
-                if (need_sub_block) {
-                    block_space = block.makeSubBlock();
-                    block_space.inline_block = inline_body[0];
-                    sub_block = &block_space;
-                }
-                block.params = .{};
-                defer {
-                    block.params.deinit(gpa);
-                    block.params = prev_params;
-                    block_space.instructions.deinit(gpa);
-                }
-                const opt_break_data = try sema.analyzeBodyBreak(sub_block, inline_body);
-                if (need_sub_block) {
-                    try block.instructions.appendSlice(gpa, block_space.instructions.items);
-                }
+
+                const opt_break_data = b: {
+                    // Create a temporary child block so that this inline block is properly
+                    // labeled for any .restore_err_ret_index instructions
+                    var child_block = block.makeSubBlock();
+
+                    // If this block contains a function prototype, we need to reset the
+                    // current list of parameters and restore it later.
+                    // Note: this probably needs to be resolved in a more general manner.
+                    if (tags[inline_body[inline_body.len - 1]] == .repeat_inline) {
+                        child_block.inline_block = inline_body[0];
+                    } else child_block.inline_block = block.inline_block;
+
+                    var label: Block.Label = .{
+                        .zir_block = inst,
+                        .merges = undefined,
+                    };
+                    child_block.label = &label;
+                    defer child_block.params.deinit(gpa);
+
+                    // Write these instructions directly into the parent block
+                    child_block.instructions = block.instructions;
+                    defer block.instructions = child_block.instructions;
+
+                    break :b try sema.analyzeBodyBreak(&child_block, inline_body);
+                };
 
                 // A runtime conditional branch that needs a post-hoc block to be
                 // emitted communicates this by mapping the block index into the inst map.
@@ -4994,7 +5007,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
 
     // Reserve space for a Block instruction so that generated Break instructions can
     // point to it, even if it doesn't end up getting used because the code ends up being
-    // comptime evaluated.
+    // comptime evaluated or is an unlabeled block.
     const block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
         .tag = .block,
@@ -5025,6 +5038,9 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .runtime_cond = parent_block.runtime_cond,
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
+        .error_return_trace_index = parent_block.error_return_trace_index,
+        .error_return_trace_index_on_block_entry = parent_block.error_return_trace_index,
+        .error_return_trace_index_on_function_entry = parent_block.error_return_trace_index_on_function_entry,
     };
 
     defer child_block.instructions.deinit(gpa);
@@ -5667,19 +5683,51 @@ fn funcDeclSrc(sema: *Sema, block: *Block, src: LazySrcLoc, func_inst: Air.Inst.
     return owner_decl.srcLoc();
 }
 
+pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref {
+    const src = sema.src;
+
+    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+    if (!backend_supports_error_return_tracing or !sema.mod.comp.bin_file.options.error_return_tracing)
+        return .none;
+
+    if (block.is_comptime)
+        return .none;
+
+    const unresolved_stack_trace_ty = sema.getBuiltinType(block, src, "StackTrace") catch |err| switch (err) {
+        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        else => |e| return e,
+    };
+    const stack_trace_ty = sema.resolveTypeFields(block, src, unresolved_stack_trace_ty) catch |err| switch (err) {
+        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        else => |e| return e,
+    };
+    const field_index = sema.structFieldIndex(block, stack_trace_ty, "index", src) catch |err| switch (err) {
+        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        else => |e| return e,
+    };
+
+    return try block.addInst(.{
+        .tag = .save_err_return_trace_index,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(stack_trace_ty),
+            .payload = @intCast(u32, field_index),
+        } },
+    });
+}
+
 /// Add instructions to block to "pop" the error return trace.
 /// If `operand` is provided, only pops if operand is non-error.
 fn popErrorReturnTrace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    operand: ?Air.Inst.Ref,
+    operand: Air.Inst.Ref,
     saved_error_trace_index: Air.Inst.Ref,
 ) CompileError!void {
     var is_non_error: ?bool = null;
     var is_non_error_inst: Air.Inst.Ref = undefined;
-    if (operand) |op| {
-        is_non_error_inst = try sema.analyzeIsNonErr(block, src, op);
+    if (operand != .none) {
+        is_non_error_inst = try sema.analyzeIsNonErr(block, src, operand);
         if (try sema.resolveDefinedValue(block, src, is_non_error_inst)) |cond_val|
             is_non_error = cond_val.toBool();
     } else is_non_error = true; // no operand means pop unconditionally
@@ -5906,7 +5954,7 @@ fn zirCall(
             });
 
             // Pop the error return trace, testing the result for non-error if necessary
-            const operand = if (pop_error_return_trace or modifier == .always_tail) null else call_inst;
+            const operand = if (pop_error_return_trace or modifier == .always_tail) .none else call_inst;
             try sema.popErrorReturnTrace(block, call_src, operand, save_inst);
         }
 
@@ -6221,6 +6269,9 @@ fn analyzeCall(
             .label = null,
             .inlining = &inlining,
             .is_comptime = is_comptime_call,
+            .error_return_trace_index = block.error_return_trace_index,
+            .error_return_trace_index_on_block_entry = block.error_return_trace_index,
+            .error_return_trace_index_on_function_entry = block.error_return_trace_index,
         };
 
         const merges = &child_block.inlining.?.merges;
@@ -6966,6 +7017,14 @@ fn instantiateGenericCall(
             }
             arg_i += 1;
         }
+
+        // Save the error trace as our first action in the function.
+        // If this is unnecessary after all, Liveness will clean it up for us.
+        const err_ret_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
+        child_block.error_return_trace_index = err_ret_trace_index;
+        child_block.error_return_trace_index_on_block_entry = err_ret_trace_index;
+        child_block.error_return_trace_index_on_function_entry = err_ret_trace_index;
+
         const new_func_inst = child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst) catch |err| {
             // TODO look up the compile error that happened here and attach a note to it
             // pointing here, at the generic instantiation callsite.
@@ -9855,6 +9914,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .defer_err_code,
                         .err_union_code,
                         .ret_err_value_code,
+                        .restore_err_ret_index,
                         .is_non_err,
                         .condbr,
                         => {},
@@ -10157,6 +10217,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
+        .error_return_trace_index = block.error_return_trace_index,
+        .error_return_trace_index_on_block_entry = block.error_return_trace_index,
+        .error_return_trace_index_on_function_entry = block.error_return_trace_index_on_function_entry,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -11040,6 +11103,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
     const tags = sema.code.instructions.items(.tag);
     for (body) |inst| {
         switch (tags[inst]) {
+            .save_err_ret_index,
             .dbg_block_begin,
             .dbg_block_end,
             .dbg_stmt,
@@ -11060,6 +11124,10 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
             => continue,
             .dbg_stmt => {
                 try sema.zirDbgStmt(block, inst);
+                continue;
+            },
+            .save_err_ret_index => {
+                try sema.zirSaveErrRetIndex(block, inst);
                 continue;
             },
             .str => try sema.zirStr(block, inst),
@@ -15672,6 +15740,9 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .is_comptime = false,
         .is_typeof = true,
         .want_safety = false,
+        .error_return_trace_index = block.error_return_trace_index,
+        .error_return_trace_index_on_block_entry = block.error_return_trace_index,
+        .error_return_trace_index_on_function_entry = block.error_return_trace_index_on_function_entry,
     };
     defer child_block.instructions.deinit(sema.gpa);
 
@@ -16329,43 +16400,35 @@ fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
         backend_supports_error_return_tracing;
 }
 
-fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].node;
-    const src = LazySrcLoc.nodeOffset(inst_data);
-
-    // This is only relevant at runtime.
-    if (block.is_comptime) return Air.Inst.Ref.zero_usize;
+fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].save_err_ret_index;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing;
-    if (!ok) return Air.Inst.Ref.zero_usize;
-
-    // This is encoded as a primitive AIR instruction to resolve one corner case: A function
-    // may include a `catch { ... }` or `else |err| { ... }` block but not call any errorable
-    // fn. In that case, there is no error return trace to save the index of and codegen needs
-    // to avoid interacting with the non-existing error trace.
-    //
-    // By using a primitive AIR op, we can depend on Liveness to mark this unused in this corner case.
-
-    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
-    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const field_index = try sema.structFieldIndex(block, stack_trace_ty, "index", src);
-    return block.addInst(.{
-        .tag = .save_err_return_trace_index,
-        .data = .{ .ty_pl = .{
-            .ty = try sema.addType(stack_trace_ty),
-            .payload = @intCast(u32, field_index),
-        } },
-    });
-}
-
-fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
+    const ok = backend_supports_error_return_tracing and sema.mod.comp.bin_file.options.error_return_tracing;
+    if (!ok) return;
 
     // This is only relevant at runtime.
     if (block.is_comptime) return;
+
+    // This is only relevant within functions.
+    if (sema.func == null) return;
+
+    const save_index = inst_data.operand == .none or b: {
+        const operand = try sema.resolveInst(inst_data.operand);
+        const operand_ty = sema.typeOf(operand);
+        break :b operand_ty.isError();
+    };
+
+    if (save_index)
+        block.error_return_trace_index = try sema.analyzeSaveErrRetIndex(block);
+}
+
+fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].restore_err_ret_index;
+    const src = sema.src; // TODO
+
+    // This is only relevant at runtime.
+    if (start_block.is_comptime) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
@@ -16373,17 +16436,31 @@ fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         backend_supports_error_return_tracing;
     if (!ok) return;
 
-    const operand = if (inst_data.operand != .none)
-        try sema.resolveInst(inst_data.operand)
-    else
-        .zero_usize;
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
-    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
-    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
-    const field_ptr = try sema.structFieldPtr(block, src, err_return_trace, "index", src, stack_trace_ty, true);
-    try sema.storePtr2(block, src, field_ptr, src, operand, src, .store);
+    const saved_index = if (Zir.refToIndex(inst_data.block)) |zir_block| b: {
+        var block = start_block;
+        while (true) {
+            if (block.label) |label| {
+                if (label.zir_block == zir_block) {
+                    if (start_block.error_return_trace_index != block.error_return_trace_index_on_block_entry)
+                        break :b block.error_return_trace_index_on_block_entry;
+                    return; // No need to restore
+                }
+            }
+            block = block.parent.?;
+        }
+    } else b: {
+        if (start_block.error_return_trace_index != start_block.error_return_trace_index_on_function_entry)
+            break :b start_block.error_return_trace_index_on_function_entry;
+        return; // No need to restore
+    };
+
+    assert(saved_index != .none); // The .error_return_trace_index field was dropped somewhere
+
+    const operand = try sema.resolveInst(inst_data.operand);
+    return sema.popErrorReturnTrace(start_block, src, operand, saved_index);
 }
 
 fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
