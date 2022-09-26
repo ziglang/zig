@@ -225,6 +225,32 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
+    {
+        const case = ctx.obj("invalid store to comptime field", .{});
+        case.backend = .stage2;
+
+        case.addSourceFile("a.zig",
+            \\pub const S = struct {
+            \\    comptime foo: u32 = 1,
+            \\    bar: u32,
+            \\    pub fn foo(x: @This()) void {
+            \\        _ = x;
+            \\    }
+            \\};
+        );
+
+        case.addError(
+            \\const a = @import("a.zig");
+            \\
+            \\export fn entry() void {
+            \\    _ = a.S.foo(a.S{ .foo = 2, .bar = 2 });
+            \\}
+        , &[_][]const u8{
+            ":4:23: error: value stored in comptime field does not match the default value of the field",
+            ":2:25: note: default value set here",
+        });
+    }
+
     // TODO test this in stage2, but we won't even try in stage1
     //ctx.objErrStage1("inline fn calls itself indirectly",
     //    \\export fn foo() void {

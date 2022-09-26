@@ -1868,9 +1868,11 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
         errdefer msg.destroy(sema.gpa);
 
         const decl_index = container_ty.getOwnerDeclOrNull() orelse break :msg msg;
-
-        const tree = try sema.getAstTree(block);
         const decl = sema.mod.declPtr(decl_index);
+        const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
+            log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
+            return error.AnalysisFail;
+        };
         const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
         const default_value_src: LazySrcLoc = .{ .node_offset_field_default = field_src.node_offset.x };
 
@@ -1908,7 +1910,6 @@ fn errNote(
 
 fn addFieldErrNote(
     sema: *Sema,
-    block: *Block,
     container_ty: Type,
     field_index: usize,
     parent: *Module.ErrorMsg,
@@ -1918,7 +1919,10 @@ fn addFieldErrNote(
     const mod = sema.mod;
     const decl_index = container_ty.getOwnerDecl();
     const decl = mod.declPtr(decl_index);
-    const tree = try sema.getAstTree(block);
+    const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
+        log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
+        return error.AnalysisFail;
+    };
     const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
     try mod.errNoteNonLazy(field_src.toSrcLoc(decl), parent, format, args);
 }
@@ -9371,7 +9375,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                         const field_name = operand_ty.enumFieldName(i);
                         try sema.addFieldErrNote(
-                            block,
                             operand_ty,
                             i,
                             msg,
@@ -17379,7 +17382,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                         const enum_ty = union_obj.tag_ty;
                         for (names.keys()) |field_name| {
                             const field_index = enum_ty.enumFieldIndex(field_name).?;
-                            try sema.addFieldErrNote(block, enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
+                            try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
                         }
                         try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                         break :msg msg;
@@ -17667,7 +17670,7 @@ fn reifyStruct(
             sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
                 error.AnalysisFail => {
                     const msg = sema.err orelse return err;
-                    try sema.addFieldErrNote(block, struct_ty, index, msg, "while checking this field", .{});
+                    try sema.addFieldErrNote(struct_ty, index, msg, "while checking this field", .{});
                     return err;
                 },
                 else => return err,
@@ -22270,7 +22273,7 @@ fn unionFieldPtr(
             const msg = try sema.errMsg(block, src, "cannot initialize 'noreturn' field of union", .{});
             errdefer msg.destroy(sema.gpa);
 
-            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+            try sema.addFieldErrNote(union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
             try sema.addDeclaredHereNote(msg, union_ty);
             break :msg msg;
         };
@@ -25748,7 +25751,7 @@ fn coerceEnumToUnion(
                 errdefer msg.destroy(sema.gpa);
 
                 const field_name = union_obj.fields.keys()[field_index];
-                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+                try sema.addFieldErrNote(union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
@@ -25762,7 +25765,7 @@ fn coerceEnumToUnion(
                 });
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+                try sema.addFieldErrNote(union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
@@ -25804,7 +25807,7 @@ fn coerceEnumToUnion(
                 );
                 msg = err_msg;
 
-                try sema.addFieldErrNote(block, union_ty, i, err_msg, "'noreturn' field here", .{});
+                try sema.addFieldErrNote(union_ty, i, err_msg, "'noreturn' field here", .{});
             }
         }
         if (msg) |some| {
@@ -25834,7 +25837,7 @@ fn coerceEnumToUnion(
             const field_name = field.key_ptr.*;
             const field_ty = field.value_ptr.ty;
             if (!field_ty.hasRuntimeBits()) continue;
-            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(sema.mod) });
+            try sema.addFieldErrNote(union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(sema.mod) });
         }
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
@@ -28056,7 +28059,7 @@ fn resolveStructLayout(
             sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
                 error.AnalysisFail => {
                     const msg = sema.err orelse return err;
-                    try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                    try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
                     return err;
                 },
                 else => return err,
@@ -28076,7 +28079,7 @@ fn resolveStructLayout(
             _ = sema.typeRequiresComptime(field.ty) catch |err| switch (err) {
                 error.AnalysisFail => {
                     const msg = sema.err orelse return err;
-                    try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                    try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
                     return err;
                 },
                 else => return err,
@@ -28215,7 +28218,7 @@ fn resolveUnionLayout(
         sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
-                try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
                 return err;
             },
             else => return err,
@@ -29101,7 +29104,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 const enum_ty = union_obj.tag_ty;
                 for (names.keys()) |field_name| {
                     const field_index = enum_ty.enumFieldIndex(field_name).?;
-                    try sema.addFieldErrNote(&block_scope, enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
+                    try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
                 }
                 try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                 break :msg msg;
@@ -29376,7 +29379,7 @@ pub fn typeHasOnePossibleValue(
                         "struct '{}' depends on itself",
                         .{ty.fmt(sema.mod)},
                     );
-                    try sema.addFieldErrNote(block, resolved_ty, i, msg, "while checking this field", .{});
+                    try sema.addFieldErrNote(resolved_ty, i, msg, "while checking this field", .{});
                     return sema.failWithOwnedErrorMsg(msg);
                 }
                 if ((try sema.typeHasOnePossibleValue(block, src, field.ty)) == null) {
@@ -29462,7 +29465,7 @@ pub fn typeHasOnePossibleValue(
                     "union '{}' depends on itself",
                     .{ty.fmt(sema.mod)},
                 );
-                try sema.addFieldErrNote(block, resolved_ty, 0, msg, "while checking this field", .{});
+                try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
                 return sema.failWithOwnedErrorMsg(msg);
             }
             const val_val = (try sema.typeHasOnePossibleValue(block, src, only_field.ty)) orelse
