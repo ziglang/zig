@@ -425,6 +425,9 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             @call(.auto, f, args) catch |err| {
                 std.debug.print("error: {s}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
+                    if (builtin.zig_backend != .stage1)
+                        trace.index -= 1; // exclude this error-handling block
+
                     std.debug.dumpStackTrace(trace.*);
                 }
             };

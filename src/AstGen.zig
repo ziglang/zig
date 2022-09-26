@@ -2965,7 +2965,7 @@ fn varDecl(
                 // The const init expression may have modified the error return trace, so signal
                 // to Sema that it should save the new index for restoring later.
                 if (nodeMayAppendToErrorTrace(tree, var_decl.ast.init_node))
-                    _ = try gz.addSaveErrRetIndex(.{ .if_of_error_type = init_inst });
+                    _ = try gz.addSaveErrRetIndex(.{ .if_of_error_type = init_inst }, false);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -3038,7 +3038,7 @@ fn varDecl(
             // The const init expression may have modified the error return trace, so signal
             // to Sema that it should save the new index for restoring later.
             if (nodeMayAppendToErrorTrace(tree, var_decl.ast.init_node))
-                _ = try init_scope.addSaveErrRetIndex(.{ .if_of_error_type = init_inst });
+                _ = try init_scope.addSaveErrRetIndex(.{ .if_of_error_type = init_inst }, false);
 
             const zir_tags = astgen.instructions.items(.tag);
             const zir_datas = astgen.instructions.items(.data);
@@ -5395,10 +5395,21 @@ fn orelseCatchExpr(
     var else_scope = block_scope.makeSubBlock(scope);
     defer else_scope.unstack();
 
-    // We know that the operand (almost certainly) modified the error return trace,
-    // so signal to Sema that it should save the new index for restoring later.
-    if (do_err_trace and nodeMayAppendToErrorTrace(tree, lhs))
-        _ = try else_scope.addSaveErrRetIndex(.always);
+    if (do_err_trace) {
+        const catch_token = tree.nodes.items(.main_token)[node];
+        const catch_token_start = tree.tokens.items(.start)[catch_token];
+        astgen.advanceSourceCursor(catch_token_start);
+        const catch_line = astgen.source_line - else_scope.decl_line;
+        const catch_column = astgen.source_column;
+
+        // Add an entry to the error return trace, unless this is `catch unreachable`
+        const emit_ret_trace_entry = tree.nodes.items(.tag)[rhs] != .unreachable_literal;
+
+        // We know that the operand (almost certainly) modified the error return trace,
+        // so signal to Sema that it should save the new index for restoring later.
+        try emitDbgStmt(&else_scope, catch_line, catch_column);
+        _ = try else_scope.addSaveErrRetIndex(.always, emit_ret_trace_entry);
+    }
 
     var err_val_scope: Scope.LocalVal = undefined;
     const else_sub_scope = blk: {
@@ -5817,10 +5828,18 @@ fn ifExpr(
     var else_scope = parent_gz.makeSubBlock(scope);
     defer else_scope.unstack();
 
-    // We know that the operand (almost certainly) modified the error return trace,
-    // so signal to Sema that it should save the new index for restoring later.
-    if (do_err_trace and nodeMayAppendToErrorTrace(tree, if_full.ast.cond_expr))
-        _ = try else_scope.addSaveErrRetIndex(.always);
+    if (do_err_trace) {
+        const else_token = if_full.else_token;
+        const else_token_start = tree.tokens.items(.start)[else_token];
+        astgen.advanceSourceCursor(else_token_start);
+        const else_line = astgen.source_line - else_scope.decl_line;
+        const else_column = astgen.source_column;
+
+        // We know that the operand (almost certainly) modified the error return trace,
+        // so signal to Sema that it should save the new index for restoring later.
+        try emitDbgStmt(&else_scope, else_line, else_column);
+        _ = try else_scope.addSaveErrRetIndex(.always, true);
+    }
 
     const else_node = if_full.ast.else_expr;
     const else_info: struct {
@@ -11733,10 +11752,12 @@ const GenZir = struct {
             always: void,
             if_of_error_type: Zir.Inst.Ref,
         },
+        emit_ret_trace_entry: bool,
     ) !Zir.Inst.Index {
         return gz.addAsIndex(.{
             .tag = .save_err_ret_index,
             .data = .{ .save_err_ret_index = .{
+                .emit_ret_trace_entry = emit_ret_trace_entry,
                 .operand = if (cond == .if_of_error_type) cond.if_of_error_type else .none,
             } },
         });

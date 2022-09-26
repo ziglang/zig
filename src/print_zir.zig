@@ -2306,7 +2306,7 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].save_err_ret_index;
 
         try self.writeInstRef(stream, inst_data.operand);
-        try stream.writeAll(")");
+        try stream.print(", emit_ret_trace_entry={})", .{inst_data.emit_ret_trace_entry});
     }
 
     fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

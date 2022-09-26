@@ -17162,8 +17162,33 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         break :b operand_ty.isError();
     };
 
-    if (save_index)
-        block.error_return_trace_index = try sema.analyzeSaveErrRetIndex(block);
+    if (save_index) {
+        const src = sema.src;
+
+        const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+        const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+        const field_index = try sema.structFieldIndex(block, stack_trace_ty, "index", src);
+
+        if (inst_data.emit_ret_trace_entry and sema.owner_func.?.calls_or_awaits_errorable_fn) {
+            // This .save_err_ret_index is from a catch { ... } or else |err| { ... } block.
+            // Add an entry to the error return trace, so that it's obvious how we made it into the block.
+
+            const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
+            const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+            const return_err_fn = try sema.getBuiltin(block, src, "returnError");
+            const args: [1]Air.Inst.Ref = .{err_return_trace};
+
+            _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+        }
+
+        block.error_return_trace_index = try block.addInst(.{
+            .tag = .save_err_return_trace_index,
+            .data = .{ .ty_pl = .{
+                .ty = try sema.addType(stack_trace_ty),
+                .payload = @intCast(u32, field_index),
+            } },
+        });
+    }
 }
 
 fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!void {

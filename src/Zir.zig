@@ -2638,6 +2638,7 @@ pub const Inst = struct {
         },
         save_err_ret_index: struct {
             operand: Ref, // If error type (or .none), save new trace index
+            emit_ret_trace_entry: bool, // Add this location to the error trace
         },
         restore_err_ret_index: struct {
             block: Ref, // If restored, the index is from this block's entrypoint

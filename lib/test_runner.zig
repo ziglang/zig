@@ -78,6 +78,9 @@ pub fn main() void {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
+                    if (builtin.zig_backend != .stage1)
+                        trace.index -= 1; // exclude this error-handling block
+
                     std.debug.dumpStackTrace(trace.*);
                 }
                 test_node.end();

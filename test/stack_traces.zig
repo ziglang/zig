@@ -329,6 +329,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in foo (test)
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:6:18: [address] in main (test)
+            \\    return foo() catch error.AndMyCarIsOutOfGas;
+            \\                 ^
             \\source.zig:6:5: [address] in main (test)
             \\    return foo() catch error.AndMyCarIsOutOfGas;
             \\    ^
@@ -345,6 +348,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:6:18: [address] in [function]
+            \\    return foo() catch error.AndMyCarIsOutOfGas;
+            \\                 ^
             \\source.zig:6:5: [address] in [function]
             \\    return foo() catch error.AndMyCarIsOutOfGas;
             \\    ^
@@ -585,6 +591,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in foo (test)
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:10:11: [address] in main (test)
+            \\    foo() catch { // error trace should include foo()
+            \\          ^
             \\source.zig:6:5: [address] in bar (test)
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^
@@ -603,6 +612,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:10:11: [address] in [function]
+            \\    foo() catch { // error trace should include foo()
+            \\          ^
             \\source.zig:6:5: [address] in [function]
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^
@@ -649,6 +661,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in foo (test)
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:10:23: [address] in main (test)
+            \\    if (foo()) |_| {} else |_| { // error trace should include foo()
+            \\                      ^
             \\source.zig:6:5: [address] in bar (test)
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^
@@ -667,6 +682,9 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:2:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
             \\    ^
+            \\source.zig:10:23: [address] in [function]
+            \\    if (foo()) |_| {} else |_| { // error trace should include foo()
+            \\                      ^
             \\source.zig:6:5: [address] in [function]
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^

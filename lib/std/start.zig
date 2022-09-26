@@ -532,6 +532,9 @@ inline fn initEventLoopAndCallMain() u8 {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
+                    if (builtin.zig_backend != .stage1)
+                        trace.index -= 1; // exclude this error-handling block
+
                     std.debug.dumpStackTrace(trace.*);
                 }
                 return 1;
@@ -561,6 +564,9 @@ inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
+                    if (builtin.zig_backend != .stage1)
+                        trace.index -= 1; // exclude this error-handling block
+
                     std.debug.dumpStackTrace(trace.*);
                 }
                 return 1;
@@ -617,6 +623,9 @@ pub fn callMain() u8 {
             const result = root.main() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
+                    if (builtin.zig_backend != .stage1)
+                        trace.index -= 1; // exclude this error-handling block
+
                     std.debug.dumpStackTrace(trace.*);
                 }
                 return 1;
