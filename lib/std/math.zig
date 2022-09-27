@@ -262,6 +262,7 @@ pub const atanh = @import("math/atanh.zig").atanh;
 pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
+pub const gcd = @import("math/gcd.zig").gcd;
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
