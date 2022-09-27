@@ -10042,7 +10042,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     defer gpa.free(prev_then_body);
 
     var cases_len = scalar_cases_len;
-    var multi_i: usize = 0;
+    var multi_i: u32 = 0;
     while (multi_i < multi_cases_len) : (multi_i += 1) {
         const items_len = sema.code.extra[extra_index];
         extra_index += 1;
@@ -10062,10 +10062,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (is_inline) {
             const body_start = extra_index + 2 * ranges_len;
             const body = sema.code.extra[body_start..][0..body_len];
-            const case_src = src; // TODO better source location
             var emit_bb = false;
 
-            var range_i: usize = 0;
+            var range_i: u32 = 0;
             while (range_i < ranges_len) : (range_i += 1) {
                 const first_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                 extra_index += 1;
@@ -10078,7 +10077,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 const item_last = sema.resolveConstValue(block, .unneeded, item_last_ref, undefined) catch unreachable;
 
                 while (item.compare(.lte, item_last, operand_ty, sema.mod)) : ({
-                    item = try sema.intAddScalar(block, case_src, item, Value.one);
+                    // Previous validation has resolved any possible lazy values.
+                    item = try sema.intAddScalar(block, .unneeded, item, Value.one);
                 }) {
                     cases_len += 1;
 
@@ -10088,7 +10088,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
 
-                    if (emit_bb) try sema.emitBackwardBranch(block, case_src);
+                    if (emit_bb) sema.emitBackwardBranch(block, .unneeded) catch |err| switch (err) {
+                        error.NeededSourceLocation => {
+                            const case_src = Module.SwitchProngSrc{ .range = .{ .prong = multi_i, .item = range_i } };
+                            const decl = sema.mod.declPtr(case_block.src_decl);
+                            try sema.emitBackwardBranch(block, case_src.resolve(sema.gpa, decl, src_node_offset, .none));
+                            return error.AnalysisFail;
+                        },
+                        else => return err,
+                    };
                     emit_bb = true;
 
                     try sema.analyzeBodyRuntimeBreak(&case_block, body);
@@ -10101,7 +10109,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
             }
 
-            for (items) |item_ref| {
+            for (items) |item_ref, item_i| {
                 cases_len += 1;
 
                 const item = try sema.resolveInst(item_ref);
@@ -10116,7 +10124,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     break :blk field_ty.zigTypeTag() != .NoReturn;
                 } else true;
 
-                if (emit_bb) try sema.emitBackwardBranch(block, case_src);
+                if (emit_bb) sema.emitBackwardBranch(block, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const case_src = Module.SwitchProngSrc{ .multi = .{ .prong = multi_i, .item = @intCast(u32, item_i) } };
+                        const decl = sema.mod.declPtr(case_block.src_decl);
+                        try sema.emitBackwardBranch(block, case_src.resolve(sema.gpa, decl, src_node_offset, .none));
+                        return error.AnalysisFail;
+                    },
+                    else => return err,
+                };
                 emit_bb = true;
 
                 if (analyze_body) {
