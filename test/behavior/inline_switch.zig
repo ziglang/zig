@@ -65,3 +65,36 @@ test "inline switch unions" {
         },
     }
 }
+
+test "inline else bool" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var a = true;
+    switch (a) {
+        true => {},
+        inline else => |val| if (val != false) @compileError("bad"),
+    }
+}
+
+test "inline else error" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const Err = error{ a, b, c };
+    var a = Err.a;
+    switch (a) {
+        error.a => {},
+        inline else => |val| comptime if (val == error.a) @compileError("bad"),
+    }
+}
+
+test "inline else enum" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const E2 = enum(u8) { a = 2, b = 3, c = 4, d = 5 };
+    var a: E2 = .a;
+    switch (a) {
+        .a, .b => {},
+        inline else => |val| comptime if (@enumToInt(val) < 4) @compileError("bad"),
+    }
+}
