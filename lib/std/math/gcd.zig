@@ -1,9 +1,9 @@
-/// Find the greatest common divisor (GCD) of two integers (uint), which are not all zero.
-/// For example, the GCD of 8 and 12 is 4, that is, gcd(8, 12) == 4.
-const std = @import("std");
-const expectEQ = std.testing.expectEqual;
-
 // Greatest common divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
+const std = @import("std");
+const expectEqual = std.testing.expectEqual;
+
+/// Returns the greatest common divisor (GCD) of two integers (a, b), which are not all zero.
+/// For example, the GCD of 8 and 12 is 4, that is, gcd(8, 12) == 4.
 pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
 
     // only integers are allowed and not both must be zero
@@ -29,13 +29,13 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
 }
 
 test "gcd" {
-    try expectEQ(gcd(0, 5), 5);
-    try expectEQ(gcd(5, 0), 5);
-    try expectEQ(gcd(8, 12), 4);
-    try expectEQ(gcd(12, 8), 4);
-    try expectEQ(gcd(33, 77), 11);
-    try expectEQ(gcd(77, 33), 11);
-    try expectEQ(gcd(49865, 69811), 9973);
-    try expectEQ(gcd(300_000, 2_300_000), 100_000);
-    try expectEQ(gcd(90000000_000_000_000_000_000, 2), 2);
+    try expectEqual(gcd(0, 5), 5);
+    try expectEqual(gcd(5, 0), 5);
+    try expectEqual(gcd(8, 12), 4);
+    try expectEqual(gcd(12, 8), 4);
+    try expectEqual(gcd(33, 77), 11);
+    try expectEqual(gcd(77, 33), 11);
+    try expectEqual(gcd(49865, 69811), 9973);
+    try expectEqual(gcd(300_000, 2_300_000), 100_000);
+    try expectEqual(gcd(90000000_000_000_000_000_000, 2), 2);
 }
