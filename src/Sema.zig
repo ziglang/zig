@@ -15885,6 +15885,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         .Struct => return sema.structInitEmpty(block, obj_ty, src, src),
         .Array, .Vector => return sema.arrayInitEmpty(block, src, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
+        .Union => return sema.fail(block, src, "union initializer must initialize one field", .{}),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
 }
@@ -25854,13 +25855,18 @@ fn coerceAnonStructToUnion(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
-    const anon_struct = inst_ty.castTag(.anon_struct).?.data;
-    if (anon_struct.types.len != 1) {
+    const field_count = inst_ty.structFieldCount();
+    if (field_count != 1) {
         const msg = msg: {
-            const msg = try sema.errMsg(
+            const msg = if (field_count > 1) try sema.errMsg(
                 block,
                 inst_src,
                 "cannot initialize multiple union fields at once, unions can only have one active field",
+                .{},
+            ) else try sema.errMsg(
+                block,
+                inst_src,
+                "union initializer must initialize one field",
                 .{},
             );
             errdefer msg.destroy(sema.gpa);
@@ -25874,6 +25880,7 @@ fn coerceAnonStructToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
+    const anon_struct = inst_ty.castTag(.anon_struct).?.data;
     const field_name = anon_struct.names[0];
     const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
     return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
