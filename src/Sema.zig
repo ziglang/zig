@@ -606,6 +606,21 @@ fn resolveBody(
     return try sema.resolveInst(break_data.operand);
 }
 
+fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !void {
+    _ = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+        error.ComptimeBreak => {
+            const zir_datas = sema.code.instructions.items(.data);
+            const break_data = zir_datas[sema.comptime_break_inst].@"break";
+            try sema.addRuntimeBreak(block, .{
+                .block_inst = break_data.block_inst,
+                .operand = break_data.operand,
+                .inst = sema.comptime_break_inst,
+            });
+        },
+        else => |e| return e,
+    };
+}
+
 pub fn analyzeBody(
     sema: *Sema,
     block: *Block,
@@ -10005,18 +10020,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
             // nothing to do here
         } else if (analyze_body) {
-            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                error.ComptimeBreak => {
-                    const zir_datas = sema.code.instructions.items(.data);
-                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                    try sema.addRuntimeBreak(&case_block, .{
-                        .block_inst = break_data.block_inst,
-                        .operand = break_data.operand,
-                        .inst = sema.comptime_break_inst,
-                    });
-                },
-                else => |e| return e,
-            };
+            try sema.analyzeBodyRuntimeBreak(&case_block, body);
         } else {
             _ = try case_block.addNoOp(.unreach);
         }
@@ -10069,16 +10073,16 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 extra_index += 1;
 
                 const item_first_ref = try sema.resolveInst(first_ref);
-                var item_first = sema.resolveConstValue(block, .unneeded, item_first_ref, undefined) catch unreachable;
+                var item = sema.resolveConstValue(block, .unneeded, item_first_ref, undefined) catch unreachable;
                 const item_last_ref = try sema.resolveInst(last_ref);
                 const item_last = sema.resolveConstValue(block, .unneeded, item_last_ref, undefined) catch unreachable;
 
-                while (item_first.compare(.lte, item_last, operand_ty, sema.mod)) : ({
-                    item_first = try sema.intAddScalar(block, case_src, item_first, Value.one);
+                while (item.compare(.lte, item_last, operand_ty, sema.mod)) : ({
+                    item = try sema.intAddScalar(block, case_src, item, Value.one);
                 }) {
                     cases_len += 1;
 
-                    const item_ref = try sema.addConstant(operand_ty, item_first);
+                    const item_ref = try sema.addConstant(operand_ty, item);
                     case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
@@ -10087,25 +10091,12 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, case_src);
                     emit_bb = true;
 
-                    _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
-
-                    // try wip_captures.finalize();
+                    try sema.analyzeBodyRuntimeBreak(&case_block, body);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
+                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             }
@@ -10129,28 +10120,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 emit_bb = true;
 
                 if (analyze_body) {
-                    _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
+                    try sema.analyzeBodyRuntimeBreak(&case_block, body);
                 } else {
                     _ = try case_block.addNoOp(.unreach);
                 }
 
-                // try wip_captures.finalize();
-
                 try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                 cases_extra.appendAssumeCapacity(1); // items_len
                 cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                cases_extra.appendAssumeCapacity(@enumToInt(item));
+                cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
                 cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
             }
 
@@ -10181,18 +10159,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
                 // nothing to do here
             } else if (analyze_body) {
-                _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                    error.ComptimeBreak => {
-                        const zir_datas = sema.code.instructions.items(.data);
-                        const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                        try sema.addRuntimeBreak(&case_block, .{
-                            .block_inst = break_data.block_inst,
-                            .operand = break_data.operand,
-                            .inst = sema.comptime_break_inst,
-                        });
-                    },
-                    else => |e| return e,
-                };
+                try sema.analyzeBodyRuntimeBreak(&case_block, body);
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
@@ -10273,18 +10240,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
                 // nothing to do here
             } else {
-                _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                    error.ComptimeBreak => {
-                        const zir_datas = sema.code.instructions.items(.data);
-                        const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                        try sema.addRuntimeBreak(&case_block, .{
-                            .block_inst = break_data.block_inst,
-                            .operand = break_data.operand,
-                            .inst = sema.comptime_break_inst,
-                        });
-                    },
-                    else => |e| return e,
-                };
+                try sema.analyzeBodyRuntimeBreak(&case_block, body);
             }
 
             try wip_captures.finalize();
@@ -10315,8 +10271,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     var final_else_body: []const Air.Inst.Index = &.{};
     if (special.body.len != 0 or !is_first or case_block.wantSafety()) {
-        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
-        defer wip_captures.deinit();
+        var emit_bb = false;
         if (special.is_inline) switch (operand_ty.zigTypeTag()) {
             .Enum => {
                 if (operand_ty.isNonexhaustiveEnum() and !union_originally) {
@@ -10324,7 +10279,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         operand_ty.fmt(sema.mod),
                     });
                 }
-                var emit_bb = false;
                 for (seen_enum_fields) |f, i| {
                     if (f != null) continue;
                     cases_len += 1;
@@ -10345,23 +10299,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     emit_bb = true;
 
                     if (analyze_body) {
-                        _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                            error.ComptimeBreak => {
-                                const zir_datas = sema.code.instructions.items(.data);
-                                const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                                try sema.addRuntimeBreak(&case_block, .{
-                                    .block_inst = break_data.block_inst,
-                                    .operand = break_data.operand,
-                                    .inst = sema.comptime_break_inst,
-                                });
-                            },
-                            else => |e| return e,
-                        };
+                        try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
                     } else {
                         _ = try case_block.addNoOp(.unreach);
                     }
-
-                    // try wip_captures.finalize();
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -10376,7 +10317,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         operand_ty.fmt(sema.mod),
                     });
                 }
-                var emit_bb = false;
                 for (operand_ty.errorSetNames()) |error_name| {
                     if (seen_errors.contains(error_name)) continue;
                     cases_len += 1;
@@ -10391,20 +10331,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
-
-                    // try wip_captures.finalize();
+                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -10415,7 +10342,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             },
             .Int => {
                 var it = try RangeSetUnhandledIterator.init(sema, block, special_prong_src, operand_ty, range_set);
-                var emit_bb = false;
                 while (try it.next()) |cur| {
                     cases_len += 1;
 
@@ -10428,30 +10354,16 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
-
-                    // try wip_captures.finalize();
+                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
+                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             },
             .Bool => {
-                var emit_bb = false;
                 if (true_count == 0) {
                     cases_len += 1;
                     case_block.inline_case_capture = Air.Inst.Ref.bool_true;
@@ -10462,20 +10374,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
-
-                    // try wip_captures.finalize();
+                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -10493,20 +10392,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                        error.ComptimeBreak => {
-                            const zir_datas = sema.code.instructions.items(.data);
-                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                            try sema.addRuntimeBreak(&case_block, .{
-                                .block_inst = break_data.block_inst,
-                                .operand = break_data.operand,
-                                .inst = sema.comptime_break_inst,
-                            });
-                        },
-                        else => |e| return e,
-                    };
-
-                    // try wip_captures.finalize();
+                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -10519,6 +10405,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 operand_ty.fmt(sema.mod),
             }),
         };
+
+        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
+        defer wip_captures.deinit();
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
@@ -10538,18 +10427,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         {
             // nothing to do here
         } else if (special.body.len != 0 and analyze_body and !special.is_inline) {
-            _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
-                error.ComptimeBreak => {
-                    const zir_datas = sema.code.instructions.items(.data);
-                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                    try sema.addRuntimeBreak(&case_block, .{
-                        .block_inst = break_data.block_inst,
-                        .operand = break_data.operand,
-                        .inst = sema.comptime_break_inst,
-                    });
-                },
-                else => |e| return e,
-            };
+            try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
@@ -15716,18 +15594,7 @@ fn zirCondbr(
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
-    _ = sema.analyzeBodyInner(&sub_block, then_body) catch |err| switch (err) {
-        error.ComptimeBreak => {
-            const zir_datas = sema.code.instructions.items(.data);
-            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-            try sema.addRuntimeBreak(&sub_block, .{
-                .block_inst = break_data.block_inst,
-                .operand = break_data.operand,
-                .inst = sema.comptime_break_inst,
-            });
-        },
-        else => |e| return e,
-    };
+    try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);
     const true_instructions = sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
@@ -15746,18 +15613,7 @@ fn zirCondbr(
     if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?)) {
         // nothing to do
     } else {
-        _ = sema.analyzeBodyInner(&sub_block, else_body) catch |err| switch (err) {
-            error.ComptimeBreak => {
-                const zir_datas = sema.code.instructions.items(.data);
-                const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                try sema.addRuntimeBreak(&sub_block, .{
-                    .block_inst = break_data.block_inst,
-                    .operand = break_data.operand,
-                    .inst = sema.comptime_break_inst,
-                });
-            },
-            else => |e| return e,
-        };
+        try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
     }
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         true_instructions.len + sub_block.instructions.items.len);
