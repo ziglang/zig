@@ -98,3 +98,34 @@ test "inline else enum" {
         inline else => |val| comptime if (@enumToInt(val) < 4) @compileError("bad"),
     }
 }
+
+test "inline else int with gaps" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var a: u8 = 0;
+    switch (a) {
+        1...125, 128...254 => {},
+        inline else => |val| {
+            if (val != 0 and
+                val != 126 and
+                val != 127 and
+                val != 255)
+                @compileError("bad");
+        },
+    }
+}
+
+test "inline else int all values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var a: u2 = 0;
+    switch (a) {
+        inline else => |val| {
+            if (val != 0 and
+                val != 1 and
+                val != 2 and
+                val != 3)
+                @compileError("bad");
+        },
+    }
+}

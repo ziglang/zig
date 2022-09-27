@@ -10414,7 +10414,41 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
             },
             .Int => {
-                return sema.fail(block, special_prong_src, "TODO 'inline else' Int", .{});
+                var it = try RangeSetUnhandledIterator.init(sema, block, special_prong_src, operand_ty, range_set);
+                var emit_bb = false;
+                while (try it.next()) |cur| {
+                    cases_len += 1;
+
+                    const item_ref = try sema.addConstant(operand_ty, cur);
+                    case_block.inline_case_capture = item_ref;
+
+                    case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.wip_capture_scope = child_block.wip_capture_scope;
+
+                    if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
+                    emit_bb = true;
+
+                    _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
+                        error.ComptimeBreak => {
+                            const zir_datas = sema.code.instructions.items(.data);
+                            const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                            try sema.addRuntimeBreak(&case_block, .{
+                                .block_inst = break_data.block_inst,
+                                .operand = break_data.operand,
+                                .inst = sema.comptime_break_inst,
+                            });
+                        },
+                        else => |e| return e,
+                    };
+
+                    // try wip_captures.finalize();
+
+                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
+                    cases_extra.appendAssumeCapacity(1); // items_len
+                    cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
+                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
+                    cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
+                }
             },
             .Bool => {
                 var emit_bb = false;
@@ -10560,6 +10594,55 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     return sema.analyzeBlockBody(block, src, &child_block, merges);
 }
+
+const RangeSetUnhandledIterator = struct {
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+    cur: Value,
+    max: Value,
+    ranges: []const RangeSet.Range,
+    range_i: usize = 0,
+    first: bool = true,
+
+    fn init(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, range_set: RangeSet) !RangeSetUnhandledIterator {
+        const target = sema.mod.getTarget();
+        const min = try ty.minInt(sema.arena, target);
+        const max = try ty.maxInt(sema.arena, target);
+
+        return RangeSetUnhandledIterator{
+            .sema = sema,
+            .block = block,
+            .src = src,
+            .ty = ty,
+            .cur = min,
+            .max = max,
+            .ranges = range_set.ranges.items,
+        };
+    }
+
+    fn next(it: *RangeSetUnhandledIterator) !?Value {
+        while (it.range_i < it.ranges.len) : (it.range_i += 1) {
+            if (!it.first) {
+                it.cur = try it.sema.intAdd(it.block, it.src, it.cur, Value.one, it.ty);
+            }
+            it.first = false;
+            if (it.cur.compare(.lt, it.ranges[it.range_i].first, it.ty, it.sema.mod)) {
+                return it.cur;
+            }
+            it.cur = it.ranges[it.range_i].last;
+        }
+        if (!it.first) {
+            it.cur = try it.sema.intAdd(it.block, it.src, it.cur, Value.one, it.ty);
+        }
+        it.first = false;
+        if (it.cur.compare(.lte, it.max, it.ty, it.sema.mod)) {
+            return it.cur;
+        }
+        return null;
+    }
+};
 
 fn resolveSwitchItemVal(
     sema: *Sema,
