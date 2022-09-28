@@ -1,14 +1,21 @@
-// Greatest common divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
+//! Greatest common divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 
-/// Returns the greatest common divisor (GCD) of two integers (a, b), which are not all zero.
+/// Returns the greatest common divisor (GCD) of two unsigned integers (a and b) which are not both zero.
 /// For example, the GCD of 8 and 12 is 4, that is, gcd(8, 12) == 4.
 pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
 
-    // only integers are allowed and not both must be zero
-    std.debug.assert(a != 0 or b != 0);
-    std.debug.assert(a >= 0 and b >= 0);
+    // only unsigned integers are allowed and not both must be zero
+    comptime switch (@typeInfo(@TypeOf(a, b))) {
+        .Int => |int| std.debug.assert(int.signedness == .unsigned),
+        .ComptimeInt => {
+            std.debug.assert(a >= 0);
+            std.debug.assert(b >= 0);
+            std.debug.assert(a != 0 or b != 0);
+        },
+        else => unreachable,
+    };
 
     // if one of them is zero, the other is returned
     if (a == 0) return b;
