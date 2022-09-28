@@ -1662,6 +1662,7 @@ pub const TestContext = struct {
                                         var msg: Compilation.AllErrors.Message = actual_error;
                                         msg.src.src_path = case_msg.src.src_path;
                                         msg.src.notes = &.{};
+                                        msg.src.source_line = null;
                                         var fib = std.io.fixedBufferStream(&buf);
                                         try msg.renderToWriter(.no_color, fib.writer(), "error", .Red, 0);
                                         var it = std.mem.split(u8, fib.getWritten(), "error: ");
