@@ -80,11 +80,11 @@ pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: u
 pub const posix_spawnattr_t = *opaque {};
 pub const posix_spawn_file_actions_t = *opaque {};
 pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void;
+pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
 pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
 pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
 pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) void;
+pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
 pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
 pub extern "c" fn posix_spawn_file_actions_addopen(
     actions: *posix_spawn_file_actions_t,
