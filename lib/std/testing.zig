@@ -6,18 +6,28 @@ const print = std.debug.print;
 
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
 
+fn checkScope() void {
+    if (!builtin.is_test)
+        @compileError("this can only be used inside `test` blocks");
+}
+
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance = b: {
-    if (!builtin.is_test)
-        @compileError("Cannot use testing allocator outside of test block");
-    break :b std.heap.GeneralPurposeAllocator(.{}){};
+pub var allocator_instance = instance: {
+    checkScope();
+    break :instance std.heap.GeneralPurposeAllocator(.{}){};
 };
 
 pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
+pub var failing_allocator_instance = instance: {
+    checkScope();
+    break :instance FailingAllocator.init(base_allocator_instance.allocator(), 0);
+};
 
-pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
+pub var base_allocator_instance = instance: {
+    checkScope();
+    break :instance std.heap.FixedBufferAllocator.init("");
+};
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
@@ -25,6 +35,8 @@ pub var log_level = std.log.Level.warn;
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then returns a test failure error when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
+    checkScope();
+
     if (actual_error_union) |actual_payload| {
         std.debug.print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
         return error.TestUnexpectedError;
@@ -44,6 +56,8 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 /// then returns a test failure error.
 /// `actual` is casted to the type of `expected`.
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
+    checkScope();
+
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .BoundFn,
@@ -198,6 +212,8 @@ test "expectEqual.union(enum)" {
 /// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
 /// they are not equal, then returns an error.
 pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
+    checkScope();
+
     const result = try std.fmt.allocPrint(allocator, template, args);
     defer allocator.free(result);
     if (std.mem.eql(u8, result, expected)) return;
@@ -216,6 +232,8 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// See `math.approxEqAbs` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
+    checkScope();
+
     const T = @TypeOf(expected);
 
     switch (@typeInfo(T)) {
@@ -248,6 +266,8 @@ test "expectApproxEqAbs" {
 /// See `math.approxEqRel` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
+    checkScope();
+
     const T = @TypeOf(expected);
 
     switch (@typeInfo(T)) {
@@ -282,6 +302,8 @@ test "expectApproxEqRel" {
 /// then returns a test failure error.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
+    checkScope();
+
     // TODO better printing of the difference
     // If the arrays are small enough we could print the whole thing
     // If the child type is u8 and no weird bytes, we could print it as strings
@@ -302,6 +324,8 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
 /// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
 /// including that their sentinel (if any) are the same. Will error if given another type.
 pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:sentinel]const T, actual: [:sentinel]const T) !void {
+    checkScope();
+
     try expectEqualSlices(T, expected, actual);
 
     const expected_value_sentinel = blk: {
@@ -344,39 +368,49 @@ pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:s
 /// This function is intended to be used only in tests.
 /// When `ok` is false, returns a test failure error.
 pub fn expect(ok: bool) !void {
+    checkScope();
+
     if (!ok) return error.TestUnexpectedResult;
 }
 
-pub const TmpDir = struct {
-    dir: std.fs.Dir,
-    parent_dir: std.fs.Dir,
-    sub_path: [sub_path_len]u8,
+pub const TmpDir = TmpDir: {
+    checkScope();
 
-    const random_bytes_count = 12;
-    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
+    break :TmpDir struct {
+        dir: std.fs.Dir,
+        parent_dir: std.fs.Dir,
+        sub_path: [sub_path_len]u8,
 
-    pub fn cleanup(self: *TmpDir) void {
-        self.dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
-        self.parent_dir.close();
-        self.* = undefined;
-    }
+        const random_bytes_count = 12;
+        const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
+
+        pub fn cleanup(self: *TmpDir) void {
+            self.dir.close();
+            self.parent_dir.deleteTree(&self.sub_path) catch {};
+            self.parent_dir.close();
+            self.* = undefined;
+        }
+    };
 };
 
-pub const TmpIterableDir = struct {
-    iterable_dir: std.fs.IterableDir,
-    parent_dir: std.fs.Dir,
-    sub_path: [sub_path_len]u8,
+pub const TmpIterableDir = TmpIterableDir: {
+    checkScope();
 
-    const random_bytes_count = 12;
-    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
+    break :TmpIterableDir struct {
+        iterable_dir: std.fs.IterableDir,
+        parent_dir: std.fs.Dir,
+        sub_path: [sub_path_len]u8,
 
-    pub fn cleanup(self: *TmpIterableDir) void {
-        self.iterable_dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
-        self.parent_dir.close();
-        self.* = undefined;
-    }
+        const random_bytes_count = 12;
+        const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
+
+        pub fn cleanup(self: *TmpIterableDir) void {
+            self.iterable_dir.close();
+            self.parent_dir.deleteTree(&self.sub_path) catch {};
+            self.parent_dir.close();
+            self.* = undefined;
+        }
+    };
 };
 
 fn getCwdOrWasiPreopen() std.fs.Dir {
@@ -395,6 +429,8 @@ fn getCwdOrWasiPreopen() std.fs.Dir {
 }
 
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+    checkScope();
+
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
@@ -417,6 +453,8 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
 }
 
 pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
+    checkScope();
+
     var random_bytes: [TmpIterableDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
@@ -460,6 +498,8 @@ test "expectEqual vector" {
 }
 
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
+    checkScope();
+
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
         print("\n====== expected this output: =========\n", .{});
         printWithVisibleNewlines(expected);
@@ -484,6 +524,8 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
 }
 
 pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const u8) !void {
+    checkScope();
+
     if (std.mem.startsWith(u8, actual, expected_starts_with))
         return;
 
@@ -504,6 +546,8 @@ pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const 
 }
 
 pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) !void {
+    checkScope();
+
     if (std.mem.endsWith(u8, actual, expected_ends_with))
         return;
 
@@ -641,6 +685,8 @@ test {
 /// }
 /// ```
 pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime test_fn: anytype, extra_args: anytype) !void {
+    checkScope();
+
     switch (@typeInfo(@typeInfo(@TypeOf(test_fn)).Fn.return_type.?)) {
         .ErrorUnion => |info| {
             if (info.payload != void) {
@@ -721,7 +767,8 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
 /// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
-    if (!builtin.is_test) return;
+    checkScope();
+
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (decl.is_pub) _ = @field(T, decl.name);
     }
@@ -730,6 +777,8 @@ pub fn refAllDecls(comptime T: type) void {
 /// Given a type, and Recursively reference all the declarations inside, so that the semantic analyzer sees them.
 /// For deep types, you may use `@setEvalBranchQuota`
 pub fn refAllDeclsRecursive(comptime T: type) void {
+    checkScope();
+
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (decl.is_pub) {
             if (@TypeOf(@field(T, decl.name)) == type) {
