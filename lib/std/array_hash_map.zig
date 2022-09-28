@@ -773,9 +773,9 @@ pub fn ArrayHashMapUnmanaged(
                 }
             }
 
+            try self.entries.ensureTotalCapacity(allocator, new_capacity);
             const new_bit_index = try IndexHeader.findBitIndex(new_capacity);
             const new_header = try IndexHeader.alloc(allocator, new_bit_index);
-            try self.entries.ensureTotalCapacity(allocator, new_capacity);
 
             if (self.index_header) |old_header| old_header.free(allocator);
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
