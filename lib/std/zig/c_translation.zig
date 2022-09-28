@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
@@ -8,7 +9,7 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
     // this function should behave like transCCast in translate-c, except it's for macros
     const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
-        .Fn => if (@import("builtin").zig_backend == .stage1)
+        .Fn => if (builtin.zig_backend == .stage1)
             return castToPtr(DestType, SourceType, target)
         else
             return castToPtr(*const DestType, SourceType, target),
@@ -17,7 +18,7 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
             if (@typeInfo(dest_opt.child) == .Pointer) {
                 return castToPtr(DestType, SourceType, target);
             } else if (@typeInfo(dest_opt.child) == .Fn) {
-                if (@import("builtin").zig_backend == .stage1)
+                if (builtin.zig_backend == .stage1)
                     return castToPtr(DestType, SourceType, target)
                 else
                     return castToPtr(?*const dest_opt.child, SourceType, target);
@@ -137,10 +138,7 @@ test "cast" {
     try testing.expect(cast(?*anyopaque, -1) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
     try testing.expect(cast(?*anyopaque, foo) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
 
-    const FnPtr = if (@import("builtin").zig_backend == .stage1)
-        ?fn (*anyopaque) void
-    else
-        ?*align(1) const fn (*anyopaque) void;
+    const FnPtr = ?if (builtin.zig_backend == .stage1) fn (*anyopaque) void else *align(1) const fn (*anyopaque) void;
     try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
     try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
 }
@@ -151,7 +149,7 @@ pub fn sizeof(target: anytype) usize {
     switch (@typeInfo(T)) {
         .Float, .Int, .Struct, .Union, .Array, .Bool, .Vector => return @sizeOf(T),
         .Fn => {
-            if (@import("builtin").zig_backend == .stage1) {
+            if (builtin.zig_backend == .stage1) {
                 // sizeof(main) returns 1, sizeof(&main) returns pointer size.
                 // We cannot distinguish those types in Zig, so use pointer size.
                 return @sizeOf(T);
@@ -254,7 +252,7 @@ test "sizeof" {
     try testing.expect(sizeof(*const *const [4:0]u8) == ptr_size);
     try testing.expect(sizeof(*const [4]u8) == ptr_size);
 
-    if (@import("builtin").zig_backend == .stage1) {
+    if (builtin.zig_backend == .stage1) {
         try testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
     } else if (false) { // TODO
         try testing.expect(sizeof(&sizeof) == @sizeOf(@TypeOf(&sizeof)));

@@ -126,10 +126,7 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = switch (@import("builtin").zig_backend) {
-    .stage1 => fn (arg: usize) callconv(.C) u8,
-    else => *const fn (arg: usize) callconv(.C) u8,
-};
+const CloneFn = std.meta.FnPtr(fn (arg: usize) callconv(.C) u8);
 
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
