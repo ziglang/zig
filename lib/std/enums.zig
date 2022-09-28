@@ -429,7 +429,7 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
         /// index order.  Modifications to the set during iteration
         /// may or may not be observed by the iterator, but will
         /// not invalidate it.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return .{ .inner = self.bits.iterator(.{}) };
         }
 
@@ -444,6 +444,17 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
             }
         };
     };
+}
+
+test "std.enums.IndexedSet.iterator" {
+    const E = enum(i4) { a = -2, c = 6, b = 4 };
+    const set = EnumSet(E).initFull();
+    var iter = set.iterator();
+
+    try testing.expectEqual(@as(?E, .a), iter.next());
+    try testing.expectEqual(@as(?E, .b), iter.next());
+    try testing.expectEqual(@as(?E, .c), iter.next());
+    try testing.expectEqual(@as(?E, null), iter.next());
 }
 
 /// A map from keys to values, using an index lookup.  Uses a
