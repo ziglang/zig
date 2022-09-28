@@ -11,7 +11,6 @@ fn checkScope() void {
         @compileError("this can only be used inside `test` blocks");
 }
 
-/// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
 pub var allocator_instance = instance: {
     checkScope();
@@ -32,8 +31,8 @@ pub var base_allocator_instance = instance: {
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
-/// This function is intended to be used only in tests. It prints diagnostics to stderr
-/// and then returns a test failure error when actual_error_union is not expected_error.
+/// Prints diagnostics to stderr and then returns a test failure error
+/// when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     checkScope();
 
@@ -51,8 +50,8 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
     }
 }
 
-/// This function is intended to be used only in tests. When the two values are not
-/// equal, prints diagnostics to stderr to show exactly how they are not equal,
+/// When the two values are not equal,
+/// prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
 /// `actual` is casted to the type of `expected`.
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
@@ -208,9 +207,8 @@ test "expectEqual.union(enum)" {
     try expectEqual(a10, a10);
 }
 
-/// This function is intended to be used only in tests. When the formatted result of the template
-/// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
-/// they are not equal, then returns an error.
+/// When the formatted result of the template and its arguments does not equal the expected text,
+/// it prints diagnostics to stderr to show how they are not equal, then returns an error.
 pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
     checkScope();
 
@@ -226,9 +224,9 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
     return error.TestExpectedFmt;
 }
 
-/// This function is intended to be used only in tests. When the actual value is
-/// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then returns a test failure error.
+/// When the actual value is not approximately equal to the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal,
+/// then returns a test failure error.
 /// See `math.approxEqAbs` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
@@ -260,11 +258,11 @@ test "expectApproxEqAbs" {
     }
 }
 
-/// This function is intended to be used only in tests. When the actual value is
-/// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then returns a test failure error.
+/// When the actual value is not approximately equal to the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal,
+/// then returns a test failure error.
 /// See `math.approxEqRel` for more informations on the tolerance parameter.
-/// The types must be floating point
+/// The types must be floating point.
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     checkScope();
 
@@ -297,8 +295,8 @@ test "expectApproxEqRel" {
     }
 }
 
-/// This function is intended to be used only in tests. When the two slices are not
-/// equal, prints diagnostics to stderr to show exactly how they are not equal,
+/// When the two slices are not equal,
+/// prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
@@ -321,7 +319,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
-/// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
+/// Checks that two slices or two arrays are equal,
 /// including that their sentinel (if any) are the same. Will error if given another type.
 pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:sentinel]const T, actual: [:sentinel]const T) !void {
     checkScope();
@@ -365,7 +363,6 @@ pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:s
     }
 }
 
-/// This function is intended to be used only in tests.
 /// When `ok` is false, returns a test failure error.
 pub fn expect(ok: bool) !void {
     checkScope();
@@ -765,7 +762,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     }
 }
 
-/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
+/// Given a type, references all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     checkScope();
 
@@ -774,8 +771,8 @@ pub fn refAllDecls(comptime T: type) void {
     }
 }
 
-/// Given a type, and Recursively reference all the declarations inside, so that the semantic analyzer sees them.
-/// For deep types, you may use `@setEvalBranchQuota`
+/// Given a type, recursively references all the declarations inside, so that the semantic analyzer sees them.
+/// For deep types, you may use `@setEvalBranchQuota`.
 pub fn refAllDeclsRecursive(comptime T: type) void {
     checkScope();
 
