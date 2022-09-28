@@ -544,7 +544,7 @@ test "Version.parse" {
     comptime (try testVersionParse());
 }
 
-pub fn testVersionParse() !void {
+fn testVersionParse() !void {
     const f = struct {
         fn eql(text: []const u8, v1: u32, v2: u32, v3: u32) !void {
             const v = try Version.parse(text);
