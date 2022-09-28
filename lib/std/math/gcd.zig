@@ -12,10 +12,10 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
         .ComptimeInt => {
             std.debug.assert(a >= 0);
             std.debug.assert(b >= 0);
-            std.debug.assert(a != 0 or b != 0);
         },
         else => unreachable,
     };
+    std.debug.assert(a != 0 or b != 0);
 
     // if one of them is zero, the other is returned
     if (a == 0) return b;
