@@ -355,6 +355,9 @@ export fn zig_split_struct_mixed(x: SplitStructMixed) void {
 
 extern fn c_big_struct_both(BigStruct) BigStruct;
 
+extern fn c_multiple_struct_ints(Rect, Rect) void;
+extern fn c_multiple_struct_floats(FloatRect, FloatRect) void;
+
 test "C ABI sret and byval together" {
     var s = BigStruct{
         .a = 1,
@@ -421,6 +424,74 @@ test "C ABI structs of floats as parameter" {
         .q = 55,
     };
     c_big_struct_floats(v5);
+}
+
+const Rect = extern struct {
+    left: u32,
+    right: u32,
+    top: u32,
+    bottom: u32,
+};
+
+export fn zig_multiple_struct_ints(x: Rect, y: Rect) void {
+    expect(x.left == 1) catch @panic("test failure");
+    expect(x.right == 21) catch @panic("test failure");
+    expect(x.top == 16) catch @panic("test failure");
+    expect(x.bottom == 4) catch @panic("test failure");
+    expect(y.left == 178) catch @panic("test failure");
+    expect(y.right == 189) catch @panic("test failure");
+    expect(y.top == 21) catch @panic("test failure");
+    expect(y.bottom == 15) catch @panic("test failure");
+}
+
+test "C ABI structs of ints as multiple parameters" {
+    var r1 = Rect{
+        .left = 1,
+        .right = 21,
+        .top = 16,
+        .bottom = 4,
+    };
+    var r2 = Rect{
+        .left = 178,
+        .right = 189,
+        .top = 21,
+        .bottom = 15,
+    };
+    c_multiple_struct_ints(r1, r2);
+}
+
+const FloatRect = extern struct {
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+};
+
+export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
+    expect(x.left == 1) catch @panic("test failure");
+    expect(x.right == 21) catch @panic("test failure");
+    expect(x.top == 16) catch @panic("test failure");
+    expect(x.bottom == 4) catch @panic("test failure");
+    expect(y.left == 178) catch @panic("test failure");
+    expect(y.right == 189) catch @panic("test failure");
+    expect(y.top == 21) catch @panic("test failure");
+    expect(y.bottom == 15) catch @panic("test failure");
+}
+
+test "C ABI structs of floats as multiple parameters" {
+    var r1 = FloatRect{
+        .left = 1,
+        .right = 21,
+        .top = 16,
+        .bottom = 4,
+    };
+    var r2 = FloatRect{
+        .left = 178,
+        .right = 189,
+        .top = 21,
+        .bottom = 15,
+    };
+    c_multiple_struct_floats(r1, r2);
 }
 
 export fn zig_ret_bool() bool {

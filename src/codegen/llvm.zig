@@ -1035,10 +1035,11 @@ pub const Object = struct {
                     }
                     const ints_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
                     const casted_ptr = builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
-                    for (llvm_ints) |_, i_usize| {
-                        const i = @intCast(c_uint, i_usize);
-                        const param = llvm_func.getParam(i);
-                        const field_ptr = builder.buildStructGEP(ints_llvm_ty, casted_ptr, i, "");
+                    for (llvm_ints) |_, field_i_usize| {
+                        const field_i = @intCast(c_uint, field_i_usize);
+                        const param = llvm_func.getParam(llvm_arg_i);
+                        llvm_arg_i += 1;
+                        const field_ptr = builder.buildStructGEP(ints_llvm_ty, casted_ptr, field_i, "");
                         const store_inst = builder.buildStore(param, field_ptr);
                         store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
                     }
@@ -1070,10 +1071,11 @@ pub const Object = struct {
                     }
                     const floats_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
                     const casted_ptr = builder.buildBitCast(arg_ptr, floats_llvm_ty.pointerType(0), "");
-                    for (llvm_floats) |_, i_usize| {
-                        const i = @intCast(c_uint, i_usize);
-                        const param = llvm_func.getParam(i);
-                        const field_ptr = builder.buildStructGEP(floats_llvm_ty, casted_ptr, i, "");
+                    for (llvm_floats) |_, field_i_usize| {
+                        const field_i = @intCast(c_uint, field_i_usize);
+                        const param = llvm_func.getParam(llvm_arg_i);
+                        llvm_arg_i += 1;
+                        const field_ptr = builder.buildStructGEP(floats_llvm_ty, casted_ptr, field_i, "");
                         const store_inst = builder.buildStore(param, field_ptr);
                         store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
                     }

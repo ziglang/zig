@@ -120,6 +120,24 @@ typedef struct Vector5 {
     float q;
 } Vector5;
 
+typedef struct Rect {
+    uint32_t left;
+    uint32_t right;
+    uint32_t top;
+    uint32_t bottom;
+} Rect;
+
+void zig_multiple_struct_ints(struct Rect, struct Rect);
+
+typedef struct FloatRect {
+    float left;
+    float right;
+    float top;
+    float bottom;
+} FloatRect;
+
+void zig_multiple_struct_floats(struct FloatRect, struct FloatRect);
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -198,6 +216,18 @@ void run_c_tests(void) {
         assert_or_panic(res.c == 22);
         assert_or_panic(res.d == 23);
         assert_or_panic(res.e == 24);
+    }
+
+    {
+        struct Rect r1 = {1, 21, 16, 4};
+        struct Rect r2 = {178, 189, 21, 15};
+        zig_multiple_struct_ints(r1, r2);
+    }
+
+    {
+        struct FloatRect r1 = {1, 21, 16, 4};
+        struct FloatRect r2 = {178, 189, 21, 15};
+        zig_multiple_struct_floats(r1, r2);
     }
 
     {
@@ -434,6 +464,28 @@ void c_big_struct_floats(Vector5 vec) {
     assert_or_panic(vec.z == -12.0);
     assert_or_panic(vec.w == 69);
     assert_or_panic(vec.q == 55);
+}
+
+void c_multiple_struct_ints(Rect x, Rect y) {
+    assert_or_panic(x.left == 1);
+    assert_or_panic(x.right == 21);
+    assert_or_panic(x.top == 16);
+    assert_or_panic(x.bottom == 4);
+    assert_or_panic(y.left == 178);
+    assert_or_panic(y.right == 189);
+    assert_or_panic(y.top == 21);
+    assert_or_panic(y.bottom == 15);
+}
+
+void c_multiple_struct_floats(FloatRect x, FloatRect y) {
+    assert_or_panic(x.left == 1);
+    assert_or_panic(x.right == 21);
+    assert_or_panic(x.top == 16);
+    assert_or_panic(x.bottom == 4);
+    assert_or_panic(y.left == 178);
+    assert_or_panic(y.right == 189);
+    assert_or_panic(y.top == 21);
+    assert_or_panic(y.bottom == 15);
 }
 
 bool c_ret_bool() {
