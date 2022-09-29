@@ -21664,14 +21664,17 @@ fn fieldPtr(
             else
                 object_ptr;
 
+            const attr_ptr_ty = if (is_pointer_to) object_ty else object_ptr_ty;
+
             if (mem.eql(u8, field_name, "ptr")) {
                 const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
                 const slice_ptr_ty = inner_ty.slicePtrFieldType(buf);
 
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = slice_ptr_ty,
-                    .mutable = object_ptr_ty.ptrIsMutable(),
-                    .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
+                    .mutable = attr_ptr_ty.ptrIsMutable(),
+                    .@"volatile" = attr_ptr_ty.isVolatilePtr(),
+                    .@"addrspace" = attr_ptr_ty.ptrAddressSpace(),
                 });
 
                 if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
@@ -21690,8 +21693,9 @@ fn fieldPtr(
             } else if (mem.eql(u8, field_name, "len")) {
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = Type.usize,
-                    .mutable = object_ptr_ty.ptrIsMutable(),
-                    .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
+                    .mutable = attr_ptr_ty.ptrIsMutable(),
+                    .@"volatile" = attr_ptr_ty.isVolatilePtr(),
+                    .@"addrspace" = attr_ptr_ty.ptrAddressSpace(),
                 });
 
                 if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {

@@ -684,3 +684,31 @@ test "slice len modification at comptime" {
         try expect(items[1] == 1);
     }
 }
+
+test "slice field ptr const" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const const_slice: []const u8 = "string";
+
+    const const_ptr_const_slice = &const_slice;
+    try expectEqual(*const []const u8, @TypeOf(&const_ptr_const_slice.*));
+    try expectEqual(*const [*]const u8, @TypeOf(&const_ptr_const_slice.ptr));
+
+    var var_ptr_const_slice = &const_slice;
+    try expectEqual(*const []const u8, @TypeOf(&var_ptr_const_slice.*));
+    try expectEqual(*const [*]const u8, @TypeOf(&var_ptr_const_slice.ptr));
+}
+
+test "slice field ptr var" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    var var_slice: []const u8 = "string";
+
+    var var_ptr_var_slice = &var_slice;
+    try expectEqual(*[]const u8, @TypeOf(&var_ptr_var_slice.*));
+    try expectEqual(*[*]const u8, @TypeOf(&var_ptr_var_slice.ptr));
+
+    const const_ptr_var_slice = &var_slice;
+    try expectEqual(*[]const u8, @TypeOf(&const_ptr_var_slice.*));
+    try expectEqual(*[*]const u8, @TypeOf(&const_ptr_var_slice.ptr));
+}
