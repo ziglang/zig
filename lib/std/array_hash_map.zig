@@ -2042,6 +2042,19 @@ test "ensure capacity" {
     try testing.expect(initial_capacity == map.capacity());
 }
 
+test "ensure capacity leak" {
+    try testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        pub fn f(allocator: Allocator) !void {
+            var map = AutoArrayHashMap(i32, i32).init(allocator);
+            defer map.deinit();
+
+            var i: i32 = 0;
+            // put more than `linear_scan_max` in so index_header gets allocated.
+            while (i <= 20) : (i += 1) try map.put(i, i);
+        }
+    }.f, .{});
+}
+
 test "big map" {
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
