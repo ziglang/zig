@@ -604,6 +604,38 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn (type) ty
                     null;
             }
         };
+
+        /// Returns a read-only iterator over the map, which visits items in index order.
+        pub fn constIterator(self: *const Self) ConstIterator {
+            return .{
+                .inner = self.bits.iterator(.{}),
+                .values = &self.values,
+            };
+        }
+
+        /// An entry in the map.
+        pub const ConstEntry = struct {
+            /// The key associated with this entry.
+            key: Key,
+
+            /// A pointer to the value in the map associated with this key.
+            value: *const Value,
+        };
+
+        pub const ConstIterator = struct {
+            inner: BitSet.Iterator(.{}),
+            values: *const [Indexer.count]Value,
+
+            pub fn next(self: *ConstIterator) ?Entry {
+                return if (self.inner.next()) |index|
+                    ConstEntry{
+                        .key = Indexer.keyForIndex(index),
+                        .value = &self.values[index],
+                    }
+                else
+                    null;
+            }
+        };
     };
 }
 
