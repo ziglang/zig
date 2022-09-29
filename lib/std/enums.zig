@@ -692,6 +692,40 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn (type) 
                 return null;
             }
         };
+
+        /// Returns a read-only iterator over array items, in index order.
+        pub fn constIterator(self: *const Self) ConstIterator {
+            return .{
+                .values = &self.values,
+            };
+        }
+
+        /// An read-only entry in the array.
+        pub const ConstEntry = struct {
+            /// The key associated with this entry.
+            key: Key,
+
+            /// A pointer to the value in the array associated with this key.
+            value: *const Value,
+        };
+
+        // Read-only iterator over the array.
+        pub const ConstIterator = struct {
+            index: usize = 0,
+            values: *const [Indexer.count]Value,
+
+            pub fn next(self: *ConstIterator) ?Entry {
+                const index = self.index;
+                if (index < Indexer.count) {
+                    self.index += 1;
+                    return ConstEntry{
+                        .key = Indexer.keyForIndex(index),
+                        .value = &self.values[index],
+                    };
+                }
+                return null;
+            }
+        };
     };
 }
 
