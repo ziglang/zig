@@ -1,13 +1,14 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Event = uefi.Event;
 const Status = uefi.Status;
 
 pub const Ip6ConfigProtocol = extern struct {
-    _set_data: fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, usize, *const anyopaque) callconv(.C) Status,
-    _get_data: fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, *usize, ?*const anyopaque) callconv(.C) Status,
-    _register_data_notify: fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) callconv(.C) Status,
-    _unregister_data_notify: fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) callconv(.C) Status,
+    _set_data: std.meta.FnPtr(fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, usize, *const anyopaque) callconv(.C) Status),
+    _get_data: std.meta.FnPtr(fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, *usize, ?*const anyopaque) callconv(.C) Status),
+    _register_data_notify: std.meta.FnPtr(fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) callconv(.C) Status),
+    _unregister_data_notify: std.meta.FnPtr(fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) callconv(.C) Status),
 
     pub fn setData(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, data_size: usize, data: *const anyopaque) Status {
         return self._set_data(self, data_type, data_size, data);

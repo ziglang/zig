@@ -1,11 +1,12 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
 
 /// Override EDID information
 pub const EdidOverrideProtocol = extern struct {
-    _get_edid: fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) callconv(.C) Status,
+    _get_edid: std.meta.FnPtr(fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) callconv(.C) Status),
 
     /// Returns policy information and potentially a replacement EDID for the specified video output device.
     pub fn getEdid(

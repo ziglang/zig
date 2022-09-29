@@ -44,10 +44,10 @@ pub const BlockIoProtocol = extern struct {
     revision: u64,
     media: *EfiBlockMedia,
 
-    _reset: fn (*BlockIoProtocol, extended_verification: bool) callconv(.C) Status,
-    _read_blocks: fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
-    _write_blocks: fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
-    _flush_blocks: fn (*BlockIoProtocol) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*BlockIoProtocol, extended_verification: bool) callconv(.C) Status),
+    _read_blocks: std.meta.FnPtr(fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status),
+    _write_blocks: std.meta.FnPtr(fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status),
+    _flush_blocks: std.meta.FnPtr(fn (*BlockIoProtocol) callconv(.C) Status),
 
     /// Resets the block device hardware.
     pub fn reset(self: *Self, extended_verification: bool) Status {

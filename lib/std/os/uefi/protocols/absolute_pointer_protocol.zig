@@ -1,12 +1,13 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Protocol for touchscreens
 pub const AbsolutePointerProtocol = extern struct {
-    _reset: fn (*const AbsolutePointerProtocol, bool) callconv(.C) Status,
-    _get_state: fn (*const AbsolutePointerProtocol, *AbsolutePointerState) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*const AbsolutePointerProtocol, bool) callconv(.C) Status),
+    _get_state: std.meta.FnPtr(fn (*const AbsolutePointerProtocol, *AbsolutePointerState) callconv(.C) Status),
     wait_for_input: Event,
     mode: *AbsolutePointerMode,
 

@@ -1,11 +1,12 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Random Number Generator protocol
 pub const RNGProtocol = extern struct {
-    _get_info: fn (*const RNGProtocol, *usize, [*]align(8) Guid) callconv(.C) Status,
-    _get_rng: fn (*const RNGProtocol, ?*align(8) const Guid, usize, [*]u8) callconv(.C) Status,
+    _get_info: std.meta.FnPtr(fn (*const RNGProtocol, *usize, [*]align(8) Guid) callconv(.C) Status),
+    _get_rng: std.meta.FnPtr(fn (*const RNGProtocol, ?*align(8) const Guid, usize, [*]u8) callconv(.C) Status),
 
     /// Returns information about the random number generation implementation.
     pub fn getInfo(self: *const RNGProtocol, list_size: *usize, list: [*]align(8) Guid) Status {

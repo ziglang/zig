@@ -1,4 +1,5 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
@@ -21,138 +22,138 @@ pub const BootServices = extern struct {
     hdr: TableHeader,
 
     /// Raises a task's priority level and returns its previous level.
-    raiseTpl: fn (new_tpl: usize) callconv(.C) usize,
+    raiseTpl: std.meta.FnPtr(fn (new_tpl: usize) callconv(.C) usize),
 
     /// Restores a task's priority level to its previous value.
-    restoreTpl: fn (old_tpl: usize) callconv(.C) void,
+    restoreTpl: std.meta.FnPtr(fn (old_tpl: usize) callconv(.C) void),
 
     /// Allocates memory pages from the system.
-    allocatePages: fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) u8) callconv(.C) Status,
+    allocatePages: std.meta.FnPtr(fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) u8) callconv(.C) Status),
 
     /// Frees memory pages.
-    freePages: fn (memory: [*]align(4096) u8, pages: usize) callconv(.C) Status,
+    freePages: std.meta.FnPtr(fn (memory: [*]align(4096) u8, pages: usize) callconv(.C) Status),
 
     /// Returns the current memory map.
-    getMemoryMap: fn (mmap_size: *usize, mmap: [*]MemoryDescriptor, mapKey: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(.C) Status,
+    getMemoryMap: std.meta.FnPtr(fn (mmap_size: *usize, mmap: [*]MemoryDescriptor, mapKey: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(.C) Status),
 
     /// Allocates pool memory.
-    allocatePool: fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(.C) Status,
+    allocatePool: std.meta.FnPtr(fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(.C) Status),
 
     /// Returns pool memory to the system.
-    freePool: fn (buffer: [*]align(8) u8) callconv(.C) Status,
+    freePool: std.meta.FnPtr(fn (buffer: [*]align(8) u8) callconv(.C) Status),
 
     /// Creates an event.
-    createEvent: fn (type: u32, notify_tpl: usize, notify_func: ?fn (Event, ?*anyopaque) callconv(.C) void, notifyCtx: ?*const anyopaque, event: *Event) callconv(.C) Status,
+    createEvent: std.meta.FnPtr(fn (type: u32, notify_tpl: usize, notify_func: ?std.meta.FnPtr(fn (Event, ?*anyopaque) callconv(.C) void), notifyCtx: ?*const anyopaque, event: *Event) callconv(.C) Status),
 
     /// Sets the type of timer and the trigger time for a timer event.
-    setTimer: fn (event: Event, type: TimerDelay, triggerTime: u64) callconv(.C) Status,
+    setTimer: std.meta.FnPtr(fn (event: Event, type: TimerDelay, triggerTime: u64) callconv(.C) Status),
 
     /// Stops execution until an event is signaled.
-    waitForEvent: fn (event_len: usize, events: [*]const Event, index: *usize) callconv(.C) Status,
+    waitForEvent: std.meta.FnPtr(fn (event_len: usize, events: [*]const Event, index: *usize) callconv(.C) Status),
 
     /// Signals an event.
-    signalEvent: fn (event: Event) callconv(.C) Status,
+    signalEvent: std.meta.FnPtr(fn (event: Event) callconv(.C) Status),
 
     /// Closes an event.
-    closeEvent: fn (event: Event) callconv(.C) Status,
+    closeEvent: std.meta.FnPtr(fn (event: Event) callconv(.C) Status),
 
     /// Checks whether an event is in the signaled state.
-    checkEvent: fn (event: Event) callconv(.C) Status,
+    checkEvent: std.meta.FnPtr(fn (event: Event) callconv(.C) Status),
 
     /// Installs a protocol interface on a device handle. If the handle does not exist, it is created
     /// and added to the list of handles in the system. installMultipleProtocolInterfaces()
     /// performs more error checking than installProtocolInterface(), so its use is recommended over this.
-    installProtocolInterface: fn (handle: Handle, protocol: *align(8) const Guid, interface_type: EfiInterfaceType, interface: *anyopaque) callconv(.C) Status,
+    installProtocolInterface: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, interface_type: EfiInterfaceType, interface: *anyopaque) callconv(.C) Status),
 
     /// Reinstalls a protocol interface on a device handle
-    reinstallProtocolInterface: fn (handle: Handle, protocol: *align(8) const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(.C) Status,
+    reinstallProtocolInterface: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(.C) Status),
 
     /// Removes a protocol interface from a device handle. Usage of
     /// uninstallMultipleProtocolInterfaces is recommended over this.
-    uninstallProtocolInterface: fn (handle: Handle, protocol: *align(8) const Guid, interface: *anyopaque) callconv(.C) Status,
+    uninstallProtocolInterface: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, interface: *anyopaque) callconv(.C) Status),
 
     /// Queries a handle to determine if it supports a specified protocol.
-    handleProtocol: fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque) callconv(.C) Status,
+    handleProtocol: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque) callconv(.C) Status),
 
     reserved: *anyopaque,
 
     /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
-    registerProtocolNotify: fn (protocol: *align(8) const Guid, event: Event, registration: **anyopaque) callconv(.C) Status,
+    registerProtocolNotify: std.meta.FnPtr(fn (protocol: *align(8) const Guid, event: Event, registration: **anyopaque) callconv(.C) Status),
 
     /// Returns an array of handles that support a specified protocol.
-    locateHandle: fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, bufferSize: *usize, buffer: [*]Handle) callconv(.C) Status,
+    locateHandle: std.meta.FnPtr(fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, bufferSize: *usize, buffer: [*]Handle) callconv(.C) Status),
 
     /// Locates the handle to a device on the device path that supports the specified protocol
-    locateDevicePath: fn (protocols: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(.C) Status,
+    locateDevicePath: std.meta.FnPtr(fn (protocols: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(.C) Status),
 
     /// Adds, updates, or removes a configuration table entry from the EFI System Table.
-    installConfigurationTable: fn (guid: *align(8) const Guid, table: ?*anyopaque) callconv(.C) Status,
+    installConfigurationTable: std.meta.FnPtr(fn (guid: *align(8) const Guid, table: ?*anyopaque) callconv(.C) Status),
 
     /// Loads an EFI image into memory.
-    loadImage: fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, imageHandle: *?Handle) callconv(.C) Status,
+    loadImage: std.meta.FnPtr(fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, imageHandle: *?Handle) callconv(.C) Status),
 
     /// Transfers control to a loaded image's entry point.
-    startImage: fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(.C) Status,
+    startImage: std.meta.FnPtr(fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(.C) Status),
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    exit: fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const anyopaque) callconv(.C) Status,
+    exit: std.meta.FnPtr(fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const anyopaque) callconv(.C) Status),
 
     /// Unloads an image.
-    unloadImage: fn (image_handle: Handle) callconv(.C) Status,
+    unloadImage: std.meta.FnPtr(fn (image_handle: Handle) callconv(.C) Status),
 
     /// Terminates all boot services.
-    exitBootServices: fn (image_handle: Handle, map_key: usize) callconv(.C) Status,
+    exitBootServices: std.meta.FnPtr(fn (image_handle: Handle, map_key: usize) callconv(.C) Status),
 
     /// Returns a monotonically increasing count for the platform.
-    getNextMonotonicCount: fn (count: *u64) callconv(.C) Status,
+    getNextMonotonicCount: std.meta.FnPtr(fn (count: *u64) callconv(.C) Status),
 
     /// Induces a fine-grained stall.
-    stall: fn (microseconds: usize) callconv(.C) Status,
+    stall: std.meta.FnPtr(fn (microseconds: usize) callconv(.C) Status),
 
     /// Sets the system's watchdog timer.
-    setWatchdogTimer: fn (timeout: usize, watchdogCode: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(.C) Status,
+    setWatchdogTimer: std.meta.FnPtr(fn (timeout: usize, watchdogCode: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(.C) Status),
 
     /// Connects one or more drives to a controller.
-    connectController: fn (controller_handle: Handle, driver_image_handle: ?Handle, remaining_device_path: ?*DevicePathProtocol, recursive: bool) callconv(.C) Status,
+    connectController: std.meta.FnPtr(fn (controller_handle: Handle, driver_image_handle: ?Handle, remaining_device_path: ?*DevicePathProtocol, recursive: bool) callconv(.C) Status),
 
     // Disconnects one or more drivers from a controller
-    disconnectController: fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(.C) Status,
+    disconnectController: std.meta.FnPtr(fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(.C) Status),
 
     /// Queries a handle to determine if it supports a specified protocol.
-    openProtocol: fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(.C) Status,
+    openProtocol: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(.C) Status),
 
     /// Closes a protocol on a handle that was opened using openProtocol().
-    closeProtocol: fn (handle: Handle, protocol: *align(8) const Guid, agentHandle: Handle, controller_handle: ?Handle) callconv(.C) Status,
+    closeProtocol: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, agentHandle: Handle, controller_handle: ?Handle) callconv(.C) Status),
 
     /// Retrieves the list of agents that currently have a protocol interface opened.
-    openProtocolInformation: fn (handle: Handle, protocol: *align(8) const Guid, entry_buffer: *[*]ProtocolInformationEntry, entry_count: *usize) callconv(.C) Status,
+    openProtocolInformation: std.meta.FnPtr(fn (handle: Handle, protocol: *align(8) const Guid, entry_buffer: *[*]ProtocolInformationEntry, entry_count: *usize) callconv(.C) Status),
 
     /// Retrieves the list of protocol interface GUIDs that are installed on a handle in a buffer allocated from pool.
-    protocolsPerHandle: fn (handle: Handle, protocol_buffer: *[*]*align(8) const Guid, protocol_buffer_count: *usize) callconv(.C) Status,
+    protocolsPerHandle: std.meta.FnPtr(fn (handle: Handle, protocol_buffer: *[*]*align(8) const Guid, protocol_buffer_count: *usize) callconv(.C) Status),
 
     /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
-    locateHandleBuffer: fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(.C) Status,
+    locateHandleBuffer: std.meta.FnPtr(fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(.C) Status),
 
     /// Returns the first protocol instance that matches the given protocol.
-    locateProtocol: fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: *?*anyopaque) callconv(.C) Status,
+    locateProtocol: std.meta.FnPtr(fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: *?*anyopaque) callconv(.C) Status),
 
     /// Installs one or more protocol interfaces into the boot services environment
-    installMultipleProtocolInterfaces: fn (handle: *Handle, ...) callconv(.C) Status,
+    installMultipleProtocolInterfaces: std.meta.FnPtr(fn (handle: *Handle, ...) callconv(.C) Status),
 
     /// Removes one or more protocol interfaces into the boot services environment
-    uninstallMultipleProtocolInterfaces: fn (handle: *Handle, ...) callconv(.C) Status,
+    uninstallMultipleProtocolInterfaces: std.meta.FnPtr(fn (handle: *Handle, ...) callconv(.C) Status),
 
     /// Computes and returns a 32-bit CRC for a data buffer.
-    calculateCrc32: fn (data: [*]const u8, data_size: usize, *u32) callconv(.C) Status,
+    calculateCrc32: std.meta.FnPtr(fn (data: [*]const u8, data_size: usize, *u32) callconv(.C) Status),
 
     /// Copies the contents of one buffer to another buffer
-    copyMem: fn (dest: [*]u8, src: [*]const u8, len: usize) callconv(.C) void,
+    copyMem: std.meta.FnPtr(fn (dest: [*]u8, src: [*]const u8, len: usize) callconv(.C) void),
 
     /// Fills a buffer with a specified value
-    setMem: fn (buffer: [*]u8, size: usize, value: u8) callconv(.C) void,
+    setMem: std.meta.FnPtr(fn (buffer: [*]u8, size: usize, value: u8) callconv(.C) void),
 
     /// Creates an event in a group.
-    createEventEx: fn (type: u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(.C) Status,
+    createEventEx: std.meta.FnPtr(fn (type: u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(.C) Status),
 
     /// Opens a protocol with a structure as the loaded image for a UEFI application
     pub fn openProtocolSt(self: *BootServices, comptime protocol: type, handle: Handle) !*protocol {

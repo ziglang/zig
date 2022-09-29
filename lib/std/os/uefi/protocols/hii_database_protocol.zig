@@ -1,4 +1,5 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.protocols.hii;
@@ -6,10 +7,10 @@ const hii = uefi.protocols.hii;
 /// Database manager for HII-related data structures.
 pub const HIIDatabaseProtocol = extern struct {
     _new_package_list: Status, // TODO
-    _remove_package_list: fn (*const HIIDatabaseProtocol, hii.HIIHandle) callconv(.C) Status,
-    _update_package_list: fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) callconv(.C) Status,
-    _list_package_lists: fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) callconv(.C) Status,
-    _export_package_lists: fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) callconv(.C) Status,
+    _remove_package_list: std.meta.FnPtr(fn (*const HIIDatabaseProtocol, hii.HIIHandle) callconv(.C) Status),
+    _update_package_list: std.meta.FnPtr(fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) callconv(.C) Status),
+    _list_package_lists: std.meta.FnPtr(fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) callconv(.C) Status),
+    _export_package_lists: std.meta.FnPtr(fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) callconv(.C) Status),
     _register_package_notify: Status, // TODO
     _unregister_package_notify: Status, // TODO
     _find_keyboard_layouts: Status, // TODO

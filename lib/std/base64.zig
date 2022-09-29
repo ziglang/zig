@@ -9,10 +9,7 @@ pub const Error = error{
     NoSpaceLeft,
 };
 
-const decoderWithIgnoreProto = switch (@import("builtin").zig_backend) {
-    .stage1 => fn (ignore: []const u8) Base64DecoderWithIgnore,
-    else => *const fn (ignore: []const u8) Base64DecoderWithIgnore,
-};
+const decoderWithIgnoreProto = std.meta.FnPtr(fn (ignore: []const u8) Base64DecoderWithIgnore);
 
 /// Base64 codecs
 pub const Codecs = struct {

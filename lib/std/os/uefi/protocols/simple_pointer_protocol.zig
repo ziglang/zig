@@ -1,12 +1,13 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Protocol for mice
 pub const SimplePointerProtocol = struct {
-    _reset: fn (*const SimplePointerProtocol, bool) callconv(.C) Status,
-    _get_state: fn (*const SimplePointerProtocol, *SimplePointerState) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*const SimplePointerProtocol, bool) callconv(.C) Status),
+    _get_state: std.meta.FnPtr(fn (*const SimplePointerProtocol, *SimplePointerState) callconv(.C) Status),
     wait_for_input: Event,
     mode: *SimplePointerMode,
 

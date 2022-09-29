@@ -1,4 +1,5 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const InputKey = uefi.protocols.InputKey;
@@ -6,8 +7,8 @@ const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputProtocol = extern struct {
-    _reset: fn (*const SimpleTextInputProtocol, bool) callconv(.C) Status,
-    _read_key_stroke: fn (*const SimpleTextInputProtocol, *InputKey) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*const SimpleTextInputProtocol, bool) callconv(.C) Status),
+    _read_key_stroke: std.meta.FnPtr(fn (*const SimpleTextInputProtocol, *InputKey) callconv(.C) Status),
     wait_for_key: Event,
 
     /// Resets the input device hardware.
