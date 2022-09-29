@@ -203,13 +203,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
 }
 
 fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
-    if (builtin.os.tag == .windows) {
-        std.debug.assert(self.is_windows_terminal);
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
-            return error.Unexpected;
-        return @intCast(u16, info.dwSize.X);
-    } else if (builtin.os.tag == .linux) {
+    if (builtin.os.tag == .linux) {
         // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
         //       they too should have capabilities to figure out the cursor column.
         var winsize: os.linux.winsize = undefined;
@@ -217,6 +211,12 @@ fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
             .SUCCESS => return winsize.ws_col,
             else => return error.Unexpected,
         }
+    } else if (builtin.os.tag == .windows) {
+        std.debug.assert(self.is_windows_terminal);
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
+            return error.Unexpected;
+        return @intCast(u16, info.dwSize.X);
     } else {
         return error.Unsupported;
     }
