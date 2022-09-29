@@ -14,7 +14,7 @@ const Builder = build.Builder;
 const Step = build.Step;
 const EmulatableRunStep = build.EmulatableRunStep;
 
-pub const base_id = .check_obj;
+pub const base_id = .check_object;
 
 step: Step,
 builder: *Builder,

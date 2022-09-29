@@ -10,6 +10,8 @@ const FileSource = build.FileSource;
 
 const OptionsStep = @This();
 
+pub const base_id = .options;
+
 step: Step,
 generated_file: GeneratedFile,
 builder: *Builder,
