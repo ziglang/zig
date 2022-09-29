@@ -494,7 +494,7 @@ pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const 
 
     print("\n====== expected to start with: =========\n", .{});
     printWithVisibleNewlines(expected_starts_with);
-    print("\n====== instead ended with: ===========\n", .{});
+    print("\n====== instead started with: ===========\n", .{});
     printWithVisibleNewlines(shortened_actual);
     print("\n========= full output: ==============\n", .{});
     printWithVisibleNewlines(actual);
