@@ -214,7 +214,7 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqAbs` for more informations on the tolerance parameter.
-/// The types must be floating point
+/// The types must be floating point.
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 
@@ -246,7 +246,7 @@ test "expectApproxEqAbs" {
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqRel` for more informations on the tolerance parameter.
-/// The types must be floating point
+/// The types must be floating point.
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 
@@ -719,7 +719,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     }
 }
 
-/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
+/// Given a type, references all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
@@ -727,8 +727,8 @@ pub fn refAllDecls(comptime T: type) void {
     }
 }
 
-/// Given a type, and Recursively reference all the declarations inside, so that the semantic analyzer sees them.
-/// For deep types, you may use `@setEvalBranchQuota`
+/// Given a type, recursively references all the declarations inside, so that the semantic analyzer sees them.
+/// For deep types, you may use `@setEvalBranchQuota`.
 pub fn refAllDeclsRecursive(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
