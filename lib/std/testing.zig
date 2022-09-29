@@ -730,6 +730,7 @@ pub fn refAllDecls(comptime T: type) void {
 /// Given a type, and Recursively reference all the declarations inside, so that the semantic analyzer sees them.
 /// For deep types, you may use `@setEvalBranchQuota`
 pub fn refAllDeclsRecursive(comptime T: type) void {
+    if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (decl.is_pub) {
             if (@TypeOf(@field(T, decl.name)) == type) {
