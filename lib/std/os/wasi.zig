@@ -76,6 +76,7 @@ pub extern "wasi_snapshot_preview1" fn random_get(buf: [*]u8, buf_len: usize) er
 
 pub extern "wasi_snapshot_preview1" fn sched_yield() errno_t;
 
+pub extern "wasi_snapshot_preview1" fn sock_accept(sock: fd_t, flags: fdflags_t, result_fd: *fd_t) errno_t;
 pub extern "wasi_snapshot_preview1" fn sock_recv(sock: fd_t, ri_data: *const iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
 pub extern "wasi_snapshot_preview1" fn sock_send(sock: fd_t, si_data: *const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
 pub extern "wasi_snapshot_preview1" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
@@ -434,6 +435,7 @@ pub const RIGHT = struct {
     pub const PATH_UNLINK_FILE: rights_t = 0x0000000004000000;
     pub const POLL_FD_READWRITE: rights_t = 0x0000000008000000;
     pub const SOCK_SHUTDOWN: rights_t = 0x0000000010000000;
+    pub const SOCK_ACCEPT: rights_t = 0x0000000020000000;
     pub const ALL: rights_t = FD_DATASYNC |
         FD_READ |
         FD_SEEK |
@@ -462,7 +464,8 @@ pub const RIGHT = struct {
         PATH_REMOVE_DIRECTORY |
         PATH_UNLINK_FILE |
         POLL_FD_READWRITE |
-        SOCK_SHUTDOWN;
+        SOCK_SHUTDOWN |
+        SOCK_ACCEPT;
 };
 
 pub const sdflags_t = u8;
