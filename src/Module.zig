@@ -4435,6 +4435,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
+    new_decl.name_fully_qualified = true;
 
     if (file.status == .success_zir) {
         assert(file.zir_loaded);
