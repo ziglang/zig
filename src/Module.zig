@@ -4571,8 +4571,17 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer decl_arena.deinit();
     const decl_arena_allocator = decl_arena.allocator();
+
+    const decl_arena_state = blk: {
+        errdefer decl_arena.deinit();
+        const s = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
+        break :blk s;
+    };
+    defer {
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+    }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -4642,8 +4651,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // not the struct itself.
     try sema.resolveTypeLayout(&block_scope, ty_src, decl_tv.ty);
 
-    const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
-
     if (decl.is_usingnamespace) {
         if (!decl_tv.ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
@@ -4662,8 +4669,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         decl.@"linksection" = null;
         decl.has_tv = true;
         decl.owns_tv = false;
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
         decl.analysis = .complete;
         decl.generation = mod.generation;
 
@@ -4692,8 +4697,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             // linksection, align, and addrspace were already set by Sema
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
-            decl_arena_state.* = decl_arena.state;
-            decl.value_arena = decl_arena_state;
             decl.analysis = .complete;
             decl.generation = mod.generation;
 
@@ -4802,8 +4805,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         };
     };
     decl.has_tv = true;
-    decl_arena_state.* = decl_arena.state;
-    decl.value_arena = decl_arena_state;
     decl.analysis = .complete;
     decl.generation = mod.generation;
 
