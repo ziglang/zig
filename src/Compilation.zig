@@ -4207,14 +4207,6 @@ pub fn addCCArgs(
                 else => {},
             }
 
-            if (!comp.bin_file.options.strip) {
-                switch (target.ofmt) {
-                    .coff => try argv.append("-gcodeview"),
-                    .elf, .macho => try argv.append("-gdwarf-4"),
-                    else => try argv.append("-g"),
-                }
-            }
-
             if (target.cpu.arch.isThumb()) {
                 try argv.append("-mthumb");
             }
@@ -4354,6 +4346,14 @@ pub fn addCCArgs(
                 }
             }
         },
+    }
+
+    if (!comp.bin_file.options.strip) {
+        switch (target.ofmt) {
+            .coff => try argv.append("-gcodeview"),
+            .elf, .macho => try argv.append("-gdwarf-4"),
+            else => try argv.append("-g"),
+        }
     }
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
