@@ -655,7 +655,7 @@ pub fn addrSpaceCastIsValid(
     const arch = target.cpu.arch;
     switch (arch) {
         .x86_64, .i386 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
-        .amdgcn => {
+        .nvptx64, .nvptx, .amdgcn => {
             const to_generic = arch.supportsAddressSpace(from) and to == .generic;
             const from_generic = arch.supportsAddressSpace(to) and from == .generic;
             return to_generic or from_generic;
