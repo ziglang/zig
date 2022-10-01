@@ -17682,6 +17682,10 @@ fn reifyStruct(
         }
         const abi_align = @intCast(u29, (try alignment_val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?);
 
+        if (layout == .Packed and abi_align != 0) {
+            return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
+        }
+
         const field_name = try name_val.toAllocatedBytes(
             Type.initTag(.const_slice_u8),
             new_decl_arena_allocator,
