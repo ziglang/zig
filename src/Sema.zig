@@ -24312,7 +24312,7 @@ fn coerceInMemoryAllowedFns(
 
     if (dest_info.param_types.len != src_info.param_types.len) {
         return InMemoryCoercionResult{ .fn_param_count = .{
-            .actual = dest_info.param_types.len,
+            .actual = src_info.param_types.len,
             .wanted = dest_info.param_types.len,
         } };
     }
