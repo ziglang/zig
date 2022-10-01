@@ -1,8 +1,7 @@
-const std = @import("std");
-fn a() error{}!void {}
-fn b() std.meta.FnPtr(fn () error{}!void) {
-    return &a;
+fn b(comptime T: type) ?@import("std").meta.FnPtr(fn () error{}!T) {
+    return null;
 }
+
 export fn c() void {
-    _ = b();
+    _ = b(void);
 }
