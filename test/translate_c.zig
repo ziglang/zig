@@ -1391,6 +1391,74 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Foo = union_Foo;
     });
 
+    cases.add("packed union - simple",
+        \\union Foo {
+        \\  char x;
+        \\  double y;
+        \\} __attribute__((packed));
+    , &[_][]const u8{
+        \\pub const union_Foo = extern union {
+        \\    x: u8 align(1),
+        \\    y: f64 align(1),
+        \\};
+        ,
+        \\pub const Foo = union_Foo;
+    });
+
+    cases.add("packed union - nested unpacked",
+        \\union Foo{
+        \\  char x;
+        \\  double y;
+        \\  struct {
+        \\      char a;
+        \\      int b;
+        \\  } z;
+        \\} __attribute__((packed));
+    , &[_][]const u8{
+        // NOTE: The nested struct is *not* packed/aligned,
+        // even though the parent struct is
+        // this is consistent with GCC docs
+        \\const struct_unnamed_1 = extern struct {
+        \\    a: u8,
+        \\    b: c_int,
+        \\};
+        ,
+        \\pub const union_Foo = extern union {
+        \\    x: u8 align(1),
+        \\    y: f64 align(1),
+        \\    z: struct_unnamed_1 align(1),
+        \\};
+        ,
+        \\pub const Foo = union_Foo;
+    });
+
+    cases.add("packed union - nested packed",
+        \\union Foo{
+        \\  char x;
+        \\  double y;
+        \\  struct {
+        \\      char a;
+        \\      int b;
+        \\  } __attribute__((packed)) z;
+        \\} __attribute__((packed));
+    , &[_][]const u8{
+        // in order for the nested struct to be packed, it must
+        // have an independent packed declaration on
+        // the nested type (see GCC docs for details)
+        \\const struct_unnamed_1 = extern struct {
+        \\    a: u8 align(1),
+        \\    b: c_int align(1),
+        \\};
+        ,
+        \\pub const union_Foo = extern union {
+        \\    x: u8 align(1),
+        \\    y: f64 align(1),
+        \\    z: struct_unnamed_1 align(1),
+        \\};
+        ,
+        \\pub const Foo = union_Foo;
+    });
+
     cases.add("string literal",
         \\const char *foo(void) {
         \\    return "bar";
