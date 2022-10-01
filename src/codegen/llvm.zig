@@ -2335,6 +2335,7 @@ pub const Object = struct {
         const stack_trace_decl = builtin_namespace.decls
             .getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .mod = mod }).?;
 
+        mod.ensureDeclAnalyzed(stack_trace_decl) catch unreachable;
         return mod.declPtr(stack_trace_decl).val.toType(undefined);
     }
 };
