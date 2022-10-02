@@ -152,6 +152,10 @@ pub const build_cases = [_]BuildCase{
     //    .import = @import("standalone/issue_12588/build.zig"),
     //},
     .{
+        .build_root = "test/standalone/child_process",
+        .import = @import("standalone/child_process/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/embed_generated_file",
         .import = @import("standalone/embed_generated_file/build.zig"),
     },
