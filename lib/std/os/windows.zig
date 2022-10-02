@@ -3695,4 +3695,4 @@ pub const CTRL_CLOSE_EVENT: DWORD = 2;
 pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
-pub const HANDLER_ROUTINE = std.meta.FnPtr(fn (dwCtrlType: DWORD) callconv(.C) BOOL);
+pub const HANDLER_ROUTINE = std.meta.FnPtr(fn (dwCtrlType: DWORD) callconv(WINAPI) BOOL);
