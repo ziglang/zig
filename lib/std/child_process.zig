@@ -122,7 +122,7 @@ pub const ChildProcess = struct {
     }
 
     pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
-        const user_info = try os.getUserInfo(name);
+        const user_info = try std.process.getUserInfo(name);
         self.uid = user_info.uid;
         self.gid = user_info.gid;
     }
