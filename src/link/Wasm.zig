@@ -2671,7 +2671,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
 
     // processed-by field
     {
-        const processed_by = "processed_by";
+        const processed_by = "processed-by";
         try leb.writeULEB128(writer, @intCast(u32, processed_by.len));
         try writer.writeAll(processed_by);
 
