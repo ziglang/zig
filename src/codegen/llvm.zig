@@ -2633,6 +2633,8 @@ pub const DeclGen = struct {
                 if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
             }
         } else {
+            // Ensure the llvm module remains valid even if we decide to not codegen an initializer.
+            llvm_global.setInitializer(llvm_type.getUndef());
             llvm_global.setLinkage(.Internal);
             llvm_global.setUnnamedAddr(.True);
         }
