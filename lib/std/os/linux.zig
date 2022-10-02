@@ -3761,6 +3761,8 @@ pub const IORING_CQE_F_BUFFER = 1 << 0;
 pub const IORING_CQE_F_MORE = 1 << 1;
 /// If set, more data to read after socket recv
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
+/// Set for notification CQEs. Can be used to distinct them from sends.
+pub const IORING_CQE_F_NOTIF = 1 << 3;
 
 /// Magic offsets for the application to mmap the data it needs
 pub const IORING_OFF_SQ_RING = 0;
