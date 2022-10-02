@@ -2007,7 +2007,8 @@ test "accept/connect/send/recv" {
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
-        .flags = 0,
+        // ignore IORING_CQE_F_SOCK_NONEMPTY since it is only set on some systems
+        .flags = cqe_recv.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recv);
 
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
@@ -2089,7 +2090,8 @@ test "sendmsg/recvmsg" {
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x22222222,
         .res = buffer_recv.len,
-        .flags = 0,
+        // ignore IORING_CQE_F_SOCK_NONEMPTY since it is set non-deterministically
+        .flags = cqe_recvmsg.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recvmsg);
 
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
