@@ -8,8 +8,8 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("main", "main.zig");
     obj.setBuildMode(mode);
     obj.setTarget(target);
-    obj.emit_llvm_ir = .emit;
-    obj.emit_llvm_bc = .emit;
+    obj.emit_llvm_ir = .{ .emit_to = b.pathFromRoot("main.ll") };
+    obj.emit_llvm_bc = .{ .emit_to = b.pathFromRoot("main.bc") };
     obj.emit_bin = .no_emit;
     b.default_step.dependOn(&obj.step);
 
