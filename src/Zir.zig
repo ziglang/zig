@@ -3051,11 +3051,16 @@ pub const Inst = struct {
             var multi_i: u32 = 0;
             while (true) : (multi_i += 1) {
                 const items_len = zir.extra[extra_index];
-                extra_index += 2;
+                extra_index += 1;
+                const ranges_len = zir.extra[extra_index];
+                extra_index += 1;
                 const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const items = zir.refSlice(extra_index, items_len);
                 extra_index += items_len;
+                // Each range has a start and an end.
+                extra_index += 2 * ranges_len;
+
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
