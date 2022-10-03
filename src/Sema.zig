@@ -5039,7 +5039,7 @@ fn analyzeBlockBody(
     const valid_rt = try sema.validateRunTimeType(child_block, type_src, resolved_ty, false);
     if (!valid_rt) {
         const msg = msg: {
-            const msg = try sema.errMsg(child_block, type_src, "value with comptime only type '{}' depends on runtime control flow", .{resolved_ty.fmt(mod)});
+            const msg = try sema.errMsg(child_block, type_src, "value with comptime-only type '{}' depends on runtime control flow", .{resolved_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
 
             const runtime_src = child_block.runtime_cond orelse child_block.runtime_loop.?;
@@ -5801,12 +5801,12 @@ fn addComptimeReturnTypeNote(
         break :blk func_src.toSrcLoc(src_decl);
     };
     if (return_ty.tag() == .generic_poison) {
-        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime only return type", .{});
+        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime-only return type", .{});
     }
     try sema.mod.errNoteNonLazy(
         src_loc,
         parent,
-        "function is being called at comptime because it returns a comptime only type '{}'",
+        "function is being called at comptime because it returns a comptime-only type '{}'",
         .{return_ty.fmt(sema.mod)},
     );
     try sema.explainWhyTypeIsComptime(block, func_src, parent, src_loc, return_ty);
@@ -6343,7 +6343,7 @@ fn analyzeInlineCallArg(
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(param_ty)) {
-                _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known") catch |err| {
+                _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime-only type must be comptime known") catch |err| {
                     if (err == error.AnalysisFail and sema.err != null) {
                         try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
                     }
@@ -8026,7 +8026,7 @@ fn funcCommon(
             return sema.failWithOwnedErrorMsg(msg);
         }
 
-        // If the return type is comptime only but not dependent on parameters then all parameter types also need to be comptime
+        // If the return type is comptime-only but not dependent on parameters then all parameter types also need to be comptime
         if (!sema.is_generic_instantiation and has_body and ret_ty_requires_comptime) comptime_check: {
             for (block.params.items) |param| {
                 if (!param.is_comptime) break;
@@ -8035,7 +8035,7 @@ fn funcCommon(
             const msg = try sema.errMsg(
                 block,
                 ret_ty_src,
-                "function with comptime only return type '{}' requires all parameters to be comptime",
+                "function with comptime-only return type '{}' requires all parameters to be comptime",
                 .{return_type.fmt(sema.mod)},
             );
             try sema.explainWhyTypeIsComptime(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(sema.owner_decl), return_type);

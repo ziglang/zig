@@ -213,8 +213,8 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
-/// See `math.approxEqAbs` for more informations on the tolerance parameter.
-/// The types must be floating point.
+/// See `math.approxEqAbs` for more information on the tolerance parameter.
+/// The types must be floating-point.
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 
@@ -245,8 +245,8 @@ test "expectApproxEqAbs" {
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
-/// See `math.approxEqRel` for more informations on the tolerance parameter.
-/// The types must be floating point.
+/// See `math.approxEqRel` for more information on the tolerance parameter.
+/// The types must be floating-point.
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 

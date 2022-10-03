@@ -8043,7 +8043,7 @@ fn func(y: *i32) void {
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
-      Fused multiply add, similar to {#syntax#}(a * b) + c{#endsyntax#}, except
+      Fused multiply-add, similar to {#syntax#}(a * b) + c{#endsyntax#}, except
       only rounds once, and is thus more accurate.
       </p>
       <p>
@@ -9178,7 +9178,7 @@ pub const FloatMode = enum {
             <li>Assume the arguments and result are not +/-Inf. Optimizations are required to retain defined behavior over +/-Inf, but the value of the result is undefined.</li>
             <li>Treat the sign of a zero argument or result as insignificant.</li>
             <li>Use the reciprocal of an argument rather than perform division.</li>
-            <li>Perform floating-point contraction (e.g. fusing a multiply followed by an addition into a fused multiply-and-add).</li>
+            <li>Perform floating-point contraction (e.g. fusing a multiply followed by an addition into a fused multiply-add).</li>
             <li>Perform algebraically equivalent transformations that may change results in floating point (e.g. reassociate).</li>
           </ul>
           This is equivalent to <code>-ffast-math</code> in GCC.

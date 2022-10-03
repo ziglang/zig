@@ -26,10 +26,10 @@ export fn entry2() void {
 // backend=stage2
 // target=native
 //
-// :1:20: error: function with comptime only return type 'type' requires all parameters to be comptime
+// :1:20: error: function with comptime-only return type 'type' requires all parameters to be comptime
 // :1:20: note: types are not available at runtime
 // :1:6: note: param 'val' is required to be comptime
-// :11:16: error: function with comptime only return type 'tmp.S' requires all parameters to be comptime
+// :11:16: error: function with comptime-only return type 'tmp.S' requires all parameters to be comptime
 // :9:10: note: struct requires comptime because of this field
 // :9:10: note: use '*const fn() void' for a function pointer type
 // :11:8: note: param is required to be comptime

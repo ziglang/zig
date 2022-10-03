@@ -762,14 +762,14 @@ fn testOverflow() !void {
     try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-/// Returns the absolute value of x, where x is a value of an integer
-/// type.
+/// Returns the absolute value of x, where x is a value of a signed integer type.
+/// See also: `absCast`
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
     comptime assert(@typeInfo(T).Int.signedness == .signed); // must pass a signed integer to absInt
 
-    if (x == minInt(@TypeOf(x))) {
+    if (x == minInt(T)) {
         return error.Overflow;
     } else {
         @setRuntimeSafety(false);
@@ -977,6 +977,7 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
+/// See also: `absInt`
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
     .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
