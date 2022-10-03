@@ -10768,7 +10768,7 @@ test "string literal to constant slice" {
       </p>
       {#code_begin|syntax#}
 const builtin = @import("builtin");
-const separator = if (builtin.os.tag == builtin.Os.windows) '\\' else '/';
+const separator = if (builtin.os.tag == .windows) '\\' else '/';
       {#code_end#}
       <p>
       Example of what is imported with {#syntax#}@import("builtin"){#endsyntax#}:
