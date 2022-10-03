@@ -18352,7 +18352,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+    if (try sema.resolveMaybeUndefVal(block, operand_src, ptr)) |operand_val| {
         if (!dest_ty.ptrAllowsZero() and operand_val.isUndef()) {
             return sema.failWithUseOfUndef(block, operand_src);
         }
