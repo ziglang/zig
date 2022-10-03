@@ -36,6 +36,7 @@ pub const Token = struct {
         .{ "for", .keyword_for },
         .{ "if", .keyword_if },
         .{ "inline", .keyword_inline },
+        .{ "linksection", .keyword_linksection },
         .{ "noalias", .keyword_noalias },
         .{ "noinline", .keyword_noinline },
         .{ "nosuspend", .keyword_nosuspend },
@@ -46,7 +47,6 @@ pub const Token = struct {
         .{ "pub", .keyword_pub },
         .{ "resume", .keyword_resume },
         .{ "return", .keyword_return },
-        .{ "linksection", .keyword_linksection },
         .{ "struct", .keyword_struct },
         .{ "suspend", .keyword_suspend },
         .{ "switch", .keyword_switch },
@@ -165,6 +165,7 @@ pub const Token = struct {
         keyword_for,
         keyword_if,
         keyword_inline,
+        keyword_linksection,
         keyword_noalias,
         keyword_noinline,
         keyword_nosuspend,
@@ -175,7 +176,6 @@ pub const Token = struct {
         keyword_pub,
         keyword_resume,
         keyword_return,
-        keyword_linksection,
         keyword_struct,
         keyword_suspend,
         keyword_switch,
@@ -292,6 +292,7 @@ pub const Token = struct {
                 .keyword_for => "for",
                 .keyword_if => "if",
                 .keyword_inline => "inline",
+                .keyword_linksection => "linksection",
                 .keyword_noalias => "noalias",
                 .keyword_noinline => "noinline",
                 .keyword_nosuspend => "nosuspend",
@@ -302,7 +303,6 @@ pub const Token = struct {
                 .keyword_pub => "pub",
                 .keyword_resume => "resume",
                 .keyword_return => "return",
-                .keyword_linksection => "linksection",
                 .keyword_struct => "struct",
                 .keyword_suspend => "suspend",
                 .keyword_switch => "switch",
@@ -707,10 +707,12 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
                 .builtin => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => break,
                 },
+
                 .backslash => switch (c) {
                     '\\' => {
                         state = .multiline_string_literal_line;
@@ -720,6 +722,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
                 .string_literal => switch (c) {
                     '\\' => {
                         state = .string_literal_backslash;
@@ -967,6 +970,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
                 .minus_pipe => switch (c) {
                     '=' => {
                         result.tag = .minus_pipe_equal;
@@ -1098,6 +1102,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
                 .line_comment_start => switch (c) {
                     0 => {
                         if (self.index != self.buffer.len) {
@@ -1123,6 +1128,7 @@ pub const Tokenizer = struct {
                         self.checkLiteralCharacter();
                     },
                 },
+
                 .doc_comment_start => switch (c) {
                     '/' => {
                         state = .line_comment;
@@ -1141,6 +1147,7 @@ pub const Tokenizer = struct {
                         self.checkLiteralCharacter();
                     },
                 },
+
                 .line_comment => switch (c) {
                     0 => break,
                     '\n' => {
@@ -1150,17 +1157,20 @@ pub const Tokenizer = struct {
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
+
                 .doc_comment => switch (c) {
                     0, '\n' => break,
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
+
                 .int => switch (c) {
                     '.' => state = .int_period,
                     '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {},
                     'e', 'E', 'p', 'P' => state = .int_exponent,
                     else => break,
                 },
+
                 .int_exponent => switch (c) {
                     '-', '+' => {
                         state = .float;
@@ -1170,6 +1180,7 @@ pub const Tokenizer = struct {
                         state = .int;
                     },
                 },
+
                 .int_period => switch (c) {
                     '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {
                         state = .float;
@@ -1180,11 +1191,13 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
                 .float => switch (c) {
                     '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {},
                     'e', 'E', 'p', 'P' => state = .float_exponent,
                     else => break,
                 },
+
                 .float_exponent => switch (c) {
                     '-', '+' => state = .float,
                     else => {
