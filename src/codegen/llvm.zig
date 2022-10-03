@@ -996,7 +996,7 @@ pub const Object = struct {
                     const abi_size = @intCast(c_uint, param_ty.abiSize(target));
                     const int_llvm_ty = dg.context.intType(abi_size * 8);
                     const int_ptr_llvm_ty = int_llvm_ty.pointerType(0);
-                    const alignment = @maximum(
+                    const alignment = @max(
                         param_ty.abiAlignment(target),
                         dg.object.target_data.abiAlignmentOfType(int_llvm_ty),
                     );
@@ -1032,7 +1032,7 @@ pub const Object = struct {
                     if (ptr_info.@"align" != 0) {
                         dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
                     } else {
-                        const elem_align = @maximum(ptr_info.pointee_type.abiAlignment(target), 1);
+                        const elem_align = @max(ptr_info.pointee_type.abiAlignment(target), 1);
                         dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                     }
                     const ptr_param = llvm_func.getParam(llvm_arg_i);
@@ -2869,7 +2869,7 @@ pub const DeclGen = struct {
                         if (field_val.tag() != .unreachable_value) continue;
 
                         const field_align = field_ty.abiAlignment(target);
-                        big_align = @maximum(big_align, field_align);
+                        big_align = @max(big_align, field_align);
                         const prev_offset = offset;
                         offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
@@ -2935,7 +2935,7 @@ pub const DeclGen = struct {
                     const field_ty_align = field.ty.abiAlignment(target);
                     any_underaligned_fields = any_underaligned_fields or
                         field_align < field_ty_align;
-                    big_align = @maximum(big_align, field_align);
+                    big_align = @max(big_align, field_align);
                     const prev_offset = offset;
                     offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
@@ -3557,7 +3557,7 @@ pub const DeclGen = struct {
                         if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                         const field_align = field_ty.abiAlignment(target);
-                        big_align = @maximum(big_align, field_align);
+                        big_align = @max(big_align, field_align);
                         const prev_offset = offset;
                         offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
@@ -3652,7 +3652,7 @@ pub const DeclGen = struct {
                     if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     const field_align = field.alignment(target, struct_obj.layout);
-                    big_align = @maximum(big_align, field_align);
+                    big_align = @max(big_align, field_align);
                     const prev_offset = offset;
                     offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
@@ -4244,7 +4244,7 @@ pub const DeclGen = struct {
             if (ptr_info.@"align" != 0) {
                 dg.addArgAttrInt(llvm_fn, llvm_arg_i, "align", ptr_info.@"align");
             } else {
-                const elem_align = @maximum(
+                const elem_align = @max(
                     ptr_info.pointee_type.abiAlignment(target),
                     1,
                 );
@@ -4710,7 +4710,7 @@ pub const FuncGen = struct {
                 } else {
                     // LLVM does not allow bitcasting structs so we must allocate
                     // a local, bitcast its pointer, store, and then load.
-                    const alignment = @maximum(
+                    const alignment = @max(
                         param_ty.abiAlignment(target),
                         self.dg.object.target_data.abiAlignmentOfType(int_llvm_ty),
                     );
@@ -7778,7 +7778,7 @@ pub const FuncGen = struct {
 
         if (result_is_ref) {
             // Bitcast the result pointer, then store.
-            const alignment = @maximum(operand_ty.abiAlignment(target), inst_ty.abiAlignment(target));
+            const alignment = @max(operand_ty.abiAlignment(target), inst_ty.abiAlignment(target));
             const result_ptr = self.buildAlloca(llvm_dest_ty, alignment);
             const operand_llvm_ty = try self.dg.lowerType(operand_ty);
             const casted_ptr = self.builder.buildBitCast(result_ptr, operand_llvm_ty.pointerType(0), "");
@@ -7791,7 +7791,7 @@ pub const FuncGen = struct {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values.
             // Therefore, we store operand to bitcasted alloca, then load for result.
-            const alignment = @maximum(operand_ty.abiAlignment(target), inst_ty.abiAlignment(target));
+            const alignment = @max(operand_ty.abiAlignment(target), inst_ty.abiAlignment(target));
             const result_ptr = self.buildAlloca(llvm_dest_ty, alignment);
             const operand_llvm_ty = try self.dg.lowerType(operand_ty);
             const casted_ptr = self.builder.buildBitCast(result_ptr, operand_llvm_ty.pointerType(0), "");
@@ -9444,7 +9444,7 @@ pub const FuncGen = struct {
             const elem_llvm_ty = try self.dg.lowerType(info.pointee_type);
             if (isByRef(info.pointee_type)) {
                 const result_align = info.pointee_type.abiAlignment(target);
-                const max_align = @maximum(result_align, ptr_alignment);
+                const max_align = @max(result_align, ptr_alignment);
                 const result_ptr = self.buildAlloca(elem_llvm_ty, max_align);
                 const llvm_ptr_u8 = self.context.intType(8).pointerType(0);
                 const llvm_usize = self.context.intType(Type.usize.intInfo(target).bits);
@@ -9995,7 +9995,7 @@ fn llvmFieldIndex(
             if (tuple.values[i].tag() != .unreachable_value) continue;
 
             const field_align = field_ty.abiAlignment(target);
-            big_align = @maximum(big_align, field_align);
+            big_align = @max(big_align, field_align);
             const prev_offset = offset;
             offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
@@ -10028,7 +10028,7 @@ fn llvmFieldIndex(
         if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
         const field_align = field.alignment(target, layout);
-        big_align = @maximum(big_align, field_align);
+        big_align = @max(big_align, field_align);
         const prev_offset = offset;
         offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 

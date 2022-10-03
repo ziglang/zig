@@ -99,8 +99,8 @@ const HuffmanDecoder = struct {
             if (min == 0) {
                 min = n;
             }
-            min = @minimum(n, min);
-            max = @maximum(n, max);
+            min = @min(n, min);
+            max = @max(n, max);
             count[n] += 1;
         }
 

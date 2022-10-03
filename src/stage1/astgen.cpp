@@ -4758,7 +4758,7 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMaximum, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMax, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:
@@ -4813,7 +4813,7 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMinimum, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMin, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdWasmMemorySize:

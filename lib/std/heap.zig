@@ -315,7 +315,7 @@ const PageAllocator = struct {
             }
         }
 
-        const max_drop_len = alignment - @minimum(alignment, mem.page_size);
+        const max_drop_len = alignment - @min(alignment, mem.page_size);
         const alloc_len = if (max_drop_len <= aligned_len - n)
             aligned_len
         else
@@ -554,7 +554,7 @@ const WasmPageAllocator = struct {
 
     fn freePages(start: usize, end: usize) void {
         if (start < extendedOffset()) {
-            conventional.recycle(start, @minimum(extendedOffset(), end) - start);
+            conventional.recycle(start, @min(extendedOffset(), end) - start);
         }
         if (end > extendedOffset()) {
             var new_end = end;

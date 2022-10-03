@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
-    const element_bit_size = @maximum(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
+    const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
@@ -405,8 +405,8 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
                 .Xor => a ^ b,
                 .Add => a + b,
                 .Mul => a * b,
-                .Min => @minimum(a, b),
-                .Max => @maximum(a, b),
+                .Min => @min(a, b),
+                .Max => @max(a, b),
             };
         }
     };

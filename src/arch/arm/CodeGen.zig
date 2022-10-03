@@ -895,7 +895,7 @@ fn allocMem(
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
     self.next_stack_offset = offset;
-    self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+    self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
     if (maybe_inst) |inst| {
         try self.stack.putNoClobber(self.gpa, offset, .{

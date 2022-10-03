@@ -29,9 +29,9 @@ pub inline fn floatToInt(comptime I: type, a: anytype) I {
     switch (@typeInfo(I).Int.signedness) {
         .unsigned => {
             if (negative) return 0;
-            if (@intCast(c_uint, exponent) >= @minimum(int_bits, max_exp)) return math.maxInt(I);
+            if (@intCast(c_uint, exponent) >= @min(int_bits, max_exp)) return math.maxInt(I);
         },
-        .signed => if (@intCast(c_uint, exponent) >= @minimum(int_bits - 1, max_exp)) {
+        .signed => if (@intCast(c_uint, exponent) >= @min(int_bits - 1, max_exp)) {
             return if (negative) math.minInt(I) else math.maxInt(I);
         },
     }

@@ -3419,7 +3419,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.header_segment_cmd_index == null) {
         // The first __TEXT segment is immovable and covers MachO header and load commands.
         self.header_segment_cmd_index = @intCast(u8, self.segments.items.len);
-        const ideal_size = @maximum(self.base.options.headerpad_size orelse 0, default_headerpad_size);
+        const ideal_size = @max(self.base.options.headerpad_size orelse 0, default_headerpad_size);
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment (header-only) free space 0x{x} to 0x{x}", .{ 0, needed_size });
@@ -3647,7 +3647,7 @@ pub fn calcMinHeaderPad(self: *MachO) !u64 {
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),
         });
-        padding = @maximum(padding, min_headerpad_size);
+        padding = @max(padding, min_headerpad_size);
     }
     const offset = @sizeOf(macho.mach_header_64) + padding;
     log.debug("actual headerpad size 0x{x}", .{offset});
@@ -3980,7 +3980,7 @@ pub fn addAtomToSection(self: *MachO, atom: *Atom) !void {
     const aligned_end_addr = mem.alignForwardGeneric(u64, section.header.size, atom_alignment);
     const padding = aligned_end_addr - section.header.size;
     section.header.size += padding + atom.size;
-    section.header.@"align" = @maximum(section.header.@"align", atom.alignment);
+    section.header.@"align" = @max(section.header.@"align", atom.alignment);
     self.sections.set(sect_id, section);
 }
 

@@ -739,10 +739,10 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "++";
         case IrBinOpArrayMult:
             return "**";
-        case IrBinOpMaximum:
-            return "@maximum";
-        case IrBinOpMinimum:
-            return "@minimum";
+        case IrBinOpMax:
+            return "@max";
+        case IrBinOpMin:
+            return "@min";
         case IrBinOpAddSat:
             return "@addWithSaturation";
         case IrBinOpSubSat:

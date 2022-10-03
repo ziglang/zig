@@ -8977,15 +8977,15 @@ test "integer cast panic" {
       </p>
       {#header_close#}
 
-      {#header_open|@maximum#}
-      <pre>{#syntax#}@maximum(a: T, b: T) T{#endsyntax#}</pre>
+      {#header_open|@max#}
+      <pre>{#syntax#}@max(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
       NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
       </p>
-      {#see_also|@minimum|Vectors#}
+      {#see_also|@min|Vectors#}
       {#header_close#}
 
       {#header_open|@memcpy#}
@@ -9025,15 +9025,15 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
 mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#header_close#}
 
-      {#header_open|@minimum#}
-      <pre>{#syntax#}@minimum(a: T, b: T) T{#endsyntax#}</pre>
+      {#header_open|@min#}
+      <pre>{#syntax#}@min(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
       NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
       </p>
-      {#see_also|@maximum|Vectors#}
+      {#see_also|@max|Vectors#}
       {#header_close#}
 
       {#header_open|@wasmMemorySize#}

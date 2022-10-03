@@ -357,7 +357,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     // we possibly wrote previously don't affect whether we truncate the line in `bufWrite`.
     const unprintables = end;
     end = 0;
-    self.output_buffer_slice = self.output_buffer[unprintables..@minimum(self.output_buffer.len, unprintables + self.max_width.?)];
+    self.output_buffer_slice = self.output_buffer[unprintables..@min(self.output_buffer.len, unprintables + self.max_width.?)];
 
     if (!self.done) {
         var need_ellipsis = false;

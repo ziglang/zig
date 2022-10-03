@@ -10072,14 +10072,14 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, Scope *scope, AstNode *s
                 float_mod(out_val, op1_val, op2_val);
             }
             break;
-        case IrBinOpMaximum:
+        case IrBinOpMax:
             if (is_int) {
                 bigint_max(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
                 float_max(out_val, op1_val, op2_val);
             }
             break;
-        case IrBinOpMinimum:
+        case IrBinOpMin:
             if (is_int) {
                 bigint_min(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
@@ -10440,8 +10440,8 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpRemRem:
         case IrBinOpRemMod:
         case IrBinOpRemUnspecified:
-        case IrBinOpMaximum:
-        case IrBinOpMinimum:
+        case IrBinOpMax:
+        case IrBinOpMin:
             return true;
 
         case IrBinOpBoolOr:
@@ -11451,8 +11451,8 @@ static Stage1AirInst *ir_analyze_instruction_bin_op(IrAnalyze *ira, Stage1ZirIns
         case IrBinOpRemUnspecified:
         case IrBinOpRemRem:
         case IrBinOpRemMod:
-        case IrBinOpMaximum:
-        case IrBinOpMinimum:
+        case IrBinOpMax:
+        case IrBinOpMin:
         case IrBinOpAddSat:
         case IrBinOpSubSat:
         case IrBinOpMultSat:

@@ -1349,8 +1349,8 @@ fn walkInstruction(
         .frame_type,
         .frame_size,
         .ptr_to_int,
-        .minimum,
-        .maximum,
+        .min,
+        .max,
         .bit_not,
         // @check
         .clz,

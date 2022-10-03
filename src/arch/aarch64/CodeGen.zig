@@ -418,7 +418,7 @@ fn gen(self: *Self) !void {
 
             const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset, ptr_bytes) + ptr_bytes;
             self.next_stack_offset = stack_offset;
-            self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+            self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
             try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = ret_ptr_reg });
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
@@ -885,7 +885,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
     self.next_stack_offset = offset;
-    self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+    self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
     try self.stack.putNoClobber(self.gpa, offset, .{
         .inst = inst,
         .size = abi_size,
@@ -3643,7 +3643,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO find a free slot instead of always appending
                 const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
                 self.next_stack_offset = offset;
-                self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+                self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
                 const tmp_mcv = MCValue{ .stack_offset = offset };
                 try self.load(tmp_mcv, ptr, ptr_ty);

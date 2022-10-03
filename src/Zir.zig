@@ -924,12 +924,12 @@ pub const Inst = struct {
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Memset`.
         memset,
-        /// Implements the `@minimum` builtin.
+        /// Implements the `@min` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
-        minimum,
-        /// Implements the `@maximum` builtin.
+        min,
+        /// Implements the `@max` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
-        maximum,
+        max,
         /// Implements the `@cImport` builtin.
         /// Uses the `pl_node` union field with payload `Block`.
         c_import,
@@ -1217,10 +1217,10 @@ pub const Inst = struct {
                 .mul_add,
                 .builtin_call,
                 .field_parent_ptr,
-                .maximum,
+                .max,
                 .memcpy,
                 .memset,
-                .minimum,
+                .min,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1502,8 +1502,8 @@ pub const Inst = struct {
                 .mul_add,
                 .builtin_call,
                 .field_parent_ptr,
-                .maximum,
-                .minimum,
+                .max,
+                .min,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1785,10 +1785,10 @@ pub const Inst = struct {
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
                 .field_parent_ptr = .pl_node,
-                .maximum = .pl_node,
+                .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
-                .minimum = .pl_node,
+                .min = .pl_node,
                 .c_import = .pl_node,
 
                 .alloc = .un_node,

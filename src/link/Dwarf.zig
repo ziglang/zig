@@ -1898,7 +1898,7 @@ fn writeDbgInfoNopsToArrayList(
     next_padding_size: usize,
     trailing_zero: bool,
 ) Allocator.Error!void {
-    try buffer.resize(gpa, @maximum(
+    try buffer.resize(gpa, @max(
         buffer.items.len,
         offset + content.len + next_padding_size + 1,
     ));

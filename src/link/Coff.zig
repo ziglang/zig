@@ -609,7 +609,7 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
             self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
         }
 
-        header.virtual_size = @maximum(header.virtual_size, needed_size);
+        header.virtual_size = @max(header.virtual_size, needed_size);
         header.size_of_raw_data = needed_size;
         maybe_last_atom.* = atom;
     }
@@ -1657,7 +1657,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             try self.growSectionVM(self.reloc_section_index.?, needed_size);
         }
     }
-    header.virtual_size = @maximum(header.virtual_size, needed_size);
+    header.virtual_size = @max(header.virtual_size, needed_size);
     header.size_of_raw_data = needed_size;
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
@@ -1937,7 +1937,7 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
-    const headers_size = @maximum(self.getSizeOfHeaders(), self.page_size);
+    const headers_size = @max(self.getSizeOfHeaders(), self.page_size);
     if (start < headers_size)
         return headers_size;
 

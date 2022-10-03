@@ -134,7 +134,7 @@ pub const HuffmanEncoder = struct {
 
         // The tree can't have greater depth than n - 1, no matter what. This
         // saves a little bit of work in some small cases
-        max_bits = @minimum(max_bits, n - 1);
+        max_bits = @min(max_bits, n - 1);
 
         // Create information about each of the levels.
         // A bogus "Level 0" whose sole purpose is so that

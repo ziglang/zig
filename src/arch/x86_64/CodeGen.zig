@@ -418,7 +418,7 @@ fn gen(self: *Self) InnerError!void {
             // spill it to stack immediately.
             const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset + 8, 8);
             self.next_stack_offset = stack_offset;
-            self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+            self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
             const ret_reg = abi.getCAbiIntParamRegs(self.target.*)[0];
             try self.genSetStack(Type.usize, @intCast(i32, stack_offset), MCValue{ .register = ret_reg }, .{});
@@ -884,7 +884,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset + abi_size, abi_align);
     self.next_stack_offset = offset;
-    self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+    self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
     try self.stack.putNoClobber(self.gpa, offset, .{
         .inst = inst,
         .size = abi_size,
