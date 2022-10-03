@@ -1,7 +1,7 @@
-fn b(comptime T: type) ?@import("std").meta.FnPtr(fn () error{}!T) {
+fn b(comptime T: type) ?*const fn () error{}!T {
     return null;
 }
 
-export fn c() void {
+export fn entry() void {
     _ = b(void);
 }
