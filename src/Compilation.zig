@@ -1022,7 +1022,7 @@ fn addPackageTableToCacheHash(
     pkg_table: Package.Table,
     seen_table: *std.AutoHashMap(*Package, void),
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
-) (error{OutOfMemory} || std.os.GetCwdError)!void {
+) (error{OutOfMemory} || std.os.RealPathError)!void {
     const allocator = arena.allocator();
 
     const packages = try allocator.alloc(Package.Table.KV, pkg_table.count());

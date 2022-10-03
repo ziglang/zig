@@ -221,7 +221,8 @@ pub const Manifest = struct {
         assert(self.manifest_file == null);
 
         try self.files.ensureUnusedCapacity(self.cache.gpa, 1);
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        const resolved_path = try fs.realpathAlloc(self.cache.gpa, file_path);
+        errdefer self.cache.gpa.free(resolved_path);
 
         const idx = self.files.items.len;
         self.files.addOneAssumeCapacity().* = .{
@@ -588,7 +589,7 @@ pub const Manifest = struct {
     pub fn addFilePostFetch(self: *Manifest, file_path: []const u8, max_file_size: usize) ![]const u8 {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        const resolved_path = try fs.realpathAlloc(self.cache.gpa, file_path);
         errdefer self.cache.gpa.free(resolved_path);
 
         const new_ch_file = try self.files.addOne(self.cache.gpa);
@@ -613,7 +614,7 @@ pub const Manifest = struct {
     pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        const resolved_path = try fs.realpathAlloc(self.cache.gpa, file_path);
         errdefer self.cache.gpa.free(resolved_path);
 
         const new_ch_file = try self.files.addOne(self.cache.gpa);
@@ -1143,4 +1144,98 @@ test "Manifest with files added after initial hash work" {
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file1);
     try cwd.deleteFile(temp_file2);
+}
+
+test "cached files are visible with symlinks too" {
+    // Create a directory tree like this:
+    //
+    // test_with_symlinks
+    // ├── cached_file.txt
+    // ├── d1
+    // │   └── cache -> ..
+    // └── d2
+    //     └── cache -> ..
+    //
+    // Then ensure the cache/cached_file is reachable from both d1 and d2.
+
+    if (builtin.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/5437
+        return error.SkipZigTest;
+    }
+
+    if (builtin.os.tag == .windows) {
+        // the test uses fchdir and os.symlink; *could* be made to
+        // work, but that will get even more convoluted.
+        return error.SkipZigTest;
+    }
+
+    var tmpdir = std.testing.tmpDir(.{});
+    defer tmpdir.cleanup();
+
+    const temp_manifest_dir = "test_with_symlinks_manifest_dir";
+    var cache = Cache{
+        .gpa = testing.allocator,
+        .manifest_dir = try tmpdir.dir.makeOpenPath(temp_manifest_dir, .{}),
+    };
+    defer cache.manifest_dir.close();
+
+    const test_dir_name = "test_with_symlinks";
+    const test_dir = try tmpdir.dir.makeOpenPath(test_dir_name, .{});
+
+    var d1 = try test_dir.makeOpenPath("d1", .{});
+    defer d1.close();
+    try std.os.symlinkat("..", d1.fd, "cache");
+
+    var d2 = try test_dir.makeOpenPath("d2", .{});
+    defer d2.close();
+    try std.os.symlinkat("..", d2.fd, "cache");
+
+    const temp_file = "cached_file.txt";
+    try test_dir.writeFile(temp_file, "Hello, world!\n");
+
+    // Wait for file timestamps to tick
+    const initial_time = try testGetCurrentFileTimestamp();
+    while ((try testGetCurrentFileTimestamp()) == initial_time) {
+        std.time.sleep(1);
+    }
+
+    // Get back to the current directory after the test. For some reason
+    // this:
+    //     const old_fd = fs.cwd().fd;
+    //     defer os.fchdir(old_fd) catch unreachable;
+    // fails with BADF.
+    var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const old_cwd = try std.os.getcwd(old_cwd_buf[0..]);
+    defer std.os.chdir(old_cwd) catch unreachable;
+
+    var digest1: [hex_digest_len]u8 = undefined;
+    var digest2: [hex_digest_len]u8 = undefined;
+
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        try d1.setAsCwd();
+        _ = try ch.addFile("cache" ++ fs.path.sep_str ++ temp_file, 100);
+
+        // There should be nothing in the cache
+        try testing.expectEqual(false, try ch.hit());
+        digest1 = ch.final();
+        try ch.writeManifest();
+    }
+
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        try d2.setAsCwd();
+        _ = try ch.addFile("cache" ++ fs.path.sep_str ++ temp_file, 100);
+
+        // expect cache hit
+        try testing.expect(try ch.hit());
+        digest2 = ch.final();
+        try ch.writeManifest();
+    }
+
+    try testing.expectEqual(digest1, digest2);
 }
