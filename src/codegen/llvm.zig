@@ -3938,6 +3938,15 @@ pub const DeclGen = struct {
                         const parent_llvm_ty = try dg.lowerType(parent_ty);
                         break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                     },
+                    .Pointer => {
+                        assert(parent_ty.isSlice());
+                        const indices: [2]*llvm.Value = .{
+                            llvm_u32.constInt(0, .False),
+                            llvm_u32.constInt(field_index, .False),
+                        };
+                        const parent_llvm_ty = try dg.lowerType(parent_ty);
+                        break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                    },
                     else => unreachable,
                 }
             },

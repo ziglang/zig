@@ -363,9 +363,19 @@ pub fn generateSymbol(
                         const mod = bin_file.options.module.?;
                         const decl = mod.declPtr(decl_index);
                         const addend = blk: {
-                            switch (decl.ty.tag()) {
-                                .@"struct" => {
+                            switch (decl.ty.zigTypeTag()) {
+                                .Struct => {
                                     const addend = decl.ty.structFieldOffset(field_ptr.field_index, target);
+                                    break :blk @intCast(u32, addend);
+                                },
+                                .Pointer => {
+                                    assert(decl.ty.isSlice());
+                                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                                    const addend = switch (field_ptr.field_index) {
+                                        0 => 0,
+                                        1 => decl.ty.slicePtrFieldType(&buf).abiSize(target),
+                                        else => unreachable,
+                                    };
                                     break :blk @intCast(u32, addend);
                                 },
                                 else => return Result{
