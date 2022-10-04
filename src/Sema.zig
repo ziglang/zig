@@ -8107,6 +8107,13 @@ fn funcCommon(
         for (comptime_params) |ct| is_generic = is_generic or ct;
         is_generic = is_generic or ret_ty_requires_comptime;
 
+        if (!is_generic and sema.wantErrorReturnTracing(return_type)) {
+            // Make sure that StackTrace's fields are resolved so that the backend can
+            // lower this fn type.
+            const unresolved_stack_trace_ty = try sema.getBuiltinType(block, ret_ty_src, "StackTrace");
+            _ = try sema.resolveTypeFields(block, ret_ty_src, unresolved_stack_trace_ty);
+        }
+
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
             .comptime_params = comptime_params.ptr,
@@ -15631,7 +15638,7 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
         return sema.analyzeRet(block, operand, src);
     }
 
-    if (sema.wantErrorReturnTracing()) {
+    if (sema.wantErrorReturnTracing(sema.fn_ret_ty)) {
         const is_non_err = try sema.analyzePtrIsNonErr(block, src, ret_ptr);
         return retWithErrTracing(sema, block, src, is_non_err, .ret_load, ret_ptr);
     }
@@ -15698,11 +15705,11 @@ fn retWithErrTracing(
     return always_noreturn;
 }
 
-fn wantErrorReturnTracing(sema: *Sema) bool {
+fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
     // TODO implement this feature in all the backends and then delete this check.
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
 
-    return sema.fn_ret_ty.isError() and
+    return fn_ret_ty.isError() and
         sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing;
 }
@@ -15754,7 +15761,7 @@ fn analyzeRet(
 
     try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
 
-    if (sema.wantErrorReturnTracing()) {
+    if (sema.wantErrorReturnTracing(sema.fn_ret_ty)) {
         // Avoid adding a frame to the error return trace in case the value is comptime-known
         // to be not an error.
         const is_non_err = try sema.analyzeIsNonErr(block, src, operand);

@@ -97,4 +97,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     // Disabled due to tripping LLVM 13 assertion:
     // https://github.com/ziglang/zig/issues/12015
     //cases.add("tools/update_spirv_features.zig");
+
+    cases.addBuildFile("test/standalone/issue_13030/build.zig", .{ .build_modes = true });
 }
