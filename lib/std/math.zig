@@ -1331,8 +1331,10 @@ test "lossyCast" {
 ///
 /// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
 /// This is monotonic.
-pub fn lerp(comptime T: type, a: T, b: T, t: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
+pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
+    const T = @TypeOf(a, b, t);
+
+    comptime if (!std.meta.trait.isFloat(T))
         @compileError("T must be a float type");
 
     assert(t >= 0 and t <= 1);
@@ -1340,17 +1342,17 @@ pub fn lerp(comptime T: type, a: T, b: T, t: T) T {
 }
 
 test "lerp" {
-    try testing.expectEqual(@as(f64, 75), lerp(f64, 50, 100, 0.5));
-    try testing.expectEqual(@as(f32, 43.75), lerp(f32, 50, 25, 0.25));
-    try testing.expectEqual(@as(f64, -31.25), lerp(f64, -50, 25, 0.25));
+    try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
+    try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
+    try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
 
-    try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(f32, -10000.12345, -5000.12345, 0.56789), 1e-19);
-    try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(f64, 0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
+    try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(-10000.12345, -5000.12345, 0.56789), 1e-19);
+    try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
 
-    try testing.expectEqual(@as(f32, 0.0), lerp(f32, 1.0e8, 1.0, 1.0));
-    try testing.expectEqual(@as(f64, 0.0), lerp(f64, 1.0e16, 1.0, 1.0));
-    try testing.expectEqual(@as(f32, 1.0), lerp(f32, 1.0e7, 1.0, 1.0));
-    try testing.expectEqual(@as(f64, 1.0), lerp(f64, 1.0e15, 1.0, 1.0));
+    try testing.expectEqual(@as(f32, 0.0), lerp(@as(f32, 1.0e8), 1.0, 1.0));
+    try testing.expectEqual(@as(f64, 0.0), lerp(@as(f64, 1.0e16), 1.0, 1.0));
+    try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
+    try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
 }
 
 /// Returns the maximum value of integer type T.
