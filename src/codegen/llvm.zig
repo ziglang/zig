@@ -4355,13 +4355,17 @@ pub const FuncGen = struct {
         const gop = try self.func_inst_table.getOrPut(self.dg.gpa, inst);
         if (gop.found_existing) return gop.value_ptr.*;
 
-        const val = self.air.value(inst).?;
-        const ty = self.air.typeOf(inst);
-        const llvm_val = try self.dg.lowerValue(.{ .ty = ty, .val = val });
-        if (!isByRef(ty)) {
-            gop.value_ptr.* = llvm_val;
-            return llvm_val;
-        }
+        const llvm_val = try self.resolveValue(.{
+            .ty = self.air.typeOf(inst),
+            .val = self.air.value(inst).?,
+        });
+        gop.value_ptr.* = llvm_val;
+        return llvm_val;
+    }
+
+    fn resolveValue(self: *FuncGen, tv: TypedValue) !*llvm.Value {
+        const llvm_val = try self.dg.lowerValue(tv);
+        if (!isByRef(tv.ty)) return llvm_val;
 
         // We have an LLVM value but we need to create a global constant and
         // set the value as its initializer, and then return a pointer to the global.
@@ -4371,15 +4375,13 @@ pub const FuncGen = struct {
         global.setLinkage(.Private);
         global.setGlobalConstant(.True);
         global.setUnnamedAddr(.True);
-        global.setAlignment(ty.abiAlignment(target));
+        global.setAlignment(tv.ty.abiAlignment(target));
         // Because of LLVM limitations for lowering certain types such as unions,
         // the type of global constants might not match the type it is supposed to
         // be, and so we must bitcast the pointer at the usage sites.
-        const wanted_llvm_ty = try self.dg.lowerType(ty);
+        const wanted_llvm_ty = try self.dg.lowerType(tv.ty);
         const wanted_llvm_ptr_ty = wanted_llvm_ty.pointerType(0);
-        const casted_ptr = global.constBitCast(wanted_llvm_ptr_ty);
-        gop.value_ptr.* = casted_ptr;
-        return casted_ptr;
+        return global.constBitCast(wanted_llvm_ptr_ty);
     }
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
@@ -9032,7 +9034,7 @@ pub const FuncGen = struct {
                         llvm_usize.constInt(@intCast(c_uint, array_info.len), .False),
                     };
                     const elem_ptr = self.builder.buildInBoundsGEP(llvm_result_ty, alloca_inst, &indices, indices.len, "");
-                    const llvm_elem = try self.dg.lowerValue(.{
+                    const llvm_elem = try self.resolveValue(.{
                         .ty = array_info.elem_type,
                         .val = sent_val,
                     });
