@@ -2279,16 +2279,17 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
-    const is_debug_build = f.object.dg.module.optimizeMode() == .Debug;
-    if (!is_debug_build)
-        return CValue.none;
-
-    const writer = f.object.writer();
-    try writer.writeAll("memset(");
-    try f.writeCValue(writer, dest_ptr);
-    try writer.writeAll(", 0xaa, sizeof(");
-    try f.writeCValueDeref(writer, dest_ptr);
-    try writer.writeAll("));\n");
+    switch (f.object.dg.module.optimizeMode()) {
+        .Debug, .ReleaseSafe => {
+            const writer = f.object.writer();
+            try writer.writeAll("memset(");
+            try f.writeCValue(writer, dest_ptr);
+            try writer.writeAll(", 0xaa, sizeof(");
+            try f.writeCValueDeref(writer, dest_ptr);
+            try writer.writeAll("));\n");
+        },
+        .ReleaseFast, .ReleaseSmall => {},
+    }
     return CValue.none;
 }
 
