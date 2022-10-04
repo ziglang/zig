@@ -3100,13 +3100,15 @@ const Parser = struct {
         return identifier;
     }
 
-    /// SwitchProng <- SwitchCase EQUALRARROW PtrPayload? AssignExpr
+    /// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
     /// SwitchCase
     ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
     ///      / KEYWORD_else
     fn parseSwitchProng(p: *Parser) !Node.Index {
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        const is_inline = p.eatToken(.keyword_inline) != null;
 
         if (p.eatToken(.keyword_else) == null) {
             while (true) {
@@ -3115,15 +3117,18 @@ const Parser = struct {
                 try p.scratch.append(p.gpa, item);
                 if (p.eatToken(.comma) == null) break;
             }
-            if (scratch_top == p.scratch.items.len) return null_node;
+            if (scratch_top == p.scratch.items.len) {
+                if (is_inline) p.tok_i -= 1;
+                return null_node;
+            }
         }
         const arrow_token = try p.expectToken(.equal_angle_bracket_right);
-        _ = try p.parsePtrPayload();
+        _ = try p.parsePtrIndexPayload();
 
         const items = p.scratch.items[scratch_top..];
         switch (items.len) {
             0 => return p.addNode(.{
-                .tag = .switch_case_one,
+                .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
                 .main_token = arrow_token,
                 .data = .{
                     .lhs = 0,
@@ -3131,7 +3136,7 @@ const Parser = struct {
                 },
             }),
             1 => return p.addNode(.{
-                .tag = .switch_case_one,
+                .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
                 .main_token = arrow_token,
                 .data = .{
                     .lhs = items[0],
@@ -3139,7 +3144,7 @@ const Parser = struct {
                 },
             }),
             else => return p.addNode(.{
-                .tag = .switch_case,
+                .tag = if (is_inline) .switch_case_inline else .switch_case,
                 .main_token = arrow_token,
                 .data = .{
                     .lhs = try p.addExtra(try p.listToSpan(items)),

@@ -683,6 +683,9 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_multi_ref,
+        /// Produces the capture value for an inline switch prong tag capture.
+        /// Uses the `un_tok` field.
+        switch_capture_tag,
         /// Given a
         ///   *A returns *A
         ///   *E!A returns *A
@@ -1128,6 +1131,7 @@ pub const Inst = struct {
                 .switch_capture_ref,
                 .switch_capture_multi,
                 .switch_capture_multi_ref,
+                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1422,6 +1426,7 @@ pub const Inst = struct {
                 .switch_capture_ref,
                 .switch_capture_multi,
                 .switch_capture_multi_ref,
+                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1681,6 +1686,7 @@ pub const Inst = struct {
                 .switch_capture_ref = .switch_capture,
                 .switch_capture_multi = .switch_capture,
                 .switch_capture_multi_ref = .switch_capture,
+                .switch_capture_tag = .un_tok,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
                 .validate_array_init_ty = .pl_node,
@@ -2952,12 +2958,9 @@ pub const Inst = struct {
             has_else: bool,
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
-            /// If true, the `operand` is a pointer to the value being switched on.
-            /// TODO this flag is redundant with the tag of operand and can be removed.
-            is_ref: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u28;
+            pub const ScalarCasesLen = u29;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);
@@ -2993,7 +2996,7 @@ pub const Inst = struct {
             }
 
             if (self.bits.specialProng() != .none) {
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3003,7 +3006,7 @@ pub const Inst = struct {
             while (true) : (scalar_i += 1) {
                 const item = @intToEnum(Ref, zir.extra[extra_index]);
                 extra_index += 1;
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3032,7 +3035,7 @@ pub const Inst = struct {
             var extra_index: usize = extra_end + 1;
 
             if (self.bits.specialProng() != .none) {
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3041,7 +3044,7 @@ pub const Inst = struct {
             var scalar_i: usize = 0;
             while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
                 extra_index += 1;
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 extra_index += body_len;
             }
@@ -3049,7 +3052,7 @@ pub const Inst = struct {
             while (true) : (multi_i += 1) {
                 const items_len = zir.extra[extra_index];
                 extra_index += 2;
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const items = zir.refSlice(extra_index, items_len);
                 extra_index += items_len;
@@ -3861,7 +3864,7 @@ fn findDeclsSwitch(
 
     const special_prong = extra.data.bits.specialProng();
     if (special_prong != .none) {
-        const body_len = zir.extra[extra_index];
+        const body_len = @truncate(u31, zir.extra[extra_index]);
         extra_index += 1;
         const body = zir.extra[extra_index..][0..body_len];
         extra_index += body.len;
@@ -3874,7 +3877,7 @@ fn findDeclsSwitch(
         var scalar_i: usize = 0;
         while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
             extra_index += 1;
-            const body_len = zir.extra[extra_index];
+            const body_len = @truncate(u31, zir.extra[extra_index]);
             extra_index += 1;
             const body = zir.extra[extra_index..][0..body_len];
             extra_index += body_len;
@@ -3889,7 +3892,7 @@ fn findDeclsSwitch(
             extra_index += 1;
             const ranges_len = zir.extra[extra_index];
             extra_index += 1;
-            const body_len = zir.extra[extra_index];
+            const body_len = @truncate(u31, zir.extra[extra_index]);
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;

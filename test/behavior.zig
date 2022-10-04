@@ -182,6 +182,7 @@ test {
         _ = @import("behavior/decltest.zig");
         _ = @import("behavior/packed_struct_explicit_backing_int.zig");
         _ = @import("behavior/empty_union.zig");
+        _ = @import("behavior/inline_switch.zig");
     }
 
     if (builtin.os.tag != .wasi) {

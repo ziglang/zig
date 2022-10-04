@@ -2445,8 +2445,8 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
-                        .switch_case_one => tree.switchCaseOne(case_node),
-                        .switch_case => tree.switchCase(case_node),
+                        .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+                        .switch_case, .switch_case_inline => tree.switchCase(case_node),
                         else => unreachable,
                     };
                     const is_special = (case.ast.values.len == 0) or
@@ -2469,8 +2469,8 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
-                        .switch_case_one => tree.switchCaseOne(case_node),
-                        .switch_case => tree.switchCase(case_node),
+                        .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+                        .switch_case, .switch_case_inline => tree.switchCase(case_node),
                         else => unreachable,
                     };
                     const is_special = (case.ast.values.len == 0) or
@@ -2491,8 +2491,8 @@ pub const SrcLoc = struct {
                 const case_node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const case = switch (node_tags[case_node]) {
-                    .switch_case_one => tree.switchCaseOne(case_node),
-                    .switch_case => tree.switchCase(case_node),
+                    .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+                    .switch_case, .switch_case_inline => tree.switchCase(case_node),
                     else => unreachable,
                 };
                 const start_tok = case.payload_token.?;
@@ -5940,8 +5940,8 @@ pub const SwitchProngSrc = union(enum) {
         var scalar_i: u32 = 0;
         for (case_nodes) |case_node| {
             const case = switch (node_tags[case_node]) {
-                .switch_case_one => tree.switchCaseOne(case_node),
-                .switch_case => tree.switchCase(case_node),
+                .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+                .switch_case, .switch_case_inline => tree.switchCase(case_node),
                 else => unreachable,
             };
             if (case.ast.values.len == 0)
