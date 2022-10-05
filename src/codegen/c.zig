@@ -389,7 +389,7 @@ pub const DeclGen = struct {
             try dg.renderValue(writer, ty.slicePtrFieldType(&buf), val.slicePtr(), .Other);
             try writer.writeAll(", ");
             try writer.print("{d}", .{val.sliceLen(dg.module)});
-            try writer.writeAll("}");
+            try writer.writeByte('}');
             return;
         }
 
@@ -563,6 +563,7 @@ pub const DeclGen = struct {
             switch (ty.zigTypeTag()) {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
+                .Bool => return writer.writeAll("false"),
                 .Int => {
                     const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
                         return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
@@ -583,14 +584,19 @@ pub const DeclGen = struct {
                     }
                 },
                 .Pointer => switch (dg.module.getTarget().cpu.arch.ptrBitWidth()) {
-                    32 => return writer.writeAll("(void *)0xaaaaaaaa"),
-                    64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
+                    32 => return writer.writeAll("(void *)0xaaaaaaaau"),
+                    64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaau"),
                     else => unreachable,
                 },
                 .Struct, .ErrorUnion => {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
-                    return writer.writeAll("){0xaa}");
+                    return writer.writeAll("){0xaau}");
+                },
+                .Array => {
+                    try writer.writeByte('{');
+                    try dg.renderValue(writer, ty.childType(), val, location);
+                    return writer.writeByte('}');
                 },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
@@ -652,7 +658,7 @@ pub const DeclGen = struct {
                     try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, location);
                     try writer.writeAll(", ");
                     try dg.renderValue(writer, Type.usize, slice.len, location);
-                    try writer.writeAll("}");
+                    try writer.writeByte('}');
                 },
                 .function => {
                     const func = val.castTag(.function).?.data;
@@ -684,6 +690,8 @@ pub const DeclGen = struct {
                         const ai = ty.arrayInfo();
                         if (ai.sentinel) |s| {
                             try dg.renderValue(writer, ai.elem_type, s, location);
+                        } else {
+                            try writer.writeByte('0');
                         }
                         try writer.writeByte('}');
                     },
@@ -703,12 +711,12 @@ pub const DeclGen = struct {
                         const ai = ty.arrayInfo();
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
-                            if (index != 0) try writer.writeAll(",");
+                            if (index != 0) try writer.writeByte(',');
                             const elem_val = try val.elemValue(dg.module, arena_allocator, index);
                             try dg.renderValue(writer, ai.elem_type, elem_val, .Other);
                         }
                         if (ai.sentinel) |s| {
-                            if (index != 0) try writer.writeAll(",");
+                            if (index != 0) try writer.writeByte(',');
                             try dg.renderValue(writer, ai.elem_type, s, .Other);
                         }
                         try writer.writeByte('}');
@@ -751,7 +759,7 @@ pub const DeclGen = struct {
                     else => {
                         // In this case we are rendering an error union which has a
                         // 0 bits payload.
-                        return writer.writeAll("0");
+                        return writer.writeByte('0');
                     },
                 }
             },
@@ -827,27 +835,29 @@ pub const DeclGen = struct {
             .Struct => {
                 const field_vals = val.castTag(.aggregate).?.data;
 
-                try writer.writeAll("(");
+                try writer.writeByte('(');
                 try dg.renderTypecast(writer, ty);
                 try writer.writeAll("){");
 
-                var i: usize = 0;
+                var empty = true;
                 for (field_vals) |field_val, field_index| {
                     const field_ty = ty.structFieldType(field_index);
                     if (!field_ty.hasRuntimeBits()) continue;
 
-                    if (i != 0) try writer.writeAll(",");
+                    if (!empty) try writer.writeByte(',');
                     try dg.renderValue(writer, field_ty, field_val, location);
-                    i += 1;
-                }
 
-                try writer.writeAll("}");
+                    empty = false;
+                }
+                if (empty) try writer.writeByte('0');
+
+                try writer.writeByte('}');
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
                 const layout = ty.unionGetLayout(target);
 
-                try writer.writeAll("(");
+                try writer.writeByte('(');
                 try dg.renderTypecast(writer, ty);
                 try writer.writeAll("){");
 
@@ -866,11 +876,11 @@ pub const DeclGen = struct {
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val, location);
-                }
+                } else try writer.writeByte('0');
                 if (ty.unionTagTypeSafety()) |_| {
-                    try writer.writeAll("}");
+                    try writer.writeByte('}');
                 }
-                try writer.writeAll("}");
+                try writer.writeByte('}');
             },
 
             .ComptimeInt => unreachable,
@@ -913,9 +923,9 @@ pub const DeclGen = struct {
         } else {
             try w.writeAll("void");
         }
-        try w.writeAll(" ");
+        try w.writeByte(' ');
         try dg.renderDeclName(w, dg.decl_index);
-        try w.writeAll("(");
+        try w.writeByte('(');
 
         var params_written: usize = 0;
         for (fn_info.param_types) |param_type, index| {
@@ -1038,6 +1048,7 @@ pub const DeclGen = struct {
         try buffer.appendSlice("typedef struct {\n");
         {
             var it = struct_obj.fields.iterator();
+            var empty = true;
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
                 if (!field_ty.hasRuntimeBits()) continue;
@@ -1047,7 +1058,10 @@ pub const DeclGen = struct {
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
                 try buffer.appendSlice(";\n");
+
+                empty = false;
             }
+            if (empty) try buffer.appendSlice(" char empty_struct;\n");
         }
         try buffer.appendSlice("} ");
 
@@ -1076,7 +1090,9 @@ pub const DeclGen = struct {
 
         try buffer.appendSlice("typedef struct {\n");
         {
+            var empty = true;
             for (tuple.types) |field_ty, i| {
+                if (!field_ty.hasRuntimeBits()) continue;
                 const val = tuple.values[i];
                 if (val.tag() != .unreachable_value) continue;
 
@@ -1087,7 +1103,10 @@ pub const DeclGen = struct {
                 try buffer.append(' ');
                 try dg.renderTypeAndName(writer, field_ty, .{ .bytes = name.items }, .Mut, 0);
                 try buffer.appendSlice(";\n");
+
+                empty = false;
             }
+            if (empty) try buffer.appendSlice(" char empty_tuple;\n");
         }
         try buffer.appendSlice("} ");
 
@@ -1129,17 +1148,23 @@ pub const DeclGen = struct {
         }
 
         try buffer.appendSlice("union {\n");
+        const fields = t.unionFields();
         {
-            var it = t.unionFields().iterator();
+            var it = fields.iterator();
+            var empty = true;
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
                 if (!field_ty.hasRuntimeBits()) continue;
+
                 const alignment = entry.value_ptr.abi_align;
                 const name: CValue = .{ .identifier = entry.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
                 try buffer.appendSlice(";\n");
+
+                empty = false;
             }
+            if (empty) try buffer.appendSlice(" char empty_union;\n");
         }
         try buffer.appendSlice("} ");
 
@@ -1725,7 +1750,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.init.tag() != .unreachable_value) {
             try o.dg.renderValue(w, tv.ty, variable.init, .Other);
         }
-        try w.writeAll(";");
+        try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
         const writer = o.writer();
@@ -2035,7 +2060,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
     }
 
     f.object.indent_writer.popIndent();
-    try writer.writeAll("}");
+    try writer.writeByte('}');
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
@@ -2154,7 +2179,7 @@ fn airArrayElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
     try writer.writeAll(" = ");
     try f.writeCValue(writer, array);
-    try writer.writeAll("[");
+    try writer.writeByte('[');
     try f.writeCValue(writer, index);
     try writer.writeAll("];\n");
     return local;
@@ -2214,7 +2239,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     if (is_array) {
         // Insert a memcpy to initialize this array. The source operand is always a pointer
         // and thus we only need to know size/type information from the local type/dest.
-        try writer.writeAll(";");
+        try writer.writeByte(';');
         try f.object.indent_writer.insertNewline();
         try writer.writeAll("memcpy(");
         try f.writeCValue(writer, local);
@@ -2278,7 +2303,7 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = (");
     try f.renderTypecast(writer, inst_ty);
-    try writer.writeAll(")");
+    try writer.writeByte(')');
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
@@ -2381,7 +2406,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
             const new_local = try f.allocLocal(rhs_type, .Const);
             try writer.writeAll(" = ");
             try f.writeCValue(writer, src_val);
-            try writer.writeAll(";");
+            try writer.writeByte(';');
             try f.object.indent_writer.insertNewline();
 
             break :blk new_local;
@@ -2605,7 +2630,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, op_abbrev: [*:0]const u8) !CV
     const max = intMax(scalar_ty, target, &max_buf);
 
     const ret = try f.allocLocal(inst_ty, .Mut);
-    try w.writeAll(";");
+    try w.writeByte(';');
     try f.object.indent_writer.insertNewline();
     try f.writeCValue(w, ret);
 
@@ -2654,10 +2679,7 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, .Const);
 
     try writer.writeAll(" = ");
-    if (inst_ty.zigTypeTag() == .Bool)
-        try writer.writeAll("!")
-    else
-        try writer.writeAll("~");
+    try writer.writeByte(if (inst_ty.tag() == .bool) '!' else '~');
     try f.writeCValue(writer, op);
     try writer.writeAll(";\n");
 
@@ -2868,7 +2890,7 @@ fn airCall(
         try f.writeCValue(writer, callee);
     }
 
-    try writer.writeAll("(");
+    try writer.writeByte('(');
     var args_written: usize = 0;
     for (args) |arg| {
         const ty = f.air.typeOf(arg);
@@ -2992,7 +3014,7 @@ fn lowerTry(
                     try writer.writeAll("if(");
                 }
                 try f.writeCValue(writer, err_union);
-                try writer.writeAll(")");
+                try writer.writeByte(')');
                 break :err;
             }
             if (operand_is_ptr or isByRef(err_union_ty)) {
@@ -3066,7 +3088,7 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(" = (");
         try f.renderTypecast(writer, inst_ty);
 
-        try writer.writeAll(")");
+        try writer.writeByte(')');
         try f.writeCValue(writer, operand);
         try writer.writeAll(";\n");
         return local;
@@ -3797,7 +3819,7 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try writer.writeAll(" = (");
     try f.renderTypecast(writer, inst_ty);
-    try writer.writeAll(")");
+    try writer.writeByte(')');
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
@@ -4212,7 +4234,7 @@ fn airNeg(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const operand = try f.resolveInst(un_op);
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll("-");
+    try writer.writeByte('-');
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
