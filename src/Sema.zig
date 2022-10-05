@@ -14286,6 +14286,38 @@ fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    switch (operand_ty.zigTypeTag()) {
+        .Fn,
+        .NoReturn,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Opaque,
+        => return sema.fail(block, operand_src, "no size available for type '{}'", .{operand_ty.fmt(sema.mod)}),
+
+        .Type,
+        .EnumLiteral,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Void,
+        => return sema.addIntUnsigned(Type.comptime_int, 0),
+
+        .Bool,
+        .Int,
+        .Float,
+        .Pointer,
+        .Array,
+        .Struct,
+        .Optional,
+        .ErrorUnion,
+        .ErrorSet,
+        .Enum,
+        .Union,
+        .Vector,
+        .Frame,
+        .AnyFrame,
+        => {},
+    }
     const target = sema.mod.getTarget();
     const bit_size = try operand_ty.bitSizeAdvanced(target, sema.kit(block, src));
     return sema.addIntUnsigned(Type.comptime_int, bit_size);

@@ -310,3 +310,7 @@ test "lazy size cast to float" {
         try expect(@as(f32, @sizeOf(S)) == 1.0);
     }
 }
+
+test "bitSizeOf comptime_int" {
+    try expect(@bitSizeOf(comptime_int) == 0);
+}
