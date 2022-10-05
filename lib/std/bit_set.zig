@@ -23,7 +23,7 @@
 //!   size.  The interfaces of these two types match exactly, except for fields.
 //!
 //! DynamicBitSet:
-//!   A bit set with runtime known size, backed by an allocated slice
+//!   A bit set with runtime-known size, backed by an allocated slice
 //!   of usize.
 //!
 //! DynamicBitSetUnmanaged:
@@ -515,7 +515,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     };
 }
 
-/// A bit set with runtime known size, backed by an allocated slice
+/// A bit set with runtime-known size, backed by an allocated slice
 /// of usize.  The allocator must be tracked externally by the user.
 pub const DynamicBitSetUnmanaged = struct {
     const Self = @This();
@@ -843,7 +843,7 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 };
 
-/// A bit set with runtime known size, backed by an allocated slice
+/// A bit set with runtime-known size, backed by an allocated slice
 /// of usize.  Thin wrapper around DynamicBitSetUnmanaged which keeps
 /// track of the allocator instance.
 pub const DynamicBitSet = struct {

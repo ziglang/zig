@@ -4326,7 +4326,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             const msg = try sema.errMsg(
                 block,
                 src,
-                "values of type '{}' must be comptime-known, but operand value is runtime known",
+                "values of type '{}' must be comptime-known, but operand value is runtime-known",
                 .{elem_ty.fmt(sema.mod)},
             );
             errdefer msg.destroy(sema.gpa);
@@ -22602,7 +22602,7 @@ fn validateRuntimeElemAccess(
             const msg = try sema.errMsg(
                 block,
                 elem_index_src,
-                "values of type '{}' must be comptime-known, but index value is runtime known",
+                "values of type '{}' must be comptime-known, but index value is runtime-known",
                 .{parent_ty.fmt(sema.mod)},
             );
             errdefer msg.destroy(sema.gpa);
@@ -27177,7 +27177,7 @@ fn cmpNumeric(
     };
 
     // TODO handle comparisons against lazy zero values
-    // Some values can be compared against zero without being runtime known or without forcing
+    // Some values can be compared against zero without being runtime-known or without forcing
     // a full resolution of their value, for example `@sizeOf(@Frame(function))` is known to
     // always be nonzero, and we benefit from not forcing the full evaluation and stack frame layout
     // of this function if we don't need to.
