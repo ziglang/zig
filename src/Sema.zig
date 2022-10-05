@@ -26897,10 +26897,14 @@ fn analyzeIsNull(
         }
     }
 
+    const inverted_non_null_res = if (invert_logic) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
     const operand_ty = sema.typeOf(operand);
     var buf: Type.Payload.ElemType = undefined;
     if (operand_ty.zigTypeTag() == .Optional and operand_ty.optionalChild(&buf).zigTypeTag() == .NoReturn) {
-        return Air.Inst.Ref.bool_true;
+        return inverted_non_null_res;
+    }
+    if (operand_ty.zigTypeTag() != .Optional and !operand_ty.isPtrLikeOptional()) {
+        return inverted_non_null_res;
     }
     try sema.requireRuntimeBlock(block, src, null);
     const air_tag: Air.Inst.Tag = if (invert_logic) .is_non_null else .is_null;
