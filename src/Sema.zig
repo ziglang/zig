@@ -6713,6 +6713,8 @@ fn instantiateGenericCall(
             .comptime_args_fn_inst = module_fn.zir_body_inst,
             .preallocated_new_func = new_module_func,
             .is_generic_instantiation = true,
+            .branch_quota = sema.branch_quota,
+            .branch_count = sema.branch_count,
         };
         defer child_sema.deinit();
 
