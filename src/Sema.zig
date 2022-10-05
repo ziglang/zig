@@ -1302,17 +1302,28 @@ fn analyzeBodyInner(
                 // current list of parameters and restore it later.
                 // Note: this probably needs to be resolved in a more general manner.
                 const prev_params = block.params;
-                const prev_inline_block = block.inline_block;
-                if (tags[inline_body[inline_body.len - 1]] == .repeat_inline) {
-                    block.inline_block = inline_body[0];
+                const need_sub_block = tags[inline_body[inline_body.len - 1]] == .repeat_inline;
+                var sub_block = block;
+                var block_space: Block = undefined;
+                // NOTE: this has to be done like this because branching in
+                // defers here breaks stage1.
+                block_space.instructions = .{};
+                if (need_sub_block) {
+                    block_space = block.makeSubBlock();
+                    block_space.inline_block = inline_body[0];
+                    sub_block = &block_space;
                 }
                 block.params = .{};
                 defer {
                     block.params.deinit(gpa);
                     block.params = prev_params;
-                    block.inline_block = prev_inline_block;
+                    block_space.instructions.deinit(gpa);
                 }
-                const opt_break_data = try sema.analyzeBodyBreak(block, inline_body);
+                const opt_break_data = try sema.analyzeBodyBreak(sub_block, inline_body);
+                if (need_sub_block) {
+                    try block.instructions.appendSlice(gpa, block_space.instructions.items);
+                }
+
                 // A runtime conditional branch that needs a post-hoc block to be
                 // emitted communicates this by mapping the block index into the inst map.
                 if (map.get(inst)) |new_block_ref| ph: {

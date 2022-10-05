@@ -1398,3 +1398,17 @@ test "continue in inline for inside a comptime switch" {
     }
     try expect(count == 4);
 }
+
+test "continue nested inline for loop" {
+    var a: u8 = 0;
+    loop: inline for ([_]u8{ 1, 2 }) |x| {
+        inline for ([_]u8{1}) |y| {
+            if (x == y) {
+                continue :loop;
+            }
+        }
+        a = x;
+        try expect(x == 2);
+    }
+    try expect(a == 2);
+}
