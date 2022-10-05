@@ -3180,6 +3180,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
 
     try writer.writeAll("switch (");
+    if (condition_ty.tag() == .bool) try writer.writeAll("(int)");
     try f.writeCValue(writer, condition);
     try writer.writeAll(") {");
     f.object.indent_writer.pushIndent();
