@@ -2046,41 +2046,38 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
+        // First, try deleting the item as a file. This way we don't follow sym links.
+        if (self.deleteFile(sub_path)) {
+            return;
+        } else |err| switch (err) {
+            error.FileNotFound => return,
+            error.IsDir => {},
+            error.AccessDenied,
+            error.InvalidUtf8,
+            error.SymLinkLoop,
+            error.NameTooLong,
+            error.SystemResources,
+            error.ReadOnlyFileSystem,
+            error.NotDir,
+            error.FileSystem,
+            error.FileBusy,
+            error.BadPathName,
+            error.Unexpected,
+            => |e| return e,
+        }
+
         start_over: while (true) {
-            var got_access_denied = false;
-
-            // First, try deleting the item as a file. This way we don't follow sym links.
-            if (self.deleteFile(sub_path)) {
-                return;
-            } else |err| switch (err) {
-                error.FileNotFound => return,
-                error.IsDir => {},
-                error.AccessDenied => got_access_denied = true,
-
-                error.InvalidUtf8,
-                error.SymLinkLoop,
-                error.NameTooLong,
-                error.SystemResources,
-                error.ReadOnlyFileSystem,
-                error.NotDir,
-                error.FileSystem,
-                error.FileBusy,
-                error.BadPathName,
-                error.Unexpected,
-                => |e| return e,
-            }
             var iterable_dir = self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
                 error.NotDir => {
-                    if (got_access_denied) {
-                        return error.AccessDenied;
-                    }
-                    continue :start_over;
+                    // Somehow the sub_path got changed into a file while we were trying to delete the tree.
+                    // This implies that the dir at the sub_path was deleted at some point so we consider this
+                    // as a successful delete and return.
+                    return;
                 },
                 error.FileNotFound => {
                     // That's fine, we were trying to remove this directory anyway.
-                    continue :start_over;
+                    return;
                 },
-
                 error.InvalidHandle,
                 error.AccessDenied,
                 error.SymLinkLoop,
@@ -2112,63 +2109,69 @@ pub const Dir = struct {
             // open it, and close the original directory. Repeat. Then start the entire operation over.
 
             scan_dir: while (true) {
-                var dir_it = iterable_dir.iterate();
-                while (try dir_it.next()) |entry| {
-                    if (iterable_dir.dir.deleteFile(entry.name)) {
-                        continue;
-                    } else |err| switch (err) {
-                        error.FileNotFound => continue,
+                var dir_it = iterable_dir.iterateAssumeFirstIteration();
+                dir_it: while (try dir_it.next()) |entry| {
+                    var treat_as_dir = entry.kind == .Directory;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :dir_it;
+                                },
 
-                        // Impossible because we do not pass any path separators.
-                        error.NotDir => unreachable,
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                            if (cleanup_dir_parent) |*d| d.close();
+                            cleanup_dir_parent = iterable_dir;
+                            iterable_dir = new_dir;
+                            mem.copy(u8, &dir_name_buf, entry.name);
+                            dir_name = dir_name_buf[0..entry.name.len];
+                            continue :scan_dir;
+                        } else {
+                            if (iterable_dir.dir.deleteFile(entry.name)) {
+                                continue :dir_it;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :dir_it,
 
-                        error.IsDir => {},
-                        error.AccessDenied => got_access_denied = true,
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
 
-                        error.InvalidUtf8,
-                        error.SymLinkLoop,
-                        error.NameTooLong,
-                        error.SystemResources,
-                        error.ReadOnlyFileSystem,
-                        error.FileSystem,
-                        error.FileBusy,
-                        error.BadPathName,
-                        error.Unexpected,
-                        => |e| return e,
-                    }
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
 
-                    const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
-                        error.NotDir => {
-                            if (got_access_denied) {
-                                return error.AccessDenied;
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
                             }
-                            continue :scan_dir;
-                        },
-                        error.FileNotFound => {
-                            // That's fine, we were trying to remove this directory anyway.
-                            continue :scan_dir;
-                        },
-
-                        error.InvalidHandle,
-                        error.AccessDenied,
-                        error.SymLinkLoop,
-                        error.ProcessFdQuotaExceeded,
-                        error.NameTooLong,
-                        error.SystemFdQuotaExceeded,
-                        error.NoDevice,
-                        error.SystemResources,
-                        error.Unexpected,
-                        error.InvalidUtf8,
-                        error.BadPathName,
-                        error.DeviceBusy,
-                        => |e| return e,
-                    };
-                    if (cleanup_dir_parent) |*d| d.close();
-                    cleanup_dir_parent = iterable_dir;
-                    iterable_dir = new_dir;
-                    mem.copy(u8, &dir_name_buf, entry.name);
-                    dir_name = dir_name_buf[0..entry.name.len];
-                    continue :scan_dir;
+                        }
+                    }
                 }
                 // Reached the end of the directory entries, which means we successfully deleted all of them.
                 // Now to remove the directory itself.
