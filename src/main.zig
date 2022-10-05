@@ -2763,7 +2763,14 @@ fn buildOutputType(
             defer gpa.free(rel_src_path);
             break :blk try Package.create(gpa, p, rel_src_path);
         } else {
-            break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
+            const root_src_dir_path = fs.path.dirname(src_path);
+            break :blk Package.create(gpa, root_src_dir_path, fs.path.basename(src_path)) catch |err| {
+                if (root_src_dir_path) |p| {
+                    fatal("unable to open '{s}': {s}", .{ p, @errorName(err) });
+                } else {
+                    return err;
+                }
+            };
         }
     } else null;
     defer if (main_pkg) |p| p.destroy(gpa);
@@ -2792,7 +2799,7 @@ fn buildOutputType(
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
         .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("unable to open zig lib directory from 'zig-lib-dir' argument or env, '{s}': {s}", .{ lib_dir, @errorName(err) });
+            fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
         },
     } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
