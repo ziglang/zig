@@ -990,7 +990,7 @@ test "overflow arithmetic with u0 values" {
     try expect(result == 0);
 }
 
-test "allow signed integer division/remainder when values are comptime known and positive or exact" {
+test "allow signed integer division/remainder when values are comptime-known and positive or exact" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try expect(5 / 3 == 1);

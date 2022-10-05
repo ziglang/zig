@@ -173,13 +173,13 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
     };
 }
 
-// This function only accepts comptime known strings, see `messageCopy` for runtime strings
+// This function only accepts comptime-known strings, see `messageCopy` for runtime strings
 pub inline fn message(comptime msg: [:0]const u8) void {
     if (!enable) return;
     ___tracy_emit_messageL(msg.ptr, if (enable_callstack) callstack_depth else 0);
 }
 
-// This function only accepts comptime known strings, see `messageColorCopy` for runtime strings
+// This function only accepts comptime-known strings, see `messageColorCopy` for runtime strings
 pub inline fn messageColor(comptime msg: [:0]const u8, color: u32) void {
     if (!enable) return;
     ___tracy_emit_messageLC(msg.ptr, color, if (enable_callstack) callstack_depth else 0);

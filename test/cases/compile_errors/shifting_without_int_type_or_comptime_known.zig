@@ -17,7 +17,7 @@ export fn entry3() void {
 // backend=stage2
 // target=native
 //
-// :2:17: error: LHS of shift must be a fixed-width integer type, or RHS must be a comptime known
-// :5:17: error: LHS of shift must be a fixed-width integer type, or RHS must be a comptime known
-// :9:9: error: LHS of shift must be a fixed-width integer type, or RHS must be a comptime known
-// :13:9: error: LHS of shift must be a fixed-width integer type, or RHS must be a comptime known
+// :2:17: error: LHS of shift must be a fixed-width integer type, or RHS must be comptime-known
+// :5:17: error: LHS of shift must be a fixed-width integer type, or RHS must be comptime-known
+// :9:9: error: LHS of shift must be a fixed-width integer type, or RHS must be comptime-known
+// :13:9: error: LHS of shift must be a fixed-width integer type, or RHS must be comptime-known

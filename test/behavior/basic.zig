@@ -999,7 +999,7 @@ test "generic function uses return type of other generic function" {
     try std.testing.expect(S.call(S.func, .{@as(u8, 1)}) == 1);
 }
 
-test "const alloc with comptime known initializer is made comptime known" {
+test "const alloc with comptime-known initializer is made comptime-known" {
     const S = struct {
         a: bool,
         b: [2]u8,

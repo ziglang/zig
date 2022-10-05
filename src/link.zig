@@ -305,7 +305,7 @@ pub const File = struct {
             };
         }
         const emit = options.emit.?;
-        const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
+        const use_lld = build_options.have_llvm and options.use_lld; // comptime-known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
                 // No point in opening a file, we would not write anything to it.

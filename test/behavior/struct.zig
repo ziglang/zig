@@ -653,7 +653,7 @@ test "default struct initialization fields" {
         .b = five,
     };
     if (x.a + x.b != 1239) {
-        @compileError("it should be comptime known");
+        @compileError("it should be comptime-known");
     }
     try expect(y.a == x.a);
     try expect(y.b == x.b);
