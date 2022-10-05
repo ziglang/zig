@@ -18749,6 +18749,10 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
         break :blk try sema.tupleFieldIndex(block, ty, field_name, rhs_src);
     } else try sema.structFieldIndex(block, ty, field_name, rhs_src);
 
+    if (ty.structFieldIsComptime(field_index)) {
+        return sema.fail(block, src, "no offset available for comptime field", .{});
+    }
+
     switch (ty.containerLayout()) {
         .Packed => {
             var bit_sum: u64 = 0;
@@ -20131,6 +20135,10 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         }
         break :blk try sema.tupleFieldIndex(block, struct_ty, field_name, name_src);
     } else try sema.structFieldIndex(block, struct_ty, field_name, name_src);
+
+    if (struct_ty.structFieldIsComptime(field_index)) {
+        return sema.fail(block, src, "cannot get @fieldParentPtr of a comptime field", .{});
+    }
 
     try sema.checkPtrOperand(block, ptr_src, field_ptr_ty);
     const field_ptr_ty_info = field_ptr_ty.ptrInfo().data;
