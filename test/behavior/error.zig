@@ -843,3 +843,20 @@ fn non_errorable() void {
 test "catch within a function that calls no errorable functions" {
     non_errorable();
 }
+
+test "error from comptime string" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const name = "Weird error name!";
+    const S = struct {
+        fn foo() !void {
+            return @field(anyerror, name);
+        }
+    };
+    if (S.foo()) unreachable else |err| {
+        try expect(mem.eql(u8, name, @errorName(err)));
+    }
+}

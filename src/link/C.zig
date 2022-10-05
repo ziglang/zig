@@ -275,13 +275,14 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     const err_typedef_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    render_errors: {
-        if (module.global_error_set.size == 0) break :render_errors;
+    if (module.global_error_set.size > 0) {
+        try err_typedef_writer.writeAll("enum {\n");
         var it = module.global_error_set.iterator();
-        while (it.next()) |entry| {
-            try err_typedef_writer.print("#define zig_error_{s} {d}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-        }
-        try err_typedef_writer.writeByte('\n');
+        while (it.next()) |entry| try err_typedef_writer.print(" zig_error_{s} = {d},\n", .{
+            codegen.fmtIdent(entry.key_ptr.*),
+            entry.value_ptr.*,
+        });
+        try err_typedef_writer.writeAll("};\n");
     }
 
     // Typedefs, forward decls, and non-functions first.

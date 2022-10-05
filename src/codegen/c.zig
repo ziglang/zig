@@ -746,7 +746,7 @@ pub const DeclGen = struct {
                     .@"error" => {
                         const payload = val.castTag(.@"error").?;
                         // error values will be #defined at the top of the file
-                        return writer.print("zig_error_{s}", .{payload.data.name});
+                        return writer.print("zig_error_{s}", .{fmtIdent(payload.data.name)});
                     },
                     else => {
                         // In this case we are rendering an error union which has a
