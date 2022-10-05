@@ -811,6 +811,17 @@ pub const IterableDir = struct {
     };
 
     pub fn iterate(self: IterableDir) Iterator {
+        return self.iterateImpl(true);
+    }
+
+    /// Like `iterate`, but will not reset the directory cursor before the first
+    /// iteration. This should only be used in cases where it is known that the
+    /// `IterableDir` has not had its cursor modified yet (e.g. it was just opened).
+    pub fn iterateAssumeFirstIteration(self: IterableDir) Iterator {
+        return self.iterateImpl(false);
+    }
+
+    fn iterateImpl(self: IterableDir, first_iter_start_value: bool) Iterator {
         switch (builtin.os.tag) {
             .macos,
             .ios,
@@ -825,20 +836,20 @@ pub const IterableDir = struct {
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .linux, .haiku => return Iterator{
                 .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .windows => return Iterator{
                 .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
                 .buf = undefined,
                 .name_data = undefined,
             },
