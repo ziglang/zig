@@ -219,6 +219,42 @@ test "Dir.Iterator twice" {
     }
 }
 
+test "Dir.Iterator reset" {
+    var tmp_dir = tmpIterableDir(.{});
+    defer tmp_dir.cleanup();
+
+    // First, create a couple of entries to iterate over.
+    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
+    file.close();
+
+    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Create iterator.
+    var iter = tmp_dir.iterable_dir.iterate();
+
+    var i: u8 = 0;
+    while (i < 2) : (i += 1) {
+        var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+
+        while (try iter.next()) |entry| {
+            // We cannot just store `entry` as on Windows, we're re-using the name buffer
+            // which means we'll actually share the `name` pointer between entries!
+            const name = try allocator.dupe(u8, entry.name);
+            try entries.append(.{ .name = name, .kind = entry.kind });
+        }
+
+        try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
+        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
+
+        iter.reset();
+    }
+}
+
 test "Dir.Iterator but dir is deleted during iteration" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

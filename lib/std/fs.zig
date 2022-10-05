@@ -490,6 +490,12 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .haiku => struct {
             dir: Dir,
@@ -577,6 +583,12 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .linux => struct {
             dir: Dir,
@@ -655,6 +667,12 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .windows => struct {
             dir: Dir,
@@ -726,6 +744,12 @@ pub const IterableDir = struct {
                         .kind = kind,
                     };
                 }
+            }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
             }
         },
         .wasi => struct {
@@ -805,6 +829,12 @@ pub const IterableDir = struct {
                         .kind = entry_kind,
                     };
                 }
+            }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.cookie = os.wasi.DIRCOOKIE_START;
             }
         },
         else => @compileError("unimplemented"),
