@@ -15,6 +15,7 @@ pub fn build(b: *Builder) void {
     lib.use_llvm = false;
     lib.use_stage1 = false;
     lib.use_lld = false;
+    lib.strip = false;
 
     const check = lib.checkObject(.wasm);
     check.checkStart("Section import");

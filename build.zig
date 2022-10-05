@@ -309,15 +309,15 @@ pub fn build(b: *Builder) !void {
                 .Debug => {},
                 .ReleaseFast => {
                     zig1_obj.addArg("-OReleaseFast");
-                    zig1_obj.addArg("--strip");
+                    zig1_obj.addArg("-fstrip");
                 },
                 .ReleaseSafe => {
                     zig1_obj.addArg("-OReleaseSafe");
-                    zig1_obj.addArg("--strip");
+                    zig1_obj.addArg("-fstrip");
                 },
                 .ReleaseSmall => {
                     zig1_obj.addArg("-OReleaseSmall");
-                    zig1_obj.addArg("--strip");
+                    zig1_obj.addArg("-fstrip");
                 },
             }
             if (single_threaded orelse false) {

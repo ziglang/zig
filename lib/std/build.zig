@@ -1468,7 +1468,7 @@ pub const LibExeObjStep = struct {
     kind: Kind,
     major_only_filename: ?[]const u8,
     name_only_filename: ?[]const u8,
-    strip: bool,
+    strip: ?bool,
     // keep in sync with src/link.zig:CompressDebugSections
     compress_debug_sections: enum { none, zlib } = .none,
     lib_paths: ArrayList([]const u8),
@@ -1738,7 +1738,7 @@ pub const LibExeObjStep = struct {
 
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = LibExeObjStep{
-            .strip = false,
+            .strip = null,
             .builder = builder,
             .verbose_link = false,
             .verbose_cc = false,
@@ -1953,7 +1953,7 @@ pub const LibExeObjStep = struct {
 
     pub fn producesPdbFile(self: *LibExeObjStep) bool {
         if (!self.target.isWindows() and !self.target.isUefi()) return false;
-        if (self.strip) return false;
+        if (self.strip != null and self.strip.?) return false;
         return self.isDynamicLibrary() or self.kind == .exe or self.kind == .test_exe;
     }
 
@@ -2690,8 +2690,12 @@ pub const LibExeObjStep = struct {
 
         if (self.emit_h) try zig_args.append("-femit-h");
 
-        if (self.strip) {
-            try zig_args.append("--strip");
+        if (self.strip) |strip| {
+            if (strip) {
+                try zig_args.append("-fstrip");
+            } else {
+                try zig_args.append("-fno-strip");
+            }
         }
 
         switch (self.compress_debug_sections) {
