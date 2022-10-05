@@ -2197,6 +2197,85 @@ pub const Dir = struct {
         }
     }
 
+    fn deleteTreeRecursiveImpl(dir: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
+        start_over: while (true) {
+            var iterable_dir = iterable_dir: {
+                var treat_as_dir = kind_hint == .Directory;
+
+                handle_entry: while (true) {
+                    if (treat_as_dir) {
+                        break :iterable_dir dir.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
+                            error.NotDir => {
+                                treat_as_dir = false;
+                                continue :handle_entry;
+                            },
+                            error.FileNotFound => {
+                                // That's fine, we were trying to remove this directory anyway.
+                                return;
+                            },
+
+                            error.InvalidHandle,
+                            error.AccessDenied,
+                            error.SymLinkLoop,
+                            error.ProcessFdQuotaExceeded,
+                            error.NameTooLong,
+                            error.SystemFdQuotaExceeded,
+                            error.NoDevice,
+                            error.SystemResources,
+                            error.Unexpected,
+                            error.InvalidUtf8,
+                            error.BadPathName,
+                            error.DeviceBusy,
+                            => |e| return e,
+                        };
+                    } else {
+                        if (dir.deleteFile(sub_path)) {
+                            return;
+                        } else |err| switch (err) {
+                            error.FileNotFound => return,
+
+                            error.NotDir => unreachable,
+
+                            error.IsDir => {
+                                treat_as_dir = true;
+                                continue :handle_entry;
+                            },
+
+                            error.AccessDenied,
+                            error.InvalidUtf8,
+                            error.SymLinkLoop,
+                            error.NameTooLong,
+                            error.SystemResources,
+                            error.ReadOnlyFileSystem,
+                            error.FileSystem,
+                            error.FileBusy,
+                            error.BadPathName,
+                            error.Unexpected,
+                            => |e| return e,
+                        }
+                    }
+                }
+            };
+            defer iterable_dir.close();
+
+            var dir_it = iterable_dir.iterateAssumeFirstIteration();
+            while (try dir_it.next()) |entry| {
+                try deleteTreeRecursiveImpl(iterable_dir.dir, entry.name, entry.kind);
+            }
+
+            dir.deleteDir(sub_path) catch |err| switch (err) {
+                error.FileNotFound => return,
+                error.DirNotEmpty => continue :start_over,
+                else => |e| return e,
+            };
+            return;
+        }
+    }
+
+    pub fn deleteTreeRecursive(self: Dir, sub_path: []const u8) DeleteTreeError!void {
+        return deleteTreeRecursiveImpl(self, sub_path, .File);
+    }
+
     /// Writes content to the file system, creating a new file if it does not exist, truncating
     /// if it already exists.
     pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
