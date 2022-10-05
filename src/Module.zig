@@ -4478,9 +4478,17 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
                 try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
                 return error.AnalysisFail;
             };
-            const resolved_path = try file.pkg.root_src_directory.join(gpa, &.{
-                file.sub_file_path,
-            });
+
+            const resolved_path = std.fs.path.resolve(
+                gpa,
+                if (file.pkg.root_src_directory.path) |pkg_path|
+                    &[_][]const u8{ pkg_path, file.sub_file_path }
+                else
+                    &[_][]const u8{file.sub_file_path},
+            ) catch |err| {
+                try reportRetryableFileError(mod, file, "unable to resolve path: {s}", .{@errorName(err)});
+                return error.AnalysisFail;
+            };
             errdefer gpa.free(resolved_path);
 
             try man.addFilePostContents(resolved_path, source.bytes, source.stat);
