@@ -301,7 +301,7 @@ pub const IterableDir = struct {
         .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
             dir: Dir,
             seek: i64,
-            buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
+            buf: [1024]u8, // TODO align(@alignOf(os.system.dirent)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -499,7 +499,7 @@ pub const IterableDir = struct {
         },
         .haiku => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            buf: [1024]u8, // TODO align(@alignOf(os.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -594,7 +594,7 @@ pub const IterableDir = struct {
             dir: Dir,
             // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
             // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
+            buf: [1024]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -676,7 +676,7 @@ pub const IterableDir = struct {
         },
         .windows => struct {
             dir: Dir,
-            buf: [8192]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
+            buf: [1024]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -754,7 +754,7 @@ pub const IterableDir = struct {
         },
         .wasi => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
+            buf: [1024]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
             cookie: u64,
             index: usize,
             end_index: usize,
