@@ -260,30 +260,15 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    // Covers zig.h and err_typedef_item.
+    // Covers zig.h and typedef.
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
 
-    if (zig_h.len != 0) {
-        f.all_buffers.appendAssumeCapacity(.{
-            .iov_base = zig_h,
-            .iov_len = zig_h.len,
-        });
-        f.file_size += zig_h.len;
-    }
+    f.appendBufAssumeCapacity(zig_h);
 
-    const err_typedef_writer = f.err_typedef_buf.writer(gpa);
-    const err_typedef_index = f.all_buffers.items.len;
+    const typedef_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    if (module.global_error_set.size > 0) {
-        try err_typedef_writer.writeAll("enum {\n");
-        var it = module.global_error_set.iterator();
-        while (it.next()) |entry| try err_typedef_writer.print(" zig_error_{s} = {d},\n", .{
-            codegen.fmtIdent(entry.key_ptr.*),
-            entry.value_ptr.*,
-        });
-        try err_typedef_writer.writeAll("};\n");
-    }
+    try self.flushErrDecls(&f);
 
     // Typedefs, forward decls, and non-functions first.
     // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
@@ -301,38 +286,20 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 
     while (f.remaining_decls.popOrNull()) |kv| {
         const decl_index = kv.key;
-        try flushDecl(self, &f, decl_index);
+        try self.flushDecl(&f, decl_index);
     }
 
-    if (f.err_typedef_buf.items.len == 0) {
-        f.all_buffers.items[err_typedef_index] = .{
-            .iov_base = "",
-            .iov_len = 0,
-        };
-    } else {
-        f.all_buffers.items[err_typedef_index] = .{
-            .iov_base = f.err_typedef_buf.items.ptr,
-            .iov_len = f.err_typedef_buf.items.len,
-        };
-        f.file_size += f.err_typedef_buf.items.len;
-    }
+    f.all_buffers.items[typedef_index] = .{
+        .iov_base = if (f.typedef_buf.items.len > 0) f.typedef_buf.items.ptr else "",
+        .iov_len = f.typedef_buf.items.len,
+    };
+    f.file_size += f.typedef_buf.items.len;
 
     // Now the function bodies.
     try f.all_buffers.ensureUnusedCapacity(gpa, f.fn_count);
-    for (decl_keys) |decl_index, i| {
-        const decl = module.declPtr(decl_index);
-        if (decl.getFunction() != null) {
-            const decl_block = &decl_values[i];
-            const buf = decl_block.code.items;
-            if (buf.len != 0) {
-                f.all_buffers.appendAssumeCapacity(.{
-                    .iov_base = buf.ptr,
-                    .iov_len = buf.len,
-                });
-                f.file_size += buf.len;
-            }
-        }
-    }
+    for (decl_keys) |decl_index, i|
+        if (module.declPtr(decl_index).getFunction() != null)
+            f.appendBufAssumeCapacity(decl_values[i].code.items);
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -342,7 +309,8 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 const Flush = struct {
     remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
     typedefs: Typedefs = .{},
-    err_typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    err_buf: std.ArrayListUnmanaged(u8) = .{},
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
@@ -356,9 +324,16 @@ const Flush = struct {
         std.hash_map.default_max_load_percentage,
     );
 
+    fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
+        if (buf.len == 0) return;
+        f.all_buffers.appendAssumeCapacity(.{ .iov_base = buf.ptr, .iov_len = buf.len });
+        f.file_size += buf.len;
+    }
+
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
-        f.err_typedef_buf.deinit(gpa);
+        f.err_buf.deinit(gpa);
+        f.typedef_buf.deinit(gpa);
         f.typedefs.deinit(gpa);
         f.remaining_decls.deinit(gpa);
     }
@@ -367,6 +342,57 @@ const Flush = struct {
 const FlushDeclError = error{
     OutOfMemory,
 };
+
+fn flushTypedefs(self: *C, f: *Flush, typedefs: codegen.TypedefMap.Unmanaged) FlushDeclError!void {
+    if (typedefs.count() == 0) return;
+    const gpa = self.base.allocator;
+    const module = self.base.options.module.?;
+
+    try f.typedefs.ensureUnusedCapacityContext(gpa, @intCast(u32, typedefs.count()), .{
+        .mod = module,
+    });
+    var it = typedefs.iterator();
+    while (it.next()) |new| {
+        const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
+            .mod = module,
+        });
+        if (!gop.found_existing) {
+            try f.typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+        }
+    }
+}
+
+fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
+    const gpa = self.base.allocator;
+    const module = self.base.options.module.?;
+
+    var object = codegen.Object{
+        .dg = .{
+            .gpa = gpa,
+            .module = module,
+            .error_msg = null,
+            .decl_index = undefined,
+            .decl = undefined,
+            .fwd_decl = undefined,
+            .typedefs = codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
+            .typedefs_arena = gpa,
+        },
+        .code = f.err_buf.toManaged(gpa),
+        .indent_writer = undefined, // set later so we can get a pointer to object.code
+    };
+    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    defer object.dg.typedefs.deinit();
+    defer f.err_buf = object.code.moveToUnmanaged();
+
+    codegen.genErrDecls(&object) catch |err| switch (err) {
+        error.AnalysisFail => unreachable,
+        else => |e| return e,
+    };
+
+    try self.flushTypedefs(f, object.dg.typedefs.unmanaged);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 1);
+    f.appendBufAssumeCapacity(object.code.items);
+}
 
 /// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
 fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!void {
@@ -384,43 +410,13 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
     const decl_block = self.decl_table.getPtr(decl_index).?;
     const gpa = self.base.allocator;
 
-    if (decl_block.typedefs.count() != 0) {
-        try f.typedefs.ensureUnusedCapacityContext(gpa, @intCast(u32, decl_block.typedefs.count()), .{
-            .mod = module,
-        });
-        var it = decl_block.typedefs.iterator();
-        while (it.next()) |new| {
-            const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
-                .mod = module,
-            });
-            if (!gop.found_existing) {
-                try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
-            }
-        }
-    }
-
-    if (decl_block.fwd_decl.items.len != 0) {
-        const buf = decl_block.fwd_decl.items;
-        if (buf.len != 0) {
-            try f.all_buffers.append(gpa, .{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            f.file_size += buf.len;
-        }
-    }
-    if (decl.getFunction() != null) {
-        f.fn_count += 1;
-    } else if (decl_block.code.items.len != 0) {
-        const buf = decl_block.code.items;
-        if (buf.len != 0) {
-            try f.all_buffers.append(gpa, .{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            f.file_size += buf.len;
-        }
-    }
+    try self.flushTypedefs(f, decl_block.typedefs);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
+    f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
+    if (decl.getFunction()) |_|
+        f.fn_count += 1
+    else
+        f.appendBufAssumeCapacity(decl_block.code.items);
 }
 
 pub fn flushEmitH(module: *Module) !void {

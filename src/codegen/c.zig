@@ -1580,6 +1580,66 @@ pub const DeclGen = struct {
     }
 };
 
+pub fn genErrDecls(o: *Object) !void {
+    if (o.dg.module.global_error_set.size == 0) return;
+    const writer = o.writer();
+
+    try writer.writeAll("enum {\n");
+    o.indent_writer.pushIndent();
+    var max_name_len: usize = 0;
+    for (o.dg.module.error_name_list.items) |name, value| {
+        max_name_len = std.math.max(name.len, max_name_len);
+        var err_val_payload = Value.Payload.Error{ .data = .{ .name = name } };
+        try o.dg.renderValue(writer, Type.anyerror, Value.initPayload(&err_val_payload.base), .Other);
+        try writer.print(" = {d}u,\n", .{value});
+    }
+    o.indent_writer.popIndent();
+    try writer.writeAll("};\n");
+
+    const name_prefix = "zig_errorName_";
+    const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len + 1);
+    defer o.dg.gpa.free(name_buf);
+
+    std.mem.copy(u8, name_buf, name_prefix);
+    for (o.dg.module.error_name_list.items) |name| {
+        std.mem.copy(u8, name_buf[name_prefix.len..], name);
+        name_buf[name_prefix.len + name.len] = 0;
+
+        const identifier = name_buf[0 .. name_prefix.len + name.len :0];
+        const nameZ = identifier[name_prefix.len..];
+
+        var name_ty_payload = Type.Payload.Len{
+            .base = .{ .tag = .array_u8_sentinel_0 },
+            .data = name.len,
+        };
+        const name_ty = Type.initPayload(&name_ty_payload.base);
+
+        var name_val_payload = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = nameZ };
+        const name_val = Value.initPayload(&name_val_payload.base);
+
+        try writer.writeAll("static ");
+        try o.dg.renderTypeAndName(writer, name_ty, .{ .identifier = identifier }, .Const, 0);
+        try writer.writeAll(" = ");
+        try o.dg.renderValue(writer, name_ty, name_val, .Other);
+        try writer.writeAll(";\n");
+    }
+
+    var name_array_ty_payload = Type.Payload.Array{ .base = .{ .tag = .array }, .data = .{
+        .len = o.dg.module.error_name_list.items.len,
+        .elem_type = Type.initTag(.const_slice_u8_sentinel_0),
+    } };
+    const name_array_ty = Type.initPayload(&name_array_ty_payload.base);
+
+    try writer.writeAll("static ");
+    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = "zig_errorName" }, .Const, 0);
+    try writer.writeAll(" = {");
+    for (o.dg.module.error_name_list.items) |name, value| {
+        if (value != 0) try writer.writeByte(',');
+        try writer.print("{{zig_errorName_{}, {d}u}}", .{ fmtIdent(name), name.len });
+    }
+    try writer.writeAll("};\n");
+}
+
 pub fn genFunc(f: *Function) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3982,11 +4042,10 @@ fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(un_op);
     const local = try f.allocLocal(inst_ty, .Const);
 
-    try writer.writeAll(" = ");
-
-    _ = operand;
-    _ = local;
-    return f.fail("TODO: C backend: implement airErrorName", .{});
+    try writer.writeAll(" = zig_errorName[");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll("];\n");
+    return local;
 }
 
 fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
