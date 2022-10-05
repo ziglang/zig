@@ -13,6 +13,7 @@ pub fn build(b: *Builder) void {
     lib.use_llvm = false;
     lib.use_stage1 = false;
     lib.use_lld = false;
+    lib.strip = false;
     lib.stack_size = std.wasm.page_size * 2; // set an explicit stack size
     lib.install();
 

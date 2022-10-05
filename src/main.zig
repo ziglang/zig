@@ -404,7 +404,8 @@ const usage_build_generic =
     \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
-    \\  --strip                   Omit debug symbols
+    \\  -fstrip                   Omit debug symbols
+    \\  -fno-strip                Keep debug symbols
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -630,7 +631,7 @@ fn buildOutputType(
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
     var compatibility_version: ?std.builtin.Version = null;
-    var strip = false;
+    var strip: ?bool = null;
     var function_sections = false;
     var no_builtin = false;
     var watch = false;
@@ -1296,8 +1297,10 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--show-builtin")) {
                         show_builtin = true;
                         emit_bin = .no;
-                    } else if (mem.eql(u8, arg, "--strip")) {
+                    } else if (mem.eql(u8, arg, "-fstrip")) {
                         strip = true;
+                    } else if (mem.eql(u8, arg, "-fno-strip")) {
+                        strip = false;
                     } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         single_threaded = true;
                     } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
@@ -1432,7 +1435,6 @@ fn buildOutputType(
         .cc, .cpp => {
             emit_h = .no;
             soname = .no;
-            strip = false;
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
             want_native_include_dirs = true;
@@ -2185,6 +2187,9 @@ fn buildOutputType(
             }
         },
     }
+
+    if (arg_mode == .build and optimize_mode == .ReleaseSmall and strip == null)
+        strip = true;
 
     if (arg_mode == .translate_c and c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{c_source_files.items.len});

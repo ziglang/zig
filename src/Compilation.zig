@@ -916,8 +916,8 @@ pub const InitOptions = struct {
     use_clang: ?bool = null,
     use_stage1: ?bool = null,
     single_threaded: ?bool = null,
+    strip: ?bool = null,
     rdynamic: bool = false,
-    strip: bool = false,
     function_sections: bool = false,
     no_builtin: bool = false,
     is_native_os: bool,
@@ -1422,7 +1422,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
 
-        const strip = options.strip or !target_util.hasDebugInfo(options.target);
+        const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
         const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
