@@ -8957,9 +8957,21 @@ fn intCast(
             const wanted_bits = wanted_info.bits;
 
             if (wanted_bits == 0) {
-                const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
-                const is_in_range = try block.addBinOp(.cmp_eq, operand, zero_inst);
-                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+                const ok = if (is_vector) ok: {
+                    const zeros = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    const zero_inst = try sema.addConstant(sema.typeOf(operand), zeros);
+                    const is_in_range = try block.addCmpVector(operand, zero_inst, .eq, try sema.addType(operand_ty));
+                    const all_in_range = try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{ .operand = is_in_range, .operation = .And } },
+                    });
+                    break :ok all_in_range;
+                } else ok: {
+                    const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
+                    const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
+                    break :ok is_in_range;
+                };
+                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
             }
         }
 
@@ -12376,6 +12388,8 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -12439,7 +12453,10 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             if (maybe_lhs_val) |lhs_val| {
                 if (!lhs_val.isUndef()) {
                     if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.addConstant(resolved_type, Value.zero);
+                        const zero_val = if (is_vector) b: {
+                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                        } else Value.zero;
+                        return sema.addConstant(resolved_type, zero_val);
                     }
                 }
             }
@@ -12532,6 +12549,8 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -12569,7 +12588,10 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 return sema.failWithUseOfUndef(block, rhs_src);
             } else {
                 if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                    return sema.addConstant(resolved_type, Value.zero);
+                    const zero_val = if (is_vector) b: {
+                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    } else Value.zero;
+                    return sema.addConstant(resolved_type, zero_val);
                 }
             }
         }
@@ -12691,6 +12713,8 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -12730,7 +12754,10 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef()) {
                 if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                    return sema.addConstant(resolved_type, Value.zero);
+                    const zero_val = if (is_vector) b: {
+                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    } else Value.zero;
+                    return sema.addConstant(resolved_type, zero_val);
                 }
             }
         }
@@ -12803,6 +12830,8 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -12842,7 +12871,10 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef()) {
                 if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                    return sema.addConstant(resolved_type, Value.zero);
+                    const zero_val = if (is_vector) b: {
+                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    } else Value.zero;
+                    return sema.addConstant(resolved_type, zero_val);
                 }
             }
         }
@@ -13042,6 +13074,8 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -13078,7 +13112,10 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                     return sema.failWithUseOfUndef(block, lhs_src);
                 }
                 if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                    return sema.addConstant(resolved_type, Value.zero);
+                    const zero_val = if (is_vector) b: {
+                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    } else Value.zero;
+                    return sema.addConstant(resolved_type, zero_val);
                 }
             } else if (lhs_scalar_ty.isSignedInt()) {
                 return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
@@ -13087,25 +13124,19 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 if (rhs_val.isUndef()) {
                     return sema.failWithUseOfUndef(block, rhs_src);
                 }
-                if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                    return sema.failWithDivideByZero(block, rhs_src);
+                switch (try rhs_val.orderAgainstZeroAdvanced(sema.kit(block, src))) {
+                    .lt => return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty),
+                    .eq => return sema.failWithDivideByZero(block, rhs_src),
+                    .gt => {},
                 }
                 if (maybe_lhs_val) |lhs_val| {
                     const rem_result = try sema.intRem(block, resolved_type, lhs_val, lhs_src, rhs_val, rhs_src);
                     // If this answer could possibly be different by doing `intMod`,
                     // we must emit a compile error. Otherwise, it's OK.
-                    if ((try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) != (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) and
+                    if ((try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) and
                         !(try rem_result.compareWithZeroAdvanced(.eq, sema.kit(block, src))))
                     {
-                        const bad_src = if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src)))
-                            lhs_src
-                        else
-                            rhs_src;
-                        return sema.failWithModRemNegative(block, bad_src, lhs_ty, rhs_ty);
-                    }
-                    if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) {
-                        // Negative
-                        return sema.addConstant(resolved_type, Value.zero);
+                        return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
                     }
                     return sema.addConstant(resolved_type, rem_result);
                 }
@@ -13671,6 +13702,8 @@ fn analyzeArithmetic(
         .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
     });
 
+    const is_vector = resolved_type.zigTypeTag() == .Vector;
+
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -13897,7 +13930,10 @@ fn analyzeArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
+                            const zero_val = if (is_vector) b: {
+                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                            } else Value.zero;
+                            return sema.addConstant(resolved_type, zero_val);
                         }
                         if (try sema.compare(block, src, lhs_val, .eq, Value.one, resolved_type)) {
                             return casted_rhs;
@@ -13914,7 +13950,10 @@ fn analyzeArithmetic(
                         }
                     }
                     if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.addConstant(resolved_type, Value.zero);
+                        const zero_val = if (is_vector) b: {
+                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                        } else Value.zero;
+                        return sema.addConstant(resolved_type, zero_val);
                     }
                     if (try sema.compare(block, src, rhs_val, .eq, Value.one, resolved_type)) {
                         return casted_lhs;
@@ -13951,7 +13990,10 @@ fn analyzeArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
+                            const zero_val = if (is_vector) b: {
+                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                            } else Value.zero;
+                            return sema.addConstant(resolved_type, zero_val);
                         }
                         if (try sema.compare(block, src, lhs_val, .eq, Value.one, resolved_type)) {
                             return casted_rhs;
@@ -13964,7 +14006,10 @@ fn analyzeArithmetic(
                         return sema.addConstUndef(resolved_type);
                     }
                     if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.addConstant(resolved_type, Value.zero);
+                        const zero_val = if (is_vector) b: {
+                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                        } else Value.zero;
+                        return sema.addConstant(resolved_type, zero_val);
                     }
                     if (try sema.compare(block, src, rhs_val, .eq, Value.one, resolved_type)) {
                         return casted_lhs;
@@ -13988,7 +14033,10 @@ fn analyzeArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
+                            const zero_val = if (is_vector) b: {
+                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                            } else Value.zero;
+                            return sema.addConstant(resolved_type, zero_val);
                         }
                         if (try sema.compare(block, src, lhs_val, .eq, Value.one, resolved_type)) {
                             return casted_rhs;
@@ -14000,7 +14048,10 @@ fn analyzeArithmetic(
                         return sema.addConstUndef(resolved_type);
                     }
                     if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.addConstant(resolved_type, Value.zero);
+                        const zero_val = if (is_vector) b: {
+                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
+                        } else Value.zero;
+                        return sema.addConstant(resolved_type, zero_val);
                     }
                     if (try sema.compare(block, src, rhs_val, .eq, Value.one, resolved_type)) {
                         return casted_lhs;
@@ -31735,6 +31786,8 @@ fn floatToIntScalar(
 
 /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
 /// Vectors are also accepted. Vector results are reduced with AND.
+///
+/// If provided, `vector_index` reports the first element that failed the range check.
 fn intFitsInType(
     sema: *Sema,
     block: *Block,
