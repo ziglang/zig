@@ -2178,7 +2178,7 @@ pub const Dir = struct {
                             });
                             continue :process_stack;
                         } else |_| {
-                            try top.iter.dir.deleteTreeFallback(entry.name, entry.kind);
+                            try top.iter.dir.deleteTreeMinStackSizeWithKindHint(entry.name, entry.kind);
                             break :handle_entry;
                         }
                     } else {
@@ -2225,9 +2225,13 @@ pub const Dir = struct {
         }
     }
 
-    /// Fallback version of deleteTree that is less efficient but works on arbitrarily
-    /// nested directories without needing recursion or allocation.
-    fn deleteTreeFallback(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
+    /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
+    /// This is slower than `deleteTree` but uses less stack space.
+    pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
+        return self.deleteTreeMinStackWithKindHint(sub_path, .File);
+    }
+
+    fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
         start_over: while (true) {
             var iterable_dir = iterable_dir: {
                 var treat_as_dir = kind_hint == .Directory;
