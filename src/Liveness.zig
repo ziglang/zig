@@ -501,6 +501,41 @@ pub fn categorizeOperand(
             return .complex;
         },
         .block => {
+            const extra = air.extraData(Air.Block, air_datas[inst].ty_pl.payload);
+            const body = air.extra[extra.end..][0..extra.data.body_len];
+
+            if (body.len == 1 and air_tags[body[0]] == .cond_br) {
+                // Peephole optimization for "panic-like" conditionals, which have
+                // one empty branch and another which calls a `noreturn` function.
+                // This allows us to infer that safety checks do not modify memory,
+                // as far as control flow successors are concerned.
+
+                const inst_data = air_datas[body[0]].pl_op;
+                const cond_extra = air.extraData(Air.CondBr, inst_data.payload);
+                if (inst_data.operand == operand_ref and operandDies(l, body[0], 0))
+                    return .tomb;
+
+                if (cond_extra.data.then_body_len != 1 or cond_extra.data.else_body_len != 1)
+                    return .complex;
+
+                var operand_live: bool = true;
+                for (air.extra[cond_extra.end..][0..2]) |cond_inst| {
+                    if (l.categorizeOperand(air, cond_inst, operand) == .tomb)
+                        operand_live = false;
+
+                    switch (air_tags[cond_inst]) {
+                        .br => { // Breaks immediately back to block
+                            const br = air_datas[cond_inst].br;
+                            if (br.block_inst != inst)
+                                return .complex;
+                        },
+                        .call => {}, // Calls a noreturn function
+                        else => return .complex,
+                    }
+                }
+                return if (operand_live) .none else .tomb;
+            }
+
             return .complex;
         },
         .@"try" => {
