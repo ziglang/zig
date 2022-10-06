@@ -67,6 +67,10 @@ extern "C" {
 #endif
 
 #include <x86intrin.h>
+#include <cpuid.h>
+
+/* Undefine the GCC one taking 5 parameters to prefer the mingw-w64 one. */
+#undef __cpuid
 
 /* Before 4.9.2, x86intrin.h had broken versions of these. */
 #undef _lrotl

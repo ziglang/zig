@@ -3,10 +3,18 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
+
 #ifndef _H_PCHANNEL
 #define _H_PCHANNEL
 
+#include <winapifamily.h>
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
+#if NTDDI_VERSION >= NTDDI_XP
+
 #define CHANNEL_CHUNK_LENGTH 1600
+#define CHANNEL_BUFFER_SIZE 65535
 
 #define CHANNEL_PDU_LENGTH (CHANNEL_CHUNK_LENGTH + sizeof(CHANNEL_PDU_HEADER))
 
@@ -29,6 +37,7 @@
 #define CHANNEL_OPTION_COMPRESS_RDP 0x00800000
 #define CHANNEL_OPTION_COMPRESS 0x00400000
 #define CHANNEL_OPTION_SHOW_PROTOCOL 0x00200000
+#define CHANNEL_OPTION_REMOTE_CONTROL_PERSISTENT 0x00100000
 
 #define CHANNEL_MAX_COUNT 30
 #define CHANNEL_NAME_LEN 7
@@ -42,4 +51,9 @@ typedef struct tagCHANNEL_PDU_HEADER {
   UINT32 length;
   UINT32 flags;
 } CHANNEL_PDU_HEADER,*PCHANNEL_PDU_HEADER;
-#endif
+
+#endif /* (NTDDI_VERSION >= NTDDI_XP) */
+
+#endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP) */
+
+#endif /* _H_PCHANNEL */
