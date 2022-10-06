@@ -25,7 +25,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.compiles(
             \\fn threadIdX() u32 {
             \\    return asm ("mov.u32 \t%[r], %tid.x;"
-            \\       : [r] "=r" (-> utid),
+            \\       : [r] "=r" (-> u32),
             \\    );
             \\}
             \\
@@ -54,12 +54,12 @@ pub fn addCases(ctx: *TestContext) !void {
         case.compiles(
             \\fn threadIdX() u32 {
             \\    return asm ("mov.u32 \t%[r], %tid.x;"
-            \\       : [r] "=r" (-> utid),
+            \\       : [r] "=r" (-> u32),
             \\    );
             \\}
             \\
             \\ var _sdata: [1024]f32 addrspace(.shared) = undefined;
-            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(ptx.Kernel) void {
+            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.PtxKernel) void {
             \\     var sdata = @addrSpaceCast(.generic, &_sdata);
             \\     const tid: u32 = threadIdX();
             \\     var sum = d_x[tid];
@@ -99,6 +99,8 @@ pub fn addPtx(
         .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
         .link_libc = false,
         .backend = .llvm,
+        // Bug in Debug mode
+        .optimize_mode = .ReleaseSafe,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
