@@ -16,7 +16,7 @@ fn bar(a: usize) void {
 // backend=stage2
 // target=native
 //
-// :3:15: error: redeclaration of function parameter 'a'
+// :3:15: error: declaration 'a' shadows function parameter from outer scope
 // :1:8: note: previous declaration here
-// :9:19: error: redeclaration of function parameter 'a'
+// :9:19: error: declaration 'a' shadows function parameter from outer scope
 // :6:8: note: previous declaration here

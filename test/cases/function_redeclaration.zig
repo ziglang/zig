@@ -10,5 +10,5 @@ fn foo() void {
 //
 // :3:1: error: redeclaration of 'entry'
 // :2:1: note: other declaration here
-// :6:9: error: local shadows declaration of 'foo'
+// :6:9: error: local variable shadows declaration of 'foo'
 // :5:1: note: declared here

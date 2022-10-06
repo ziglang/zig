@@ -7,5 +7,5 @@ export fn entry() void { f(1); }
 // backend=stage2
 // target=native
 //
-// :2:11: error: redeclaration of function parameter 'a'
+// :2:11: error: local constant 'a' shadows function parameter from outer scope
 // :1:6: note: previous declaration here

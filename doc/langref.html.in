@@ -4064,7 +4064,7 @@ test "labeled break from labeled block expression" {
 
       {#header_open|Shadowing#}
       <p>{#link|Identifiers#} are never allowed to "hide" other identifiers by using the same name:</p>
-      {#code_begin|test_err|local shadows declaration#}
+      {#code_begin|test_err|local variable shadows declaration#}
 const pi = 3.14;
 
 test "inside test block" {
