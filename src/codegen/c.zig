@@ -574,7 +574,12 @@ pub const DeclGen = struct {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
                 .Bool => return writer.writeAll("false"),
-                .Int => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, UndefInt{}, location)}),
+                .Int,
+                .Enum,
+                .ErrorSet,
+                => return writer.print("{x}", .{
+                    try dg.fmtIntLiteral(ty, UndefInt{}, location),
+                }),
                 .Float => switch (ty.tag()) {
                     .f32 => return writer.print("zig_bitcast_f32_u32({x})", .{
                         try dg.fmtIntLiteral(Type.u32, UndefInt{}, location),
@@ -584,25 +589,112 @@ pub const DeclGen = struct {
                     }),
                     else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                 },
-                .Pointer => return writer.print("((void *){x})", .{
-                    try dg.fmtIntLiteral(Type.usize, UndefInt{}, location),
-                }),
-                .Struct, .ErrorUnion => {
+                .Pointer => switch (ty.ptrSize()) {
+                    .Slice => {
+                        try writer.writeByte('(');
+                        try dg.renderTypecast(writer, ty);
+                        return writer.print("){{(void *){x}, {0x}}}", .{
+                            try dg.fmtIntLiteral(Type.usize, UndefInt{}, location),
+                        });
+                    },
+                    .Many, .C, .One => return writer.print("((void *){x})", .{
+                        try dg.fmtIntLiteral(Type.usize, UndefInt{}, location),
+                    }),
+                },
+                .Optional => {
+                    var opt_buf: Type.Payload.ElemType = undefined;
+                    const payload_ty = ty.optionalChild(&opt_buf);
+
+                    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                        return dg.renderValue(writer, Type.bool, val, location);
+                    }
+
+                    if (ty.optionalReprIsPayload()) {
+                        return dg.renderValue(writer, payload_ty, val, location);
+                    }
+
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
-                    return writer.writeAll("){0xaau}");
+                    try writer.writeAll("){ .is_null = ");
+                    try dg.renderValue(writer, Type.bool, val, location);
+                    try writer.writeAll(", .payload = ");
+                    try dg.renderValue(writer, payload_ty, val, location);
+                    return writer.writeAll(" }");
+                },
+                .Struct => {
+                    try writer.writeByte('(');
+                    try dg.renderTypecast(writer, ty);
+                    try writer.writeAll("){");
+
+                    var empty = true;
+                    for (ty.structFields().values()) |field| {
+                        if (!field.ty.hasRuntimeBits()) continue;
+
+                        if (!empty) try writer.writeByte(',');
+                        try dg.renderValue(writer, field.ty, val, location);
+
+                        empty = false;
+                    }
+                    if (empty) try writer.print("{x}", .{
+                        try dg.fmtIntLiteral(Type.u8, UndefInt{}, location),
+                    });
+
+                    return writer.writeByte('}');
+                },
+                .Union => {
+                    try writer.writeByte('(');
+                    try dg.renderTypecast(writer, ty);
+                    try writer.writeAll("){");
+
+                    for (ty.unionFields().values()) |field| {
+                        if (!field.ty.hasRuntimeBits()) continue;
+                        try dg.renderValue(writer, field.ty, val, location);
+                        break;
+                    } else try writer.print("{x}", .{
+                        try dg.fmtIntLiteral(Type.u8, UndefInt{}, location),
+                    });
+
+                    return writer.writeByte('}');
+                },
+                .ErrorUnion => {
+                    try writer.writeByte('(');
+                    try dg.renderTypecast(writer, ty);
+                    try writer.writeAll("){ .payload = ");
+                    try dg.renderValue(writer, ty.errorUnionPayload(), val, location);
+                    return writer.print(", .error = {x} }}", .{
+                        try dg.fmtIntLiteral(ty.errorUnionSet(), UndefInt{}, location),
+                    });
                 },
                 .Array => {
                     try writer.writeByte('{');
-                    try dg.renderValue(writer, ty.childType(), val, location);
+
+                    const c_len = ty.arrayLenIncludingSentinel();
+                    var index: usize = 0;
+                    while (index < c_len) : (index += 1) {
+                        if (index > 0) try writer.writeAll(", ");
+                        try dg.renderValue(writer, ty.childType(), val, location);
+                    }
+
                     return writer.writeByte('}');
                 },
-                else => {
-                    // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
-                    // lower to leaving variables uninitialized (that might need to be implemented
-                    // outside of this function).
-                    return writer.writeAll("{}");
-                },
+                .ComptimeInt,
+                .ComptimeFloat,
+                .Type,
+                .EnumLiteral,
+                .Void,
+                .NoReturn,
+                .Undefined,
+                .Null,
+                .BoundFn,
+                .Opaque,
+                => unreachable,
+                .Fn,
+                .Frame,
+                .AnyFrame,
+                .Vector,
+                => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
+                    @tagName(tag),
+                }),
             }
         }
         switch (ty.zigTypeTag()) {
