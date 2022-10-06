@@ -655,11 +655,11 @@ pub const DeclGen = struct {
                 return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
             .Pointer => switch (val.tag()) {
-                .null_value => try writer.writeAll("NULL"),
-                // Technically this should produce NULL but the integer literal 0 will always coerce
-                // to the assigned pointer type. Note this is just a hack to fix warnings from ordered comparisons (<, >, etc)
-                // between pointers and 0, which is an extension to begin with.
-                .zero => try writer.writeByte('0'),
+                .null_value, .zero => {
+                    try writer.writeAll("((");
+                    try dg.renderTypecast(writer, ty);
+                    try writer.writeAll(")NULL)");
+                },
                 .variable => {
                     const decl = val.castTag(.variable).?.data.owner_decl;
                     return dg.renderDeclValue(writer, ty, val, decl);
