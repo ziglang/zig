@@ -18202,12 +18202,6 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     else
         dest_ptr_ty;
 
-    if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |val| {
-        // Pointer value should compatible with both address spaces.
-        // TODO: Figure out why this generates an invalid bitcast.
-        return sema.addConstant(dest_ty, val);
-    }
-
     try sema.requireRuntimeBlock(block, src, ptr_src);
     // TODO: Address space cast safety?
 
