@@ -5,10 +5,10 @@ const FILE = extern struct {
     dummy_field: u8,
 };
 
-extern fn printf([*c]const u8, ...) c_int;
-extern fn fputs([*c]const u8, noalias [*c]FILE) c_int;
-extern fn ftell([*c]FILE) c_long;
-extern fn fopen([*c]const u8, [*c]const u8) [*c]FILE;
+extern fn c_printf([*c]const u8, ...) c_int;
+extern fn c_fputs([*c]const u8, noalias [*c]FILE) c_int;
+extern fn c_ftell([*c]FILE) c_long;
+extern fn c_fopen([*c]const u8, [*c]const u8) [*c]FILE;
 
 const S = extern struct {
     state: c_short,
@@ -18,7 +18,7 @@ const S = extern struct {
 
 test "Extern function calls in @TypeOf" {
     const Test = struct {
-        fn test_fn_1(a: anytype, b: anytype) @TypeOf(printf("%d %s\n", a, b)) {
+        fn test_fn_1(a: anytype, b: anytype) @TypeOf(c_printf("%d %s\n", a, b)) {
             return 0;
         }
 
@@ -38,7 +38,7 @@ test "Extern function calls in @TypeOf" {
 
 test "Peer resolution of extern function calls in @TypeOf" {
     const Test = struct {
-        fn test_fn() @TypeOf(ftell(null), fputs(null, null)) {
+        fn test_fn() @TypeOf(c_ftell(null), c_fputs(null, null)) {
             return 0;
         }
 
@@ -55,12 +55,12 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const Test = struct {
-        fn test_fn_1(a: c_long) @TypeOf(fopen("test", "r").*) {
+        fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {
             _ = a;
             return .{ .dummy_field = 0 };
         }
 
-        fn test_fn_2(a: anytype) @TypeOf(fopen("test", "r").*.dummy_field) {
+        fn test_fn_2(a: anytype) @TypeOf(c_fopen("test", "r").*.dummy_field) {
             _ = a;
             return 255;
         }

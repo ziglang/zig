@@ -1309,6 +1309,33 @@ pub const DeclGen = struct {
         return name;
     }
 
+    fn renderOpaqueTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        const opaque_ty = t.cast(Type.Payload.Opaque).?.data;
+        const unqualified_name = dg.module.declPtr(opaque_ty.owner_decl).name;
+        const fqn = try opaque_ty.getFullyQualifiedName(dg.module);
+        defer dg.typedefs.allocator.free(fqn);
+
+        var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer buffer.deinit();
+
+        try buffer.writer().print("typedef struct {} ", .{fmtIdent(std.mem.span(unqualified_name))});
+
+        const name_start = buffer.items.len;
+        try buffer.writer().print("zig_O_{};\n", .{fmtIdent(fqn)});
+
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
+        const name = rendered[name_start .. rendered.len - 2];
+
+        try dg.typedefs.ensureUnusedCapacity(1);
+        dg.typedefs.putAssumeCapacityNoClobber(
+            try t.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
+        );
+
+        return name;
+    }
+
     /// Renders a type as a single identifier, generating intermediate typedefs
     /// if necessary.
     ///
@@ -1387,7 +1414,16 @@ pub const DeclGen = struct {
                     return w.writeAll(name);
                 }
 
-                try dg.renderType(w, t.elemType());
+                const child_ty = t.childType();
+                if (t.isCPtr() and child_ty.eql(Type.u8, dg.module) and dg.decl.val.tag() == .extern_fn) {
+                    // This is a hack, since the c compiler expects a lot of external
+                    // library functions to have char pointers in their signatures, but
+                    // u8 and i8 produce unsigned char and signed char respectively,
+                    // which in C are not very usefully different than char.
+                    try w.writeAll("char");
+                } else {
+                    try dg.renderType(w, child_ty);
+                }
                 if (t.isConstPtr()) {
                     try w.writeAll(" const");
                 }
@@ -1456,7 +1492,16 @@ pub const DeclGen = struct {
 
                 try dg.renderType(w, int_tag_ty);
             },
-            .Opaque => return w.writeAll("void"),
+            .Opaque => switch (t.tag()) {
+                .anyopaque => try w.writeAll("void"),
+                .@"opaque" => {
+                    const name = dg.getTypedefName(t) orelse
+                        try dg.renderOpaqueTypedef(t);
+
+                    try w.writeAll(name);
+                },
+                else => unreachable,
+            },
 
             .Frame,
             .AnyFrame,
@@ -2830,12 +2875,16 @@ fn airCall(
         }
     };
 
+    var is_extern = false;
     callee: {
         known: {
             const fn_decl = fn_decl: {
                 const callee_val = f.air.value(pl_op.operand) orelse break :known;
                 break :fn_decl switch (callee_val.tag()) {
-                    .extern_fn => callee_val.castTag(.extern_fn).?.data.owner_decl,
+                    .extern_fn => blk: {
+                        is_extern = true;
+                        break :blk callee_val.castTag(.extern_fn).?.data.owner_decl;
+                    },
                     .function => callee_val.castTag(.function).?.data.owner_decl,
                     .decl_ref => callee_val.castTag(.decl_ref).?.data,
                     else => break :known,
@@ -2856,6 +2905,13 @@ fn airCall(
         if (!ty.hasRuntimeBitsIgnoreComptime()) continue;
         if (args_written != 0) {
             try writer.writeAll(", ");
+        }
+        if (is_extern and ty.isCPtr() and ty.childType().tag() == .u8) {
+            // Corresponds with hack in renderType .Pointer case.
+            try writer.writeAll("(char");
+            if (ty.isConstPtr()) try writer.writeAll(" const");
+            if (ty.isVolatilePtr()) try writer.writeAll(" volatile");
+            try writer.writeAll(" *)");
         }
         if (f.air.value(arg)) |val| {
             try f.object.dg.renderValue(writer, f.air.typeOf(arg), val, .FunctionArgument);
