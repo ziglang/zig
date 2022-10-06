@@ -2187,6 +2187,7 @@ pub const Dir = struct {
                         } else |err| switch (err) {
                             error.FileNotFound => break :handle_entry,
 
+                            // Impossible because we do not pass any path separators.
                             error.NotDir => unreachable,
 
                             error.IsDir => {
@@ -2268,8 +2269,6 @@ pub const Dir = struct {
                         } else |err| switch (err) {
                             error.FileNotFound => return,
 
-                            error.NotDir => unreachable,
-
                             error.IsDir => {
                                 treat_as_dir = true;
                                 continue :handle_entry;
@@ -2281,6 +2280,7 @@ pub const Dir = struct {
                             error.NameTooLong,
                             error.SystemResources,
                             error.ReadOnlyFileSystem,
+                            error.NotDir,
                             error.FileSystem,
                             error.FileBusy,
                             error.BadPathName,
