@@ -27202,7 +27202,7 @@ fn analyzeSlice(
         if (!end_is_len) {
             break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
-        return sema.fail(block, end_src, "slice of pointer must include end value", .{});
+        return sema.fail(block, src, "slice of pointer must include end value", .{});
     };
 
     const sentinel = s: {
