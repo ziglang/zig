@@ -2782,7 +2782,10 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
 
-    try writer.writeAll(" = {");
+    try writer.writeAll(" = {(");
+    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+    try f.renderTypecast(writer, inst_ty.slicePtrFieldType(&buf));
+    try writer.writeByte(')');
     try f.writeCValue(writer, ptr);
     try writer.writeAll(", ");
     try f.writeCValue(writer, len);
