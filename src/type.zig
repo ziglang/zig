@@ -2892,12 +2892,30 @@ pub const Type = extern union {
             .c_uint => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.uint.sizeInBits(target), 8) },
             .c_long => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.long.sizeInBits(target), 8) },
             .c_ulong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ulong.sizeInBits(target), 8) },
-            .c_longlong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.longlong.sizeInBits(target), 8) },
-            .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ulonglong.sizeInBits(target), 8) },
+            .c_longlong => switch (target.cpu.arch) {
+                .i386 => switch (target.os.tag) {
+                    .windows, .uefi => return AbiAlignmentAdvanced{ .scalar = 8 },
+                    else => return AbiAlignmentAdvanced{ .scalar = 4 },
+                },
+                else => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.longlong.sizeInBits(target), 8) },
+            },
+            .c_ulonglong => switch (target.cpu.arch) {
+                .i386 => switch (target.os.tag) {
+                    .windows, .uefi => return AbiAlignmentAdvanced{ .scalar = 8 },
+                    else => return AbiAlignmentAdvanced{ .scalar = 4 },
+                },
+                else => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ulonglong.sizeInBits(target), 8) },
+            },
 
             .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
             .f32 => return AbiAlignmentAdvanced{ .scalar = 4 },
-            .f64 => return AbiAlignmentAdvanced{ .scalar = 8 },
+            .f64 => switch (target.cpu.arch) {
+                .i386 => switch (target.os.tag) {
+                    .windows, .uefi => return AbiAlignmentAdvanced{ .scalar = 8 },
+                    else => return AbiAlignmentAdvanced{ .scalar = 4 },
+                },
+                else => return AbiAlignmentAdvanced{ .scalar = 8 },
+            },
             .f128 => return AbiAlignmentAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
@@ -2916,7 +2934,10 @@ pub const Type = extern union {
                 16 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f16, target) },
                 32 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f32, target) },
                 64 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f64, target) },
-                80 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f80, target) },
+                80 => if (target.cpu.arch == .i386 and target.isMinGW())
+                    return AbiAlignmentAdvanced{ .scalar = 4 }
+                else
+                    return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f80, target) },
                 128 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f128, target) },
                 else => unreachable,
             },
@@ -6637,7 +6658,11 @@ pub const CType = enum {
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
                     .longlong, .ulonglong => return 64,
                     .longdouble => switch (target.cpu.arch) {
-                        .i386, .x86_64 => return 80,
+                        .i386 => switch (target.abi) {
+                            .android => return 64,
+                            else => return 80,
+                        },
+                        .x86_64 => return 80,
 
                         .riscv64,
                         .aarch64,
@@ -6687,7 +6712,11 @@ pub const CType = enum {
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
                     .longlong, .ulonglong => return 64,
                     .longdouble => switch (target.cpu.arch) {
-                        .i386, .x86_64 => return 80,
+                        .i386 => switch (target.abi) {
+                            .android => return 64,
+                            else => return 80,
+                        },
+                        .x86_64 => return 80,
 
                         .riscv64,
                         .aarch64,
@@ -6715,7 +6744,18 @@ pub const CType = enum {
             .windows, .uefi => switch (self) {
                 .short, .ushort => return 16,
                 .int, .uint, .long, .ulong => return 32,
-                .longlong, .ulonglong, .longdouble => return 64,
+                .longlong, .ulonglong => return 64,
+                .longdouble => switch (target.cpu.arch) {
+                    .i386 => switch (target.abi) {
+                        .gnu => return 80,
+                        else => return 64,
+                    },
+                    .x86_64 => switch (target.abi) {
+                        .gnu => return 80,
+                        else => return 64,
+                    },
+                    else => return 64,
+                },
             },
 
             .macos, .ios, .tvos, .watchos => switch (self) {
