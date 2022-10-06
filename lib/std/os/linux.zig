@@ -3177,7 +3177,7 @@ pub const sockaddr = extern struct {
     /// Packet socket address
     pub const ll = extern struct {
         family: sa_family_t = AF.PACKET,
-        proto: u16,
+        protocol: u16,
         ifindex: i32,
         hatype: u16,
         pkttype: u8,
