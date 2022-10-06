@@ -474,8 +474,8 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         fd: os.fd_t,
-        addr: *os.sockaddr,
-        addrlen: *os.socklen_t,
+        addr: ?*os.sockaddr,
+        addrlen: ?*os.socklen_t,
         flags: u32,
     ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
@@ -1292,8 +1292,8 @@ pub inline fn __io_uring_prep_poll_mask(poll_mask: u32) u32 {
 pub fn io_uring_prep_accept(
     sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
-    addr: *os.sockaddr,
-    addrlen: *os.socklen_t,
+    addr: ?*os.sockaddr,
+    addrlen: ?*os.socklen_t,
     flags: u32,
 ) void {
     // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
