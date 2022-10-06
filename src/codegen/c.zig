@@ -473,9 +473,14 @@ pub const DeclGen = struct {
     //
     // Used for .elem_ptr, .field_ptr, .opt_payload_ptr, .eu_payload_ptr
     fn renderParentPtr(dg: *DeclGen, writer: anytype, ptr_val: Value, ptr_ty: Type) error{ OutOfMemory, AnalysisFail }!void {
-        try writer.writeByte('(');
-        try dg.renderTypecast(writer, ptr_ty);
-        try writer.writeByte(')');
+        switch (ptr_ty.ptrSize()) {
+            .Slice => {},
+            .Many, .C, .One => {
+                try writer.writeByte('(');
+                try dg.renderTypecast(writer, ptr_ty);
+                try writer.writeByte(')');
+            },
+        }
         switch (ptr_val.tag()) {
             .decl_ref_mut, .decl_ref, .variable => {
                 const decl_index = switch (ptr_val.tag()) {
