@@ -21232,6 +21232,8 @@ const ExternPosition = enum {
     ret_ty,
     param_ty,
     union_field,
+    struct_field,
+    element,
     other,
 };
 
@@ -21269,7 +21271,10 @@ fn validateExternType(
             8, 16, 32, 64, 128 => return true,
             else => return false,
         },
-        .Fn => return !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention()),
+        .Fn => {
+            if (position != .other) return false;
+            return !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention());
+        },
         .Enum => {
             var buf: Type.Payload.Bits = undefined;
             return sema.validateExternType(block, src, ty.intTagType(&buf), position);
@@ -21288,9 +21293,9 @@ fn validateExternType(
         },
         .Array => {
             if (position == .ret_ty or position == .param_ty) return false;
-            return sema.validateExternType(block, src, ty.elemType2(), .other);
+            return sema.validateExternType(block, src, ty.elemType2(), .element);
         },
-        .Vector => return sema.validateExternType(block, src, ty.elemType2(), .other),
+        .Vector => return sema.validateExternType(block, src, ty.elemType2(), .element),
         .Optional => return ty.isPtrLikeOptional(),
     }
 }
@@ -21330,11 +21335,18 @@ fn explainWhyTypeIsNotExtern(
         } else {
             try mod.errNoteNonLazy(src_loc, msg, "only integers with power of two bits are extern compatible", .{});
         },
-        .Fn => switch (ty.fnCallingConvention()) {
-            .Unspecified => try mod.errNoteNonLazy(src_loc, msg, "extern function must specify calling convention", .{}),
-            .Async => try mod.errNoteNonLazy(src_loc, msg, "async function cannot be extern", .{}),
-            .Inline => try mod.errNoteNonLazy(src_loc, msg, "inline function cannot be extern", .{}),
-            else => return,
+        .Fn => {
+            if (position != .other) {
+                try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
+                try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
+                return;
+            }
+            switch (ty.fnCallingConvention()) {
+                .Unspecified => try mod.errNoteNonLazy(src_loc, msg, "extern function must specify calling convention", .{}),
+                .Async => try mod.errNoteNonLazy(src_loc, msg, "async function cannot be extern", .{}),
+                .Inline => try mod.errNoteNonLazy(src_loc, msg, "inline function cannot be extern", .{}),
+                else => return,
+            }
         },
         .Enum => {
             var buf: Type.Payload.Bits = undefined;
@@ -21350,9 +21362,9 @@ fn explainWhyTypeIsNotExtern(
             } else if (position == .param_ty) {
                 return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a parameter type", .{});
             }
-            try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), position);
+            try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), .element);
         },
-        .Vector => try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), position),
+        .Vector => try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), .element),
         .Optional => try mod.errNoteNonLazy(src_loc, msg, "only pointer like optionals are extern compatible", .{}),
     }
 }
@@ -24849,13 +24861,13 @@ fn coerceVarArgParam(
     };
 
     const coerced_ty = sema.typeOf(coerced);
-    if (!try sema.validateExternType(block, inst_src, coerced_ty, .other)) {
+    if (!try sema.validateExternType(block, inst_src, coerced_ty, .param_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, inst_src, "cannot pass '{}' to variadic function", .{coerced_ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl), coerced_ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl), coerced_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, coerced_ty);
             break :msg msg;
@@ -29144,14 +29156,14 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (struct_obj.layout == .Extern and !try sema.validateExternType(&block_scope, src, field.ty, .other)) {
+        if (struct_obj.layout == .Extern and !try sema.validateExternType(&block_scope, src, field.ty, .struct_field)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
                 const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
                 const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, fields_src.toSrcLoc(decl), field.ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, fields_src.toSrcLoc(decl), field.ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
