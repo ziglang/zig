@@ -1259,17 +1259,19 @@ pub const DeclGen = struct {
         const bw = buffer.writer();
 
         const elem_type = t.elemType();
-        const sentinel_bit = @boolToInt(t.sentinel() != null);
-        const c_len = t.arrayLen() + sentinel_bit;
 
         try bw.writeAll("typedef ");
         try dg.renderType(bw, elem_type);
 
         const name_start = buffer.items.len + 1;
-        try bw.print(" zig_A_{s}_{d}", .{ typeToCIdentifier(elem_type, dg.module), c_len });
+        try bw.print(" zig_A_{s}_{d}", .{ typeToCIdentifier(elem_type, dg.module), t.arrayLen() });
+        if (t.sentinel()) |s| {
+            try bw.writeAll("_s_");
+            try dg.renderValue(bw, elem_type, s, .Identifier);
+        }
         const name_end = buffer.items.len;
 
-        try bw.print("[{d}];\n", .{c_len});
+        try bw.print("[{d}];\n", .{t.arrayLenIncludingSentinel()});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
