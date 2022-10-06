@@ -2211,18 +2211,93 @@ pub const Dir = struct {
                 }
             }
 
-            top.parent_dir.deleteDir(top.name) catch |err| switch (err) {
+            // On Windows, we can't delete until the dir's handle has been closed, so
+            // close it before we try to delete.
+            top.iter.dir.close();
+
+            // In order to avoid double-closing the directory when cleaning up
+            // the stack in the case of an error, we save the relevant portions and
+            // pop the value from the stack.
+            const parent_dir = top.parent_dir;
+            const name = top.name;
+            _ = stack.pop();
+
+            var need_to_retry: bool = false;
+            parent_dir.deleteDir(name) catch |err| switch (err) {
                 error.FileNotFound => {},
-                error.DirNotEmpty => {
-                    // reset the iterator and try again
-                    top.iter.reset();
-                    continue :process_stack;
-                },
+                error.DirNotEmpty => need_to_retry = false,
                 else => |e| return e,
             };
 
-            top.iter.dir.close();
-            _ = stack.pop();
+            if (need_to_retry) {
+                // Since we closed the handle that the previous iterator used, we
+                // need to re-open the dir and re-create the iterator.
+                var iterable_dir = iterable_dir: {
+                    var treat_as_dir = true;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            break :iterable_dir parent_dir.openIterableDir(name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :process_stack;
+                                },
+
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                        } else {
+                            if (parent_dir.deleteFile(name)) {
+                                continue :process_stack;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :process_stack,
+
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
+
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
+
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
+                            }
+                        }
+                    }
+                };
+                // We know there is room on the stack since we are just re-adding
+                // the StackItem that we previously popped.
+                stack.appendAssumeCapacity(StackItem{
+                    .name = name,
+                    .parent_dir = parent_dir,
+                    .iter = iterable_dir.iterateAssumeFirstIteration(),
+                });
+                continue :process_stack;
+            }
         }
     }
 
