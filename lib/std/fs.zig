@@ -2076,24 +2076,7 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        if (self.deleteFile(sub_path)) {
-            return;
-        } else |err| switch (err) {
-            error.FileNotFound => return,
-            error.IsDir => {},
-            error.AccessDenied,
-            error.InvalidUtf8,
-            error.SymLinkLoop,
-            error.NameTooLong,
-            error.SystemResources,
-            error.ReadOnlyFileSystem,
-            error.NotDir,
-            error.FileSystem,
-            error.FileBusy,
-            error.BadPathName,
-            error.Unexpected,
-            => |e| return e,
-        }
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
 
         const StackItem = struct {
             name: []const u8,
@@ -2107,32 +2090,6 @@ pub const Dir = struct {
                 item.iter.dir.close();
             }
         }
-
-        var initial_iterable_dir = self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
-            error.NotDir => {
-                // Somehow the sub_path got changed into a file while we were trying to delete the tree.
-                // This implies that the dir at the sub_path was deleted at some point so we consider this
-                // as a successful delete and return.
-                return;
-            },
-            error.FileNotFound => {
-                // That's fine, we were trying to remove this directory anyway.
-                return;
-            },
-            error.InvalidHandle,
-            error.AccessDenied,
-            error.SymLinkLoop,
-            error.ProcessFdQuotaExceeded,
-            error.NameTooLong,
-            error.SystemFdQuotaExceeded,
-            error.NoDevice,
-            error.SystemResources,
-            error.Unexpected,
-            error.InvalidUtf8,
-            error.BadPathName,
-            error.DeviceBusy,
-            => |e| return e,
-        };
 
         stack.appendAssumeCapacity(StackItem{
             .name = sub_path,
@@ -2309,62 +2266,7 @@ pub const Dir = struct {
 
     fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
         start_over: while (true) {
-            var iterable_dir = iterable_dir: {
-                var treat_as_dir = kind_hint == .Directory;
-
-                handle_entry: while (true) {
-                    if (treat_as_dir) {
-                        break :iterable_dir self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
-                            error.NotDir => {
-                                treat_as_dir = false;
-                                continue :handle_entry;
-                            },
-                            error.FileNotFound => {
-                                // That's fine, we were trying to remove this directory anyway.
-                                return;
-                            },
-
-                            error.InvalidHandle,
-                            error.AccessDenied,
-                            error.SymLinkLoop,
-                            error.ProcessFdQuotaExceeded,
-                            error.NameTooLong,
-                            error.SystemFdQuotaExceeded,
-                            error.NoDevice,
-                            error.SystemResources,
-                            error.Unexpected,
-                            error.InvalidUtf8,
-                            error.BadPathName,
-                            error.DeviceBusy,
-                            => |e| return e,
-                        };
-                    } else {
-                        if (self.deleteFile(sub_path)) {
-                            return;
-                        } else |err| switch (err) {
-                            error.FileNotFound => return,
-
-                            error.IsDir => {
-                                treat_as_dir = true;
-                                continue :handle_entry;
-                            },
-
-                            error.AccessDenied,
-                            error.InvalidUtf8,
-                            error.SymLinkLoop,
-                            error.NameTooLong,
-                            error.SystemResources,
-                            error.ReadOnlyFileSystem,
-                            error.NotDir,
-                            error.FileSystem,
-                            error.FileBusy,
-                            error.BadPathName,
-                            error.Unexpected,
-                            => |e| return e,
-                        }
-                    }
-                }
-            };
+            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
             var cleanup_dir_parent: ?IterableDir = null;
             defer if (cleanup_dir_parent) |*d| d.close();
 
@@ -2468,6 +2370,67 @@ pub const Dir = struct {
                 }
             }
         }
+    }
+
+    /// On successful delete, returns null.
+    fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
+        return iterable_dir: {
+            // Treat as a file by default
+            var treat_as_dir = kind_hint == .Directory;
+
+            handle_entry: while (true) {
+                if (treat_as_dir) {
+                    break :iterable_dir self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
+                        error.NotDir => {
+                            treat_as_dir = false;
+                            continue :handle_entry;
+                        },
+                        error.FileNotFound => {
+                            // That's fine, we were trying to remove this directory anyway.
+                            return null;
+                        },
+
+                        error.InvalidHandle,
+                        error.AccessDenied,
+                        error.SymLinkLoop,
+                        error.ProcessFdQuotaExceeded,
+                        error.NameTooLong,
+                        error.SystemFdQuotaExceeded,
+                        error.NoDevice,
+                        error.SystemResources,
+                        error.Unexpected,
+                        error.InvalidUtf8,
+                        error.BadPathName,
+                        error.DeviceBusy,
+                        => |e| return e,
+                    };
+                } else {
+                    if (self.deleteFile(sub_path)) {
+                        return null;
+                    } else |err| switch (err) {
+                        error.FileNotFound => return null,
+
+                        error.IsDir => {
+                            treat_as_dir = true;
+                            continue :handle_entry;
+                        },
+
+                        error.AccessDenied,
+                        error.InvalidUtf8,
+                        error.SymLinkLoop,
+                        error.NameTooLong,
+                        error.SystemResources,
+                        error.ReadOnlyFileSystem,
+                        error.NotDir,
+                        error.FileSystem,
+                        error.FileBusy,
+                        error.BadPathName,
+                        error.Unexpected,
+                        => |e| return e,
+                    }
+                }
+            }
+        };
     }
 
     /// Writes content to the file system, creating a new file if it does not exist, truncating
