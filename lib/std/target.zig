@@ -1761,7 +1761,7 @@ pub const Target = struct {
     }
 
     pub inline fn longDoubleIs(target: Target, comptime F: type) bool {
-        if (target.abi == .msvc) {
+        if (target.abi == .msvc or (target.abi == .android and target.cpu.arch == .i386)) {
             return F == f64;
         }
         return switch (F) {
