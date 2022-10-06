@@ -738,10 +738,7 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = switch (builtin.zig_backend) {
-        .stage1 => fn (i32) callconv(.C) void,
-        else => *const fn (i32) callconv(.C) void,
-    };
+    pub const handler_fn = std.meta.FnPtr(fn (i32) callconv(.C) void);
 
     /// signal handler
     __sigaction_u: extern union {

@@ -3593,10 +3593,7 @@ pub const Step = struct {
     loop_flag: bool,
     done_flag: bool,
 
-    const MakeFn = switch (builtin.zig_backend) {
-        .stage1 => fn (self: *Step) anyerror!void,
-        else => *const fn (self: *Step) anyerror!void,
-    };
+    const MakeFn = std.meta.FnPtr(fn (self: *Step) anyerror!void);
 
     pub const Id = enum {
         top_level,

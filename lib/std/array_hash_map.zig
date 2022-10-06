@@ -773,9 +773,9 @@ pub fn ArrayHashMapUnmanaged(
                 }
             }
 
+            try self.entries.ensureTotalCapacity(allocator, new_capacity);
             const new_bit_index = try IndexHeader.findBitIndex(new_capacity);
             const new_header = try IndexHeader.alloc(allocator, new_bit_index);
-            try self.entries.ensureTotalCapacity(allocator, new_capacity);
 
             if (self.index_header) |old_header| old_header.free(allocator);
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
@@ -2040,6 +2040,19 @@ test "ensure capacity" {
     }
     // shouldn't resize from putAssumeCapacity
     try testing.expect(initial_capacity == map.capacity());
+}
+
+test "ensure capacity leak" {
+    try testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        pub fn f(allocator: Allocator) !void {
+            var map = AutoArrayHashMap(i32, i32).init(allocator);
+            defer map.deinit();
+
+            var i: i32 = 0;
+            // put more than `linear_scan_max` in so index_header gets allocated.
+            while (i <= 20) : (i += 1) try map.put(i, i);
+        }
+    }.f, .{});
 }
 
 test "big map" {

@@ -1101,6 +1101,8 @@ ZIG_EXTERN_C const struct ZigClangFunctionDecl *ZigClangVarDecl_getCleanupAttrib
 ZIG_EXTERN_C unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClangFieldDecl *self, const ZigClangASTContext* ctx);
+ZIG_EXTERN_C bool ZigClangVarDecl_getPackedAttribute(const struct ZigClangVarDecl *self);
+ZIG_EXTERN_C bool ZigClangFieldDecl_getPackedAttribute(const struct ZigClangFieldDecl *self);
 
 ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const struct ZigClangFileScopeAsmDecl *self);
 

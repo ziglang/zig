@@ -1,4 +1,5 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
@@ -19,7 +20,7 @@ pub const LoadedImageProtocol = extern struct {
     image_size: u64,
     image_code_type: MemoryType,
     image_data_type: MemoryType,
-    _unload: fn (*const LoadedImageProtocol, Handle) callconv(.C) Status,
+    _unload: std.meta.FnPtr(fn (*const LoadedImageProtocol, Handle) callconv(.C) Status),
 
     /// Unloads an image from memory.
     pub fn unload(self: *const LoadedImageProtocol, handle: Handle) Status {

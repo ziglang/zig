@@ -124,6 +124,7 @@ pub fn build(b: *Builder) !void {
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse false;
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
+    const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
@@ -143,6 +144,7 @@ pub fn build(b: *Builder) !void {
     const exe = b.addExecutable("zig", main_file);
     exe.stack_size = stack_size;
     exe.strip = strip;
+    exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
     exe.setBuildMode(mode);

@@ -4255,6 +4255,134 @@ test "enum literals with switch" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Inline switch#}
+      <p>
+      Switch prongs can be marked as {#syntax#}inline{#endsyntax#} to generate
+      the prong's body for each possible value it could have:
+      </p>
+      {#code_begin|test|test_inline_switch#}
+const std = @import("std");
+const expect = std.testing.expect;
+const expectError = std.testing.expectError;
+
+fn isFieldOptional(comptime T: type, field_index: usize) !bool {
+    const fields = @typeInfo(T).Struct.fields;
+    return switch (field_index) {
+        // This prong is analyzed `fields.len - 1` times with `idx` being an
+        // unique comptime known value each time.
+        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].field_type) == .Optional,
+        else => return error.IndexOutOfBounds,
+    };
+}
+
+const Struct1 = struct { a: u32, b: ?u32 };
+
+test "using @typeInfo with runtime values" {
+    var index: usize = 0;
+    try expect(!try isFieldOptional(Struct1, index));
+    index += 1;
+    try expect(try isFieldOptional(Struct1, index));
+    index += 1;
+    try expectError(error.IndexOutOfBounds, isFieldOptional(Struct1, index));
+}
+
+// Calls to `isFieldOptional` on `Struct1` get unrolled to an equivalent
+// of this function: 
+fn isFieldOptionalUnrolled(field_index: usize) !bool {
+    return switch (field_index) {
+        0 => false,
+        1 => true,
+        else => return error.IndexOutOfBounds,
+    };
+}
+      {#code_end#}
+      <p>
+      {#syntax#}inline else{#endsyntax#} prongs can be used as a type safe
+      alternative to {#syntax#}inline for{#endsyntax#} loops:
+      </p>
+      {#code_begin|test|test_inline_else#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+const SliceTypeA = extern struct {
+    len: usize,
+    ptr: [*]u32,
+};
+const SliceTypeB = extern struct {
+    ptr: [*]SliceTypeA,
+    len: usize,
+};
+const AnySlice = union(enum) {
+    a: SliceTypeA,
+    b: SliceTypeB,
+    c: []const u8,
+    d: []AnySlice,
+};
+
+fn withFor(any: AnySlice) usize {
+    const Tag = @typeInfo(AnySlice).Union.tag_type.?;
+    inline for (@typeInfo(Tag).Enum.fields) |field| {
+        // With `inline for` the function gets generated as
+        // a series of `if` statements relying on the optimizer
+        // to convert it to a switch.
+        if (field.value == @enumToInt(any)) {
+            return @field(any, field.name).len;
+        }
+    }
+    // When using `inline for` the compiler doesn't know that every
+    // possible case has been handled requiring an explicit `unreachable`.
+    unreachable;
+}
+
+fn withSwitch(any: AnySlice) usize {
+    return switch (any) {
+        // With `inline else` the function is explicitly generated
+        // as the desired switch and the compiler can check that
+        // every possible case is handled.
+        inline else => |slice| slice.len,
+    };
+}
+
+test "inline for and inline else similarity" {
+    var any = AnySlice{ .c = "hello" };
+    try expect(withFor(any) == 5);
+    try expect(withSwitch(any) == 5);
+}
+      {#code_end#}
+      <p>
+      When using an inline prong switching on an union an additional
+      capture can be used to obtain the union's enum tag value.
+      </p>
+      {#code_begin|test|test_inline_switch_union_tag#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+const U = union(enum) {
+    a: u32,
+    b: f32,
+};
+
+fn getNum(u: U) u32 {
+    switch (u) {
+        // Here `num` is a runtime known value that is either
+        // `u.a` or `u.b` and `tag` is `u`'s comptime known tag value.
+        inline else => |num, tag| {
+            if (tag == .b) {
+                return @floatToInt(u32, num);
+            }
+            return num;
+        }
+    }
+}
+
+test "test" {
+    var u = U{ .b = 42 };
+    try expect(getNum(u) == 42);
+}
+      {#code_end#}
+      {#see_also|inline while|inline for#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|while#}
@@ -10768,7 +10896,7 @@ test "string literal to constant slice" {
       </p>
       {#code_begin|syntax#}
 const builtin = @import("builtin");
-const separator = if (builtin.os.tag == builtin.Os.windows) '\\' else '/';
+const separator = if (builtin.os.tag == .windows) '\\' else '/';
       {#code_end#}
       <p>
       Example of what is imported with {#syntax#}@import("builtin"){#endsyntax#}:

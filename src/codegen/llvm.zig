@@ -2332,10 +2332,13 @@ pub const Object = struct {
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = mod.declPtr(builtin_decl).val.toType(undefined);
         const builtin_namespace = builtin_ty.getNamespace().?;
-        const stack_trace_decl = builtin_namespace.decls
+        const stack_trace_decl_index = builtin_namespace.decls
             .getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .mod = mod }).?;
+        const stack_trace_decl = mod.declPtr(stack_trace_decl_index);
 
-        return mod.declPtr(stack_trace_decl).val.toType(undefined);
+        // Sema should have ensured that StackTrace was analyzed.
+        assert(stack_trace_decl.has_tv);
+        return stack_trace_decl.val.toType(undefined);
     }
 };
 
@@ -10277,6 +10280,7 @@ fn ccAbiPromoteInt(
         else => {},
     }
     const int_info = switch (ty.zigTypeTag()) {
+        .Bool => Type.@"u1".intInfo(target),
         .Int, .Enum, .ErrorSet => ty.intInfo(target),
         else => return null,
     };

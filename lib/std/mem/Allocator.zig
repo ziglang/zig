@@ -23,10 +23,7 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    alloc: switch (builtin.zig_backend) {
-        .stage1 => allocProto, // temporary workaround until we replace stage1 with stage2
-        else => *const allocProto,
-    },
+    alloc: std.meta.FnPtr(fn (ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8),
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
     /// length returned by `alloc` or `resize`. `buf_align` must equal the same value
@@ -45,25 +42,15 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    resize: switch (builtin.zig_backend) {
-        .stage1 => resizeProto, // temporary workaround until we replace stage1 with stage2
-        else => *const resizeProto,
-    },
+    resize: std.meta.FnPtr(fn (ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize),
 
     /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`.
     /// `buf_align` must equal the same value that was passed as the `ptr_align` parameter to the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    free: switch (builtin.zig_backend) {
-        .stage1 => freeProto, // temporary workaround until we replace stage1 with stage2
-        else => *const freeProto,
-    },
+    free: std.meta.FnPtr(fn (ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void),
 };
-
-const allocProto = fn (ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8;
-const resizeProto = fn (ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize;
-const freeProto = fn (ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void;
 
 pub fn init(
     pointer: anytype,

@@ -7,5 +7,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:27: error: expected type 'u32', found 'tmp.tmp'
+// :2:27: error: expected type 'u32', found 'tmp'
 // :1:1: note: struct declared here

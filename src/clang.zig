@@ -470,6 +470,9 @@ pub const FieldDecl = opaque {
     pub const getAlignedAttribute = ZigClangFieldDecl_getAlignedAttribute;
     extern fn ZigClangFieldDecl_getAlignedAttribute(*const FieldDecl, *const ASTContext) c_uint;
 
+    pub const getPackedAttribute = ZigClangFieldDecl_getPackedAttribute;
+    extern fn ZigClangFieldDecl_getPackedAttribute(*const FieldDecl) bool;
+
     pub const isAnonymousStructOrUnion = ZigClangFieldDecl_isAnonymousStructOrUnion;
     extern fn ZigClangFieldDecl_isAnonymousStructOrUnion(*const FieldDecl) bool;
 
@@ -1014,6 +1017,9 @@ pub const VarDecl = opaque {
 
     pub const getAlignedAttribute = ZigClangVarDecl_getAlignedAttribute;
     extern fn ZigClangVarDecl_getAlignedAttribute(*const VarDecl, *const ASTContext) c_uint;
+
+    pub const getPackedAttribute = ZigClangVarDecl_getPackedAttribute;
+    extern fn ZigClangVarDecl_getPackedAttribute(*const VarDecl) bool;
 
     pub const getCleanupAttribute = ZigClangVarDecl_getCleanupAttribute;
     extern fn ZigClangVarDecl_getCleanupAttribute(*const VarDecl) ?*const FunctionDecl;

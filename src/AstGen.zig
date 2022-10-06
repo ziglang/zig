@@ -386,7 +386,9 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
         .switch_case => unreachable,
+        .switch_case_inline => unreachable,
         .switch_case_one => unreachable,
+        .switch_case_inline_one => unreachable,
         .container_field_init => unreachable,
         .container_field_align => unreachable,
         .container_field => unreachable,
@@ -600,7 +602,9 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .@"errdefer" => unreachable, // Handled in `blockExpr`.
 
         .switch_case => unreachable, // Handled in `switchExpr`.
+        .switch_case_inline => unreachable, // Handled in `switchExpr`.
         .switch_case_one => unreachable, // Handled in `switchExpr`.
+        .switch_case_inline_one => unreachable, // Handled in `switchExpr`.
         .switch_range => unreachable, // Handled in `switchExpr`.
 
         .asm_output => unreachable, // Handled in `asmExpr`.
@@ -2369,6 +2373,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .switch_capture_ref,
             .switch_capture_multi,
             .switch_capture_multi_ref,
+            .switch_capture_tag,
             .struct_init_empty,
             .struct_init,
             .struct_init_ref,
@@ -4233,13 +4238,10 @@ fn structDeclInner(
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
     astgen.advanceSourceCursorToNode(node);
-    // If `node == 0` then this is the root struct and all the declarations should
-    // be relative to the beginning of the file.
-    const decl_line = if (node == 0) 0 else astgen.source_line;
     var block_scope: GenZir = .{
         .parent = &namespace.base,
         .decl_node_index = node,
-        .decl_line = decl_line,
+        .decl_line = gz.decl_line,
         .astgen = astgen,
         .force_comptime = true,
         .instructions = gz.instructions,
@@ -4439,7 +4441,7 @@ fn unionDeclInner(
     var block_scope: GenZir = .{
         .parent = &namespace.base,
         .decl_node_index = node,
-        .decl_line = astgen.source_line,
+        .decl_line = gz.decl_line,
         .astgen = astgen,
         .force_comptime = true,
         .instructions = gz.instructions,
@@ -4722,7 +4724,7 @@ fn containerDecl(
             var block_scope: GenZir = .{
                 .parent = &namespace.base,
                 .decl_node_index = node,
-                .decl_line = astgen.source_line,
+                .decl_line = gz.decl_line,
                 .astgen = astgen,
                 .force_comptime = true,
                 .instructions = gz.instructions,
@@ -4827,7 +4829,7 @@ fn containerDecl(
             var block_scope: GenZir = .{
                 .parent = &namespace.base,
                 .decl_node_index = node,
-                .decl_line = astgen.source_line,
+                .decl_line = gz.decl_line,
                 .astgen = astgen,
                 .force_comptime = true,
                 .instructions = gz.instructions,
@@ -6216,14 +6218,15 @@ fn switchExpr(
     var any_payload_is_ref = false;
     var scalar_cases_len: u32 = 0;
     var multi_cases_len: u32 = 0;
+    var inline_cases_len: u32 = 0;
     var special_prong: Zir.SpecialProng = .none;
     var special_node: Ast.Node.Index = 0;
     var else_src: ?Ast.TokenIndex = null;
     var underscore_src: ?Ast.TokenIndex = null;
     for (case_nodes) |case_node| {
         const case = switch (node_tags[case_node]) {
-            .switch_case_one => tree.switchCaseOne(case_node),
-            .switch_case => tree.switchCase(case_node),
+            .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+            .switch_case, .switch_case_inline => tree.switchCase(case_node),
             else => unreachable,
         };
         if (case.payload_token) |payload_token| {
@@ -6307,6 +6310,9 @@ fn switchExpr(
                     },
                 );
             }
+            if (case.inline_token != null) {
+                return astgen.failTok(case_src, "cannot inline '_' prong", .{});
+            }
             special_node = case_node;
             special_prong = .under;
             underscore_src = case_src;
@@ -6317,6 +6323,9 @@ fn switchExpr(
             scalar_cases_len += 1;
         } else {
             multi_cases_len += 1;
+        }
+        if (case.inline_token != null) {
+            inline_cases_len += 1;
         }
     }
 
@@ -6357,8 +6366,8 @@ fn switchExpr(
     var scalar_case_index: u32 = 0;
     for (case_nodes) |case_node| {
         const case = switch (node_tags[case_node]) {
-            .switch_case_one => tree.switchCaseOne(case_node),
-            .switch_case => tree.switchCase(case_node),
+            .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+            .switch_case, .switch_case_inline => tree.switchCase(case_node),
             else => unreachable,
         };
 
@@ -6367,8 +6376,12 @@ fn switchExpr(
 
         var dbg_var_name: ?u32 = null;
         var dbg_var_inst: Zir.Inst.Ref = undefined;
+        var dbg_var_tag_name: ?u32 = null;
+        var dbg_var_tag_inst: Zir.Inst.Ref = undefined;
         var capture_inst: Zir.Inst.Index = 0;
+        var tag_inst: Zir.Inst.Index = 0;
         var capture_val_scope: Scope.LocalVal = undefined;
+        var tag_scope: Scope.LocalVal = undefined;
         const sub_scope = blk: {
             const payload_token = case.payload_token orelse break :blk &case_scope.base;
             const ident = if (token_tags[payload_token] == .asterisk)
@@ -6376,59 +6389,96 @@ fn switchExpr(
             else
                 payload_token;
             const is_ptr = ident != payload_token;
-            if (mem.eql(u8, tree.tokenSlice(ident), "_")) {
+            const ident_slice = tree.tokenSlice(ident);
+            var payload_sub_scope: *Scope = undefined;
+            if (mem.eql(u8, ident_slice, "_")) {
                 if (is_ptr) {
                     return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 }
-                break :blk &case_scope.base;
-            }
-            if (case_node == special_node) {
-                const capture_tag: Zir.Inst.Tag = if (is_ptr)
-                    .switch_capture_ref
-                else
-                    .switch_capture;
-                capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
-                try astgen.instructions.append(gpa, .{
-                    .tag = capture_tag,
-                    .data = .{
-                        .switch_capture = .{
-                            .switch_inst = switch_block,
-                            // Max int communicates that this is the else/underscore prong.
-                            .prong_index = std.math.maxInt(u32),
-                        },
-                    },
-                });
+                payload_sub_scope = &case_scope.base;
             } else {
-                const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
-                const is_ptr_bits: u2 = @boolToInt(is_ptr);
-                const capture_tag: Zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
-                    0b00 => .switch_capture,
-                    0b01 => .switch_capture_ref,
-                    0b10 => .switch_capture_multi,
-                    0b11 => .switch_capture_multi_ref,
+                if (case_node == special_node) {
+                    const capture_tag: Zir.Inst.Tag = if (is_ptr)
+                        .switch_capture_ref
+                    else
+                        .switch_capture;
+                    capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
+                    try astgen.instructions.append(gpa, .{
+                        .tag = capture_tag,
+                        .data = .{
+                            .switch_capture = .{
+                                .switch_inst = switch_block,
+                                // Max int communicates that this is the else/underscore prong.
+                                .prong_index = std.math.maxInt(u32),
+                            },
+                        },
+                    });
+                } else {
+                    const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
+                    const is_ptr_bits: u2 = @boolToInt(is_ptr);
+                    const capture_tag: Zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
+                        0b00 => .switch_capture,
+                        0b01 => .switch_capture_ref,
+                        0b10 => .switch_capture_multi,
+                        0b11 => .switch_capture_multi_ref,
+                    };
+                    const capture_index = if (is_multi_case) multi_case_index else scalar_case_index;
+                    capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
+                    try astgen.instructions.append(gpa, .{
+                        .tag = capture_tag,
+                        .data = .{ .switch_capture = .{
+                            .switch_inst = switch_block,
+                            .prong_index = capture_index,
+                        } },
+                    });
+                }
+                const capture_name = try astgen.identAsString(ident);
+                try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice);
+                capture_val_scope = .{
+                    .parent = &case_scope.base,
+                    .gen_zir = &case_scope,
+                    .name = capture_name,
+                    .inst = indexToRef(capture_inst),
+                    .token_src = payload_token,
+                    .id_cat = .@"capture",
                 };
-                const capture_index = if (is_multi_case) multi_case_index else scalar_case_index;
-                capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
-                try astgen.instructions.append(gpa, .{
-                    .tag = capture_tag,
-                    .data = .{ .switch_capture = .{
-                        .switch_inst = switch_block,
-                        .prong_index = capture_index,
-                    } },
-                });
+                dbg_var_name = capture_name;
+                dbg_var_inst = indexToRef(capture_inst);
+                payload_sub_scope = &capture_val_scope.base;
             }
-            const capture_name = try astgen.identAsString(ident);
-            capture_val_scope = .{
-                .parent = &case_scope.base,
+
+            const tag_token = if (token_tags[ident + 1] == .comma)
+                ident + 2
+            else
+                break :blk payload_sub_scope;
+            const tag_slice = tree.tokenSlice(tag_token);
+            if (mem.eql(u8, tag_slice, "_")) {
+                return astgen.failTok(tag_token, "discard of tag capture; omit it instead", .{});
+            } else if (case.inline_token == null) {
+                return astgen.failTok(tag_token, "tag capture on non-inline prong", .{});
+            }
+            const tag_name = try astgen.identAsString(tag_token);
+            try astgen.detectLocalShadowing(payload_sub_scope, tag_name, tag_token, tag_slice);
+            tag_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            try astgen.instructions.append(gpa, .{
+                .tag = .switch_capture_tag,
+                .data = .{ .un_tok = .{
+                    .operand = cond,
+                    .src_tok = case_scope.tokenIndexToRelative(tag_token),
+                } },
+            });
+
+            tag_scope = .{
+                .parent = payload_sub_scope,
                 .gen_zir = &case_scope,
-                .name = capture_name,
-                .inst = indexToRef(capture_inst),
-                .token_src = payload_token,
-                .id_cat = .@"capture",
+                .name = tag_name,
+                .inst = indexToRef(tag_inst),
+                .token_src = tag_token,
+                .id_cat = .@"switch tag capture",
             };
-            dbg_var_name = capture_name;
-            dbg_var_inst = indexToRef(capture_inst);
-            break :blk &capture_val_scope.base;
+            dbg_var_tag_name = tag_name;
+            dbg_var_tag_inst = indexToRef(tag_inst);
+            break :blk &tag_scope.base;
         };
 
         const header_index = @intCast(u32, payloads.items.len);
@@ -6483,9 +6533,13 @@ fn switchExpr(
             defer case_scope.unstack();
 
             if (capture_inst != 0) try case_scope.instructions.append(gpa, capture_inst);
+            if (tag_inst != 0) try case_scope.instructions.append(gpa, tag_inst);
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name) |some| {
                 try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+            }
+            if (dbg_var_tag_name) |some| {
+                try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_tag_inst);
             }
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             try checkUsed(parent_gz, &case_scope.base, sub_scope);
@@ -6498,7 +6552,8 @@ fn switchExpr(
             const case_slice = case_scope.instructionsSlice();
             const body_len = astgen.countBodyLenAfterFixups(case_slice);
             try payloads.ensureUnusedCapacity(gpa, body_len);
-            payloads.items[body_len_index] = body_len;
+            const inline_bit = @as(u32, @boolToInt(case.inline_token != null)) << 31;
+            payloads.items[body_len_index] = body_len | inline_bit;
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
     }
@@ -6512,7 +6567,6 @@ fn switchExpr(
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
         .operand = cond,
         .bits = Zir.Inst.SwitchBlock.Bits{
-            .is_ref = any_payload_is_ref,
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",
             .has_under = special_prong == .under,
@@ -6546,7 +6600,7 @@ fn switchExpr(
             end_index += 3 + items_len + 2 * ranges_len;
         }
 
-        const body_len = payloads.items[body_len_index];
+        const body_len = @truncate(u31, payloads.items[body_len_index]);
         end_index += body_len;
 
         switch (strat.tag) {
@@ -8436,7 +8490,9 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -8668,7 +8724,9 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -8879,7 +8937,9 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -9121,7 +9181,9 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -10054,6 +10116,7 @@ const Scope = struct {
         @"local constant",
         @"local variable",
         @"loop index capture",
+        @"switch tag capture",
         @"capture",
     };
 

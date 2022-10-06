@@ -685,8 +685,8 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
             return renderToken(ais, tree, tree.lastToken(node), space); // rbrace
         },
 
-        .switch_case_one => return renderSwitchCase(gpa, ais, tree, tree.switchCaseOne(node), space),
-        .switch_case => return renderSwitchCase(gpa, ais, tree, tree.switchCase(node), space),
+        .switch_case_one, .switch_case_inline_one => return renderSwitchCase(gpa, ais, tree, tree.switchCaseOne(node), space),
+        .switch_case, .switch_case_inline => return renderSwitchCase(gpa, ais, tree, tree.switchCase(node), space),
 
         .while_simple => return renderWhile(gpa, ais, tree, tree.whileSimple(node), space),
         .while_cont => return renderWhile(gpa, ais, tree, tree.whileCont(node), space),
@@ -1509,6 +1509,11 @@ fn renderSwitchCase(
         break :blk hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token);
     };
 
+    // render inline keyword
+    if (switch_case.inline_token) |some| {
+        try renderToken(ais, tree, some, .space);
+    }
+
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
         try renderToken(ais, tree, switch_case.ast.arrow_token - 1, .space); // else keyword
@@ -1536,13 +1541,17 @@ fn renderSwitchCase(
 
     if (switch_case.payload_token) |payload_token| {
         try renderToken(ais, tree, payload_token - 1, .none); // pipe
+        const ident = payload_token + @boolToInt(token_tags[payload_token] == .asterisk);
         if (token_tags[payload_token] == .asterisk) {
             try renderToken(ais, tree, payload_token, .none); // asterisk
-            try renderToken(ais, tree, payload_token + 1, .none); // identifier
-            try renderToken(ais, tree, payload_token + 2, pre_target_space); // pipe
+        }
+        try renderToken(ais, tree, ident, .none); // identifier
+        if (token_tags[ident + 1] == .comma) {
+            try renderToken(ais, tree, ident + 1, .space); // ,
+            try renderToken(ais, tree, ident + 2, .none); // identifier
+            try renderToken(ais, tree, ident + 3, pre_target_space); // pipe
         } else {
-            try renderToken(ais, tree, payload_token, .none); // identifier
-            try renderToken(ais, tree, payload_token + 1, pre_target_space); // pipe
+            try renderToken(ais, tree, ident + 1, pre_target_space); // pipe
         }
     }
 

@@ -1,16 +1,17 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputExProtocol = extern struct {
-    _reset: fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status,
-    _read_key_stroke_ex: fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status),
+    _read_key_stroke_ex: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status),
     wait_for_key_ex: Event,
-    _set_state: fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status,
-    _register_key_notify: fn (*const SimpleTextInputExProtocol, *const KeyData, fn (*const KeyData) callconv(.C) usize, **anyopaque) callconv(.C) Status,
-    _unregister_key_notify: fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status,
+    _set_state: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status),
+    _register_key_notify: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const KeyData, fn (*const KeyData) callconv(.C) usize, **anyopaque) callconv(.C) Status),
+    _unregister_key_notify: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status),
 
     /// Resets the input device hardware.
     pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) Status {

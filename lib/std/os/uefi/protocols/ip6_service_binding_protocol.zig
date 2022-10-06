@@ -1,11 +1,12 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Handle = uefi.Handle;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 pub const Ip6ServiceBindingProtocol = extern struct {
-    _create_child: fn (*const Ip6ServiceBindingProtocol, *?Handle) callconv(.C) Status,
-    _destroy_child: fn (*const Ip6ServiceBindingProtocol, Handle) callconv(.C) Status,
+    _create_child: std.meta.FnPtr(fn (*const Ip6ServiceBindingProtocol, *?Handle) callconv(.C) Status),
+    _destroy_child: std.meta.FnPtr(fn (*const Ip6ServiceBindingProtocol, Handle) callconv(.C) Status),
 
     pub fn createChild(self: *const Ip6ServiceBindingProtocol, handle: *?Handle) Status {
         return self._create_child(self, handle);
