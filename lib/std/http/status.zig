@@ -5,7 +5,7 @@ const std = @import("../std.zig");
 
 pub const Status = enum(u10) {
     @"continue" = 100, // RFC7231, Section 6.2.1
-    switching_protcols = 101, // RFC7231, Section 6.2.2
+    switching_protocols = 101, // RFC7231, Section 6.2.2
     processing = 102, // RFC2518
     early_hints = 103, // RFC8297
 
@@ -77,7 +77,7 @@ pub const Status = enum(u10) {
         return switch (self) {
             // 1xx statuses
             .@"continue" => "Continue",
-            .switching_protcols => "Switching Protocols",
+            .switching_protocols => "Switching Protocols",
             .processing => "Processing",
             .early_hints => "Early Hints",
 
