@@ -1753,8 +1753,6 @@ pub const ExecveError = error{
     NameTooLong,
 } || UnexpectedError;
 
-/// Like `execve` except the parameters are null-terminated,
-/// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function ignores PATH environment variable. See `execvpeZ` for that.
 pub fn execveZ(
     path: [*:0]const u8,
@@ -1852,8 +1850,6 @@ pub fn execvpeZ_expandArg0(
     return err;
 }
 
-/// Like `execvpe` except the parameters are null-terminated,
-/// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// If `file` is an absolute path, this is the same as `execveZ`.
 pub fn execvpeZ(
