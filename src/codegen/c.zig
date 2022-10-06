@@ -492,11 +492,11 @@ pub const DeclGen = struct {
                 const index = field_ptr.field_index;
                 const FieldInfo = struct { name: []const u8, ty: Type };
                 const field_info: FieldInfo = switch (container_ty.zigTypeTag()) {
-                    .Struct => .{
+                    .Struct => FieldInfo{
                         .name = container_ty.structFields().keys()[index],
                         .ty = container_ty.structFields().values()[index].ty,
                     },
-                    .Union => .{
+                    .Union => FieldInfo{
                         .name = container_ty.unionFields().keys()[index],
                         .ty = container_ty.unionFields().values()[index].ty,
                     },
@@ -1622,7 +1622,12 @@ pub const DeclGen = struct {
         const int_info = ty.intInfo(target);
         _ = toCIntBits(int_info.bits) orelse
             return dg.fail("TODO implement integer constants larger than 128 bits", .{});
-        return .{ .ty = ty, .target = target, .int_val = int_val, .location = location };
+        return IntLiteralFormatter(@TypeOf(int_val)){
+            .ty = ty,
+            .target = target,
+            .int_val = int_val,
+            .location = location,
+        };
     }
 };
 
