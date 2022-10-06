@@ -50,6 +50,8 @@ __MINGW_USYMBOL(__intrinsic_setjmpex):
         movq    %r15,0x48(%rcx)      /* jmp_buf->R15 */
         movq    (%rsp),%rax
         movq    %rax,0x50(%rcx)      /* jmp_buf->Rip */
+        stmxcsr 0x58(%rcx)           /* jmp_buf->MxCsr */
+        fnstcw  0x5c(%rcx)           /* jmp_buf->FpCsr */
         movdqa  %xmm6,0x60(%rcx)     /* jmp_buf->Xmm6 */
         movdqa  %xmm7,0x70(%rcx)     /* jmp_buf->Xmm7 */
         movdqa  %xmm8,0x80(%rcx)     /* jmp_buf->Xmm8 */

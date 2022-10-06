@@ -9,17 +9,14 @@
    The goal of this routine is to turn a call to v*scanf into a call to
    s*scanf.  This is needed because mingw-w64 uses msvcr100.dll, which doesn't
    support the v*scanf functions instead of msvcr120.dll which does.
-   Unfortunately, there is no defined way to know exactly how big a va_list
-   is, so we use a hard-coded buffer.
-
-   I suppose a sufficiently-motivated person could try to parse the format
-   to figure out how many tokens there are... */
+*/
 
 /* The function prototype here is (essentially):
 
-   int __ms_vsscanf_internal (void *s,
+   int __ms_v*scanf_internal (void *s,
 			     void *format,
 			     void *arg,
+			     size_t count,
 			     void *func);
 
    I say 'essentially' because passing a function pointer as void in ISO
@@ -37,19 +34,6 @@
 	 */
     .def __argtos;    .scl    2;    .type    32;    .endef
 
-    /* The max number of pointers we support.  Must be an even number
-       to keep the 64bit stack 16byte aligned.  Must not be less than 4.  */
-    .equ entries, 30
-
-    /* 64bit pointers are 8 bytes.  */
-    .equ sizeof, 8
-
-    /* Size of our buffer.  */
-    .equ iBytes, entries * sizeof
-
-    /* Stack space for first 2 args to s*scanf.  */
-    .equ iOffset, (2 * sizeof)
-
     .seh_proc __argtos
 __argtos:
 
@@ -58,48 +42,58 @@ __argtos:
       - format must be in rdx.  That's where it is on entry.
       - The first pointer in arg must be in r8. arg is in r8 on entry.
       - The second pointer in arg must be in r9. arg is in r8 on entry.
-      - The ($entries - 2) other pointers in arg must be on the stack,
+      - The (count - 2) other pointers in arg must be on the stack,
 	starting 32bytes into rsp.  */
 
-    /* We need enough room to shadow (s + format)
-       + (enough room for all the other args).  */
-    subq $(iOffset + iBytes), %rsp
-    .seh_stackalloc iOffset + iBytes
+    pushq %rbp
+    .seh_pushreg %rbp
+    movq %rsp, %rbp
+    .seh_setframe %rbp, 0
 
+    /* We need to always reserve space to shadow 4 parameters.  */
+    subq $32, %rsp
+    .seh_stackalloc 32
     .seh_endprologue
 
-    /* We are going to copy $entries pointers from arg to our
-       local stack.  Except the first 2, since they will be
-       loaded in registers.  */
-    movq $entries - 2, %r10 /* # of ptrs to copy.  */
+    movq 48(%rbp), %r10 /* func. */
 
-    /* The first 32 bytes are in registers, but by spec, space
-	   must still be reserved for them on the stack.  Put the
+    /* We need enough room to shadow all the other args.
+       Except the first 2, since they will be loaded in registers.  */
+    cmpq $2, %r9 /* count. */
+    jbe .SKIP
+    subq $2, %r9 /* # of ptrs to copy.  */
+    /* Calculate stack size (arg is 8byte) and keep the stack 16byte aligned. */
+    leaq 8(, %r9, 8), %rax /* %rax = (%r9 + 1) * 8 */
+    andq $-16, %rax
+    subq %rax, %rsp
+
+    /* We are going to copy parameters from arg to our local stack.
+       The first 32 bytes are in registers, but by spec, space
+       must still be reserved for them on the stack.  Put the
        rest of the pointers in the stack after that.  */
     lea 32(%rsp), %r11 /* dst.  */
 
 .LOOP:
-    subq $1, %r10
+    subq $1, %r9
 
     /* Use 16 to skip over the first 2 pointers.  */
-    movq 16(%r8, %r10, 8), %rax
-    movq %rax, (%r11, %r10, 8)
+    movq 16(%r8, %r9, 8), %rax
+    movq %rax, (%r11, %r9, 8)
     jnz .LOOP
 
-    /* r9 contains the routine we are going to call.  Since we are about to
-       overwrite it, move it somewhere safe.  */
-    movq %r9, %r10
-
+.SKIP:
     /* The stack is now correctly populated, and so are rcx and rdx.
        But we need to load the last 2 regs before making the call.  */
     movq 0x8(%r8), %r9 /* 2nd dest location (may be garbage if only 1 arg).  */
-    movq (%r8), %r8 /* 1st dest location.  */
+    movq (%r8), %r8 /* 1st dest location (may be garbage if no arg).  */
 
     /* Make the call.  */
     callq *%r10
 
-    addq $(iOffset + iBytes), %rsp
+    /* Restore stack.  */
+    movq %rbp, %rsp
 
+    popq %rbp
     retq
     .seh_endproc
 
@@ -113,31 +107,23 @@ __argtos:
 	 */
     .def __argtos;    .scl    2;    .type    32;    .endef
 
-    /* The max number of pointers we support.  Must not be less than 1.  */
-    .equ entries, 30
-
-    /* 64bit pointers are 8 bytes.  */
-    .equ sizeof, 4
-
-    /* Size of our buffer.  */
-    .set iBytes, entries * sizeof
-
-    /* Stack space for first 2 args to s*scanf.  */
-    .equ iOffset, (2 * sizeof)
-
 __argtos:
     pushl %ebp
     movl %esp, %ebp
     pushl %edi
+    pushl %ebx
 
     /* Reserve enough stack space for everything.
 
        Stack usage will look like:
        4 bytes - s
        4 bytes - format
-       (iBytes) bytes - variable # of parameters for sscanf (all ptrs).  */
+       4*count bytes - variable # of parameters for sscanf (all ptrs).  */
 
-    subl $(iOffset + iBytes), %esp
+    movl 20(%ebp), %ebx  /* count.  */
+    addl $2, %ebx  /* s + format.  */
+    sall $2, %ebx  /* (count + 2) * 4.  */
+    subl %ebx, %esp
 
     /* Write out s and format where they need to be for the sscanf call.  */
     movl 8(%ebp), %eax
@@ -145,10 +131,12 @@ __argtos:
     movl 12(%ebp), %edx
     movl %edx, 0x4(%esp)  /* format.  */
 
-    /* We are going to copy $entries pointers from arg to our
+    /* We are going to copy _count_ pointers from arg to our
        local stack.  */
-    movl $entries, %ecx /* # of ptrs to copy.  */
-    lea iOffset(%esp), %edi /* dst.  */
+    movl 20(%ebp), %ecx /* # of ptrs to copy.  */
+    testl %ecx, %ecx
+    jz .SKIP
+    lea 8(%esp), %edi /* dst.  */
     movl 16(%ebp), %edx /* src.  */
 
 .LOOP:
@@ -158,13 +146,16 @@ __argtos:
     movl %eax, (%edi, %ecx, 4)
     jnz .LOOP
 
+.SKIP:
     /* The stack is now correctly populated.  */
 
     /* Make the call.  */
-    call *20(%ebp)
+    call *24(%ebp)
 
     /* Restore stack.  */
-    addl $(iOffset + iBytes), %esp
+    addl %ebx, %esp
+
+    popl %ebx
     popl %edi
     leave
 
@@ -178,25 +169,35 @@ __argtos:
     .globl __argtos
 
 __argtos:
-    push    {r4-r7, lr}
-    sub     sp, sp, #128
-    mov     r12, r3
-    mov     r4, sp
+    push    {r4-r8, lr}
+    ldr     r12, [sp, #24]
 
     ldr     r5, [r2], #4
     ldr     r6, [r2], #4
 
-    mov     r3, #116
+    subs    r3, r3, #2
+    mov     r8, #0
+    ble     2f
+
+    /* Round the number of entries to an even number, to maintain
+     * 8 byte stack alignment. */
+    mov     r8, r3
+    add     r8, r8, #1
+    bic     r8, r8, #1
+    sub     sp, sp, r8, lsl #2
+    mov     r4, sp
 1:  ldr     r7, [r2], #4
+    subs    r3, r3, #1
     str     r7, [r4], #4
-    subs    r3, r3, #4
     bne     1b
 
+2:
     mov     r2, r5
     mov     r3, r6
     blx     r12
-    add     sp, sp, #128
-    pop     {r4-r7, pc}
+
+    add     sp, sp, r8, lsl #2
+    pop     {r4-r8, pc}
 
 #elif defined (__aarch64__)
 
@@ -207,10 +208,9 @@ __argtos:
 __argtos:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    sub     sp, sp, #256
-    mov     x9, sp
     mov     x10, x2
     mov     x11, x3
+    mov     x12, x4
 
     ldr     x2, [x10], #8
     ldr     x3, [x10], #8
@@ -219,13 +219,23 @@ __argtos:
     ldr     x6, [x10], #8
     ldr     x7, [x10], #8
 
-    mov     x12, #240
+    subs    x11, x11, #6
+    b.le    2f
+
+    /* Round the number of entries to an even number, to maintain
+     * 16 byte stack alignment. */
+    mov     x13, x11
+    add     x13, x13, #1
+    bic     x13, x13, #1
+    sub     sp, sp, x13, lsl #3
+    mov     x9, sp
 1:  ldr     x13, [x10], #8
+    subs    x11, x11, #1
     str     x13, [x9], #8
-    subs    x12, x12, #8
     b.ne    1b
 
-    blr     x11
+2:
+    blr     x12
     mov     sp, x29
     ldp     x29, x30, [sp], #16
     ret
