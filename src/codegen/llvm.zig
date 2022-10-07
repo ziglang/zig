@@ -10383,6 +10383,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        .wasm32,
+        .wasm64,
         => false,
         else => true,
     };

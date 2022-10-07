@@ -1789,6 +1789,8 @@ pub const Target = struct {
                 .powerpcle,
                 .powerpc64,
                 .powerpc64le,
+                .wasm32,
+                .wasm64,
                 => true,
 
                 else => false,
