@@ -181,6 +181,13 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         try argv.append("-NOLOGO");
         if (!self.base.options.strip) {
             try argv.append("-DEBUG");
+
+            const out_ext = std.fs.path.extension(full_out_path);
+            const out_pdb = try allocPrint(arena, "{s}.pdb", .{
+                full_out_path[0 .. full_out_path.len - out_ext.len],
+            });
+            try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
+            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
         }
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
