@@ -500,9 +500,14 @@ pub fn abort() noreturn {
         @breakpoint();
         exit(1);
     }
+    if (builtin.os.tag == .cuda) {
+        @"llvm.trap"();
+    }
 
     system.abort();
 }
+
+extern fn @"llvm.trap"() noreturn;
 
 pub const RaiseError = UnexpectedError;
 
