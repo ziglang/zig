@@ -1602,6 +1602,14 @@ pub const Dir = struct {
         if (builtin.os.tag == .wasi) {
             @compileError("changing cwd is not currently possible in WASI");
         }
+        if (builtin.os.tag == .windows) {
+            var dir_path_buffer: [os.windows.PATH_MAX_WIDE]u16 = undefined;
+            var dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
+            if (builtin.link_libc) {
+                return os.chdirW(dir_path);
+            }
+            return os.windows.SetCurrentDirectory(dir_path);
+        }
         try os.fchdir(self.fd);
     }
 
