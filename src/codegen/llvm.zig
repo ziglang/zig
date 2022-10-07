@@ -2711,7 +2711,7 @@ pub const DeclGen = struct {
                 return dg.context.intType(bit_count);
             },
             .Float => switch (t.floatBits(target)) {
-                16 => return dg.context.halfType(),
+                16 => return if (backendSupportsF16(target)) dg.context.halfType() else dg.context.intType(16),
                 32 => return dg.context.floatType(),
                 64 => return dg.context.doubleType(),
                 80 => return if (backendSupportsF80(target)) dg.context.x86FP80Type() else dg.context.intType(80),
@@ -3226,7 +3226,15 @@ pub const DeclGen = struct {
             .Float => {
                 const llvm_ty = try dg.lowerType(tv.ty);
                 switch (tv.ty.floatBits(target)) {
-                    16, 32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
+                    16 => if (intrinsicsAllowed(tv.ty, target)) {
+                        return llvm_ty.constReal(tv.val.toFloat(f16));
+                    } else {
+                        const repr = @bitCast(u16, tv.val.toFloat(f16));
+                        const llvm_i16 = dg.context.intType(16);
+                        const int = llvm_i16.constInt(repr, .False);
+                        return int.constBitCast(llvm_ty);
+                    },
+                    32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
                     80 => {
                         const float = tv.val.toFloat(f80);
                         const repr = std.math.break_f80(float);
@@ -7584,11 +7592,25 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const dest_bits = dest_ty.floatBits(target);
         const src_bits = operand_ty.floatBits(target);
-        if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
-            return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+
+        if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
+            const dest_llvm_ty = try self.dg.lowerType(dest_ty);
+            return self.builder.buildFPTrunc(operand, dest_llvm_ty, "");
+        } else {
+            const operand_llvm_ty = try self.dg.lowerType(operand_ty);
+            const dest_llvm_ty = try self.dg.lowerType(dest_ty);
+
+            var fn_name_buf: [64]u8 = undefined;
+            const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__trunc{s}f{s}f2", .{
+                compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
+            }) catch unreachable;
+
+            const params = [1]*llvm.Value{operand};
+            const param_types = [1]*llvm.Type{operand_llvm_ty};
+            const llvm_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
+
+            return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .C, .Auto, "");
         }
-        const dest_llvm_ty = try self.dg.lowerType(dest_ty);
-        return self.builder.buildFPTrunc(operand, dest_llvm_ty, "");
     }
 
     fn airFpext(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -7602,11 +7624,25 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const dest_bits = dest_ty.floatBits(target);
         const src_bits = operand_ty.floatBits(target);
-        if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
-            return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+
+        if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
+            const dest_llvm_ty = try self.dg.lowerType(dest_ty);
+            return self.builder.buildFPExt(operand, dest_llvm_ty, "");
+        } else {
+            const operand_llvm_ty = try self.dg.lowerType(operand_ty);
+            const dest_llvm_ty = try self.dg.lowerType(dest_ty);
+
+            var fn_name_buf: [64]u8 = undefined;
+            const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__extend{s}f{s}f2", .{
+                compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
+            }) catch unreachable;
+
+            const params = [1]*llvm.Value{operand};
+            const param_types = [1]*llvm.Type{operand_llvm_ty};
+            const llvm_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
+
+            return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .C, .Auto, "");
         }
-        const dest_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        return self.builder.buildFPExt(operand, dest_llvm_ty, "");
     }
 
     fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -9064,87 +9100,6 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn softF80TruncOrExt(
-        self: *FuncGen,
-        operand: *llvm.Value,
-        src_bits: u16,
-        dest_bits: u16,
-    ) !?*llvm.Value {
-        const target = self.dg.module.getTarget();
-
-        var param_llvm_ty: *llvm.Type = self.context.intType(80);
-        var ret_llvm_ty: *llvm.Type = param_llvm_ty;
-        var fn_name: [*:0]const u8 = undefined;
-        var arg = operand;
-        var final_cast: ?*llvm.Type = null;
-
-        assert(src_bits == 80 or dest_bits == 80);
-
-        if (src_bits == 80) switch (dest_bits) {
-            16 => {
-                // See corresponding condition at definition of
-                // __truncxfhf2 in compiler-rt.
-                if (target.cpu.arch.isAARCH64()) {
-                    ret_llvm_ty = self.context.halfType();
-                } else {
-                    ret_llvm_ty = self.context.intType(16);
-                    final_cast = self.context.halfType();
-                }
-                fn_name = "__truncxfhf2";
-            },
-            32 => {
-                ret_llvm_ty = self.context.floatType();
-                fn_name = "__truncxfsf2";
-            },
-            64 => {
-                ret_llvm_ty = self.context.doubleType();
-                fn_name = "__truncxfdf2";
-            },
-            80 => return operand,
-            128 => {
-                ret_llvm_ty = self.context.fp128Type();
-                fn_name = "__extendxftf2";
-            },
-            else => unreachable,
-        } else switch (src_bits) {
-            16 => {
-                // See corresponding condition at definition of
-                // __extendhfxf2 in compiler-rt.
-                param_llvm_ty = if (target.cpu.arch.isAARCH64())
-                    self.context.halfType()
-                else
-                    self.context.intType(16);
-                arg = self.builder.buildBitCast(arg, param_llvm_ty, "");
-                fn_name = "__extendhfxf2";
-            },
-            32 => {
-                param_llvm_ty = self.context.floatType();
-                fn_name = "__extendsfxf2";
-            },
-            64 => {
-                param_llvm_ty = self.context.doubleType();
-                fn_name = "__extenddfxf2";
-            },
-            80 => return operand,
-            128 => {
-                param_llvm_ty = self.context.fp128Type();
-                fn_name = "__trunctfxf2";
-            },
-            else => unreachable,
-        }
-
-        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(fn_name) orelse f: {
-            const param_types = [_]*llvm.Type{param_llvm_ty};
-            const fn_type = llvm.functionType(ret_llvm_ty, &param_types, param_types.len, .False);
-            break :f self.dg.object.llvm_module.addFunction(fn_name, fn_type);
-        };
-
-        var args: [1]*llvm.Value = .{arg};
-        const result = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .C, .Auto, "");
-        const final_cast_llvm_ty = final_cast orelse return result;
-        return self.builder.buildBitCast(result, final_cast_llvm_ty, "");
-    }
-
     fn getErrorNameTable(self: *FuncGen) !*llvm.Value {
         if (self.dg.object.error_name_table) |table| {
             return table;
@@ -10424,6 +10379,11 @@ fn backendSupportsF80(target: std.Target) bool {
 /// if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => false,
         else => true,
     };
 }
