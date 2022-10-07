@@ -376,8 +376,6 @@ extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "type info: generic function types" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     if (builtin.zig_backend != .stage1) {
         // stage1 marks all args/return types as null if the function
         // is generic at all. stage2 is more specific.

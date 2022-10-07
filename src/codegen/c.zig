@@ -1363,7 +1363,8 @@ pub const DeclGen = struct {
         }
         const name_end = buffer.items.len;
 
-        try bw.print("[{d}];\n", .{t.arrayLenIncludingSentinel()});
+        const c_len = t.arrayLenIncludingSentinel();
+        try bw.print("[{d}];\n", .{if (c_len > 0) c_len else 1});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -3514,7 +3515,7 @@ fn airOptionalPayloadPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const payload_ty = opt_ty.optionalChild(&buf);
 
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-        return operand;
+        return CValue.undefined_ptr;
     }
 
     if (opt_ty.optionalReprIsPayload()) {

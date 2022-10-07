@@ -616,8 +616,6 @@ test "128-bit multiplication" {
 }
 
 test "@addWithOverflow" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     {
         var result: u8 = undefined;
         try expect(@addWithOverflow(u8, 250, 100, &result));
@@ -673,8 +671,6 @@ test "small int addition" {
 }
 
 test "basic @mulWithOverflow" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     var result: u8 = undefined;
     try expect(@mulWithOverflow(u8, 86, 3, &result));
     try expect(result == 2);
@@ -897,8 +893,6 @@ test "@mulWithOverflow bitsize > 32" {
 }
 
 test "@subWithOverflow" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     {
         var result: u8 = undefined;
         try expect(@subWithOverflow(u8, 1, 2, &result));
@@ -977,8 +971,6 @@ test "@shlWithOverflow" {
 }
 
 test "overflow arithmetic with u0 values" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     var result: u0 = undefined;
     try expect(!@addWithOverflow(u0, 0, 0, &result));
     try expect(result == 0);

@@ -136,7 +136,6 @@ test "@bitCast packed structs at runtime and comptime" {
 
 test "@bitCast extern structs at runtime and comptime" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const Full = extern struct {
@@ -208,7 +207,6 @@ test "implicit cast to error union by returning" {
 
 test "bitcast packed struct literal to byte" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Foo = packed struct {
         value: u8,
@@ -218,8 +216,6 @@ test "bitcast packed struct literal to byte" {
 }
 
 test "comptime bitcast used in expression has the correct type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     const Foo = packed struct {
         value: u8,
     };
@@ -237,8 +233,6 @@ test "bitcast passed as tuple element" {
 }
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             comptime try expect(@TypeOf(args[0]) == f64);
