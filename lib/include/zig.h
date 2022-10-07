@@ -165,7 +165,7 @@
 
 #define int128_t __int128
 #define uint128_t unsigned __int128
-#define UINT128_MAX ((uint128_t)(0xffffffffffffffffull) | 0xffffffffffffffffull)
+#define UINT128_MAX (((uint128_t)UINT64_MAX<<64|UINT64_MAX))
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 ZIG_EXTERN_C void *memset (void *, int, size_t);
 ZIG_EXTERN_C int64_t    __addodi4(int64_t   lhs, int64_t   rhs, int *overflow);

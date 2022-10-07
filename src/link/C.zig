@@ -363,31 +363,37 @@ fn flushTypedefs(self: *C, f: *Flush, typedefs: codegen.TypedefMap.Unmanaged) Fl
 }
 
 fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
-    const gpa = self.base.allocator;
     const module = self.base.options.module.?;
 
     var object = codegen.Object{
         .dg = .{
-            .gpa = gpa,
+            .gpa = module.gpa,
             .module = module,
             .error_msg = null,
             .decl_index = undefined,
             .decl = undefined,
             .fwd_decl = undefined,
-            .typedefs = codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
-            .typedefs_arena = gpa,
+            .typedefs = codegen.TypedefMap.initContext(module.gpa, .{ .mod = module }),
+            .typedefs_arena = self.arena.allocator(),
         },
-        .code = f.err_buf.toManaged(gpa),
+        .code = f.err_buf.toManaged(module.gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
-    defer object.dg.typedefs.deinit();
-    defer f.err_buf = object.code.moveToUnmanaged();
+    defer {
+        f.err_buf = object.code.moveToUnmanaged();
+        for (object.dg.typedefs.values()) |value| {
+            module.gpa.free(value.rendered);
+        }
+        object.dg.typedefs.deinit();
+    }
 
     codegen.genErrDecls(&object) catch |err| switch (err) {
         error.AnalysisFail => unreachable,
         else => |e| return e,
     };
+
+    const gpa = self.base.allocator;
 
     try self.flushTypedefs(f, object.dg.typedefs.unmanaged);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
