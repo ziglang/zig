@@ -24,8 +24,10 @@ comptime {
     @export(tanf, .{ .name = "tanf", .linkage = common.linkage });
     @export(tan, .{ .name = "tan", .linkage = common.linkage });
     @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage });
-    const tanq_sym_name = if (common.want_ppc_abi) "tanf128" else "tanq";
-    @export(tanq, .{ .name = tanq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(tanq, .{ .name = "tanf128", .linkage = common.linkage });
+    }
+    @export(tanq, .{ .name = "tanq", .linkage = common.linkage });
     @export(tanl, .{ .name = "tanl", .linkage = common.linkage });
 }
 

@@ -4,17 +4,20 @@ comptime {
     _ = @import("compiler_rt/atomics.zig");
 
     _ = @import("compiler_rt/addf3.zig");
+    _ = @import("compiler_rt/addhf3.zig");
     _ = @import("compiler_rt/addsf3.zig");
     _ = @import("compiler_rt/adddf3.zig");
     _ = @import("compiler_rt/addtf3.zig");
     _ = @import("compiler_rt/addxf3.zig");
 
+    _ = @import("compiler_rt/subhf3.zig");
     _ = @import("compiler_rt/subsf3.zig");
     _ = @import("compiler_rt/subdf3.zig");
     _ = @import("compiler_rt/subtf3.zig");
     _ = @import("compiler_rt/subxf3.zig");
 
     _ = @import("compiler_rt/mulf3.zig");
+    _ = @import("compiler_rt/mulhf3.zig");
     _ = @import("compiler_rt/mulsf3.zig");
     _ = @import("compiler_rt/muldf3.zig");
     _ = @import("compiler_rt/multf3.zig");
@@ -34,51 +37,58 @@ comptime {
     _ = @import("compiler_rt/divxc3.zig");
     _ = @import("compiler_rt/divtc3.zig");
 
+    _ = @import("compiler_rt/neghf2.zig");
     _ = @import("compiler_rt/negsf2.zig");
     _ = @import("compiler_rt/negdf2.zig");
     _ = @import("compiler_rt/negtf2.zig");
     _ = @import("compiler_rt/negxf2.zig");
 
     _ = @import("compiler_rt/comparef.zig");
+    _ = @import("compiler_rt/cmphf2.zig");
     _ = @import("compiler_rt/cmpsf2.zig");
     _ = @import("compiler_rt/cmpdf2.zig");
     _ = @import("compiler_rt/cmptf2.zig");
     _ = @import("compiler_rt/cmpxf2.zig");
+    _ = @import("compiler_rt/gehf2.zig");
     _ = @import("compiler_rt/gesf2.zig");
     _ = @import("compiler_rt/gedf2.zig");
-    _ = @import("compiler_rt/getf2.zig");
     _ = @import("compiler_rt/gexf2.zig");
+    _ = @import("compiler_rt/getf2.zig");
+    _ = @import("compiler_rt/unordhf2.zig");
     _ = @import("compiler_rt/unordsf2.zig");
     _ = @import("compiler_rt/unorddf2.zig");
+    _ = @import("compiler_rt/unordxf2.zig");
     _ = @import("compiler_rt/unordtf2.zig");
 
     _ = @import("compiler_rt/extendf.zig");
-    _ = @import("compiler_rt/extenddftf2.zig");
-    _ = @import("compiler_rt/extenddfxf2.zig");
     _ = @import("compiler_rt/extendhfsf2.zig");
+    _ = @import("compiler_rt/extendhfdf2.zig");
     _ = @import("compiler_rt/extendhftf2.zig");
     _ = @import("compiler_rt/extendhfxf2.zig");
     _ = @import("compiler_rt/extendsfdf2.zig");
     _ = @import("compiler_rt/extendsftf2.zig");
     _ = @import("compiler_rt/extendsfxf2.zig");
+    _ = @import("compiler_rt/extenddftf2.zig");
+    _ = @import("compiler_rt/extenddfxf2.zig");
     _ = @import("compiler_rt/extendxftf2.zig");
 
     _ = @import("compiler_rt/truncf.zig");
     _ = @import("compiler_rt/truncsfhf2.zig");
     _ = @import("compiler_rt/truncdfhf2.zig");
     _ = @import("compiler_rt/truncdfsf2.zig");
+    _ = @import("compiler_rt/truncxfhf2.zig");
+    _ = @import("compiler_rt/truncxfsf2.zig");
+    _ = @import("compiler_rt/truncxfdf2.zig");
     _ = @import("compiler_rt/trunctfhf2.zig");
     _ = @import("compiler_rt/trunctfsf2.zig");
     _ = @import("compiler_rt/trunctfdf2.zig");
     _ = @import("compiler_rt/trunctfxf2.zig");
-    _ = @import("compiler_rt/truncxfhf2.zig");
-    _ = @import("compiler_rt/truncxfsf2.zig");
-    _ = @import("compiler_rt/truncxfdf2.zig");
 
-    _ = @import("compiler_rt/divtf3.zig");
+    _ = @import("compiler_rt/divhf3.zig");
     _ = @import("compiler_rt/divsf3.zig");
     _ = @import("compiler_rt/divdf3.zig");
     _ = @import("compiler_rt/divxf3.zig");
+    _ = @import("compiler_rt/divtf3.zig");
     _ = @import("compiler_rt/sin.zig");
     _ = @import("compiler_rt/cos.zig");
     _ = @import("compiler_rt/sincos.zig");
