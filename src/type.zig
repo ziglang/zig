@@ -6653,7 +6653,7 @@ pub const CType = enum {
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
-                        .i386 => switch (target.abi) {
+                        .x86 => switch (target.abi) {
                             .android => return 64,
                             else => return 80,
                         },
@@ -6741,7 +6741,7 @@ pub const CType = enum {
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
-                        .i386 => switch (target.abi) {
+                        .x86 => switch (target.abi) {
                             .android => return 64,
                             else => return 80,
                         },
@@ -6795,7 +6795,7 @@ pub const CType = enum {
             },
 
             .windows, .uefi => switch (target.cpu.arch) {
-                .i386 => switch (self) {
+                .x86 => switch (self) {
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return 32,
@@ -6831,7 +6831,7 @@ pub const CType = enum {
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.cpu.arch) {
-                    .i386, .arm, .aarch64_32 => return 32,
+                    .x86, .arm, .aarch64_32 => return 32,
                     .x86_64 => switch (target.abi) {
                         .gnux32, .muslx32 => return 32,
                         else => return 64,
@@ -6840,7 +6840,7 @@ pub const CType = enum {
                 },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.cpu.arch) {
-                    .i386 => switch (target.abi) {
+                    .x86 => switch (target.abi) {
                         .android => return 64,
                         else => return 80,
                     },
@@ -6899,7 +6899,7 @@ pub const CType = enum {
                 .short, .ushort => return 2,
                 else => return 1,
             },
-            .i386 => switch (target.os.tag) {
+            .x86 => switch (target.os.tag) {
                 .windows, .uefi => switch (self) {
                     .longlong, .ulonglong, .double => return 8,
                     .longdouble => switch (target.abi) {
@@ -6940,7 +6940,7 @@ pub const CType = enum {
 
                 .arc,
                 .csky,
-                .i386,
+                .x86,
                 .xcore,
                 .dxil,
                 .loongarch32,
@@ -7037,7 +7037,7 @@ pub const CType = enum {
                 .double => return 4,
                 .longlong, .ulonglong => return 8,
             },
-            .i386 => switch (target.os.tag) {
+            .x86 => switch (target.os.tag) {
                 .windows, .uefi => switch (self) {
                     .longdouble => switch (target.abi) {
                         .gnu, .gnuilp32, .cygnus => return 4,
@@ -7090,7 +7090,7 @@ pub const CType = enum {
                 .bpfeb,
                 .hexagon,
                 .hsail64,
-                .i386,
+                .x86,
                 .loongarch64,
                 .m68k,
                 .mips,

@@ -150,7 +150,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
             .text = 0x200028,
             .data = 0x400000,
         },
-        .i386 => .{
+        .x86 => .{
             // header size => 32 => 0x20
             .text = 0x200020,
             .data = 0x400000,

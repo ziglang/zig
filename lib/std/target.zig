@@ -850,7 +850,7 @@ pub const Target = struct {
             tcele,
             thumb,
             thumbeb,
-            i386,
+            x86,
             x86_64,
             xcore,
             nvptx,
@@ -879,7 +879,7 @@ pub const Target = struct {
 
             pub fn isX86(arch: Arch) bool {
                 return switch (arch) {
-                    .i386, .x86_64 => true,
+                    .x86, .x86_64 => true,
                     else => false,
                 };
             }
@@ -999,7 +999,7 @@ pub const Target = struct {
                     .tcele => .NONE,
                     .thumb => .ARM,
                     .thumbeb => .ARM,
-                    .i386 => .@"386",
+                    .x86 => .@"386",
                     .xcore => .XCORE,
                     .nvptx => .NONE,
                     .amdil => .NONE,
@@ -1063,7 +1063,7 @@ pub const Target = struct {
                     .tcele => .Unknown,
                     .thumb => .Thumb,
                     .thumbeb => .Thumb,
-                    .i386 => .I386,
+                    .x86 => .I386,
                     .xcore => .Unknown,
                     .nvptx => .Unknown,
                     .amdil => .Unknown,
@@ -1134,7 +1134,7 @@ pub const Target = struct {
                     .r600,
                     .riscv32,
                     .riscv64,
-                    .i386,
+                    .x86,
                     .x86_64,
                     .wasm32,
                     .wasm64,
@@ -1179,7 +1179,7 @@ pub const Target = struct {
                 const is_nvptx = arch == .nvptx or arch == .nvptx64;
                 return switch (address_space) {
                     .generic => true,
-                    .fs, .gs, .ss => arch == .x86_64 or arch == .i386,
+                    .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                     .global, .constant, .local, .shared => arch == .amdgcn or is_nvptx,
                     .param => is_nvptx,
                 };
@@ -1211,7 +1211,7 @@ pub const Target = struct {
                     .tcele,
                     .thumb,
                     .thumbeb,
-                    .i386,
+                    .x86,
                     .xcore,
                     .nvptx,
                     .amdil,
@@ -1267,7 +1267,7 @@ pub const Target = struct {
                     .riscv32, .riscv64 => "riscv",
                     .sparc, .sparc64, .sparcel => "sparc",
                     .s390x => "s390x",
-                    .i386, .x86_64 => "x86",
+                    .x86, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
                     .spirv32, .spirv64 => "spir-v",
@@ -1291,7 +1291,7 @@ pub const Target = struct {
                     .sparc, .sparc64, .sparcel => &sparc.all_features,
                     .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &s390x.all_features,
-                    .i386, .x86_64 => &x86.all_features,
+                    .x86, .x86_64 => &x86.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
                     .ve => &ve.all_features,
                     .wasm32, .wasm64 => &wasm.all_features,
@@ -1315,7 +1315,7 @@ pub const Target = struct {
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                     .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
                     .s390x => comptime allCpusFromDecls(s390x.cpu),
-                    .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
                     .ve => comptime allCpusFromDecls(ve.cpu),
                     .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
@@ -1377,7 +1377,7 @@ pub const Target = struct {
                     .sparc, .sparcel => &sparc.cpu.generic,
                     .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &s390x.cpu.generic,
-                    .i386 => &x86.cpu.i386,
+                    .x86 => &x86.cpu.x86,
                     .x86_64 => &x86.cpu.x86_64,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                     .ve => &ve.cpu.generic,
@@ -1392,7 +1392,7 @@ pub const Target = struct {
                     .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                     .riscv32 => &riscv.cpu.baseline_rv32,
                     .riscv64 => &riscv.cpu.baseline_rv64,
-                    .i386 => &x86.cpu.pentium4,
+                    .x86 => &x86.cpu.pentium4,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                     .sparc, .sparcel => &sparc.cpu.v8,
 
@@ -1622,7 +1622,7 @@ pub const Target = struct {
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
             .solaris => return copy(&result, "/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
-                .i386,
+                .x86,
                 .sparc,
                 .sparcel,
                 => return copy(&result, "/lib/ld-linux.so.2"),
@@ -1771,7 +1771,7 @@ pub const Target = struct {
     /// 5c arm     little-endian ARM
     /// 6c amd64   AMD64 and compatibles (e.g., Intel EM64T)
     /// 7c arm64   ARM64 (ARMv8)
-    /// 8c 386     Intel i386, i486, Pentium, etc.
+    /// 8c 386     Intel x86, i486, Pentium, etc.
     /// kc sparc   Sun SPARC
     /// qc power   Power PC
     /// vc mips    big-endian MIPS 3000 family
@@ -1780,7 +1780,7 @@ pub const Target = struct {
             .arm => ".5",
             .x86_64 => ".6",
             .aarch64 => ".7",
-            .i386 => ".8",
+            .x86 => ".8",
             .sparc => ".k",
             .powerpc, .powerpcle => ".q",
             .mips, .mipsel => ".v",
@@ -1815,7 +1815,7 @@ pub const Target = struct {
             .wasm64,
             => 8,
 
-            .i386 => return switch (target.os.tag) {
+            .x86 => return switch (target.os.tag) {
                 .windows, .uefi => 8,
                 else => 4,
             },

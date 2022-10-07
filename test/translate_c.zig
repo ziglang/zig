@@ -1775,7 +1775,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     }
 
     cases.addWithTarget("Calling convention", .{
-        .cpu_arch = .i386,
+        .cpu_arch = .x86,
         .os_tag = .linux,
         .abi = .none,
     },

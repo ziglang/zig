@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
-const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
+const has_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
 extern fn run_c_tests() void;
@@ -153,7 +153,7 @@ export fn zig_bool(x: bool) void {
 //       https://github.com/ziglang/zig/issues/8465
 //
 // For now, we have no way of referring to the _Complex C types from Zig,
-// so our ABI is unavoidably broken on some platforms (such as i386)
+// so our ABI is unavoidably broken on some platforms (such as x86)
 const ComplexFloat = extern struct {
     real: f32,
     imag: f32,
@@ -170,7 +170,7 @@ extern fn c_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble;
 extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
 extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 
-const complex_abi_compatible = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isMIPS() and
+const complex_abi_compatible = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isMIPS() and
     !builtin.cpu.arch.isARM() and !builtin.cpu.arch.isPPC() and !builtin.cpu.arch.isRISCV();
 
 test "C ABI complex float" {
@@ -323,7 +323,7 @@ extern fn c_med_struct_mixed(MedStructMixed) void;
 extern fn c_ret_med_struct_mixed() MedStructMixed;
 
 test "C ABI medium struct of ints and floats" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -356,7 +356,7 @@ extern fn c_small_struct_ints(SmallStructInts) void;
 extern fn c_ret_small_struct_ints() SmallStructInts;
 
 test "C ABI small struct of ints" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -438,7 +438,7 @@ const SplitStructInt = extern struct {
 extern fn c_split_struct_ints(SplitStructInt) void;
 
 test "C ABI split struct of ints" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -466,7 +466,7 @@ extern fn c_split_struct_mixed(SplitStructMixed) void;
 extern fn c_ret_split_struct_mixed() SplitStructMixed;
 
 test "C ABI split struct of ints and floats" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -729,7 +729,7 @@ extern fn c_struct_with_array(StructWithArray) void;
 extern fn c_ret_struct_with_array() StructWithArray;
 
 test "Struct with array as padding." {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -783,7 +783,7 @@ extern fn c_small_vec(SmallVec) void;
 extern fn c_ret_small_vec() SmallVec;
 
 test "small simd vector" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     c_small_vec(.{ 1, 2 });
@@ -820,7 +820,7 @@ extern fn c_ptr_size_float_struct(Vector2) void;
 extern fn c_ret_ptr_size_float_struct() Vector2;
 
 test "C ABI pointer sized float struct" {
-    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;

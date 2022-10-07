@@ -70,7 +70,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .tcele => "tcele",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
-        .i386 => "i386",
+        .x86 => "i386",
         .x86_64 => "x86_64",
         .xcore => "xcore",
         .nvptx => "nvptx",
@@ -282,7 +282,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .tcele => .tcele,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
-        .i386 => .x86,
+        .x86 => .x86,
         .x86_64 => .x86_64,
         .xcore => .xcore,
         .nvptx => .nvptx,
@@ -6195,7 +6195,7 @@ pub const FuncGen = struct {
         // here then we may risk tripping LLVM bugs since anything not used by Clang tends
         // to be buggy and regress often.
         switch (target.cpu.arch) {
-            .x86_64, .i386 => {
+            .x86_64, .x86 => {
                 if (total_i != 0) try llvm_constraints.append(self.gpa, ',');
                 try llvm_constraints.appendSlice(self.gpa, "~{dirflag},~{fpsr},~{flags}");
                 total_i += 3;
@@ -9275,7 +9275,7 @@ pub const FuncGen = struct {
         switch (prefetch.cache) {
             .instruction => switch (target.cpu.arch) {
                 .x86_64,
-                .i386,
+                .x86,
                 .powerpc,
                 .powerpcle,
                 .powerpc64,
@@ -9856,7 +9856,7 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeWebAssemblyAsmPrinter();
             llvm.LLVMInitializeWebAssemblyAsmParser();
         },
-        .i386, .x86_64 => {
+        .x86, .x86_64 => {
             llvm.LLVMInitializeX86Target();
             llvm.LLVMInitializeX86TargetInfo();
             llvm.LLVMInitializeX86TargetMC();
@@ -9968,7 +9968,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         .Stdcall => .X86_StdCall,
         .Fastcall => .X86_FastCall,
         .Vectorcall => return switch (target.cpu.arch) {
-            .i386, .x86_64 => .X86_VectorCall,
+            .x86, .x86_64 => .X86_VectorCall,
             .aarch64, .aarch64_be, .aarch64_32 => .AArch64_VectorCall,
             else => unreachable,
         },
@@ -9977,7 +9977,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         .AAPCS => .ARM_AAPCS,
         .AAPCSVFP => .ARM_AAPCS_VFP,
         .Interrupt => return switch (target.cpu.arch) {
-            .i386, .x86_64 => .X86_INTR,
+            .x86, .x86_64 => .X86_INTR,
             .avr => .AVR_INTR,
             .msp430 => .MSP430_INTR,
             else => unreachable,
@@ -9999,7 +9999,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
 /// Convert a zig-address space to an llvm address space.
 fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: std.Target) c_uint {
     return switch (target.cpu.arch) {
-        .i386, .x86_64 => switch (address_space) {
+        .x86, .x86_64 => switch (address_space) {
             .generic => llvm.address_space.default,
             .gs => llvm.address_space.x86.gs,
             .fs => llvm.address_space.x86.fs,
@@ -10714,7 +10714,7 @@ fn isScalar(ty: Type) bool {
 /// and false if we expect LLVM to crash if it counters an x86_fp80 type.
 fn backendSupportsF80(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64, .i386 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
+        .x86_64, .x86 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
         else => false,
     };
 }

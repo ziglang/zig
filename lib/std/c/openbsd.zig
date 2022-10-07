@@ -1247,7 +1247,7 @@ pub const E = enum(u16) {
 };
 
 const _MAX_PAGE_SHIFT = switch (builtin.cpu.arch) {
-    .i386 => 12,
+    .x86 => 12,
     .sparc64 => 13,
 };
 pub const MINSIGSTKSZ = 1 << _MAX_PAGE_SHIFT;

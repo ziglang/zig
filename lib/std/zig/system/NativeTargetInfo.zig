@@ -199,11 +199,11 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
     //  * 16bit_mode => if the abi is code16
-    //  * 32bit_mode => if the arch is i386
+    //  * 32bit_mode => if the arch is x86
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (cpu_arch) {
-        .i386 => {
+        .x86 => {
             if (!std.Target.x86.featureSetHasAny(cross_target.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
             })) {
@@ -969,7 +969,7 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_ta
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .x86_64, .i386 => {
+        .x86_64, .x86 => {
             return @import("x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
         },
         else => {},
@@ -1019,7 +1019,7 @@ pub fn getExternalExecutor(
         if (host.target.cpu.arch == candidate.target.cpu.arch)
             break :cpu_ok true;
 
-        if (host.target.cpu.arch == .x86_64 and candidate.target.cpu.arch == .i386)
+        if (host.target.cpu.arch == .x86_64 and candidate.target.cpu.arch == .x86)
             break :cpu_ok true;
 
         if (host.target.cpu.arch == .aarch64 and candidate.target.cpu.arch == .arm)
@@ -1068,7 +1068,7 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .i386 => Executor{ .qemu = "qemu-i386" },
+            .x86 => Executor{ .qemu = "qemu-i386" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },

@@ -753,7 +753,7 @@ const LinuxThreadImpl = struct {
         /// https://github.com/ifduyue/musl/search?q=__unmapself
         fn freeAndExit(self: *ThreadCompletion) noreturn {
             switch (target.cpu.arch) {
-                .i386 => asm volatile (
+                .x86 => asm volatile (
                     \\  movl $91, %%eax
                     \\  movl %[ptr], %%ebx
                     \\  movl %[len], %%ecx
@@ -959,10 +959,10 @@ const LinuxThreadImpl = struct {
             else => |e| return e,
         };
 
-        // Prepare the TLS segment and prepare a user_desc struct when needed on i386
+        // Prepare the TLS segment and prepare a user_desc struct when needed on x86
         var tls_ptr = os.linux.tls.prepareTLS(mapped[tls_offset..]);
-        var user_desc: if (target.cpu.arch == .i386) os.linux.user_desc else void = undefined;
-        if (target.cpu.arch == .i386) {
+        var user_desc: if (target.cpu.arch == .x86) os.linux.user_desc else void = undefined;
+        if (target.cpu.arch == .x86) {
             defer tls_ptr = @ptrToInt(&user_desc);
             user_desc = .{
                 .entry_number = os.linux.tls.tls_image.gdt_entry_number,

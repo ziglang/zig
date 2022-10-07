@@ -30,7 +30,7 @@ comptime {
     }
 
     switch (arch) {
-        .i386,
+        .x86,
         .x86_64,
         => {
             @export(zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage });
@@ -69,7 +69,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
                 \\        ret
             );
         },
-        .i386 => {
+        .x86 => {
             // %eax = probe length, %esp = stack pointer
             asm volatile (
                 \\        push   %%ecx
@@ -121,7 +121,7 @@ fn win_probe_stack_only() void {
                 \\         ret
             );
         },
-        .i386 => {
+        .x86 => {
             asm volatile (
                 \\         push   %%ecx
                 \\         push   %%eax
@@ -191,7 +191,7 @@ fn win_probe_stack_adjust_sp() void {
                 \\         ret
             );
         },
-        .i386 => {
+        .x86 => {
             asm volatile (
                 \\         push   %%ecx
                 \\         cmp    $0x1000,%%eax
@@ -243,7 +243,7 @@ pub fn __chkstk() callconv(.Naked) void {
     if (comptime arch.isAARCH64()) {
         @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
     } else switch (arch) {
-        .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
+        .x86 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
         .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
         else => unreachable,
     }

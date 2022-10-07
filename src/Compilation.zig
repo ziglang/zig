@@ -4281,7 +4281,7 @@ pub fn addCCArgs(
                 },
                 .ios, .tvos, .watchos => switch (target.cpu.arch) {
                     // Pass the proper -m<os>-version-min argument for darwin.
-                    .i386, .x86_64 => {
+                    .x86, .x86_64 => {
                         const ver = target.os.version_range.semver.min;
                         try argv.append(try std.fmt.allocPrint(
                             arena,
@@ -4969,7 +4969,7 @@ pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
         .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
         .x86_64 => .stage2_x86_64,
-        .i386 => .stage2_x86,
+        .x86 => .stage2_x86,
         .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,

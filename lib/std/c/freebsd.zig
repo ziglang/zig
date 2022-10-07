@@ -1444,7 +1444,7 @@ pub const E = enum(u16) {
 };
 
 pub const MINSIGSTKSZ = switch (builtin.cpu.arch) {
-    .i386, .x86_64 => 2048,
+    .x86, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };

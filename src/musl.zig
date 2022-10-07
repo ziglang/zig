@@ -262,7 +262,7 @@ pub fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
     switch (arch) {
         .aarch64, .aarch64_be => return "aarch64",
         .arm, .armeb, .thumb, .thumbeb => return "arm",
-        .i386 => return "i386",
+        .x86 => return "i386",
         .mips, .mipsel => return "mips",
         .mips64el, .mips64 => return "mips64",
         .powerpc => return "powerpc",

@@ -35,9 +35,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .windows, .abi = .gnu },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .i386, .os = .linux, .abi = .gnu },
-    .{ .arch = .i386, .os = .linux, .abi = .musl },
-    .{ .arch = .i386, .os = .windows, .abi = .gnu },
+    .{ .arch = .x86, .os = .linux, .abi = .gnu },
+    .{ .arch = .x86, .os = .linux, .abi = .musl },
+    .{ .arch = .x86, .os = .windows, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .musl },
     .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64 },
@@ -137,7 +137,7 @@ pub fn osArchName(target: std.Target) [:0]const u8 {
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
             .riscv32, .riscv64 => "riscv",
             .sparc, .sparcel, .sparc64 => "sparc",
-            .i386, .x86_64 => "x86",
+            .x86, .x86_64 => "x86",
             else => @tagName(target.cpu.arch),
         },
         else => @tagName(target.cpu.arch),
@@ -278,7 +278,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .tcele,
         .thumb,
         .thumbeb,
-        .i386,
+        .x86,
         .x86_64,
         .xcore,
         .nvptx,
@@ -319,7 +319,7 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
 
 pub fn supportsStackProbing(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi and
-        (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
+        (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
 }
 
 pub fn supportsStackProtector(target: std.Target) bool {
@@ -431,7 +431,7 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
 pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64,
-        .i386,
+        .x86,
         .powerpc,
         .powerpc64,
         .powerpc64le,
@@ -550,7 +550,7 @@ pub fn atomicPtrAlignment(
         .tcele,
         .thumb,
         .thumbeb,
-        .i386,
+        .x86,
         .xcore,
         .amdil,
         .hsail,
@@ -655,7 +655,7 @@ pub fn addrSpaceCastIsValid(
 ) bool {
     const arch = target.cpu.arch;
     switch (arch) {
-        .x86_64, .i386 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
+        .x86_64, .x86 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
         .nvptx64, .nvptx, .amdgcn => {
             const to_generic = arch.supportsAddressSpace(from) and to == .generic;
             const from_generic = arch.supportsAddressSpace(to) and from == .generic;

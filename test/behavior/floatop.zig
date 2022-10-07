@@ -5,7 +5,7 @@ const math = std.math;
 const pi = std.math.pi;
 const e = std.math.e;
 const has_f80_rt = switch (builtin.cpu.arch) {
-    .x86_64, .i386 => true,
+    .x86_64, .x86 => true,
     else => false,
 };
 

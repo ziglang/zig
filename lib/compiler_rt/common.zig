@@ -48,7 +48,7 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .x86_64,
     => false,
 
-    .i386 => true,
+    .x86 => true,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
@@ -79,7 +79,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 pub const F16T = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => f16,
     .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
-    .i386, .x86_64 => f16,
+    .x86, .x86_64 => f16,
     else => u16,
 };
 

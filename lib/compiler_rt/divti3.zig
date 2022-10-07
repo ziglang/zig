@@ -9,7 +9,7 @@ pub const panic = common.panic;
 comptime {
     if (builtin.os.tag == .windows) {
         switch (arch) {
-            .i386 => {
+            .x86 => {
                 @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage });
             },
             .x86_64 => {

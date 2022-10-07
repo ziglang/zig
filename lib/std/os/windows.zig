@@ -1750,7 +1750,7 @@ pub fn UnlockFile(
 
 pub fn teb() *TEB {
     return switch (native_arch) {
-        .i386 => asm volatile (
+        .x86 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB),
         ),
@@ -2053,7 +2053,7 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const WINAPI: std.builtin.CallingConvention = if (native_arch == .i386)
+pub const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86)
     .Stdcall
 else
     .C;
@@ -3019,7 +3019,7 @@ pub const EXCEPTION_RECORD = extern struct {
 };
 
 pub usingnamespace switch (native_arch) {
-    .i386 => struct {
+    .x86 => struct {
         pub const FLOATING_SAVE_AREA = extern struct {
             ControlWord: DWORD,
             StatusWord: DWORD,

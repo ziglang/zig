@@ -205,7 +205,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     };
 
     const stack_ctx: StackContext = switch (builtin.cpu.arch) {
-        .i386 => ctx: {
+        .x86 => ctx: {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
             const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
