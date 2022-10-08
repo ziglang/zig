@@ -644,6 +644,8 @@ const WasmDumper = struct {
 
                 if (mem.eql(u8, name, "name")) {
                     try parseDumpNames(reader, writer, data);
+                } else if (mem.eql(u8, name, "producers")) {
+                    try parseDumpProducers(reader, writer, data);
                 }
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
@@ -859,6 +861,40 @@ const WasmDumper = struct {
                     \\index {d}
                     \\name {s}
                 , .{ index, name });
+                try writer.writeByte('\n');
+            }
+        }
+    }
+
+    fn parseDumpProducers(reader: anytype, writer: anytype, data: []const u8) !void {
+        const field_count = try std.leb.readULEB128(u32, reader);
+        try writer.print("fields {d}\n", .{field_count});
+        var current_field: u32 = 0;
+        while (current_field < field_count) : (current_field += 1) {
+            const field_name_length = try std.leb.readULEB128(u32, reader);
+            const field_name = data[reader.context.pos..][0..field_name_length];
+            reader.context.pos += field_name_length;
+
+            const value_count = try std.leb.readULEB128(u32, reader);
+            try writer.print(
+                \\field_name {s}
+                \\values {d}
+            , .{ field_name, value_count });
+            try writer.writeByte('\n');
+            var current_value: u32 = 0;
+            while (current_value < value_count) : (current_value += 1) {
+                const value_length = try std.leb.readULEB128(u32, reader);
+                const value = data[reader.context.pos..][0..value_length];
+                reader.context.pos += value_length;
+
+                const version_length = try std.leb.readULEB128(u32, reader);
+                const version = data[reader.context.pos..][0..version_length];
+                reader.context.pos += version_length;
+
+                try writer.print(
+                    \\value_name {s}
+                    \\version {s}
+                , .{ value, version });
                 try writer.writeByte('\n');
             }
         }
