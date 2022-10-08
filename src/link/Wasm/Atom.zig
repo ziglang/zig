@@ -194,12 +194,14 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             const segment_name = segment_info[symbol.index].outputName(merge_segment);
             const segment_index = wasm_bin.data_segments.get(segment_name).?;
             const segment = wasm_bin.segments.items[segment_index];
-            return target_atom.offset + segment.offset + (relocation.addend orelse 0);
+            const rel_value = @intCast(i32, target_atom.offset + segment.offset) + relocation.addend;
+            return @intCast(u32, rel_value);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32 => {
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
-            return target_atom.offset + (relocation.addend orelse 0);
+            const rel_value = @intCast(i32, target_atom.offset) + relocation.addend;
+            return @intCast(u32, rel_value);
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
@@ -214,7 +216,8 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
                 if (current_atom == target_atom) break;
                 current_atom = current_atom.next.?;
             }
-            return target_atom.offset + offset + (relocation.addend orelse 0);
+            const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
+            return @intCast(u32, rel_value);
         },
     }
 }

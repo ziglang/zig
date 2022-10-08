@@ -606,7 +606,7 @@ fn Parser(comptime ReaderType: type) type {
                     .relocation_type = rel_type_enum,
                     .offset = try leb.readULEB128(u32, reader),
                     .index = try leb.readULEB128(u32, reader),
-                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readULEB128(u32, reader) else null,
+                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readILEB128(i32, reader) else 0,
                 };
                 log.debug("Found relocation: type({s}) offset({d}) index({d}) addend({?d})", .{
                     @tagName(relocation.relocation_type),

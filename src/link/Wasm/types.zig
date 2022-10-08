@@ -12,8 +12,8 @@ pub const Relocation = struct {
     /// When the type is `R_WASM_TYPE_INDEX_LEB`, it represents the index of the type.
     index: u32,
     /// Addend to add to the address.
-    /// This field is only non-null for `R_WASM_MEMORY_ADDR_*`, `R_WASM_FUNCTION_OFFSET_I32` and `R_WASM_SECTION_OFFSET_I32`.
-    addend: ?u32 = null,
+    /// This field is only non-zero for `R_WASM_MEMORY_ADDR_*`, `R_WASM_FUNCTION_OFFSET_I32` and `R_WASM_SECTION_OFFSET_I32`.
+    addend: i32 = 0,
 
     /// All possible relocation types currently existing.
     /// This enum is exhaustive as the spec is WIP and new types
