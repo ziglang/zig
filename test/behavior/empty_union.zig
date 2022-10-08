@@ -3,7 +3,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "switch on empty enum" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const E = enum {};
@@ -29,7 +28,6 @@ test "switch on empty auto numbered tagged union" {
 }
 
 test "switch on empty tagged union" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 

@@ -2409,10 +2409,11 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const is_volatile = f.air.typeOf(ty_op.operand).isVolatilePtr();
 
-    if (!is_volatile and f.liveness.isUnused(inst))
+    const inst_ty = f.air.typeOfIndex(inst);
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() or
+        !is_volatile and f.liveness.isUnused(inst))
         return CValue.none;
 
-    const inst_ty = f.air.typeOfIndex(inst);
     const is_array = inst_ty.zigTypeTag() == .Array;
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
@@ -2565,9 +2566,11 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
 fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     // *a = b;
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs_child_type = f.air.typeOf(bin_op.lhs).childType();
+    if (!lhs_child_type.hasRuntimeBitsIgnoreComptime()) return CValue.none;
+
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_val = try f.resolveInst(bin_op.rhs);
-    const lhs_child_type = f.air.typeOf(bin_op.lhs).childType();
 
     // TODO Sema should emit a different instruction when the store should
     // possibly do the safety 0xaa bytes for undefined.
