@@ -8726,12 +8726,78 @@ pub const FuncGen = struct {
         return self.builder.buildShuffleVector(a, b, llvm_mask_value, "");
     }
 
+    /// Reduce a vector by repeatedly applying `llvm_fn` to produce an accumulated result.
+    ///
+    /// Equivalent to:
+    ///   reduce: {
+    ///     var i: usize = 0;
+    ///     var accum: T = init;
+    ///     while (i < vec.len) : (i += 1) {
+    ///       accum = llvm_fn(accum, vec[i]);
+    ///     }
+    ///     break :reduce accum;
+    ///   }
+    ///
+    fn buildReducedCall(
+        self: *FuncGen,
+        llvm_fn: *llvm.Value,
+        operand_vector: *llvm.Value,
+        vector_len: usize,
+        accum_init: *llvm.Value,
+    ) !*llvm.Value {
+        const llvm_usize_ty = try self.dg.lowerType(Type.usize);
+        const llvm_vector_len = llvm_usize_ty.constInt(vector_len, .False);
+        const llvm_result_ty = accum_init.typeOf();
+
+        // Allocate and initialize our mutable variables
+        const i_ptr = self.buildAlloca(llvm_usize_ty);
+        _ = self.builder.buildStore(llvm_usize_ty.constInt(0, .False), i_ptr);
+        const accum_ptr = self.buildAlloca(llvm_result_ty);
+        _ = self.builder.buildStore(accum_init, accum_ptr);
+
+        // Setup the loop
+        const loop = self.context.appendBasicBlock(self.llvm_func, "ReduceLoop");
+        const loop_exit = self.context.appendBasicBlock(self.llvm_func, "AfterReduce");
+        _ = self.builder.buildBr(loop);
+        {
+            self.builder.positionBuilderAtEnd(loop);
+
+            // while (i < vec.len)
+            const i = self.builder.buildLoad(llvm_usize_ty, i_ptr, "");
+            const cond = self.builder.buildICmp(.ULT, i, llvm_vector_len, "");
+            const loop_then = self.context.appendBasicBlock(self.llvm_func, "ReduceLoopThen");
+
+            _ = self.builder.buildCondBr(cond, loop_then, loop_exit);
+
+            {
+                self.builder.positionBuilderAtEnd(loop_then);
+
+                // accum = f(accum, vec[i]);
+                const accum = self.builder.buildLoad(llvm_result_ty, accum_ptr, "");
+                const element = self.builder.buildExtractElement(operand_vector, i, "");
+                const params = [2]*llvm.Value{ accum, element };
+                const new_accum = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .C, .Auto, "");
+                _ = self.builder.buildStore(new_accum, accum_ptr);
+
+                // i += 1
+                const new_i = self.builder.buildAdd(i, llvm_usize_ty.constInt(1, .False), "");
+                _ = self.builder.buildStore(new_i, i_ptr);
+                _ = self.builder.buildBr(loop);
+            }
+        }
+
+        self.builder.positionBuilderAtEnd(loop_exit);
+        return self.builder.buildLoad(llvm_result_ty, accum_ptr, "");
+    }
+
     fn airReduce(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
         self.builder.setFastMath(want_fast_math);
+        const target = self.dg.module.getTarget();
 
         const reduce = self.air.instructions.items(.data)[inst].reduce;
-        const operand = try self.resolveInst(reduce.operand);
+        var operand = try self.resolveInst(reduce.operand);
+        const operand_ty = self.air.typeOf(reduce.operand);
         const scalar_ty = self.air.typeOfIndex(inst);
 
         // TODO handle the fast math setting
@@ -8742,17 +8808,21 @@ pub const FuncGen = struct {
             .Xor => return self.builder.buildXorReduce(operand),
             .Min => switch (scalar_ty.zigTypeTag()) {
                 .Int => return self.builder.buildIntMinReduce(operand, scalar_ty.isSignedInt()),
-                .Float => return self.builder.buildFPMinReduce(operand),
+                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
+                    return self.builder.buildFPMinReduce(operand);
+                },
                 else => unreachable,
             },
             .Max => switch (scalar_ty.zigTypeTag()) {
                 .Int => return self.builder.buildIntMaxReduce(operand, scalar_ty.isSignedInt()),
-                .Float => return self.builder.buildFPMaxReduce(operand),
+                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
+                    return self.builder.buildFPMaxReduce(operand);
+                },
                 else => unreachable,
             },
             .Add => switch (scalar_ty.zigTypeTag()) {
                 .Int => return self.builder.buildAddReduce(operand),
-                .Float => {
+                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
                     const scalar_llvm_ty = try self.dg.lowerType(scalar_ty);
                     const neutral_value = scalar_llvm_ty.constReal(-0.0);
                     return self.builder.buildFPAddReduce(neutral_value, operand);
@@ -8761,7 +8831,7 @@ pub const FuncGen = struct {
             },
             .Mul => switch (scalar_ty.zigTypeTag()) {
                 .Int => return self.builder.buildMulReduce(operand),
-                .Float => {
+                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
                     const scalar_llvm_ty = try self.dg.lowerType(scalar_ty);
                     const neutral_value = scalar_llvm_ty.constReal(1.0);
                     return self.builder.buildFPMulReduce(neutral_value, operand);
@@ -8769,6 +8839,44 @@ pub const FuncGen = struct {
                 else => unreachable,
             },
         }
+
+        // Reduction could not be performed with intrinsics.
+        // Use a manual loop over a softfloat call instead.
+        var fn_name_buf: [64]u8 = undefined;
+        const float_bits = scalar_ty.floatBits(target);
+        const fn_name = switch (reduce.operation) {
+            .Min => std.fmt.bufPrintZ(&fn_name_buf, "{s}fmin{s}", .{
+                libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
+            }) catch unreachable,
+            .Max => std.fmt.bufPrintZ(&fn_name_buf, "{s}fmax{s}", .{
+                libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
+            }) catch unreachable,
+            .Add => std.fmt.bufPrintZ(&fn_name_buf, "__add{s}f3", .{
+                compilerRtFloatAbbrev(float_bits),
+            }) catch unreachable,
+            .Mul => std.fmt.bufPrintZ(&fn_name_buf, "__mul{s}f3", .{
+                compilerRtFloatAbbrev(float_bits),
+            }) catch unreachable,
+            else => unreachable,
+        };
+        var init_value_payload = Value.Payload.Float_32{
+            .data = switch (reduce.operation) {
+                .Min => std.math.nan(f32),
+                .Max => std.math.nan(f32),
+                .Add => -0.0,
+                .Mul => 1.0,
+                else => unreachable,
+            },
+        };
+
+        const param_llvm_ty = try self.dg.lowerType(scalar_ty);
+        const param_types = [2]*llvm.Type{ param_llvm_ty, param_llvm_ty };
+        const libc_fn = self.getLibcFunction(fn_name, &param_types, param_llvm_ty);
+        const init_value = try self.dg.lowerValue(.{
+            .ty = scalar_ty,
+            .val = Value.initPayload(&init_value_payload.base),
+        });
+        return self.buildReducedCall(libc_fn, operand, operand_ty.vectorLen(), init_value);
     }
 
     fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
