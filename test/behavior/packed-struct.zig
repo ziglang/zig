@@ -585,6 +585,7 @@ test "runtime init of unnamed packed struct type" {
 }
 
 test "packed struct passed to callconv(.C) function" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;

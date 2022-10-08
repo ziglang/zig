@@ -89,7 +89,6 @@ test {
     _ = @import("behavior/bugs/12551.zig");
     _ = @import("behavior/bugs/12644.zig");
     _ = @import("behavior/bugs/12680.zig");
-    _ = @import("behavior/bugs/12776.zig");
     _ = @import("behavior/bugs/12786.zig");
     _ = @import("behavior/bugs/12794.zig");
     _ = @import("behavior/bugs/12801-1.zig");
@@ -187,6 +186,8 @@ test {
         _ = @import("behavior/packed_struct_explicit_backing_int.zig");
         _ = @import("behavior/empty_union.zig");
         _ = @import("behavior/inline_switch.zig");
+        _ = @import("behavior/bugs/12723.zig");
+        _ = @import("behavior/bugs/12776.zig");
     }
 
     if (builtin.os.tag != .wasi) {
