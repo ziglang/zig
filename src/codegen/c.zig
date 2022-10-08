@@ -1694,6 +1694,76 @@ pub const DeclGen = struct {
         try w.writeAll(suffix.items);
     }
 
+    fn renderTagNameFn(dg: *DeclGen, enum_ty: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer buffer.deinit();
+        const bw = buffer.writer();
+
+        const name_slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+
+        try buffer.appendSlice("static ");
+        try dg.renderType(bw, name_slice_ty);
+        const name_begin = buffer.items.len + " ".len;
+        try bw.print(" zig_tagName_{}(", .{typeToCIdentifier(enum_ty, dg.module)});
+        const name_end = buffer.items.len - "(".len;
+        try dg.renderTypeAndName(bw, enum_ty, .{ .identifier = "tag" }, .Const, 0);
+        try buffer.appendSlice(") {\n switch (tag) {\n");
+        for (enum_ty.enumFields().keys()) |name, index| {
+            const name_z = try dg.typedefs.allocator.dupeZ(u8, name);
+            defer dg.typedefs.allocator.free(name_z);
+            const name_bytes = name_z[0 .. name_z.len + 1];
+
+            var tag_val_pl: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, index),
+            };
+            const tag_val = Value.initPayload(&tag_val_pl.base);
+
+            var int_val_pl: Value.Payload.U64 = undefined;
+            const int_val = tag_val.enumToInt(enum_ty, &int_val_pl);
+
+            var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
+            const name_ty = Type.initPayload(&name_ty_pl.base);
+
+            var name_val_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name_bytes };
+            const name_val = Value.initPayload(&name_val_pl.base);
+
+            var len_val_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
+            const len_val = Value.initPayload(&len_val_pl.base);
+
+            try bw.print("  case {}: {{\n   static ", .{try dg.fmtIntLiteral(enum_ty, int_val, .Other)});
+            try dg.renderTypeAndName(bw, name_ty, .{ .identifier = "name" }, .Const, 0);
+            try buffer.appendSlice(" = ");
+            try dg.renderValue(bw, name_ty, name_val, .Other);
+            try buffer.appendSlice(";\n   return (");
+            try dg.renderTypecast(bw, name_slice_ty);
+            try bw.print("){{{}, {}}};\n", .{
+                fmtIdent("name"),
+                try dg.fmtIntLiteral(Type.usize, len_val, .Other),
+            });
+
+            try buffer.appendSlice("  }\n");
+        }
+        try buffer.appendSlice(" }\n while (true) zig_breakpoint();\n}\n");
+
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
+        const name = rendered[name_begin..name_end];
+
+        try dg.typedefs.ensureUnusedCapacity(1);
+        dg.typedefs.putAssumeCapacityNoClobber(
+            try enum_ty.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
+        );
+
+        return name;
+    }
+
+    fn getTagNameFn(dg: *DeclGen, enum_ty: Type) ![]const u8 {
+        return dg.getTypedefName(enum_ty) orelse
+            try dg.renderTagNameFn(enum_ty);
+    }
+
     fn declIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
         switch (tv.val.tag()) {
             .extern_fn => return true,
@@ -1805,25 +1875,22 @@ pub fn genErrDecls(o: *Object) !void {
     o.indent_writer.popIndent();
     try writer.writeAll("};\n");
 
-    const name_prefix = "zig_errorName_";
-    const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len + 1);
+    const name_prefix = "zig_errorName";
+    const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + "_".len + max_name_len + 1);
     defer o.dg.gpa.free(name_buf);
 
-    std.mem.copy(u8, name_buf, name_prefix);
+    std.mem.copy(u8, name_buf, name_prefix ++ "_");
     for (o.dg.module.error_name_list.items) |name| {
-        std.mem.copy(u8, name_buf[name_prefix.len..], name);
-        name_buf[name_prefix.len + name.len] = 0;
+        std.mem.copy(u8, name_buf[name_prefix.len + "_".len ..], name);
+        name_buf[name_prefix.len + "_".len + name.len] = 0;
 
-        const identifier = name_buf[0 .. name_prefix.len + name.len :0];
-        const nameZ = identifier[name_prefix.len..];
+        const identifier = name_buf[0 .. name_prefix.len + "_".len + name.len :0];
+        const name_z = identifier[name_prefix.len + "_".len ..];
 
-        var name_ty_pl = Type.Payload.Len{
-            .base = .{ .tag = .array_u8_sentinel_0 },
-            .data = name.len,
-        };
+        var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
         const name_ty = Type.initPayload(&name_ty_pl.base);
 
-        var name_val_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = nameZ };
+        var name_val_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name_z };
         const name_val = Value.initPayload(&name_val_pl.base);
 
         try writer.writeAll("static ");
@@ -1840,11 +1907,18 @@ pub fn genErrDecls(o: *Object) !void {
     const name_array_ty = Type.initPayload(&name_array_ty_pl.base);
 
     try writer.writeAll("static ");
-    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = "zig_errorName" }, .Const, 0);
+    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = name_prefix }, .Const, 0);
     try writer.writeAll(" = {");
     for (o.dg.module.error_name_list.items) |name, value| {
         if (value != 0) try writer.writeByte(',');
-        try writer.print("{{zig_errorName_{}, {d}u}}", .{ fmtIdent(name), name.len });
+
+        var len_val_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
+        const len_val = Value.initPayload(&len_val_pl.base);
+
+        try writer.print("{{" ++ name_prefix ++ "_{}, {}}}", .{
+            fmtIdent(name),
+            try o.dg.fmtIntLiteral(Type.usize, len_val, .Other),
+        });
     }
     try writer.writeAll("};\n");
 }
@@ -4210,18 +4284,19 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
     const un_op = f.air.instructions.items(.data)[inst].un_op;
-    const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
+    const enum_ty = f.air.typeOf(un_op);
     const operand = try f.resolveInst(un_op);
+
+    const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
+    try writer.print(" = {s}(", .{try f.object.dg.getTagNameFn(enum_ty)});
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
 
-    try writer.writeAll(" = ");
+    try f.object.dg.fwd_decl.writer().writeAll("// This is where the fwd decl for tagName ended up\n");
 
-    _ = operand;
-    _ = local;
-    return f.fail("TODO: C backend: implement airTagName", .{});
-    //try writer.writeAll(";\n");
-    //return local;
+    return local;
 }
 
 fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
