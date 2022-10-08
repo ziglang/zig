@@ -1080,7 +1080,7 @@ pub fn getDeclVAddr(
             .index = target_symbol_index,
             .offset = @intCast(u32, reloc_info.offset),
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
-            .addend = reloc_info.addend,
+            .addend = @intCast(i32, reloc_info.addend),
         });
     }
     // we do not know the final address at this point,
@@ -2001,7 +2001,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
             .index = names_symbol_index,
             .relocation_type = .R_WASM_MEMORY_ADDR_I32,
             .offset = offset,
-            .addend = addend,
+            .addend = @intCast(i32, addend),
         });
         atom.size += @intCast(u32, slice_ty.abiSize(wasm.base.options.target));
         addend += len;
@@ -3433,7 +3433,7 @@ fn emitCodeRelocations(
             try leb.writeULEB128(writer, offset);
             try leb.writeULEB128(writer, symbol_index);
             if (relocation.relocation_type.addendIsPresent()) {
-                try leb.writeULEB128(writer, relocation.addend orelse 0);
+                try leb.writeILEB128(writer, relocation.addend);
             }
             log.debug("Emit relocation: {}", .{relocation});
         }
@@ -3483,7 +3483,7 @@ fn emitDataRelocations(
                 try leb.writeULEB128(writer, offset);
                 try leb.writeULEB128(writer, symbol_index);
                 if (relocation.relocation_type.addendIsPresent()) {
-                    try leb.writeULEB128(writer, relocation.addend orelse 0);
+                    try leb.writeILEB128(writer, relocation.addend);
                 }
                 log.debug("Emit relocation: {}", .{relocation});
             }
