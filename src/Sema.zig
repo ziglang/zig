@@ -6048,6 +6048,7 @@ fn analyzeCall(
         const parent_inst_map = sema.inst_map;
         sema.inst_map = .{};
         defer {
+            sema.src = call_src;
             sema.inst_map.deinit(gpa);
             sema.inst_map = parent_inst_map;
         }
