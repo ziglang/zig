@@ -9960,6 +9960,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                 extra_index += 1;
                 const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                const is_inline = sema.code.extra[extra_index] >> 31 != 0;
                 extra_index += 1;
                 const body = sema.code.extra[extra_index..][0..body_len];
                 extra_index += body_len;
@@ -9968,6 +9969,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 // Validation above ensured these will succeed.
                 const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
                 if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                    if (is_inline) child_block.inline_case_capture = operand;
+
                     if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                     return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                 }
@@ -9981,6 +9984,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 const ranges_len = sema.code.extra[extra_index];
                 extra_index += 1;
                 const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                const is_inline = sema.code.extra[extra_index] >> 31 != 0;
                 extra_index += 1;
                 const items = sema.code.refSlice(extra_index, items_len);
                 extra_index += items_len;
@@ -9991,6 +9995,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     // Validation above ensured these will succeed.
                     const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
                     if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                        if (is_inline) child_block.inline_case_capture = operand;
+
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                     }
@@ -10009,6 +10015,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if ((try sema.compare(block, src, operand_val, .gte, first_tv.val, operand_ty)) and
                         (try sema.compare(block, src, operand_val, .lte, last_tv.val, operand_ty)))
                     {
+                        if (is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                     }
@@ -10018,6 +10025,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             }
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
+        if (special.is_inline) child_block.inline_case_capture = operand;
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
