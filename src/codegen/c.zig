@@ -4331,16 +4331,43 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
-    const inst_ty = f.air.typeOfIndex(inst);
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    const union_ty = f.air.typeOfIndex(inst);
+    const target = f.object.dg.module.getTarget();
+    const layout = union_ty.unionGetLayout(target);
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const field_name = union_obj.fields.keys()[extra.field_index];
+    const payload = try f.resolveInst(extra.init);
 
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
+    const local = try f.allocLocal(union_ty, .Const);
+    try writer.writeAll(" = {");
+    if (union_ty.unionTagTypeSafety()) |tag_ty| {
+        if (layout.tag_size != 0) {
+            const field_index = tag_ty.enumFieldIndex(field_name).?;
 
-    _ = local;
-    _ = ty_pl;
-    return f.fail("TODO: C backend: implement airUnionInit", .{});
+            var tag_val_pl: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, field_index),
+            };
+            const tag_val = Value.initPayload(&tag_val_pl.base);
+
+            var int_val_pl: Value.Payload.U64 = undefined;
+            const int_val = tag_val.enumToInt(tag_ty, &int_val_pl);
+
+            try writer.print(".tag = {}, ", .{try f.fmtIntLiteral(tag_ty, int_val)});
+        }
+        try writer.writeAll(".payload = {");
+    }
+
+    try writer.print(".{ } = ", .{fmtIdent(field_name)});
+    try f.writeCValue(writer, payload);
+
+    if (union_ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
+    try writer.writeAll("};\n");
+
+    return local;
 }
 
 fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
