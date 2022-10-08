@@ -6742,6 +6742,10 @@ static LLVMValueRef ir_render_prefetch(CodeGen *g, Stage1Air *executable, Stage1
         switch (g->zig_target->arch) {
             case ZigLLVM_x86:
             case ZigLLVM_x86_64:
+            case ZigLLVM_ppc:
+            case ZigLLVM_ppcle:
+            case ZigLLVM_ppc64:
+            case ZigLLVM_ppc64le:
                 return nullptr;
             default:
                 break;

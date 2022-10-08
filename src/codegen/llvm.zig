@@ -9168,7 +9168,13 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         switch (prefetch.cache) {
             .instruction => switch (target.cpu.arch) {
-                .x86_64, .i386 => return null,
+                .x86_64,
+                .i386,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                => return null,
                 .arm, .armeb, .thumb, .thumbeb => {
                     switch (prefetch.rw) {
                         .write => return null,
