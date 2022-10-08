@@ -14357,7 +14357,7 @@ fn zirClosureCapture(
     // value only. In such case we preserve the type and use a dummy runtime value.
     const operand = try sema.resolveInst(inst_data.operand);
     const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, operand)) orelse
-        Value.initTag(.generic_poison);
+        Value.initTag(.unreachable_value);
 
     try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, .{
         .ty = try sema.typeOf(operand).copy(sema.perm_arena),
@@ -14394,7 +14394,35 @@ fn zirClosureGet(
         scope = scope.parent.?;
     } else unreachable;
 
-    if (tv.val.tag() == .generic_poison and !block.is_typeof and !block.is_comptime and sema.func != null) {
+    if (tv.val.tag() == .unreachable_value and !block.is_typeof and sema.func == null) {
+        const msg = msg: {
+            const name = name: {
+                const file = sema.owner_decl.getFileScope();
+                const tree = file.getTree(sema.mod.gpa) catch |err| {
+                    // In this case we emit a warning + a less precise source location.
+                    log.warn("unable to load {s}: {s}", .{
+                        file.sub_file_path, @errorName(err),
+                    });
+                    break :name null;
+                };
+                const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+                const token = tree.nodes.items(.main_token)[node];
+                break :name tree.tokenSlice(token);
+            };
+
+            const msg = if (name) |some|
+                try sema.errMsg(block, inst_data.src(), "'{s}' not accessible outside function scope", .{some})
+            else
+                try sema.errMsg(block, inst_data.src(), "variable not accessible outside function scope", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            // TODO add "declared here" note
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (tv.val.tag() == .unreachable_value and !block.is_typeof and !block.is_comptime and sema.func != null) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope();
