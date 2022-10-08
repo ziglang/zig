@@ -1186,7 +1186,6 @@ test "comptime equality of extern unions with same tag" {
 }
 
 test "union tag is set when initiated as a temporary value at runtime" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -1350,7 +1349,6 @@ test "@unionInit uses tag value instead of field index" {
 }
 
 test "union field ptr - zero sized payload" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -1364,7 +1362,6 @@ test "union field ptr - zero sized payload" {
 }
 
 test "union field ptr - zero sized field" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 

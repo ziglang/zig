@@ -162,6 +162,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
+#include <math.h>
 
 #define int128_t __int128
 #define uint128_t unsigned __int128

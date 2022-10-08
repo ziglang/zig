@@ -603,7 +603,6 @@ fn should_not_be_zero(x: f128) !void {
 }
 
 test "128-bit multiplication" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -650,8 +649,6 @@ test "@addWithOverflow" {
 }
 
 test "small int addition" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     var x: u2 = 0;
     try expect(x == 0);
 
