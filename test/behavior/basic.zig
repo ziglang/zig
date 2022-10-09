@@ -383,8 +383,6 @@ fn testTakeAddressOfParameter(f: f32) !void {
 }
 
 test "pointer to void return type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     try testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() anyerror!void {

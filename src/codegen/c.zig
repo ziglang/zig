@@ -386,6 +386,10 @@ pub const DeclGen = struct {
         val: Value,
         decl_index: Decl.Index,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        if (ty.isPtrAtRuntime() and !ty.elemType2().isFnOrHasRuntimeBits()) {
+            return dg.writeCValue(writer, CValue{ .undefined_ptr = ty });
+        }
+
         if (ty.isSlice()) {
             try writer.writeByte('(');
             try dg.renderTypecast(writer, ty);
@@ -404,23 +408,15 @@ pub const DeclGen = struct {
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
         // somewhere and we should let the C compiler tell us about it.
-        if (ty.castPtrToFn() == null) {
-            // Determine if we must pointer cast.
-            if (ty.eql(decl.ty, dg.module)) {
-                try writer.writeByte('&');
-                try dg.renderDeclName(writer, decl_index);
-                return;
-            }
-
+        const need_typecast = if (ty.castPtrToFn()) |_| false else !ty.eql(decl.ty, dg.module);
+        if (need_typecast) {
             try writer.writeAll("((");
             try dg.renderTypecast(writer, ty);
-            try writer.writeAll(")&");
-            try dg.renderDeclName(writer, decl_index);
             try writer.writeByte(')');
-            return;
         }
-
+        try writer.writeByte('&');
         try dg.renderDeclName(writer, decl_index);
+        if (need_typecast) try writer.writeByte(')');
     }
 
     // Renders a "parent" pointer by recursing to the root decl/variable
@@ -1830,7 +1826,7 @@ pub const DeclGen = struct {
 
         if (dg.module.decl_exports.get(decl_index)) |exports| {
             return writer.writeAll(exports[0].options.name);
-        } else if (decl.val.tag() == .extern_fn) {
+        } else if (decl.isExtern()) {
             return writer.writeAll(mem.sliceTo(decl.name, 0));
         } else {
             const gpa = dg.module.gpa;
@@ -1997,7 +1993,7 @@ pub fn genDecl(o: *Object) !void {
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
         try fwd_decl_writer.writeAll(";\n");
 
-        if (variable.init.isUndefDeep()) {
+        if (variable.is_extern or variable.init.isUndefDeep()) {
             return;
         }
 
