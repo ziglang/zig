@@ -598,6 +598,8 @@ test "shr" {
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
+        if (C == u0) return 0;
+
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
@@ -606,6 +608,8 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
+        if (T == u0) return 0;
+
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
             const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
             return x >> ar | x << (1 +% ~ar);
@@ -623,6 +627,7 @@ test "rotr" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+    try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
@@ -639,6 +644,8 @@ test "rotr" {
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
+        if (C == u0) return 0;
+
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
@@ -647,6 +654,8 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
+        if (T == u0) return 0;
+
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
             const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
             return x << ar | x >> 1 +% ~ar;
@@ -664,6 +673,7 @@ test "rotl" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+    try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
