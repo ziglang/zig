@@ -285,6 +285,40 @@ test "vector @splat" {
     comptime try S.doTheTest();
 }
 
+var global_v1 = @splat(8, @as(u1, 1));
+var global_v2 = @splat(8, @as(u2, 1));
+var global_v8 = @splat(8, @as(u8, 1));
+
+test "vectors in data section" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    try expect(global_v1[0] == 1);
+    try expect(global_v1[5] == 1);
+    try expect(global_v2[0] == 1);
+    try expect(global_v2[5] == 1);
+    try expect(global_v8[0] == 1);
+    try expect(global_v8[5] == 1);
+
+    global_v8[0] = 0;
+    global_v8[5] = 0;
+    try expect(global_v8[0] == 0);
+    try expect(global_v8[5] == 0);
+
+    // https://github.com/ziglang/zig/issues/11998
+    //global_v1[0] = 0;
+    //global_v1[5] = 0;
+    //try expect(global_v1[0] == 0);
+    //try expect(global_v1[5] == 0);
+    //global_v2[0] = 0;
+    //global_v2[5] = 0;
+    //try expect(global_v2[0] == 0);
+    //try expect(global_v2[5] == 0);
+}
+
 test "load vector elements via comptime index" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
