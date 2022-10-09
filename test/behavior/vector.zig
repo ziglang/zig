@@ -5,12 +5,6 @@ const math = std.math;
 const expect = std.testing.expect;
 
 test "implicit cast vector to array - bool" {
-    if (builtin.zig_backend == .stage1) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -414,12 +408,6 @@ test "initialize vector which is a struct field" {
 }
 
 test "vector comparison operators" {
-    if (builtin.zig_backend == .stage1) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

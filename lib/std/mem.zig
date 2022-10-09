@@ -331,12 +331,6 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     const C_struct = extern struct {
         x: u32,
         y: u32,
