@@ -2011,10 +2011,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             for (mingw.always_link_libs) |name| {
                 try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
             }
-
-            // LLD might drop some symbols as unused during LTO and GCing, therefore,
-            // we force mark them for resolution here.
-            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, "_tls_index", {});
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
@@ -2060,6 +2056,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (!comp.bin_file.options.link_libc and capable_of_building_zig_libc) {
                 try comp.work_queue.writeItem(.{ .zig_libc = {} });
             }
+        }
+
+        if (target.os.tag == .windows and (!comp.bin_file.options.single_threaded or comp.bin_file.options.link_libc)) {
+            // LLD might drop some symbols as unused during LTO and GCing, therefore,
+            // we force mark them for resolution here.
+            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, "_tls_index", {});
         }
     }
 
