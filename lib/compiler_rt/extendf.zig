@@ -92,6 +92,8 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
     const src_qnan = 1 << (src_sig_bits - 1);
     const src_nan_code = src_qnan - 1;
 
+    const SrcShift = std.math.Log2Int(src_rep_t);
+
     var dst: std.math.F80 = undefined;
 
     // Break a into a sign and representation of the absolute value
@@ -124,7 +126,7 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
 
         dst.fraction = @as(u64, a_abs) << @intCast(u6, dst_sig_bits - src_sig_bits + scale);
         dst.fraction |= dst_int_bit; // bit 64 is always set for normal numbers
-        dst.exp = @truncate(u16, a_abs >> @intCast(u4, src_sig_bits - scale));
+        dst.exp = @truncate(u16, a_abs >> @intCast(SrcShift, src_sig_bits - scale));
         dst.exp ^= 1;
         dst.exp |= dst_exp_bias - src_exp_bias - scale + 1;
     } else {

@@ -1,9 +1,26 @@
+const std = @import("std");
+const math = std.math;
 const builtin = @import("builtin");
 const __extendhfsf2 = @import("extendhfsf2.zig").__extendhfsf2;
 const __extendhftf2 = @import("extendhftf2.zig").__extendhftf2;
 const __extendsftf2 = @import("extendsftf2.zig").__extendsftf2;
 const __extenddftf2 = @import("extenddftf2.zig").__extenddftf2;
+const __extenddfxf2 = @import("extenddfxf2.zig").__extenddfxf2;
 const F16T = @import("./common.zig").F16T;
+
+fn test__extenddfxf2(a: f64, expected: u80) !void {
+    const x = __extenddfxf2(a);
+
+    const rep = @bitCast(u80, x);
+    if (rep == expected)
+        return;
+
+    // test other possible NaN representation(signal NaN)
+    if (math.isNan(@bitCast(f80, expected)) and math.isNan(x))
+        return;
+
+    @panic("__extenddfxf2 test failure");
+}
 
 fn test__extenddftf2(a: f64, expected_hi: u64, expected_lo: u64) !void {
     const x = __extenddftf2(a);
@@ -65,6 +82,33 @@ fn test__extendsftf2(a: f32, expected_hi: u64, expected_lo: u64) !void {
     return error.TestFailure;
 }
 
+test "extenddfxf2" {
+    // qNaN
+    try test__extenddfxf2(makeQNaN64(), 0x7fffc000000000000000);
+
+    // NaN
+    try test__extenddfxf2(makeNaN64(0x7100000000000), 0x7fffe080000000000000);
+    // This is bad?
+
+    // inf
+    try test__extenddfxf2(makeInf64(), 0x7fff8000000000000000);
+
+    // zero
+    try test__extenddfxf2(0.0, 0x0);
+
+    try test__extenddfxf2(0x0.a3456789abcdefp+6, 0x4004a3456789abcdf000);
+
+    try test__extenddfxf2(0x0.edcba987654321fp-8, 0x3ff6edcba98765432000);
+
+    try test__extenddfxf2(0x0.a3456789abcdefp+46, 0x402ca3456789abcdf000);
+
+    try test__extenddfxf2(0x0.edcba987654321fp-44, 0x3fd2edcba98765432000);
+
+    // subnormal
+    try test__extenddfxf2(0x1.8000000000001p-1022, 0x3c01c000000000000800);
+    try test__extenddfxf2(0x1.8000000000002p-1023, 0x3c00c000000000001000);
+}
+
 test "extenddftf2" {
     // qNaN
     try test__extenddftf2(makeQNaN64(), 0x7fff800000000000, 0x0);
@@ -85,6 +129,10 @@ test "extenddftf2" {
     try test__extenddftf2(0x1.23456789abcdefp+45, 0x402c23456789abcd, 0xf000000000000000);
 
     try test__extenddftf2(0x1.edcba987654321fp-45, 0x3fd2edcba9876543, 0x2000000000000000);
+
+    // subnormal
+    try test__extenddftf2(0x1.8p-1022, 0x3c01800000000000, 0x0);
+    try test__extenddftf2(0x1.8p-1023, 0x3c00800000000000, 0x0);
 }
 
 test "extendhfsf2" {
