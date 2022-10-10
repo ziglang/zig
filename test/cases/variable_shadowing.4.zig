@@ -6,5 +6,5 @@ pub fn main() void {
 
 // error
 //
-// :3:16: error: redeclaration of local variable 'i'
+// :3:16: error: capture 'i' shadows local variable from outer scope
 // :2:9: note: previous declaration here

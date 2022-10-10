@@ -7622,6 +7622,10 @@ fn zirErrUnionCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
+    return sema.analyzeErrUnionCode(block, src, operand);
+}
+
+fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) CompileError!Air.Inst.Ref {
     const operand_ty = sema.typeOf(operand);
     if (operand_ty.zigTypeTag() != .ErrorUnion) {
         return sema.fail(block, src, "expected error union type, found '{}'", .{
@@ -9998,6 +10002,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
+    const backend_supports_is_named_enum = sema.mod.comp.bin_file.options.use_llvm;
+
     if (scalar_cases_len + multi_cases_len == 0 and !special.is_inline) {
         if (empty_enum) {
             return Air.Inst.Ref.void_value;
@@ -10007,6 +10013,12 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand)) {
             return Air.Inst.Ref.unreachable_value;
+        }
+        if (backend_supports_is_named_enum and block.wantSafety() and operand_ty.zigTypeTag() == .Enum and
+            (!operand_ty.isNonexhaustiveEnum() or union_originally))
+        {
+            const ok = try block.addUnOp(.is_named_enum_value, operand);
+            try sema.addSafetyCheck(block, ok, .corrupt_switch);
         }
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
@@ -10464,6 +10476,13 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
         case_block.inline_case_capture = .none;
+
+        if (backend_supports_is_named_enum and special.body.len != 0 and block.wantSafety() and
+            operand_ty.zigTypeTag() == .Enum and (!operand_ty.isNonexhaustiveEnum() or union_originally))
+        {
+            const ok = try case_block.addUnOp(.is_named_enum_value, operand);
+            try sema.addSafetyCheck(&case_block, ok, .corrupt_switch);
+        }
 
         const analyze_body = if (union_originally and !special.is_inline)
             for (seen_enum_fields) |seen_field, index| {
@@ -14113,6 +14132,14 @@ fn analyzeCmp(
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
         // numeric types.
         return sema.cmpNumeric(block, src, lhs, rhs, op, lhs_src, rhs_src);
+    }
+    if (is_equality_cmp and lhs_ty.zigTypeTag() == .ErrorUnion and rhs_ty.zigTypeTag() == .ErrorSet) {
+        const casted_lhs = try sema.analyzeErrUnionCode(block, lhs_src, lhs);
+        return sema.cmpSelf(block, src, casted_lhs, rhs, op, lhs_src, rhs_src);
+    }
+    if (is_equality_cmp and lhs_ty.zigTypeTag() == .ErrorSet and rhs_ty.zigTypeTag() == .ErrorUnion) {
+        const casted_rhs = try sema.analyzeErrUnionCode(block, rhs_src, rhs);
+        return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
     }
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });

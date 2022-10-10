@@ -2004,7 +2004,8 @@ fn blockExpr(
         return labeledBlockExpr(gz, scope, rl, block_node, statements);
     }
 
-    try blockExprStmts(gz, scope, statements);
+    var sub_gz = gz.makeSubBlock(scope);
+    try blockExprStmts(&sub_gz, &sub_gz.base, statements);
     return rvalue(gz, rl, .void_value, block_node);
 }
 
@@ -2772,7 +2773,13 @@ fn varDecl(
     }
     const ident_name = try astgen.identAsString(name_token);
 
-    try astgen.detectLocalShadowing(scope, ident_name, name_token, ident_name_raw);
+    try astgen.detectLocalShadowing(
+        scope,
+        ident_name,
+        name_token,
+        ident_name_raw,
+        if (token_tags[var_decl.ast.mut_token] == .keyword_const) .@"local constant" else .@"local variable",
+    );
 
     if (var_decl.ast.init_node == 0) {
         return astgen.failNode(node, "variables must be initialized", .{});
@@ -3502,7 +3509,7 @@ fn fnDecl(
 
                 const param_name = try astgen.identAsString(name_token);
                 if (!is_extern) {
-                    try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes);
+                    try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes, .@"function parameter");
                 }
                 break :blk param_name;
             } else if (!is_extern) {
@@ -5181,7 +5188,7 @@ fn orelseCatchExpr(
         }
         const err_name = try astgen.identAsString(payload);
 
-        try astgen.detectLocalShadowing(scope, err_name, payload, err_str);
+        try astgen.detectLocalShadowing(scope, err_name, payload, err_str, .@"capture");
 
         err_val_scope = .{
             .parent = &else_scope.base,
@@ -5480,7 +5487,7 @@ fn ifExpr(
                 const token_name_str = tree.tokenSlice(token_name_index);
                 if (mem.eql(u8, "_", token_name_str))
                     break :s &then_scope.base;
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str, .@"capture");
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
@@ -5505,7 +5512,7 @@ fn ifExpr(
                 break :s &then_scope.base;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
             const ident_name = try astgen.identAsString(ident_token);
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .@"capture");
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5551,7 +5558,7 @@ fn ifExpr(
                 const error_token_str = tree.tokenSlice(error_token);
                 if (mem.eql(u8, "_", error_token_str))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, error_token_str);
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, error_token_str, .@"capture");
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -5816,7 +5823,7 @@ fn whileExpr(
                     break :s &then_scope.base;
                 const payload_name_loc = payload_token + @boolToInt(payload_is_ref);
                 const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .@"capture");
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
@@ -5843,7 +5850,7 @@ fn whileExpr(
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .@"capture");
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5919,7 +5926,7 @@ fn whileExpr(
                 const ident_bytes = tree.tokenSlice(error_token);
                 if (mem.eql(u8, ident_bytes, "_"))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, ident_bytes);
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, ident_bytes, .@"capture");
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -6092,7 +6099,7 @@ fn forExpr(
                 .lhs = array_ptr,
                 .rhs = index,
             });
-            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name);
+            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .@"capture");
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -6118,7 +6125,7 @@ fn forExpr(
             return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
         }
         const index_name = try astgen.identAsString(index_token);
-        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes);
+        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes, .@"loop index capture");
         index_scope = .{
             .parent = payload_sub_scope,
             .gen_zir = &then_scope,
@@ -6433,7 +6440,7 @@ fn switchExpr(
                     });
                 }
                 const capture_name = try astgen.identAsString(ident);
-                try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice);
+                try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice, .@"capture");
                 capture_val_scope = .{
                     .parent = &case_scope.base,
                     .gen_zir = &case_scope,
@@ -6458,7 +6465,7 @@ fn switchExpr(
                 return astgen.failTok(tag_token, "tag capture on non-inline prong", .{});
             }
             const tag_name = try astgen.identAsString(tag_token);
-            try astgen.detectLocalShadowing(payload_sub_scope, tag_name, tag_token, tag_slice);
+            try astgen.detectLocalShadowing(payload_sub_scope, tag_name, tag_token, tag_slice, .@"switch tag capture");
             tag_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
             try astgen.instructions.append(gpa, .{
                 .tag = .switch_capture_tag,
@@ -11669,6 +11676,7 @@ fn detectLocalShadowing(
     ident_name: u32,
     name_token: Ast.TokenIndex,
     token_bytes: []const u8,
+    id_cat: Scope.IdCat,
 ) !void {
     const gpa = astgen.gpa;
     if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
@@ -11682,6 +11690,7 @@ fn detectLocalShadowing(
     }
 
     var s = scope;
+    var outer_scope = false;
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
@@ -11689,6 +11698,17 @@ fn detectLocalShadowing(
                 const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
                 const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
+                if (outer_scope) {
+                    return astgen.failTokNotes(name_token, "{s} '{s}' shadows {s} from outer scope", .{
+                        @tagName(id_cat), name, @tagName(local_val.id_cat),
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_val.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_val.id_cat), name,
                 }, &[_]u32{
@@ -11707,6 +11727,17 @@ fn detectLocalShadowing(
                 const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
                 const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
+                if (outer_scope) {
+                    return astgen.failTokNotes(name_token, "{s} '{s}' shadows {s} from outer scope", .{
+                        @tagName(id_cat), name, @tagName(local_ptr.id_cat),
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_ptr.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_ptr.id_cat), name,
                 }, &[_]u32{
@@ -11720,6 +11751,7 @@ fn detectLocalShadowing(
             s = local_ptr.parent;
         },
         .namespace => {
+            outer_scope = true;
             const ns = s.cast(Scope.Namespace).?;
             const decl_node = ns.decls.get(ident_name) orelse {
                 s = ns.parent;
@@ -11728,13 +11760,16 @@ fn detectLocalShadowing(
             const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
             const name = try gpa.dupe(u8, name_slice);
             defer gpa.free(name);
-            return astgen.failTokNotes(name_token, "local shadows declaration of '{s}'", .{
-                name,
+            return astgen.failTokNotes(name_token, "{s} shadows declaration of '{s}'", .{
+                @tagName(id_cat), name,
             }, &[_]u32{
                 try astgen.errNoteNode(decl_node, "declared here", .{}),
             });
         },
-        .gen_zir => s = s.cast(GenZir).?.parent,
+        .gen_zir => {
+            s = s.cast(GenZir).?.parent;
+            outer_scope = true;
+        },
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
         .top => break,
     };
@@ -11844,8 +11879,8 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (local_val.name == name_str_index) {
-                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
-                        @tagName(local_val.id_cat), token_bytes,
+                    return astgen.failTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
+                        token_bytes, @tagName(local_val.id_cat),
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_val.token_src,
@@ -11859,8 +11894,8 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
-                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
-                        @tagName(local_ptr.id_cat), token_bytes,
+                    return astgen.failTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
+                        token_bytes, @tagName(local_ptr.id_cat),
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_ptr.token_src,

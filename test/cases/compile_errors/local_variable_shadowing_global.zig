@@ -10,5 +10,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :5:9: error: local shadows declaration of 'Bar'
+// :5:9: error: local variable shadows declaration of 'Bar'
 // :2:1: note: declared here
