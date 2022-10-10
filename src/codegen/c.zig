@@ -62,7 +62,6 @@ const FormatTypeAsCIdentContext = struct {
 };
 
 const ValueRenderLocation = enum {
-    Identifier,
     FunctionArgument,
     Other,
 };
@@ -340,7 +339,7 @@ pub const Function = struct {
     }
 
     fn fmtIntLiteral(f: *Function, ty: Type, val: Value) !std.fmt.Formatter(formatIntLiteral) {
-        return f.object.dg.fmtIntLiteral(ty, val, .Other);
+        return f.object.dg.fmtIntLiteral(ty, val);
     }
 };
 
@@ -533,16 +532,13 @@ pub const DeclGen = struct {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
                 .Bool => return writer.writeAll("false"),
-                .Int,
-                .Enum,
-                .ErrorSet,
-                => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val, location)}),
+                .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val)}),
                 .Float => switch (ty.tag()) {
                     .f32 => return writer.print("zig_bitcast_f32_u32({x})", .{
-                        try dg.fmtIntLiteral(Type.u32, val, location),
+                        try dg.fmtIntLiteral(Type.u32, val),
                     }),
                     .f64 => return writer.print("zig_bitcast_f64_u64({x})", .{
-                        try dg.fmtIntLiteral(Type.u64, val, location),
+                        try dg.fmtIntLiteral(Type.u64, val),
                     }),
                     else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                 },
@@ -554,14 +550,12 @@ pub const DeclGen = struct {
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         const ptr_ty = ty.slicePtrFieldType(&buf);
                         try dg.renderTypecast(writer, ptr_ty);
-                        return writer.print("){x}, {0x}}}", .{
-                            try dg.fmtIntLiteral(Type.usize, val, location),
-                        });
+                        return writer.print("){x}, {0x}}}", .{try dg.fmtIntLiteral(Type.usize, val)});
                     },
                     .Many, .C, .One => {
                         try writer.writeAll("((");
                         try dg.renderTypecast(writer, ty);
-                        return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val, location)});
+                        return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val)});
                     },
                 },
                 .Optional => {
@@ -598,9 +592,7 @@ pub const DeclGen = struct {
 
                         empty = false;
                     }
-                    if (empty) try writer.print("{x}", .{
-                        try dg.fmtIntLiteral(Type.u8, Value.undef, location),
-                    });
+                    if (empty) try writer.print("{x}", .{try dg.fmtIntLiteral(Type.u8, Value.undef)});
 
                     return writer.writeByte('}');
                 },
@@ -613,9 +605,7 @@ pub const DeclGen = struct {
                         if (!field.ty.hasRuntimeBits()) continue;
                         try dg.renderValue(writer, field.ty, val, location);
                         break;
-                    } else try writer.print("{x}", .{
-                        try dg.fmtIntLiteral(Type.u8, Value.undef, location),
-                    });
+                    } else try writer.print("{x}", .{try dg.fmtIntLiteral(Type.u8, Value.undef)});
 
                     return writer.writeByte('}');
                 },
@@ -625,7 +615,7 @@ pub const DeclGen = struct {
                     try writer.writeAll("){ .payload = ");
                     try dg.renderValue(writer, ty.errorUnionPayload(), val, location);
                     return writer.print(", .error = {x} }}", .{
-                        try dg.fmtIntLiteral(ty.errorUnionSet(), Value.undef, location),
+                        try dg.fmtIntLiteral(ty.errorUnionSet(), Value.undef),
                     });
                 },
                 .Array => {
@@ -670,7 +660,7 @@ pub const DeclGen = struct {
                 .decl_ref_mut,
                 .decl_ref,
                 => try dg.renderParentPtr(writer, val, ty),
-                else => try writer.print("{}", .{try dg.fmtIntLiteral(ty, val, location)}),
+                else => try writer.print("{}", .{try dg.fmtIntLiteral(ty, val)}),
             },
             .Float => {
                 if (ty.floatBits(target) <= 64) {
@@ -682,22 +672,20 @@ pub const DeclGen = struct {
                                     .base = .{ .tag = .int_u64 },
                                     .data = @bitCast(u32, val.toFloat(f32)),
                                 };
-                                return writer.print("zig_bitcast_f32_u32({x})", .{try dg.fmtIntLiteral(
-                                    Type.u32,
-                                    Value.initPayload(&bitcast_val_pl.base),
-                                    location,
-                                )});
+                                const bitcast_val = Value.initPayload(&bitcast_val_pl.base);
+                                return writer.print("zig_bitcast_f32_u32({x})", .{
+                                    try dg.fmtIntLiteral(Type.u32, bitcast_val),
+                                });
                             },
                             .f64 => {
                                 var bitcast_val_pl = Value.Payload.U64{
                                     .base = .{ .tag = .int_u64 },
                                     .data = @bitCast(u64, val.toFloat(f64)),
                                 };
-                                return writer.print("zig_bitcast_f32_u32({x})", .{try dg.fmtIntLiteral(
-                                    Type.u64,
-                                    Value.initPayload(&bitcast_val_pl.base),
-                                    location,
-                                )});
+                                const bitcast_val = Value.initPayload(&bitcast_val_pl.base);
+                                return writer.print("zig_bitcast_f64_u64({x})", .{
+                                    try dg.fmtIntLiteral(Type.u64, bitcast_val),
+                                });
                             },
                             else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                         }
@@ -740,7 +728,7 @@ pub const DeclGen = struct {
                 .int_u64, .one => {
                     try writer.writeAll("((");
                     try dg.renderTypecast(writer, ty);
-                    return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val, location)});
+                    return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val)});
                 },
                 .field_ptr,
                 .elem_ptr,
@@ -918,7 +906,7 @@ pub const DeclGen = struct {
 
                     empty = false;
                 }
-                if (empty) try writer.writeByte('0');
+                if (empty) try writer.print("{}", .{try dg.fmtIntLiteral(Type.u8, Value.zero)});
 
                 try writer.writeByte('}');
             },
@@ -1730,7 +1718,7 @@ pub const DeclGen = struct {
             var len_val_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
             const len_val = Value.initPayload(&len_val_pl.base);
 
-            try bw.print("  case {}: {{\n   static ", .{try dg.fmtIntLiteral(enum_ty, int_val, .Other)});
+            try bw.print("  case {}: {{\n   static ", .{try dg.fmtIntLiteral(enum_ty, int_val)});
             try dg.renderTypeAndName(bw, name_ty, .{ .identifier = "name" }, .Const, 0);
             try buffer.appendSlice(" = ");
             try dg.renderValue(bw, name_ty, name_val, .Other);
@@ -1738,7 +1726,7 @@ pub const DeclGen = struct {
             try dg.renderTypecast(bw, name_slice_ty);
             try bw.print("){{{}, {}}};\n", .{
                 fmtIdent("name"),
-                try dg.fmtIntLiteral(Type.usize, len_val, .Other),
+                try dg.fmtIntLiteral(Type.usize, len_val),
             });
 
             try buffer.appendSlice("  }\n");
@@ -1793,7 +1781,7 @@ pub const DeclGen = struct {
             .undefined_ptr => |ty| {
                 try w.writeAll("((");
                 try dg.renderTypecast(w, ty);
-                return w.print("){x})", .{try dg.fmtIntLiteral(Type.usize, Value.undef, .Other)});
+                return w.print("){x})", .{try dg.fmtIntLiteral(Type.usize, Value.undef)});
             },
             .identifier => |ident| return w.print("{ }", .{fmtIdent(ident)}),
             .bytes => |bytes| return w.writeAll(bytes),
@@ -1843,7 +1831,6 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         ty: Type,
         val: Value,
-        location: ValueRenderLocation,
     ) !std.fmt.Formatter(formatIntLiteral) {
         const int_info = ty.intInfo(dg.module.getTarget());
         const c_bits = toCIntBits(int_info.bits);
@@ -1853,7 +1840,6 @@ pub const DeclGen = struct {
             .ty = ty,
             .val = val,
             .mod = dg.module,
-            .location = location,
         } };
     }
 };
@@ -1916,7 +1902,7 @@ pub fn genErrDecls(o: *Object) !void {
 
         try writer.print("{{" ++ name_prefix ++ "_{}, {}}}", .{
             fmtIdent(name),
-            try o.dg.fmtIntLiteral(Type.usize, len_val, .Other),
+            try o.dg.fmtIntLiteral(Type.usize, len_val),
         });
     }
     try writer.writeAll("};\n");
@@ -4415,27 +4401,44 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.air.typeOfIndex(inst);
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
-    const vector_ty = f.air.getRefType(ty_pl.ty);
-    const len = vector_ty.vectorLen();
+    const len = @intCast(usize, inst_ty.arrayLen());
     const elements = @ptrCast([]const Air.Inst.Ref, f.air.extra[ty_pl.payload..][0..len]);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = {");
-    switch (vector_ty.zigTypeTag()) {
-        .Struct => {
-            const tuple = vector_ty.tupleFields();
-            var i: usize = 0;
-            for (elements) |elem, elem_index| {
-                if (tuple.values[elem_index].tag() != .unreachable_value) continue;
-
-                const value = try f.resolveInst(elem);
-                if (i != 0) try writer.writeAll(", ");
-                try f.writeCValue(writer, value);
-                i += 1;
+    switch (inst_ty.zigTypeTag()) {
+        .Array => {
+            const elem_ty = inst_ty.childType();
+            var empty = true;
+            for (elements) |element| {
+                if (empty) try writer.writeAll(", ");
+                try f.writeCValue(writer, try f.resolveInst(element));
+                empty = false;
             }
+            if (inst_ty.sentinel()) |sentinel| {
+                if (empty) try writer.writeAll(", ");
+                try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
+                empty = false;
+            }
+            if (empty) try writer.print("{}", .{try f.fmtIntLiteral(Type.u8, Value.zero)});
         },
-        else => |tag| return f.fail("TODO: C backend: implement airAggregateInit for type {s}", .{@tagName(tag)}),
+        .Struct => {
+            var empty = true;
+            for (elements) |element, index| {
+                if (inst_ty.structFieldValueComptime(index)) |_| continue;
+
+                if (!empty) try writer.writeAll(", ");
+                if (!inst_ty.isTupleOrAnonStruct()) {
+                    try writer.print(".{ } = ", .{fmtIdent(inst_ty.structFieldName(index))});
+                }
+                try f.writeCValue(writer, try f.resolveInst(element));
+                empty = false;
+            }
+            if (empty) try writer.print("{}", .{try f.fmtIntLiteral(Type.u8, Value.zero)});
+        },
+        .Vector => return f.fail("TODO: C backend: implement airAggregateInit for vectors", .{}),
+        else => unreachable,
     }
     try writer.writeAll("};\n");
 
@@ -4706,7 +4709,6 @@ const FormatIntLiteralContext = struct {
     ty: Type,
     val: Value,
     mod: *Module,
-    location: ValueRenderLocation,
 };
 fn formatIntLiteral(
     data: FormatIntLiteralContext,
@@ -4755,13 +4757,6 @@ fn formatIntLiteral(
     } else data.val.toBigInt(&int_buf, target);
     assert(int.fitsInTwosComp(int_info.signedness, int_info.bits));
 
-    if (data.location == .Identifier) {
-        const str = try int.toStringAlloc(allocator, 10, undefined);
-        defer allocator.free(str);
-
-        return writer.writeAll(str);
-    }
-
     const limbs_count_64 = @divExact(64, @bitSizeOf(Limb));
     const c_bits = toCIntBits(int_info.bits) orelse unreachable;
     if (c_bits == 128) {
@@ -4788,7 +4783,6 @@ fn formatIntLiteral(
                 .ty = Type.u64,
                 .val = upper_val,
                 .mod = data.mod,
-                .location = data.location,
             }, fmt, options, writer);
             try writer.writeAll("<<64|");
         }
@@ -4802,7 +4796,6 @@ fn formatIntLiteral(
             .ty = Type.u64,
             .val = lower_val,
             .mod = data.mod,
-            .location = data.location,
         }, fmt, options, writer);
 
         if (have_upper) try writer.writeByte(')');

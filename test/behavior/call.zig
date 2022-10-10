@@ -86,7 +86,6 @@ test "tuple parameters" {
 }
 
 test "result location of function call argument through runtime condition and struct init" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
