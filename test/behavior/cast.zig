@@ -450,7 +450,6 @@ fn castToOptionalTypeError(z: i32) !void {
 
 test "implicitly cast from [0]T to anyerror![]T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testCastZeroArrayToErrSliceMut();
     comptime try testCastZeroArrayToErrSliceMut();
@@ -466,7 +465,6 @@ fn gimmeErrOrSlice() anyerror![]u8 {
 
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -810,7 +808,6 @@ test "peer type resolution: error union after non-error" {
 test "peer cast *[0]T to E![]const T" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var buffer: [5]u8 = "abcde".*;
@@ -825,7 +822,6 @@ test "peer cast *[0]T to E![]const T" {
 test "peer cast *[0]T to []const T" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var buffer: [5]u8 = "abcde".*;
@@ -1131,7 +1127,6 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
 
 test "peer type resolution: [0]u8 and []const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
@@ -1214,7 +1209,6 @@ fn incrementVoidPtrValue(value: ?*anyopaque) void {
 
 test "implicit cast *[0]T to E![]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var x = @as(anyerror![]const u8, &[0]u8{});
     try expect((x catch unreachable).len == 0);
@@ -1386,7 +1380,6 @@ test "coerce undefined single-item pointer of array to error union of slice" {
 }
 
 test "pointer to empty struct literal to mutable slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var x: []i32 = &.{};
     try expect(x.len == 0);
 }

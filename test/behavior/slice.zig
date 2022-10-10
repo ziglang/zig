@@ -169,7 +169,6 @@ test "comptime pointer cast array and then slice" {
 
 test "slicing zero length array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const s1 = ""[0..];
@@ -206,8 +205,6 @@ test "slice string literal has correct type" {
 }
 
 test "result location zero sized array inside struct field implicit cast to slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const E = struct {
         entries: []u32,
     };

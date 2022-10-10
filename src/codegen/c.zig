@@ -393,7 +393,10 @@ pub const DeclGen = struct {
         val: Value,
         decl_index: Decl.Index,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        if (ty.isPtrAtRuntime() and !ty.elemType2().isFnOrHasRuntimeBits()) {
+        const decl = dg.module.declPtr(decl_index);
+        assert(decl.has_tv);
+
+        if (ty.isPtrAtRuntime() and !decl.ty.isFnOrHasRuntimeBits()) {
             return dg.writeCValue(writer, CValue{ .undefined_ptr = ty });
         }
 
@@ -409,8 +412,6 @@ pub const DeclGen = struct {
             return;
         }
 
-        const decl = dg.module.declPtr(decl_index);
-        assert(decl.has_tv);
         // We shouldn't cast C function pointers as this is UB (when you call
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug

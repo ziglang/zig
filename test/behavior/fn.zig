@@ -405,7 +405,6 @@ test "function with inferred error set but returning no error" {
 }
 
 test "import passed byref to function in return type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {

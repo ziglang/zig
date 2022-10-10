@@ -12,7 +12,6 @@ const NodeAligned = struct {
 };
 
 test "struct contains slice of itself" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var other_nodes = [_]Node{
@@ -52,7 +51,6 @@ test "struct contains slice of itself" {
 }
 
 test "struct contains aligned slice of itself" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var other_nodes = [_]NodeAligned{
