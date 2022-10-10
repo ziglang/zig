@@ -7,7 +7,7 @@ const mem = std.mem;
 /// A more basic implementation of std.testing.expectError which
 /// does not require formatter/printing support
 fn expectError(expected_err: anyerror, observed_err_union: anytype) !void {
-    if (observed_err_union) {
+    if (observed_err_union) |_| {
         return error.TestExpectedError;
     } else |err| if (err == expected_err) {
         return; // Success

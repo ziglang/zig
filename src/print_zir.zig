@@ -162,6 +162,7 @@ const Writer = struct {
             .load,
             .ensure_result_used,
             .ensure_result_non_error,
+            .ensure_err_union_payload_void,
             .ret_node,
             .ret_load,
             .resolve_inferred_alloc,
@@ -235,7 +236,6 @@ const Writer = struct {
 
             .ref,
             .ret_tok,
-            .ensure_err_payload_void,
             .closure_capture,
             .switch_capture_tag,
             => try self.writeUnTok(stream, inst),

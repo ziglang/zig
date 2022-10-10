@@ -5664,6 +5664,28 @@ pub const Type = extern union {
         }
     }
 
+    pub fn structFieldIsComptime(ty: Type, index: usize) bool {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout == .Packed) return false;
+                const field = struct_obj.fields.values()[index];
+                return field.is_comptime;
+            },
+            .tuple => {
+                const tuple = ty.castTag(.tuple).?.data;
+                const val = tuple.values[index];
+                return val.tag() != .unreachable_value;
+            },
+            .anon_struct => {
+                const anon_struct = ty.castTag(.anon_struct).?.data;
+                const val = anon_struct.values[index];
+                return val.tag() != .unreachable_value;
+            },
+            else => unreachable,
+        }
+    }
+
     pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, target: Target) u32 {
         const struct_obj = ty.castTag(.@"struct").?.data;
         assert(struct_obj.layout == .Packed);

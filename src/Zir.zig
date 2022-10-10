@@ -402,6 +402,8 @@ pub const Inst = struct {
         /// Emits a compile error if an error is ignored.
         /// Uses the `un_node` field.
         ensure_result_non_error,
+        /// Emits a compile error error union payload is not void.
+        ensure_err_union_payload_void,
         /// Create a `E!T` type.
         /// Uses the `pl_node` field with `Bin` payload.
         error_union_type,
@@ -646,9 +648,6 @@ pub const Inst = struct {
         /// Given a pointer to an error union value, returns the error code. No safety checks.
         /// Uses the `un_node` field.
         err_union_code_ptr,
-        /// Takes a *E!T and raises a compiler error if T != void
-        /// Uses the `un_tok` field.
-        ensure_err_payload_void,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
         /// A switch expression. Uses the `pl_node` union field.
@@ -1060,6 +1059,7 @@ pub const Inst = struct {
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .ensure_err_union_payload_void,
                 .@"export",
                 .export_value,
                 .field_ptr,
@@ -1113,7 +1113,6 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ptr_type,
                 .overflow_arithmetic_ptr,
-                .ensure_err_payload_void,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1282,7 +1281,7 @@ pub const Inst = struct {
                 .dbg_block_end,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .ensure_err_payload_void,
+                .ensure_err_union_payload_void,
                 .set_eval_branch_quota,
                 .atomic_store,
                 .store,
@@ -1615,6 +1614,7 @@ pub const Inst = struct {
                 .elem_val_node = .pl_node,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
+                .ensure_err_union_payload_void = .un_node,
                 .error_union_type = .pl_node,
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
@@ -1677,7 +1677,6 @@ pub const Inst = struct {
                 .err_union_payload_unsafe_ptr = .un_node,
                 .err_union_code = .un_node,
                 .err_union_code_ptr = .un_node,
-                .ensure_err_payload_void = .un_tok,
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
                 .switch_cond = .un_node,
@@ -3051,11 +3050,16 @@ pub const Inst = struct {
             var multi_i: u32 = 0;
             while (true) : (multi_i += 1) {
                 const items_len = zir.extra[extra_index];
-                extra_index += 2;
+                extra_index += 1;
+                const ranges_len = zir.extra[extra_index];
+                extra_index += 1;
                 const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const items = zir.refSlice(extra_index, items_len);
                 extra_index += items_len;
+                // Each range has a start and an end.
+                extra_index += 2 * ranges_len;
+
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 

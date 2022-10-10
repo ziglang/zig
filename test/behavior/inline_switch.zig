@@ -129,3 +129,16 @@ test "inline else int all values" {
         },
     }
 }
+
+test "inline switch capture is set when switch operand is comptime known" {
+    const U2 = union(enum) {
+        a: u32,
+    };
+    var u: U2 = undefined;
+    switch (u) {
+        inline else => |*f, tag| {
+            try expect(@TypeOf(f) == *u32);
+            try expect(tag == .a);
+        },
+    }
+}
