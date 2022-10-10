@@ -791,7 +791,8 @@ pub const DeclGen = struct {
                 }
 
                 if (ty.optionalReprIsPayload()) {
-                    return dg.renderValue(writer, payload_ty, val, location);
+                    const payload_val = if (val.castTag(.opt_payload)) |pl| pl.data else val;
+                    return dg.renderValue(writer, payload_ty, payload_val, location);
                 }
 
                 try writer.writeByte('(');
@@ -1457,7 +1458,7 @@ pub const DeclGen = struct {
                     .c_ulong => try w.writeAll("unsigned long"),
                     .c_longlong => try w.writeAll("long long"),
                     .c_ulonglong => try w.writeAll("unsigned long long"),
-                    .int_signed, .int_unsigned => {
+                    .u29, .int_signed, .int_unsigned => {
                         const info = t.intInfo(target);
                         const sign_prefix = switch (info.signedness) {
                             .signed => "",
@@ -2242,11 +2243,11 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .field_parent_ptr => try airFieldParentPtr(f, inst),
 
             .struct_field_val => try airStructFieldVal(f, inst),
-            .slice_ptr        => try airSliceField(f, inst, ".ptr;\n"),
-            .slice_len        => try airSliceField(f, inst, ".len;\n"),
+            .slice_ptr        => try airSliceField(f, inst, " = ", ".ptr;\n"),
+            .slice_len        => try airSliceField(f, inst, " = ", ".len;\n"),
 
-            .ptr_slice_len_ptr => try airPtrSliceFieldPtr(f, inst, ".len;\n"),
-            .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
+            .ptr_slice_len_ptr => try airSliceField(f, inst, " = &", ".len;\n"),
+            .ptr_slice_ptr_ptr => try airSliceField(f, inst, " = &", ".ptr;\n"),
 
             .ptr_elem_val       => try airPtrElemVal(f, inst),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
@@ -2306,7 +2307,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
     try writer.writeByte('}');
 }
 
-fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
+fn airSliceField(f: *Function, inst: Air.Inst.Index, prefix: []const u8, suffix: []const u8) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
@@ -2314,25 +2315,10 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
+    try writer.writeAll(prefix);
     try f.writeCValue(writer, operand);
     try writer.writeAll(suffix);
     return local;
-}
-
-fn airPtrSliceFieldPtr(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const operand = try f.resolveInst(ty_op.operand);
-    const writer = f.object.writer();
-
-    _ = writer;
-    _ = operand;
-    _ = suffix;
-
-    return f.fail("TODO: C backend: airPtrSliceFieldPtr", .{});
 }
 
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -3581,7 +3567,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         // for the string, we still use the next u32 for the null terminator.
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-        try f.writeCValueDeref(writer, if (output == .none) .{ .local_ref = local.local } else try f.resolveInst(output));
+        try f.writeCValueDeref(writer, if (output == .none) CValue{
+            .local_ref = local.local,
+        } else try f.resolveInst(output));
         try writer.writeAll(" = ");
         try f.writeCValue(writer, .{ .identifier = name });
         try writer.writeAll(";\n");

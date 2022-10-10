@@ -1260,7 +1260,6 @@ test "cast between [*c]T and ?[*:0]T on fn parameter" {
 var global_struct: struct { f0: usize } = undefined;
 test "assignment to optional pointer result loc" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var foo: struct { ptr: ?*anyopaque } = .{ .ptr = &global_struct };
