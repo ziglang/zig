@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <complex.h>
 
 void zig_panic();
 
@@ -49,6 +50,13 @@ int64_t zig_ret_i64();
 void zig_ptr(void *);
 
 void zig_bool(bool);
+
+// Note: These two functions match the signature of __mulsc3 and __muldc3 in compiler-rt (and libgcc)
+float complex zig_cmultf_comp(float a_r, float a_i, float b_r, float b_i);
+double complex zig_cmultd_comp(double a_r, double a_i, double b_r, double b_i);
+
+float complex zig_cmultf(float complex a, float complex b);
+double complex zig_cmultd(double complex a, double complex b);
 
 struct BigStruct {
     uint64_t a;
@@ -166,6 +174,43 @@ void run_c_tests(void) {
     zig_ptr((void*)0xdeadbeefL);
 
     zig_bool(true);
+
+    // TODO: Resolve https://github.com/ziglang/zig/issues/8465
+    //{
+    //    float complex a = 1.25f + I * 2.6f;
+    //    float complex b = 11.3f - I * 1.5f;
+    //    float complex z = zig_cmultf(a, b);
+    //    assert_or_panic(creal(z) == 1.5f);
+    //    assert_or_panic(cimag(z) == 13.5f);
+    //}
+
+    {
+        double complex a = 1.25 + I * 2.6;
+        double complex b = 11.3 - I * 1.5;
+        double complex z = zig_cmultd(a, b);
+        assert_or_panic(creal(z) == 1.5);
+        assert_or_panic(cimag(z) == 13.5);
+    }
+
+    {
+        float a_r = 1.25f;
+        float a_i = 2.6f;
+        float b_r = 11.3f;
+        float b_i = -1.5f;
+        float complex z = zig_cmultf_comp(a_r, a_i, b_r, b_i);
+        assert_or_panic(creal(z) == 1.5f);
+        assert_or_panic(cimag(z) == 13.5f);
+    }
+
+    {
+        double a_r = 1.25;
+        double a_i = 2.6;
+        double b_r = 11.3;
+        double b_i = -1.5;
+        double complex z = zig_cmultd_comp(a_r, a_i, b_r, b_i);
+        assert_or_panic(creal(z) == 1.5);
+        assert_or_panic(cimag(z) == 13.5);
+    }
 
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
@@ -319,6 +364,42 @@ void c_five_floats(float a, float b, float c, float d, float e) {
     assert_or_panic(c == 3.0);
     assert_or_panic(d == 4.0);
     assert_or_panic(e == 5.0);
+}
+
+float complex c_cmultf_comp(float a_r, float a_i, float b_r, float b_i) {
+    assert_or_panic(a_r == 1.25f);
+    assert_or_panic(a_i == 2.6f);
+    assert_or_panic(b_r == 11.3f);
+    assert_or_panic(b_i == -1.5f);
+
+    return 1.5f + I * 13.5f;
+}
+
+double complex c_cmultd_comp(double a_r, double a_i, double b_r, double b_i) {
+    assert_or_panic(a_r == 1.25);
+    assert_or_panic(a_i == 2.6);
+    assert_or_panic(b_r == 11.3);
+    assert_or_panic(b_i == -1.5);
+
+    return 1.5 + I * 13.5;
+}
+
+float complex c_cmultf(float complex a, float complex b) {
+    assert_or_panic(creal(a) == 1.25f);
+    assert_or_panic(cimag(a) == 2.6f);
+    assert_or_panic(creal(b) == 11.3f);
+    assert_or_panic(cimag(b) == -1.5f);
+
+    return 1.5f + I * 13.5f;
+}
+
+double complex c_cmultd(double complex a, double complex b) {
+    assert_or_panic(creal(a) == 1.25);
+    assert_or_panic(cimag(a) == 2.6);
+    assert_or_panic(creal(b) == 11.3);
+    assert_or_panic(cimag(b) == -1.5);
+
+    return 1.5 + I * 13.5;
 }
 
 void c_big_struct(struct BigStruct x) {

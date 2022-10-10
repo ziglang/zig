@@ -145,6 +145,101 @@ export fn zig_bool(x: bool) void {
     expect(x) catch @panic("test failure: zig_bool");
 }
 
+// TODO: Replace these with the correct types once we resolve
+//       https://github.com/ziglang/zig/issues/8465
+//
+// For now, we have no way of referring to the _Complex C types from Zig,
+// so our ABI is unavoidably broken on some platforms (such as i386)
+const ComplexFloat = extern struct {
+    real: f32,
+    imag: f32,
+};
+const ComplexDouble = extern struct {
+    real: f64,
+    imag: f64,
+};
+
+// Note: These two functions match the signature of __mulsc3 and __muldc3 in compiler-rt (and libgcc)
+extern fn c_cmultf_comp(a_r: f32, a_i: f32, b_r: f32, b_i: f32) ComplexFloat;
+extern fn c_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble;
+
+extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
+extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
+
+test "C ABI complex float" {
+    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
+
+    const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
+    const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
+
+    const z = c_cmultf(a, b);
+    expect(z.real == 1.5) catch @panic("test failure: zig_complex_float 1");
+    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_float 2");
+}
+
+test "C ABI complex float by component" {
+    const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
+    const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
+
+    const z2 = c_cmultf_comp(a.real, a.imag, b.real, b.imag);
+    expect(z2.real == 1.5) catch @panic("test failure: zig_complex_float 3");
+    expect(z2.imag == 13.5) catch @panic("test failure: zig_complex_float 4");
+}
+
+test "C ABI complex double" {
+    const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
+    const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
+
+    const z = c_cmultd(a, b);
+    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 1");
+    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 2");
+}
+
+test "C ABI complex double by component" {
+    const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
+    const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
+
+    const z = c_cmultd_comp(a.real, a.imag, b.real, b.imag);
+    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 3");
+    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 4");
+}
+
+export fn zig_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat {
+    expect(a.real == 1.25) catch @panic("test failure: zig_cmultf 1");
+    expect(a.imag == 2.6) catch @panic("test failure: zig_cmultf 2");
+    expect(b.real == 11.3) catch @panic("test failure: zig_cmultf 3");
+    expect(b.imag == -1.5) catch @panic("test failure: zig_cmultf 4");
+
+    return .{ .real = 1.5, .imag = 13.5 };
+}
+
+export fn zig_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble {
+    expect(a.real == 1.25) catch @panic("test failure: zig_cmultd 1");
+    expect(a.imag == 2.6) catch @panic("test failure: zig_cmultd 2");
+    expect(b.real == 11.3) catch @panic("test failure: zig_cmultd 3");
+    expect(b.imag == -1.5) catch @panic("test failure: zig_cmultd 4");
+
+    return .{ .real = 1.5, .imag = 13.5 };
+}
+
+export fn zig_cmultf_comp(a_r: f32, a_i: f32, b_r: f32, b_i: f32) ComplexFloat {
+    expect(a_r == 1.25) catch @panic("test failure: zig_cmultf_comp 1");
+    expect(a_i == 2.6) catch @panic("test failure: zig_cmultf_comp 2");
+    expect(b_r == 11.3) catch @panic("test failure: zig_cmultf_comp 3");
+    expect(b_i == -1.5) catch @panic("test failure: zig_cmultf_comp 4");
+
+    return .{ .real = 1.5, .imag = 13.5 };
+}
+
+export fn zig_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble {
+    expect(a_r == 1.25) catch @panic("test failure: zig_cmultd_comp 1");
+    expect(a_i == 2.6) catch @panic("test failure: zig_cmultd_comp 2");
+    expect(b_r == 11.3) catch @panic("test failure: zig_cmultd_comp 3");
+    expect(b_i == -1.5) catch @panic("test failure: zig_cmultd_comp 4");
+
+    return .{ .real = 1.5, .imag = 13.5 };
+}
+
 const BigStruct = extern struct {
     a: u64,
     b: u64,
