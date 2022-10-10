@@ -907,7 +907,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         , &[_][]const u8{
             \\pub extern fn foo() void;
             \\pub export fn bar() void {
-            \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, foo);
+            \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, &foo);
             \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @intToPtr(?*const fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
             \\    _ = @TypeOf(typed_func_ptr);
             \\}
@@ -2726,7 +2726,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[@intCast(c_uint, index)];
         \\}
         ,
-        \\pub const ACCESS = array[@as(c_int, 2)];
+        \\pub const ACCESS = array[@intCast(usize, @as(c_int, 2))];
     });
 
     cases.add("cast signed array index to unsigned",
@@ -2956,8 +2956,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    return 0;
             \\}
             \\pub export fn bar() void {
-            \\    var f: ?*const fn () callconv(.C) void = foo;
-            \\    var b: ?*const fn () callconv(.C) c_int = baz;
+            \\    var f: ?*const fn () callconv(.C) void = &foo;
+            \\    var b: ?*const fn () callconv(.C) c_int = &baz;
             \\    f.?();
             \\    f.?();
             \\    foo();
@@ -3780,7 +3780,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("Demote function that dereference types that contain opaque type",
         \\struct inner {
-        \\    _Atomic int a;            
+        \\    _Atomic int a;
         \\};
         \\struct outer {
         \\    int thing;
