@@ -274,6 +274,13 @@ pub const Function = struct {
         }
     }
 
+    fn wantSafety(f: *Function) bool {
+        return switch (f.object.dg.module.optimizeMode()) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        };
+    }
+
     fn allocLocalValue(f: *Function) CValue {
         const result = f.next_local_index;
         f.next_local_index += 1;
@@ -528,9 +535,7 @@ pub const DeclGen = struct {
                 .Int,
                 .Enum,
                 .ErrorSet,
-                => return writer.print("{x}", .{
-                    try dg.fmtIntLiteral(ty, val, location),
-                }),
+                => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val, location)}),
                 .Float => switch (ty.tag()) {
                     .f32 => return writer.print("zig_bitcast_f32_u32({x})", .{
                         try dg.fmtIntLiteral(Type.u32, val, location),
@@ -2619,16 +2624,13 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
-    switch (f.object.dg.module.optimizeMode()) {
-        .Debug, .ReleaseSafe => {
-            const writer = f.object.writer();
-            try writer.writeAll("memset(");
-            try f.writeCValue(writer, dest_ptr);
-            try writer.print(", {x}, sizeof(", .{try f.fmtIntLiteral(Type.u8, Value.undef)});
-            try f.writeCValueDeref(writer, dest_ptr);
-            try writer.writeAll("));\n");
-        },
-        .ReleaseFast, .ReleaseSmall => {},
+    if (f.wantSafety()) {
+        const writer = f.object.writer();
+        try writer.writeAll("memset(");
+        try f.writeCValue(writer, dest_ptr);
+        try writer.print(", {x}, sizeof(", .{try f.fmtIntLiteral(Type.u8, Value.undef)});
+        try f.writeCValueDeref(writer, dest_ptr);
+        try writer.writeAll("));\n");
     }
     return CValue.none;
 }
@@ -3463,29 +3465,23 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
     if (!is_volatile and f.liveness.isUnused(inst)) return CValue.none;
 
-    if (outputs.len > 1) {
-        return f.fail("TODO implement codegen for asm with more than 1 output", .{});
-    }
-
-    const output_constraint: ?[]const u8 = for (outputs) |output| {
-        if (output != .none) {
-            return f.fail("TODO implement codegen for non-expr asm", .{});
-        }
-        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-        break constraint;
-    } else null;
-
     const writer = f.object.writer();
-    try writer.writeAll("{\n");
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = if (inst_ty.hasRuntimeBitsIgnoreComptime()) local: {
+        const local = try f.allocLocal(inst_ty, .Mut);
+        if (f.wantSafety()) {
+            try writer.writeAll(" = ");
+            try f.object.dg.renderValue(writer, inst_ty, Value.undef, .Other);
+        }
+        try writer.writeAll(";\n");
+        break :local local;
+    } else .none;
 
-    const inputs_extra_begin = extra_i;
-    for (inputs) |input, i| {
+    try writer.writeAll("{\n");
+    f.object.indent_writer.pushIndent();
+
+    const constraints_extra_begin = extra_i;
+    for (outputs) |output| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3493,24 +3489,89 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         // for the string, we still use the next u32 for the null terminator.
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-        if (constraint[0] == '{' and constraint[constraint.len - 1] == '}') {
-            const reg = constraint[1 .. constraint.len - 1];
-            const arg_c_value = try f.resolveInst(input);
-            try writer.writeAll("register ");
-            try f.renderType(writer, f.air.typeOf(input));
+        const output_ty = if (output == .none) inst_ty else f.air.typeOf(output).childType();
+        try writer.writeAll("register ");
+        try f.object.dg.renderTypeAndName(writer, output_ty, .{ .identifier = name }, .Mut, 0);
+        if (std.mem.startsWith(u8, constraint, "={") and std.mem.endsWith(u8, constraint, "}")) {
+            try writer.writeAll(" __asm(\"");
+            try writer.writeAll(constraint["={".len .. constraint.len - "}".len]);
+            try writer.writeAll("\")");
+        } else if (constraint.len < 2 or constraint[0] != '=') {
+            return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
+        }
+        if (f.wantSafety()) {
+            try writer.writeAll(" = ");
+            try f.object.dg.renderValue(writer, output_ty, Value.undef, .Other);
+        }
+        try writer.writeAll(";\n");
+    }
+    for (inputs) |input| {
+        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
+        const constraint = std.mem.sliceTo(extra_bytes, 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            try writer.print(" {s}_constant __asm__(\"{s}\") = ", .{ reg, reg });
-            try f.writeCValue(writer, arg_c_value);
-            try writer.writeAll(";\n");
-        } else {
-            try writer.writeAll("register ");
-            try f.renderType(writer, f.air.typeOf(input));
-            try writer.print(" input_{d} = ", .{i});
-            try f.writeCValue(writer, try f.resolveInst(input));
-            try writer.writeAll(";\n");
+        const input_ty = f.air.typeOf(input);
+        try writer.writeAll("register ");
+        try f.object.dg.renderTypeAndName(writer, input_ty, .{ .identifier = name }, .Const, 0);
+        if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
+            try writer.writeAll(" __asm(\"");
+            try writer.writeAll(constraint["{".len .. constraint.len - "}".len]);
+            try writer.writeAll("\")");
+        } else if (constraint.len < 1 or std.mem.indexOfScalar(u8, "=+&%", constraint[0]) != null) {
+            return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
+        }
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, try f.resolveInst(input));
+        try writer.writeAll(";\n");
+    }
+    {
+        var clobber_i: u32 = 0;
+        while (clobber_i < clobbers_len) : (clobber_i += 1) {
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
         }
     }
+    const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
 
+    try writer.writeAll("__asm");
+    if (is_volatile) try writer.writeAll(" volatile");
+    try writer.print("({s}", .{fmtStringLiteral(asm_source)});
+
+    extra_i = constraints_extra_begin;
+    try writer.writeByte(':');
+    for (outputs) |_, index| {
+        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
+        const constraint = std.mem.sliceTo(extra_bytes, 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (index > 0) try writer.writeByte(',');
+        try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[1] == '{') "=r" else constraint)});
+        try f.writeCValue(writer, .{ .identifier = name });
+        try writer.writeByte(')');
+    }
+    try writer.writeByte(':');
+    for (inputs) |_, index| {
+        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
+        const constraint = std.mem.sliceTo(extra_bytes, 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (index > 0) try writer.writeByte(',');
+        try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[0] == '{') "r" else constraint)});
+        try f.writeCValue(writer, .{ .identifier = name });
+        try writer.writeByte(')');
+    }
+    try writer.writeByte(':');
     {
         var clobber_i: u32 = 0;
         while (clobber_i < clobbers_len) : (clobber_i += 1) {
@@ -3519,52 +3580,33 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
 
-            // TODO honor these
-        }
-    }
+            if (clobber.len == 0) continue;
 
-    const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
-
-    const volatile_string: []const u8 = if (is_volatile) "volatile " else "";
-    try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, asm_source });
-    if (output_constraint) |_| {
-        return f.fail("TODO: CBE inline asm output", .{});
-    }
-    if (inputs.len > 0) {
-        if (output_constraint == null) {
-            try writer.writeAll(" :");
-        }
-        try writer.writeAll(": ");
-        extra_i = inputs_extra_begin;
-        for (inputs) |_, index| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-            if (constraint[0] == '{' and constraint[constraint.len - 1] == '}') {
-                const reg = constraint[1 .. constraint.len - 1];
-                if (index > 0) {
-                    try writer.writeAll(", ");
-                }
-                try writer.print("\"r\"({s}_constant)", .{reg});
-            } else {
-                if (index > 0) {
-                    try writer.writeAll(", ");
-                }
-                try writer.print("\"r\"(input_{d})", .{index});
-            }
+            if (clobber_i > 0) try writer.writeByte(',');
+            try writer.print(" {s}", .{fmtStringLiteral(clobber)});
         }
     }
     try writer.writeAll(");\n");
+
+    extra_i = constraints_extra_begin;
+    for (outputs) |output| {
+        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
+        const constraint = std.mem.sliceTo(extra_bytes, 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        try f.writeCValueDeref(writer, if (output == .none) .{ .local_ref = local.local } else try f.resolveInst(output));
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, .{ .identifier = name });
+        try writer.writeAll(";\n");
+    }
+
+    f.object.indent_writer.popIndent();
     try writer.writeAll("}\n");
 
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
-
-    return f.fail("TODO: C backend: inline asm expression result used", .{});
+    return local;
 }
 
 fn airIsNull(
@@ -4632,6 +4674,34 @@ fn signAbbrev(signedness: std.builtin.Signedness) u8 {
         .signed => 'i',
         .unsigned => 'u',
     };
+}
+
+fn formatStringLiteral(
+    str: []const u8,
+    comptime fmt: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
+    try writer.writeByte('\"');
+    for (str) |c| switch (c) {
+        7 => try writer.writeAll("\\a"),
+        8 => try writer.writeAll("\\b"),
+        '\t' => try writer.writeAll("\\t"),
+        '\n' => try writer.writeAll("\\n"),
+        11 => try writer.writeAll("\\v"),
+        12 => try writer.writeAll("\\f"),
+        '\r' => try writer.writeAll("\\r"),
+        '"', '\'', '?', '\\' => try writer.print("\\{c}", .{c}),
+        else => switch (c) {
+            ' '...'~' => try writer.writeByte(c),
+            else => try writer.print("\\{o:0>3}", .{c}),
+        },
+    };
+    try writer.writeByte('\"');
+}
+fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
+    return .{ .data = str };
 }
 
 const FormatIntLiteralContext = struct {
