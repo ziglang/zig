@@ -1067,6 +1067,8 @@ pub const DeclGen = struct {
     }
 
     fn renderSliceTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        std.debug.assert(t.sentinel() == null); // expected canonical type
+
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
         const bw = buffer.writer();
@@ -1078,22 +1080,12 @@ pub const DeclGen = struct {
         const ptr_name = CValue{ .bytes = "ptr" };
         try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, 0);
 
-        const ptr_sentinel = ptr_type.ptrInfo().data.sentinel;
-        const child_type = t.childType();
-
         try bw.writeAll("; size_t len; } ");
         const name_begin = buffer.items.len;
         try bw.print("zig_{c}_{}", .{
             @as(u8, if (t.isConstPtr()) 'L' else 'M'),
-            typeToCIdentifier(child_type, dg.module),
+            typeToCIdentifier(t.childType(), dg.module),
         });
-        if (ptr_sentinel) |s| {
-            var sentinel_buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
-            defer sentinel_buffer.deinit();
-
-            try dg.renderValue(sentinel_buffer.writer(), child_type, s, .Identifier);
-            try bw.print("_s_{}", .{fmtIdent(sentinel_buffer.items)});
-        }
         const name_end = buffer.items.len;
         try bw.writeAll(";\n");
 
@@ -1351,28 +1343,21 @@ pub const DeclGen = struct {
     }
 
     fn renderArrayTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        const info = t.arrayInfo();
+        std.debug.assert(info.sentinel == null); // expected canonical type
+
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
         const bw = buffer.writer();
 
-        const elem_type = t.elemType();
-
         try bw.writeAll("typedef ");
-        try dg.renderType(bw, elem_type);
+        try dg.renderType(bw, info.elem_type);
 
         const name_begin = buffer.items.len + " ".len;
-        try bw.print(" zig_A_{}_{d}", .{ typeToCIdentifier(elem_type, dg.module), t.arrayLen() });
-        if (t.sentinel()) |s| {
-            var sentinel_buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
-            defer sentinel_buffer.deinit();
-
-            try dg.renderValue(sentinel_buffer.writer(), elem_type, s, .Identifier);
-            try bw.print("_s_{}", .{fmtIdent(sentinel_buffer.items)});
-        }
+        try bw.print(" zig_A_{}_{d}", .{ typeToCIdentifier(info.elem_type, dg.module), info.len });
         const name_end = buffer.items.len;
 
-        const c_len = t.arrayLenIncludingSentinel();
-        try bw.print("[{d}];\n", .{if (c_len > 0) c_len else 1});
+        try bw.print("[{d}];\n", .{if (info.len > 0) info.len else 1});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -1509,8 +1494,14 @@ pub const DeclGen = struct {
             },
             .Pointer => {
                 if (t.isSlice()) {
-                    const name = dg.getTypedefName(t) orelse
-                        try dg.renderSliceTypedef(t);
+                    var slice_ty_pl = Type.Payload.ElemType{
+                        .base = .{ .tag = if (t.ptrIsMutable()) .mut_slice else .const_slice },
+                        .data = t.childType(),
+                    };
+                    const slice_ty = Type.initPayload(&slice_ty_pl.base);
+
+                    const name = dg.getTypedefName(slice_ty) orelse
+                        try dg.renderSliceTypedef(slice_ty);
 
                     return w.writeAll(name);
                 }
@@ -1541,8 +1532,14 @@ pub const DeclGen = struct {
                 return w.writeAll(" *");
             },
             .Array => {
-                const name = dg.getTypedefName(t) orelse
-                    try dg.renderArrayTypedef(t);
+                var array_ty_pl = Type.Payload.Array{ .base = .{ .tag = .array }, .data = .{
+                    .len = t.arrayLenIncludingSentinel(),
+                    .elem_type = t.childType(),
+                } };
+                const array_ty = Type.initPayload(&array_ty_pl.base);
+
+                const name = dg.getTypedefName(array_ty) orelse
+                    try dg.renderArrayTypedef(array_ty);
 
                 return w.writeAll(name);
             },
