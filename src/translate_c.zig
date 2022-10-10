@@ -6496,7 +6496,11 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
             .LBracket => {
-                const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                const index_val = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                const index = try Tag.int_cast.create(c.arena, .{
+                    .lhs = try Tag.type.create(c.arena, "usize"),
+                    .rhs = index_val,
+                });
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
                 try m.skip(c, .RBracket);
             },
