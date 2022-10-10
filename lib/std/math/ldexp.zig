@@ -102,10 +102,16 @@ test "math.ldexp" {
         try expect(ldexp(math.floatTrueMin(T), 0) > 0.0);
         try expect(ldexp(math.floatTrueMin(T), -1) == 0.0);
 
+        // Multiplications might flush the denormals to zero, esp. at
+        // runtime, so we manually construct the constants here instead.
+        const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const EightTimesTrueMin = @bitCast(T, @as(Z, 8));
+        const TwoTimesTrueMin = @bitCast(T, @as(Z, 2));
+
         // subnormals -> subnormals
-        try expect(ldexp(math.floatTrueMin(T), 3) == math.floatTrueMin(T) * 8);
-        try expect(ldexp(math.floatTrueMin(T) * 8, -2) == math.floatTrueMin(T) * 2);
-        try expect(ldexp(math.floatTrueMin(T) * 8, -3) == math.floatTrueMin(T));
+        try expect(ldexp(math.floatTrueMin(T), 3) == EightTimesTrueMin);
+        try expect(ldexp(EightTimesTrueMin, -2) == TwoTimesTrueMin);
+        try expect(ldexp(EightTimesTrueMin, -3) == math.floatTrueMin(T));
 
         // subnormals -> normals (+)
         try expect(ldexp(math.floatTrueMin(T), fractional_bits) == math.floatMin(T));
