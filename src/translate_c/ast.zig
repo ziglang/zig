@@ -910,7 +910,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .call => {
             const payload = node.castTag(.call).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             return renderCall(c, lhs, payload.args);
         },
         .null_literal => return c.addNode(.{
