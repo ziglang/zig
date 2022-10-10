@@ -983,14 +983,14 @@ static int isspace(int c)
     return c == ' ' || (unsigned)c-'\t' < 5;
 }
 
-static inline float128_t makeInf128() {
+static inline float128_t makeInf128(void) {
     union ldshape ux;
     ux.i2.hi = 0x7fff000000000000UL;
     ux.i2.lo = 0x0UL;
     return ux.f;
 }
 
-static inline float128_t makeNaN128() {
+static inline float128_t makeNaN128(void) {
     uint64_t rand = 0UL;
     union ldshape ux;
     ux.i2.hi = 0x7fff000000000000UL | (rand & 0xffffffffffffUL);
