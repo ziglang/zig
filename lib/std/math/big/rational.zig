@@ -30,8 +30,10 @@ pub const Rational = struct {
     /// Create a new Rational. A small amount of memory will be allocated on initialization.
     /// This will be 2 * Int.default_capacity.
     pub fn init(a: Allocator) !Rational {
+        var p = try Int.init(a);
+        errdefer p.deinit();
         return Rational{
-            .p = try Int.init(a),
+            .p = p,
             .q = try Int.initSet(a, 1),
         };
     }
