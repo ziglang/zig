@@ -21,6 +21,20 @@ static inline float16_t zig_double_to_f16(double x) {
     return f64_to_f16(y);
 }
 
+static inline void zig_double_to_extF80M(double x, extFloat80_t *result) {
+    float64_t y;
+    static_assert(sizeof(x) == sizeof(y), "");
+    memcpy(&y, &x, sizeof(x));
+    f64_to_extF80M(y, result);
+}
+
+static inline void zig_double_to_f128M(double x, float128_t *result) {
+    float64_t y;
+    static_assert(sizeof(x) == sizeof(y), "");
+    memcpy(&y, &x, sizeof(x));
+    f64_to_f128M(y, result);
+}
+
 
 // Return value is safe to coerce to float even when |x| is NaN or Infinity.
 static inline double zig_f16_to_double(float16_t x) {

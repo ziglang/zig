@@ -6358,9 +6358,11 @@ void init_const_float(ZigValue *const_val, ZigType *type, double value) {
                 const_val->data.x_f64 = value;
                 break;
             case 80:
+                zig_double_to_extF80M(value, &const_val->data.x_f80);
+                break;
             case 128:
-                // if we need this, we should add a function that accepts a float128_t param
-                zig_unreachable();
+                zig_double_to_f128M(value, &const_val->data.x_f128);
+                break;
             default:
                 zig_unreachable();
         }
