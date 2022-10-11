@@ -157,13 +157,13 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         /// Invalidates all element pointers.
         pub fn clearRetainingCapacity(self: *Self) void {
-            self.items.len = 0;
+            self.len = 0;
         }
 
         /// Invalidates all element pointers.
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
             self.setCapacity(allocator, 0) catch unreachable;
-            self.items.len = 0;
+            self.len = 0;
         }
 
         /// Grows or shrinks capacity to match usage.
@@ -403,15 +403,13 @@ test "SegmentedList basic usage" {
 }
 
 fn testSegmentedList(comptime prealloc: usize) !void {
-    const gpa = std.testing.allocator;
-
-    var list: SegmentedList(i32, prealloc) = .{};
-    defer list.deinit(gpa);
+    var list = SegmentedList(i32, prealloc){};
+    defer list.deinit(testing.allocator);
 
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            try list.append(gpa, @intCast(i32, i + 1));
+            try list.append(testing.allocator, @intCast(i32, i + 1));
             try testing.expect(list.len == i + 1);
         }
     }
@@ -454,21 +452,21 @@ fn testSegmentedList(comptime prealloc: usize) !void {
     try testing.expect(list.pop().? == 100);
     try testing.expect(list.len == 99);
 
-    try list.appendSlice(gpa, &[_]i32{ 1, 2, 3 });
+    try list.appendSlice(testing.allocator, &[_]i32{ 1, 2, 3 });
     try testing.expect(list.len == 102);
     try testing.expect(list.pop().? == 3);
     try testing.expect(list.pop().? == 2);
     try testing.expect(list.pop().? == 1);
     try testing.expect(list.len == 99);
 
-    try list.appendSlice(gpa, &[_]i32{});
+    try list.appendSlice(testing.allocator, &[_]i32{});
     try testing.expect(list.len == 99);
 
     {
         var i: i32 = 99;
         while (list.pop()) |item| : (i -= 1) {
             try testing.expect(item == i);
-            list.shrinkCapacity(gpa, list.len);
+            list.shrinkCapacity(testing.allocator, list.len);
         }
     }
 
@@ -478,7 +476,7 @@ fn testSegmentedList(comptime prealloc: usize) !void {
 
         var i: i32 = 0;
         while (i < 100) : (i += 1) {
-            try list.append(gpa, i + 1);
+            try list.append(testing.allocator, i + 1);
             control[@intCast(usize, i)] = i + 1;
         }
 
@@ -491,7 +489,20 @@ fn testSegmentedList(comptime prealloc: usize) !void {
         try testing.expect(std.mem.eql(i32, control[50..], dest[50..]));
     }
 
-    try list.setCapacity(gpa, 0);
+    try list.setCapacity(testing.allocator, 0);
+}
+
+test "std.segmented_list clearRetainingCapacity" {
+    var list = SegmentedList(i32, 1){};
+    defer list.deinit(testing.allocator);
+
+    try list.appendSlice(testing.allocator, &[_]i32{ 4, 5 });
+    list.clearRetainingCapacity();
+    try list.append(testing.allocator, 6);
+    try testing.expect(list.at(0).* == 6);
+    try testing.expect(list.len == 1);
+    list.clearRetainingCapacity();
+    try testing.expect(list.len == 0);
 }
 
 /// TODO look into why this std.math function was changed in
