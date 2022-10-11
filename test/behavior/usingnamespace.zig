@@ -38,6 +38,7 @@ test "usingnamespace does not redeclare an imported variable" {
 usingnamespace @import("usingnamespace/foo.zig");
 test "usingnamespace omits mixing in private functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(@This().privateFunction());
     try expect(!@This().printText());
@@ -53,12 +54,14 @@ test {
 usingnamespace @import("usingnamespace/a.zig");
 test "two files usingnamespace import each other" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(@This().ok());
 }
 
 test {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const AA = struct {
         x: i32,

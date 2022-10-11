@@ -7,6 +7,8 @@ const Container = struct {
 };
 
 test "fixed" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     var ctr = Container{
         .params = NoteParams{},
     };

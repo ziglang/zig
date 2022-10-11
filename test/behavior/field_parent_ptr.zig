@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 test "@fieldParentPtr non-first field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     try testParentFieldPtr(&foo.c);
     comptime try testParentFieldPtr(&foo.c);
 }
@@ -11,6 +12,7 @@ test "@fieldParentPtr non-first field" {
 test "@fieldParentPtr first field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     try testParentFieldPtrFirst(&foo.a);
     comptime try testParentFieldPtrFirst(&foo.a);
 }

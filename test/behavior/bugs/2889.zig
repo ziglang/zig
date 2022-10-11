@@ -29,6 +29,7 @@ fn parseNote() ?i32 {
 test "fixed" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const result = parseNote();
     try std.testing.expect(result.? == 9);
