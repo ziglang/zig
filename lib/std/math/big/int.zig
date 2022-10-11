@@ -391,16 +391,12 @@ pub const Mutable = struct {
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `math.max(a.limbs.len, calcLimbLen(scalar)) + 1`.
     pub fn addScalar(r: *Mutable, a: Const, scalar: anytype) void {
-        const Scalar = @TypeOf(scalar);
-        const magnitude = switch (@typeInfo(Scalar)) {
-            .ComptimeInt => scalar,
-            .Int => |int| switch (int.signedness) {
-                .signed => minInt(Scalar),
-                .unsigned => maxInt(Scalar),
-            },
+        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+            .ComptimeInt => calcLimbLen(scalar),
+            .Int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [calcLimbLen(magnitude)]Limb = undefined;
+        var limbs: [limb_len]Limb = undefined;
         const operand = init(&limbs, scalar).toConst();
         return add(r, a, operand);
     }
@@ -2312,16 +2308,12 @@ pub const Const = struct {
 
     /// Same as `order` but the right-hand operand is a primitive integer.
     pub fn orderAgainstScalar(lhs: Const, scalar: anytype) math.Order {
-        const Scalar = @TypeOf(scalar);
-        const magnitude = switch (@typeInfo(Scalar)) {
-            .ComptimeInt => scalar,
-            .Int => |int| switch (int.signedness) {
-                .signed => minInt(Scalar),
-                .unsigned => maxInt(Scalar),
-            },
+        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+            .ComptimeInt => calcLimbLen(scalar),
+            .Int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [calcLimbLen(magnitude)]Limb = undefined;
+        var limbs: [limb_len]Limb = undefined;
         const rhs = Mutable.init(&limbs, scalar);
         return order(lhs, rhs.toConst());
     }
