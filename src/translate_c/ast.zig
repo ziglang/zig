@@ -717,10 +717,11 @@ pub const Payload = struct {
 
 /// Converts the nodes into a Zig Ast.
 /// Caller must free the source slice.
-pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
+pub fn render(gpa: Allocator, zig_is_stage1: bool, nodes: []const Node) !std.zig.Ast {
     var ctx = Context{
         .gpa = gpa,
         .buf = std.ArrayList(u8).init(gpa),
+        .zig_is_stage1 = zig_is_stage1,
     };
     defer ctx.buf.deinit();
     defer ctx.nodes.deinit(gpa);
@@ -788,6 +789,11 @@ const Context = struct {
     nodes: std.zig.Ast.NodeList = .{},
     extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .{},
     tokens: std.zig.Ast.TokenList = .{},
+
+    /// This is used to emit different code depending on whether
+    /// the output zig source code is intended to be compiled with stage1 or stage2.
+    /// Refer to the Context in translate_c.zig.
+    zig_is_stage1: bool,
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
         const start_index = c.buf.items.len;
@@ -910,7 +916,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .call => {
             const payload = node.castTag(.call).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            // Cosmetic: avoids an unnecesary address_of on most function calls.
+            const lhs = if (!c.zig_is_stage1 and payload.lhs.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.lhs.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload.lhs);
             return renderCall(c, lhs, payload.args);
         },
         .null_literal => return c.addNode(.{
@@ -1064,12 +1078,32 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .fn_identifier => {
+            // C semantics are that a function identifier has address
+            // value (implicit in stage1, explicit in stage2), except in
+            // the context of an address_of, which is handled there.
             const payload = node.castTag(.fn_identifier).?.data;
-            return c.addNode(.{
-                .tag = .identifier,
-                .main_token = try c.addIdentifier(payload),
-                .data = undefined,
-            });
+            if (c.zig_is_stage1) {
+                return try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload),
+                    .data = undefined,
+                });
+            } else {
+                const tok = try c.addToken(.ampersand, "&");
+                const arg = try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload),
+                    .data = undefined,
+                });
+                return c.addNode(.{
+                    .tag = .address_of,
+                    .main_token = tok,
+                    .data = .{
+                        .lhs = arg,
+                        .rhs = undefined,
+                    },
+                });
+            }
         },
         .float_literal => {
             const payload = node.castTag(.float_literal).?.data;
@@ -1391,7 +1425,33 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .bit_not => return renderPrefixOp(c, node, .bit_not, .tilde, "~"),
         .not => return renderPrefixOp(c, node, .bool_not, .bang, "!"),
         .optional_type => return renderPrefixOp(c, node, .optional_type, .question_mark, "?"),
-        .address_of => return renderPrefixOp(c, node, .address_of, .ampersand, "&"),
+        .address_of => {
+            const payload = node.castTag(.address_of).?.data;
+            if (c.zig_is_stage1 and payload.tag() == .fn_identifier)
+                return try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                });
+
+            const ampersand = try c.addToken(.ampersand, "&");
+            const base = if (payload.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload);
+            return c.addNode(.{
+                .tag = .address_of,
+                .main_token = ampersand,
+                .data = .{
+                    .lhs = base,
+                    .rhs = undefined,
+                },
+            });
+        },
         .deref => {
             const payload = node.castTag(.deref).?.data;
             const operand = try renderNodeGrouped(c, payload);

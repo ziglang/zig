@@ -436,7 +436,7 @@ pub fn translate(
         }
     }
 
-    return ast.render(gpa, context.global_scope.nodes.items);
+    return ast.render(gpa, zig_is_stage1, context.global_scope.nodes.items);
 }
 
 /// Determines whether macro is of the form: `#define FOO FOO` (Possibly with trailing tokens)
@@ -2072,10 +2072,7 @@ fn transImplicitCastExpr(
         },
         .PointerToBoolean => {
             // @ptrToInt(val) != 0
-            var ptr_node = try transExpr(c, scope, sub_expr, .used);
-            if (ptr_node.tag() == .fn_identifier) {
-                ptr_node = try Tag.address_of.create(c.arena, ptr_node);
-            }
+            const ptr_node = try transExpr(c, scope, sub_expr, .used);
             const ptr_to_int = try Tag.ptr_to_int.create(c.arena, ptr_node);
 
             const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
@@ -2524,10 +2521,7 @@ fn transCCast(
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
         // @intCast(dest_type, @ptrToInt(val))
-        const ptr_to_int = if (expr.tag() == .fn_identifier)
-            try Tag.ptr_to_int.create(c.arena, try Tag.address_of.create(c.arena, expr))
-        else
-            try Tag.ptr_to_int.create(c.arena, expr);
+        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
         return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
@@ -3566,7 +3560,8 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
 
     // Special case: actual pointer (not decayed array) and signed integer subscript
     // See discussion at https://github.com/ziglang/zig/pull/8589
-    if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal) return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
+    if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal)
+        return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
 
     const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
@@ -3761,9 +3756,6 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         else
             return transCreatePreCrement(c, scope, stmt, .sub_assign, used),
         .AddrOf => {
-            if (c.zig_is_stage1 and cIsFunctionDeclRef(op_expr)) {
-                return transExpr(c, scope, op_expr, used);
-            }
             return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
         },
         .Deref => {
@@ -6504,7 +6496,11 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
             .LBracket => {
-                const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                const index_val = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                const index = try Tag.int_cast.create(c.arena, .{
+                    .lhs = try Tag.type.create(c.arena, "usize"),
+                    .rhs = index_val,
+                });
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
                 try m.skip(c, .RBracket);
             },
