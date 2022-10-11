@@ -15,10 +15,24 @@ comptime {
     _ = @import("compiler_rt/subxf3.zig");
 
     _ = @import("compiler_rt/mulf3.zig");
-    _ = @import("compiler_rt/muldf3.zig");
     _ = @import("compiler_rt/mulsf3.zig");
+    _ = @import("compiler_rt/muldf3.zig");
     _ = @import("compiler_rt/multf3.zig");
     _ = @import("compiler_rt/mulxf3.zig");
+
+    _ = @import("compiler_rt/mulc3.zig");
+    _ = @import("compiler_rt/mulhc3.zig");
+    _ = @import("compiler_rt/mulsc3.zig");
+    _ = @import("compiler_rt/muldc3.zig");
+    _ = @import("compiler_rt/mulxc3.zig");
+    _ = @import("compiler_rt/multc3.zig");
+
+    _ = @import("compiler_rt/divc3.zig");
+    _ = @import("compiler_rt/divhc3.zig");
+    _ = @import("compiler_rt/divsc3.zig");
+    _ = @import("compiler_rt/divdc3.zig");
+    _ = @import("compiler_rt/divxc3.zig");
+    _ = @import("compiler_rt/divtc3.zig");
 
     _ = @import("compiler_rt/negsf2.zig");
     _ = @import("compiler_rt/negdf2.zig");
