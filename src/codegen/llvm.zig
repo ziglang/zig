@@ -8897,7 +8897,7 @@ pub const FuncGen = struct {
             return union_llvm_ty.constInt(tag_int, .False);
         }
         assert(isByRef(union_ty));
-        // The llvm type of the alloca will the the named LLVM union type, which will not
+        // The llvm type of the alloca will be the named LLVM union type, and will not
         // necessarily match the format that we need, depending on which tag is active. We
         // must construct the correct unnamed struct type here and bitcast, in order to
         // then set the fields appropriately.
@@ -8922,7 +8922,7 @@ pub const FuncGen = struct {
                 const fields: [2]*llvm.Type = .{
                     field_llvm_ty, self.context.intType(8).arrayType(padding_len),
                 };
-                break :p self.context.structType(&fields, fields.len, .False);
+                break :p self.context.structType(&fields, fields.len, .True);
             };
             if (layout.tag_size == 0) {
                 const fields: [1]*llvm.Type = .{payload};
