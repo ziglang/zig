@@ -14,6 +14,7 @@ pub fn build(b: *Builder) void {
     lib.use_llvm = false;
     lib.use_stage1 = false;
     lib.use_lld = false;
+    lib.strip = false;
     lib.install();
 
     const zig_version = builtin.zig_version;
