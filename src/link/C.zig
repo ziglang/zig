@@ -256,13 +256,23 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    // Covers zig.h and typedef.
+    // Covers zig.h, typedef, and asm.
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
 
     f.appendBufAssumeCapacity(zig_h);
 
     const typedef_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
+
+    {
+        var asm_buf = f.asm_buf.toManaged(module.gpa);
+        defer asm_buf.deinit();
+
+        try codegen.genGlobalAsm(module, &asm_buf);
+
+        f.asm_buf = asm_buf.moveToUnmanaged();
+        f.appendBufAssumeCapacity(f.asm_buf.items);
+    }
 
     try self.flushErrDecls(&f);
 
@@ -307,6 +317,7 @@ const Flush = struct {
     remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
     typedefs: Typedefs = .{},
     typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    asm_buf: std.ArrayListUnmanaged(u8) = .{},
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.

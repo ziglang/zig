@@ -1845,6 +1845,13 @@ pub const DeclGen = struct {
     }
 };
 
+pub fn genGlobalAsm(mod: *Module, code: *std.ArrayList(u8)) !void {
+    var it = mod.global_assembly.valueIterator();
+    while (it.next()) |asm_source| {
+        try code.writer().print("__asm({s});\n", .{fmtStringLiteral(asm_source.*)});
+    }
+}
+
 pub fn genErrDecls(o: *Object) !void {
     if (o.dg.module.global_error_set.size == 0) return;
     const writer = o.writer();
@@ -3450,8 +3457,10 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll("{\n");
     f.object.indent_writer.pushIndent();
 
+    const output_locals_begin = f.next_local_index;
+    f.next_local_index += outputs.len;
     const constraints_extra_begin = extra_i;
-    for (outputs) |output| {
+    for (outputs) |output, index| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3461,7 +3470,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         const output_ty = if (output == .none) inst_ty else f.air.typeOf(output).childType();
         try writer.writeAll("register ");
-        try f.object.dg.renderTypeAndName(writer, output_ty, .{ .identifier = name }, .Mut, 0);
+        try f.object.dg.renderTypeAndName(writer, output_ty, .{
+            .local = output_locals_begin + index,
+        }, .Mut, 0);
         if (std.mem.startsWith(u8, constraint, "={") and std.mem.endsWith(u8, constraint, "}")) {
             try writer.writeAll(" __asm(\"");
             try writer.writeAll(constraint["={".len .. constraint.len - "}".len]);
@@ -3475,7 +3486,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeAll(";\n");
     }
-    for (inputs) |input| {
+    const input_locals_begin = f.next_local_index;
+    f.next_local_index += inputs.len;
+    for (inputs) |input, index| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3485,7 +3498,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         const input_ty = f.air.typeOf(input);
         try writer.writeAll("register ");
-        try f.object.dg.renderTypeAndName(writer, input_ty, .{ .identifier = name }, .Const, 0);
+        try f.object.dg.renderTypeAndName(writer, input_ty, .{
+            .local = input_locals_begin + index,
+        }, .Const, 0);
         if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
             try writer.writeAll(" __asm(\"");
             try writer.writeAll(constraint["{".len .. constraint.len - "}".len]);
@@ -3524,7 +3539,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         if (index > 0) try writer.writeByte(',');
         try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[1] == '{') "=r" else constraint)});
-        try f.writeCValue(writer, .{ .identifier = name });
+        try f.writeCValue(writer, .{ .local = output_locals_begin + index });
         try writer.writeByte(')');
     }
     try writer.writeByte(':');
@@ -3538,7 +3553,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         if (index > 0) try writer.writeByte(',');
         try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[0] == '{') "r" else constraint)});
-        try f.writeCValue(writer, .{ .identifier = name });
+        try f.writeCValue(writer, .{ .local = input_locals_begin + index });
         try writer.writeByte(')');
     }
     try writer.writeByte(':');
@@ -3559,7 +3574,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(");\n");
 
     extra_i = constraints_extra_begin;
-    for (outputs) |output| {
+    for (outputs) |output, index| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3571,7 +3586,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             .local_ref = local.local,
         } else try f.resolveInst(output));
         try writer.writeAll(" = ");
-        try f.writeCValue(writer, .{ .identifier = name });
+        try f.writeCValue(writer, .{ .local = output_locals_begin + index });
         try writer.writeAll(";\n");
     }
 
