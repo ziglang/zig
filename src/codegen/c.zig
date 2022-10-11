@@ -485,10 +485,8 @@ pub const DeclGen = struct {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
                 const container_ty = field_ptr.container_ty;
                 const index = field_ptr.field_index;
-                const field_info: struct {
-                    name: []const u8,
-                    ty: Type,
-                } = switch (container_ty.zigTypeTag()) {
+                const FieldInfo = struct { name: []const u8, ty: Type };
+                const field_info: FieldInfo = switch (container_ty.zigTypeTag()) {
                     .Struct => .{
                         .name = container_ty.structFields().keys()[index],
                         .ty = container_ty.structFields().values()[index].ty,
@@ -499,8 +497,8 @@ pub const DeclGen = struct {
                     },
                     .Pointer => switch (container_ty.ptrSize()) {
                         .Slice => switch (index) {
-                            0 => .{ .name = "ptr", .ty = container_ty.childType() },
-                            1 => .{ .name = "len", .ty = Type.usize },
+                            0 => FieldInfo{ .name = "ptr", .ty = container_ty.childType() },
+                            1 => FieldInfo{ .name = "len", .ty = Type.usize },
                             else => unreachable,
                         },
                         else => unreachable,
