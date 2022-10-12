@@ -21,6 +21,9 @@ const debug_safety = false;
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
+/// Note: A comptime-known upper bound of this value that may be used
+/// instead if `scalar` is not already comptime-known is
+/// `calcTwosCompLimbCount(@typeInfo(@TypeOf(scalar)).Int.bits)`
 pub fn calcLimbLen(scalar: anytype) usize {
     if (scalar == 0) {
         return 1;
