@@ -11,4 +11,4 @@ pub export fn entry() void {
 // target=native
 //
 // :4:9: error: unable to resolve comptime value
-// :4:9: note: switch prong values must be comptime known
+// :4:9: note: switch prong values must be comptime-known
