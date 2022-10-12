@@ -32,8 +32,13 @@ const WValue = union(enum) {
     none: void,
     /// The value lives on top of the stack
     stack: void,
-    /// Index of the local variable
-    local: u32,
+    /// Index of the local
+    local: struct {
+        /// Contains the index to the local
+        value: u32,
+        /// The amount of instructions referencing this `WValue`
+        references: u32,
+    },
     /// An immediate 32bit value
     imm32: u32,
     /// An immediate 64bit value
@@ -60,7 +65,12 @@ const WValue = union(enum) {
     function_index: u32,
     /// Offset from the bottom of the virtual stack, with the offset
     /// pointing to where the value lives.
-    stack_offset: u32,
+    stack_offset: struct {
+        /// Contains the actual value of the offset
+        value: u32,
+        /// The amount of instructions referencing this `WValue`
+        references: u32,
+    },
 
     /// Returns the offset from the bottom of the stack. This is useful when
     /// we use the load or store instruction to ensure we retrieve the value
@@ -70,7 +80,7 @@ const WValue = union(enum) {
     /// loads and stores without requiring checks everywhere.
     fn offset(self: WValue) u32 {
         switch (self) {
-            .stack_offset => |stack_offset| return stack_offset,
+            .stack_offset => |stack_offset| return stack_offset.value,
             else => return 0,
         }
     }
@@ -81,9 +91,9 @@ const WValue = union(enum) {
     fn toLocal(value: WValue, gen: *Self, ty: Type) InnerError!WValue {
         switch (value) {
             .stack => {
-                const local = try gen.allocLocal(ty);
-                try gen.addLabel(.local_set, local.local);
-                return local;
+                const new_local = try gen.allocLocal(ty);
+                try gen.addLabel(.local_set, new_local.local.value);
+                return new_local;
             },
             .local, .stack_offset => return value,
             else => unreachable,
@@ -95,7 +105,7 @@ const WValue = union(enum) {
     /// The valtype of the local is deducted by using the index of the given `WValue`.
     fn free(value: *WValue, gen: *Self) void {
         if (value.* != .local) return;
-        const local_value = value.local;
+        const local_value = value.local.value;
         const reserved = gen.args.len + @boolToInt(gen.return_value != .none) + 2; // 2 for stack locals
         if (local_value < reserved) return; // reserved locals may never be re-used.
 
@@ -107,7 +117,7 @@ const WValue = union(enum) {
             .f32 => gen.free_locals_f32.append(gen.gpa, local_value) catch return,
             .f64 => gen.free_locals_f64.append(gen.gpa, local_value) catch return,
         }
-        value.* = WValue{ .none = {} };
+        value.* = undefined;
     }
 };
 
@@ -761,7 +771,9 @@ const BigTomb = struct {
             bt.gen.values.putAssumeCapacityNoClobber(Air.indexToRef(bt.inst), result);
         }
 
-        bt.gen.air_bookkeeping += 1;
+        if (builtin.mode == .Debug) {
+            bt.gen.air_bookkeeping += 1;
+        }
     }
 };
 
@@ -883,7 +895,7 @@ fn genBlockType(ty: Type, target: std.Target) u8 {
 fn emitWValue(self: *Self, value: WValue) InnerError!void {
     switch (value) {
         .none, .stack => {}, // no-op
-        .local => |idx| try self.addLabel(.local_get, idx),
+        .local => |idx| try self.addLabel(.local_get, idx.value),
         .imm32 => |val| try self.addImm32(@bitCast(i32, val)),
         .imm64 => |val| try self.addImm64(val),
         .float32 => |val| try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
@@ -907,16 +919,16 @@ fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
     const valtype = typeToValtype(ty, self.target);
     switch (valtype) {
         .i32 => if (self.free_locals_i32.popOrNull()) |index| {
-            return WValue{ .local = index };
+            return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .i64 => if (self.free_locals_i64.popOrNull()) |index| {
-            return WValue{ .local = index };
+            return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f32 => if (self.free_locals_f32.popOrNull()) |index| {
-            return WValue{ .local = index };
+            return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f64 => if (self.free_locals_f64.popOrNull()) |index| {
-            return WValue{ .local = index };
+            return WValue{ .local = .{ .value = index, .references = 1 } };
         },
     }
     // no local was free to be re-used, so allocate a new local instead
@@ -929,7 +941,7 @@ fn ensureAllocLocal(self: *Self, ty: Type) InnerError!WValue {
     try self.locals.append(self.gpa, genValtype(ty, self.target));
     const initial_index = self.local_index;
     self.local_index += 1;
-    return WValue{ .local = initial_index };
+    return WValue{ .local = .{ .value = initial_index, .references = 1 } };
 }
 
 /// Generates a `wasm.Type` from a given function type.
@@ -1059,7 +1071,7 @@ fn genFunc(self: *Self) InnerError!void {
         // load stack pointer
         try prologue.append(.{ .tag = .global_get, .data = .{ .label = 0 } });
         // store stack pointer so we can restore it when we return from the function
-        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.initial_stack_value.local } });
+        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.initial_stack_value.local.value } });
         // get the total stack size
         const aligned_stack = std.mem.alignForwardGeneric(u32, self.stack_size, self.stack_alignment);
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, aligned_stack) } });
@@ -1070,7 +1082,7 @@ fn genFunc(self: *Self) InnerError!void {
         // Bitwise-and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
         try prologue.append(.{ .tag = .i32_and, .data = .{ .tag = {} } });
         // store the current stack pointer as the bottom, which will be used to calculate all stack pointer offsets
-        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.bottom_stack_value.local } });
+        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.bottom_stack_value.local.value } });
         // Store the current stack pointer value into the global stack pointer so other function calls will
         // start from this value instead and not overwrite the current stack.
         try prologue.append(.{ .tag = .global_set, .data = .{ .label = 0 } });
@@ -1141,7 +1153,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
     if (firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
-        result.return_value = .{ .local = self.local_index };
+        result.return_value = .{ .local = .{ .value = self.local_index, .references = 1 } };
         self.local_index += 1;
     }
 
@@ -1152,7 +1164,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
                     continue;
                 }
 
-                try args.append(.{ .local = self.local_index });
+                try args.append(.{ .local = .{ .value = self.local_index, .references = 1 } });
                 self.local_index += 1;
             }
         },
@@ -1161,7 +1173,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
                 const ty_classes = abi.classifyType(ty, self.target);
                 for (ty_classes) |class| {
                     if (class == .none) continue;
-                    try args.append(.{ .local = self.local_index });
+                    try args.append(.{ .local = .{ .value = self.local_index, .references = 1 } });
                     self.local_index += 1;
                 }
             }
@@ -1254,14 +1266,14 @@ fn lowerToStack(self: *Self, value: WValue) !void {
     switch (value) {
         .stack_offset => |offset| {
             try self.emitWValue(value);
-            if (offset > 0) {
+            if (offset.value > 0) {
                 switch (self.arch()) {
                     .wasm32 => {
-                        try self.addImm32(@bitCast(i32, offset));
+                        try self.addImm32(@bitCast(i32, offset.value));
                         try self.addTag(.i32_add);
                     },
                     .wasm64 => {
-                        try self.addImm64(offset);
+                        try self.addImm64(offset.value);
                         try self.addTag(.i64_add);
                     },
                     else => unreachable,
@@ -1323,7 +1335,7 @@ fn allocStack(self: *Self, ty: Type) !WValue {
     const offset = std.mem.alignForwardGeneric(u32, self.stack_size, abi_align);
     defer self.stack_size = offset + abi_size;
 
-    return WValue{ .stack_offset = offset };
+    return WValue{ .stack_offset = .{ .value = offset, .references = 1 } };
 }
 
 /// From a given AIR instruction generates a pointer to the stack where
@@ -1356,7 +1368,7 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
     const offset = std.mem.alignForwardGeneric(u32, self.stack_size, abi_alignment);
     defer self.stack_size = offset + abi_size;
 
-    return WValue{ .stack_offset = offset };
+    return WValue{ .stack_offset = .{ .value = offset, .references = 1 } };
 }
 
 /// From given zig bitsize, returns the wasm bitsize
@@ -1475,7 +1487,7 @@ fn memcpy(self: *Self, dst: WValue, src: WValue, len: WValue) !void {
                     },
                     else => unreachable,
                 }
-                try self.addLabel(.local_set, offset.local);
+                try self.addLabel(.local_set, offset.local.value);
                 try self.addLabel(.br, 0); // jump to start of loop
             }
             try self.endBlock(); // close off loop block
@@ -1568,7 +1580,7 @@ fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64, action: enum 
             else => unreachable,
         }
     }
-    try self.addLabel(.local_set, result_ptr.local);
+    try self.addLabel(.local_set, result_ptr.local.value);
     return result_ptr;
 }
 
@@ -1984,14 +1996,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             // TODO: Make this less fragile and optimize
         } else if (fn_ty.fnInfo().cc == .C and ret_ty.zigTypeTag() == .Struct or ret_ty.zigTypeTag() == .Union) {
             const result_local = try self.allocLocal(ret_ty);
-            try self.addLabel(.local_set, result_local.local);
+            try self.addLabel(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, self.target);
             const result = try self.allocStack(scalar_type);
             try self.store(result, result_local, scalar_type, 0);
             break :result_value result;
         } else {
             const result_local = try self.allocLocal(ret_ty);
-            try self.addLabel(.local_set, result_local.local);
+            try self.addLabel(.local_set, result_local.local.value);
             break :result_value result_local;
         }
     };
@@ -2175,7 +2187,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
         .dwarf => |dwarf| {
             // TODO: Get the original arg index rather than wasm arg index
             const name = self.mod_fn.getParamName(self.bin_file.base.options.module.?, arg_index);
-            const leb_size = link.File.Wasm.getULEB128Size(arg.local);
+            const leb_size = link.File.Wasm.getULEB128Size(arg.local.value);
             const dbg_info = &dwarf.dbg_info;
             try dbg_info.ensureUnusedCapacity(3 + leb_size + 5 + name.len + 1);
             // wasm locations are encoded as follow:
@@ -2189,7 +2201,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
                 std.dwarf.OP.WASM_location,
                 std.dwarf.OP.WASM_local,
             });
-            leb.writeULEB128(dbg_info.writer(), arg.local) catch unreachable;
+            leb.writeULEB128(dbg_info.writer(), arg.local.value) catch unreachable;
             try self.addDbgInfoTypeReloc(arg_ty);
             dbg_info.appendSliceAssumeCapacity(name);
             dbg_info.appendAssumeCapacity(0);
@@ -2869,7 +2881,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!void {
         try self.lowerToStack(operand);
 
         if (block.value != .none) {
-            try self.addLabel(.local_set, block.value.local);
+            try self.addLabel(.local_set, block.value.local.value);
         }
     }
 
@@ -2893,7 +2905,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!void {
             try self.emitWValue(operand);
             try self.addTag(.i32_eqz);
             const not_tmp = try self.allocLocal(operand_ty);
-            try self.addLabel(.local_set, not_tmp.local);
+            try self.addLabel(.local_set, not_tmp.local.value);
             break :result not_tmp;
         } else {
             const operand_bits = operand_ty.intInfo(self.target).bits;
@@ -2985,7 +2997,7 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
 fn structFieldPtr(self: *Self, struct_ptr: WValue, offset: u32) InnerError!WValue {
     switch (struct_ptr) {
         .stack_offset => |stack_offset| {
-            return WValue{ .stack_offset = stack_offset + offset };
+            return WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
         },
         else => return self.buildPointerOffset(struct_ptr, offset, .new),
     }
@@ -3011,7 +3023,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!void {
         if (isByRef(field_ty, self.target)) {
             switch (operand) {
                 .stack_offset => |stack_offset| {
-                    break :result WValue{ .stack_offset = stack_offset + offset };
+                    break :result WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
                 },
                 else => break :result try self.buildPointerOffset(operand, offset, .new),
             }
@@ -3214,7 +3226,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!v
         try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
         const is_err_tmp = try self.allocLocal(Type.i32);
-        try self.addLabel(.local_set, is_err_tmp.local);
+        try self.addLabel(.local_set, is_err_tmp.local.value);
         break :result is_err_tmp;
     };
     self.finishAir(inst, result, &.{un_op});
@@ -3578,7 +3590,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!void {
     try self.addTag(.i32_add);
 
     const result_ptr = try self.allocLocal(elem_ty);
-    try self.addLabel(.local_set, result_ptr.local);
+    try self.addLabel(.local_set, result_ptr.local.value);
 
     const result = if (!isByRef(elem_ty, self.target)) result: {
         const elem_val = try self.load(result_ptr, elem_ty, 0);
@@ -3608,7 +3620,7 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!void {
     try self.addTag(.i32_add);
 
     const result = try self.allocLocal(Type.i32);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -3715,7 +3727,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const elem_result = val: {
         var result = try self.allocLocal(elem_ty);
-        try self.addLabel(.local_set, result.local);
+        try self.addLabel(.local_set, result.local.value);
         if (isByRef(elem_ty, self.target)) {
             break :val result;
         }
@@ -3753,7 +3765,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!void {
     try self.addTag(.i32_add);
 
     const result = try self.allocLocal(Type.i32);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -3781,7 +3793,7 @@ fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!void {
     try self.addTag(Mir.Inst.Tag.fromOpcode(bin_opcode));
 
     const result = try self.allocLocal(Type.usize);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -3874,7 +3886,7 @@ fn memset(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void 
                 .wasm64 => try self.addTag(.i64_add),
                 else => unreachable,
             }
-            try self.addLabel(.local_set, offset.local);
+            try self.addLabel(.local_set, offset.local.value);
             try self.addLabel(.br, 0); // jump to start of loop
             try self.endBlock();
             try self.endBlock();
@@ -3900,7 +3912,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const elem_result = val: {
         var result = try self.allocLocal(Type.usize);
-        try self.addLabel(.local_set, result.local);
+        try self.addLabel(.local_set, result.local.value);
 
         if (isByRef(elem_ty, self.target)) {
             break :val result;
@@ -3961,7 +3973,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) InnerError!void {
     try self.addTag(Mir.Inst.Tag.fromOpcode(op));
 
     const result = try self.allocLocal(dest_ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -4107,7 +4119,7 @@ fn airWasmMemorySize(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const result = try self.allocLocal(self.air.typeOfIndex(inst));
     try self.addLabel(.memory_size, pl_op.payload);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{pl_op.operand});
 }
 
@@ -4119,7 +4131,7 @@ fn airWasmMemoryGrow(self: *Self, inst: Air.Inst.Index) !void {
     const result = try self.allocLocal(self.air.typeOfIndex(inst));
     try self.emitWValue(operand);
     try self.addLabel(.memory_grow, pl_op.payload);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{pl_op.operand});
 }
 
@@ -4148,7 +4160,7 @@ fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
     try self.addLabel(.br_if, 0);
 
     try self.addImm32(1);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     try self.endBlock();
 
     try self.emitWValue(result);
@@ -4363,10 +4375,10 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const result = if (field_offset != 0) result: {
         const base = try self.buildPointerOffset(field_ptr, 0, .new);
-        try self.addLabel(.local_get, base.local);
+        try self.addLabel(.local_get, base.local.value);
         try self.addImm32(@bitCast(i32, @intCast(u32, field_offset)));
         try self.addTag(.i32_sub);
-        try self.addLabel(.local_set, base.local);
+        try self.addLabel(.local_set, base.local.value);
         break :result base;
     } else field_ptr;
 
@@ -4425,7 +4437,7 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result = try self.allocLocal(result_ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -4467,7 +4479,7 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result_ptr = try self.allocLocal(Type.usize);
-    try self.addLabel(.local_set, result_ptr.local);
+    try self.addLabel(.local_set, result_ptr.local.value);
     self.finishAir(inst, result_ptr, &.{un_op});
 }
 
@@ -4714,7 +4726,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!void {
             const shr = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
             const wrap = try self.intcast(shr, new_ty, lhs_ty);
             _ = try self.cmp(wrap, zero, lhs_ty, .neq);
-            try self.addLabel(.local_set, overflow_bit.local);
+            try self.addLabel(.local_set, overflow_bit.local.value);
             break :blk try self.intcast(bin_op, new_ty, lhs_ty);
         } else {
             const down_cast = try (try self.intcast(bin_op, new_ty, lhs_ty)).toLocal(self, lhs_ty);
@@ -4724,7 +4736,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!void {
             const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
             const down_shr_res = try self.intcast(shr_res, new_ty, lhs_ty);
             _ = try self.cmp(down_shr_res, shr, lhs_ty, .neq);
-            try self.addLabel(.local_set, overflow_bit.local);
+            try self.addLabel(.local_set, overflow_bit.local.value);
             break :blk down_cast;
         }
     } else if (int_info.signedness == .signed) blk: {
@@ -4733,7 +4745,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!void {
         const bin_op = try (try self.binOp(lhs_abs, rhs_abs, lhs_ty, .mul)).toLocal(self, lhs_ty);
         const mul_abs = try self.signAbsValue(bin_op, lhs_ty);
         _ = try self.cmp(mul_abs, bin_op, lhs_ty, .neq);
-        try self.addLabel(.local_set, overflow_bit.local);
+        try self.addLabel(.local_set, overflow_bit.local.value);
         break :blk try self.wrapOperand(bin_op, lhs_ty);
     } else blk: {
         var bin_op = try (try self.binOp(lhs, rhs, lhs_ty, .mul)).toLocal(self, lhs_ty);
@@ -4744,7 +4756,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!void {
             WValue{ .imm64 = int_info.bits };
         const shr = try self.binOp(bin_op, shift_imm, lhs_ty, .shr);
         _ = try self.cmp(shr, zero, lhs_ty, .neq);
-        try self.addLabel(.local_set, overflow_bit.local);
+        try self.addLabel(.local_set, overflow_bit.local.value);
         break :blk try self.wrapOperand(bin_op, lhs_ty);
     };
     var bin_op_local = try bin_op.toLocal(self, lhs_ty);
@@ -4785,7 +4797,7 @@ fn airMaxMin(self: *Self, inst: Air.Inst.Index, op: enum { max, min }) InnerErro
     // store result in local
     const result_ty = if (isByRef(ty, self.target)) Type.u32 else ty;
     const result = try self.allocLocal(result_ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -4872,7 +4884,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result = try self.allocLocal(result_ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -4937,7 +4949,7 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result = try self.allocLocal(result_ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -4958,7 +4970,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !void {
     try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
     switch (operand) {
         .local => |local| {
-            const leb_size = link.File.Wasm.getULEB128Size(local);
+            const leb_size = link.File.Wasm.getULEB128Size(local.value);
             try dbg_info.ensureUnusedCapacity(2 + leb_size);
             // wasm locals are encoded as follow:
             // DW_OP_WASM_location wasm-op
@@ -4970,7 +4982,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !void {
                 std.dwarf.OP.WASM_location,
                 std.dwarf.OP.WASM_local,
             });
-            leb.writeULEB128(dbg_info.writer(), local) catch unreachable;
+            leb.writeULEB128(dbg_info.writer(), local.value) catch unreachable;
         },
         else => {}, // TODO
     }
@@ -5179,7 +5191,7 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!void {
         const div_result = try self.allocLocal(ty);
         // leave on stack
         _ = try self.binOp(lhs_res, rhs_res, ty, .div);
-        try self.addLabel(.local_tee, div_result.local);
+        try self.addLabel(.local_tee, div_result.local.value);
         _ = try self.cmp(lhs_res, zero, ty, .lt);
         _ = try self.cmp(rhs_res, zero, ty, .lt);
         switch (wasm_bits) {
@@ -5232,7 +5244,7 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result = try self.allocLocal(ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -5257,7 +5269,7 @@ fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue 
     try self.addTag(.i32_div_s);
 
     const result = try self.allocLocal(ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     return result;
 }
 
@@ -5323,7 +5335,7 @@ fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!void 
     }
 
     const result = try self.allocLocal(ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     self.finishAir(inst, result, &.{un_op});
 }
 
@@ -5374,7 +5386,7 @@ fn airSatBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!void {
 
     try self.addTag(.select);
     const result = try self.allocLocal(ty);
-    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.local_set, result.local.value);
     return self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -5412,13 +5424,13 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         try self.emitWValue(max_wvalue);
         _ = try self.cmp(bin_result, max_wvalue, ty, .lt);
         try self.addTag(.select);
-        try self.addLabel(.local_set, bin_result.local); // re-use local
+        try self.addLabel(.local_set, bin_result.local.value); // re-use local
 
         try self.emitWValue(bin_result);
         try self.emitWValue(min_wvalue);
         _ = try self.cmp(bin_result, min_wvalue, ty, .gt);
         try self.addTag(.select);
-        try self.addLabel(.local_set, bin_result.local); // re-use local
+        try self.addLabel(.local_set, bin_result.local.value); // re-use local
         return (try self.wrapOperand(bin_result, ty)).toLocal(self, ty);
     } else {
         const zero = switch (wasm_bits) {
@@ -5436,7 +5448,7 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         const cmp_bin_result = try self.cmp(bin_result, lhs, ty, .lt);
         _ = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
         try self.addTag(.select);
-        try self.addLabel(.local_set, bin_result.local); // re-use local
+        try self.addLabel(.local_set, bin_result.local.value); // re-use local
         return bin_result;
     }
 }
@@ -5489,7 +5501,7 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!void {
         try self.emitWValue(shl);
         _ = try self.cmp(lhs, shr, ty, .neq);
         try self.addTag(.select);
-        try self.addLabel(.local_set, result.local);
+        try self.addLabel(.local_set, result.local.value);
         break :outer_blk;
     } else {
         const shift_size = wasm_bits - int_info.bits;
@@ -5534,12 +5546,12 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!void {
         try self.emitWValue(shl);
         _ = try self.cmp(shl_res, shr, ty, .neq);
         try self.addTag(.select);
-        try self.addLabel(.local_set, result.local);
+        try self.addLabel(.local_set, result.local.value);
         var shift_result = try self.binOp(result, shift_value, ty, .shr);
         if (is_signed) {
             shift_result = try self.wrapOperand(shift_result, ty);
         }
-        try self.addLabel(.local_set, result.local);
+        try self.addLabel(.local_set, result.local.value);
     }
 
     return self.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
