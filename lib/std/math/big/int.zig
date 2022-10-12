@@ -399,7 +399,7 @@ pub const Mutable = struct {
         // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
-        // Note that Mutable.init still sets operand.len to calcLimbLen(scalar) in any case.
+        // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .ComptimeInt => calcLimbLen(scalar),
             .Int => |info| calcTwosCompLimbCount(info.bits),
@@ -2322,7 +2322,7 @@ pub const Const = struct {
         // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
-        // Note that Mutable.init still sets rhs.len to calcLimbLen(scalar) in any case.
+        // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .ComptimeInt => calcLimbLen(scalar),
             .Int => |info| calcTwosCompLimbCount(info.bits),
