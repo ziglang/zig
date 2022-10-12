@@ -15,6 +15,8 @@ const FEXTRA = 1 << 2;
 const FNAME = 1 << 3;
 const FCOMMENT = 1 << 4;
 
+const max_string_len = 1024;
+
 pub fn GzipStream(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
@@ -71,7 +73,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
                 filename = try source.readUntilDelimiterAlloc(
                     allocator,
                     0,
-                    std.math.maxInt(usize),
+                    max_string_len,
                 );
             }
             errdefer if (filename) |p| allocator.free(p);
@@ -81,7 +83,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
                 comment = try source.readUntilDelimiterAlloc(
                     allocator,
                     0,
-                    std.math.maxInt(usize),
+                    max_string_len,
                 );
             }
             errdefer if (comment) |p| allocator.free(p);
