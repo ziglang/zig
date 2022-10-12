@@ -1325,7 +1325,7 @@ pub const Value = extern union {
         if (big_int_const.positive) return big_int_const;
 
         var big_int = BigIntMutable.init(buf, 0);
-        big_int.bitNotWrap(big_int_const.negate(), .unsigned, ty.bitSize(target));
+        big_int.bitNotWrap(big_int_const.negate(), .unsigned, @intCast(u32, ty.bitSize(target)));
         big_int.addScalar(big_int.toConst(), 1);
         return big_int.toConst();
     }
@@ -1333,7 +1333,7 @@ pub const Value = extern union {
     fn vectorToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
         const endian = target.cpu.arch.endian();
         var vec_bitint = BigIntMutable.init(buf, 0);
-        const vec_len = ty.arrayLen();
+        const vec_len = @intCast(usize, ty.arrayLen());
         const elem_ty = ty.childType();
         const elem_size = @intCast(usize, elem_ty.bitSize(target));
 
