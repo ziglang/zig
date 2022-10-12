@@ -394,6 +394,12 @@ pub const Mutable = struct {
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `math.max(a.limbs.len, calcLimbLen(scalar)) + 1`.
     pub fn addScalar(r: *Mutable, a: Const, scalar: anytype) void {
+        // Normally we could just determine the number of limbs needed with calcLimbLen,
+        // but that is not comptime-known when scalar is not a comptime_int.  Instead, we
+        // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
+        // in the case that scalar happens to be small in magnitude within its type, but it
+        // is well worth being able to use the stack and not needing an allocator passed in.
+        // Note that Mutable.init still sets operand.len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .ComptimeInt => calcLimbLen(scalar),
             .Int => |info| calcTwosCompLimbCount(info.bits),
@@ -2311,6 +2317,12 @@ pub const Const = struct {
 
     /// Same as `order` but the right-hand operand is a primitive integer.
     pub fn orderAgainstScalar(lhs: Const, scalar: anytype) math.Order {
+        // Normally we could just determine the number of limbs needed with calcLimbLen,
+        // but that is not comptime-known when scalar is not a comptime_int.  Instead, we
+        // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
+        // in the case that scalar happens to be small in magnitude within its type, but it
+        // is well worth being able to use the stack and not needing an allocator passed in.
+        // Note that Mutable.init still sets rhs.len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .ComptimeInt => calcLimbLen(scalar),
             .Int => |info| calcTwosCompLimbCount(info.bits),
