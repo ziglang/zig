@@ -846,12 +846,12 @@ fn doALoopThing(id: EnumWithOneMember) void {
     }
 }
 
-test "comparison operator on enum with one member is comptime known" {
+test "comparison operator on enum with one member is comptime-known" {
     doALoopThing(EnumWithOneMember.Eof);
 }
 
 const State = enum { Start };
-test "switch on enum with one member is comptime known" {
+test "switch on enum with one member is comptime-known" {
     var state = State.Start;
     switch (state) {
         State.Start => return,

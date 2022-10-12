@@ -12,6 +12,6 @@ export fn bar() void {
 // target=native
 //
 // :3:35: error: unable to resolve comptime value
-// :3:35: note: value being casted to 'comptime_int' must be comptime known
+// :3:35: note: value being casted to 'comptime_int' must be comptime-known
 // :7:37: error: unable to resolve comptime value
-// :7:37: note: value being casted to 'comptime_float' must be comptime known
+// :7:37: note: value being casted to 'comptime_float' must be comptime-known

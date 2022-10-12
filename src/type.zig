@@ -2318,7 +2318,7 @@ pub const Type = extern union {
     /// * the type has only one possible value, making its ABI size 0.
     ///   - an enum with an explicit tag type has the ABI size of the integer tag type,
     ///     making it one-possible-value only if the integer tag type has 0 bits.
-    /// When `ignore_comptime_only` is true, then types that are comptime only
+    /// When `ignore_comptime_only` is true, then types that are comptime-only
     /// may return false positives.
     pub fn hasRuntimeBitsAdvanced(
         ty: Type,

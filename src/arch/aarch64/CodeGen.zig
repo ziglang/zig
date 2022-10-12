@@ -5425,7 +5425,7 @@ fn parseRegName(name: []const u8) ?Register {
 
 fn registerAlias(reg: Register, size_bytes: u64) Register {
     if (size_bytes == 0) {
-        unreachable; // should be comptime known
+        unreachable; // should be comptime-known
     } else if (size_bytes <= 4) {
         return reg.to32();
     } else if (size_bytes <= 8) {

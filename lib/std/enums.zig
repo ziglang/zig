@@ -696,7 +696,7 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn (type) 
 }
 
 /// Verifies that a type is a valid Indexer, providing a helpful
-/// compile error if not.  An Indexer maps a comptime known set
+/// compile error if not.  An Indexer maps a comptime-known set
 /// of keys to a dense set of zero-based indices.
 /// The indexer interface must look like this:
 /// ```

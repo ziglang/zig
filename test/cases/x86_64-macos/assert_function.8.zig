@@ -17,4 +17,4 @@ pub fn assert(ok: bool) void {
 // error
 //
 // :5:21: error: unable to resolve comptime value
-// :5:21: note: condition in comptime branch must be comptime known
+// :5:21: note: condition in comptime branch must be comptime-known

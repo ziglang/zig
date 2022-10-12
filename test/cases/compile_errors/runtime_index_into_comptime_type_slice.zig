@@ -14,6 +14,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :9:51: error: values of type '[]const builtin.Type.StructField' must be comptime known, but index value is runtime known
+// :9:51: error: values of type '[]const builtin.Type.StructField' must be comptime-known, but index value is runtime-known
 // :?:21: note: struct requires comptime because of this field
 // :?:21: note: types are not available at runtime

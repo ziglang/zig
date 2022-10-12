@@ -564,7 +564,7 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
     comptime try S.doTheTest();
 }
 
-test "array with comptime only element type" {
+test "array with comptime-only element type" {
     const a = [_]type{ u32, i32 };
     try testing.expect(a[0] == u32);
     try testing.expect(a[1] == i32);

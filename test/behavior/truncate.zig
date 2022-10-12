@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 
-test "truncate u0 to larger integer allowed and has comptime known result" {
+test "truncate u0 to larger integer allowed and has comptime-known result" {
     var x: u0 = 0;
     const y = @truncate(u8, x);
     comptime try expect(y == 0);
@@ -25,7 +25,7 @@ test "truncate.u0.var" {
     try expect(z == 0);
 }
 
-test "truncate i0 to larger integer allowed and has comptime known result" {
+test "truncate i0 to larger integer allowed and has comptime-known result" {
     var x: i0 = 0;
     const y = @truncate(i8, x);
     comptime try expect(y == 0);

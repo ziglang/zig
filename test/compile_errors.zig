@@ -203,8 +203,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{
             ":3:12: error: unable to resolve comptime value",
-            ":3:12: note: argument to function being called at comptime must be comptime known",
-            ":2:55: note: generic function is instantiated with a comptime only return type",
+            ":3:12: note: argument to function being called at comptime must be comptime-known",
+            ":2:55: note: generic function is instantiated with a comptime-only return type",
         });
     }
 

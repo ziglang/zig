@@ -582,16 +582,16 @@ test "comparisons 0 <= uint and 0 > uint should be comptime" {
 }
 fn testCompTimeUIntComparisons(x: u32) void {
     if (!(0 <= x)) {
-        @compileError("this condition should be comptime known");
+        @compileError("this condition should be comptime-known");
     }
     if (0 > x) {
-        @compileError("this condition should be comptime known");
+        @compileError("this condition should be comptime-known");
     }
     if (!(x >= 0)) {
-        @compileError("this condition should be comptime known");
+        @compileError("this condition should be comptime-known");
     }
     if (x < 0) {
-        @compileError("this condition should be comptime known");
+        @compileError("this condition should be comptime-known");
     }
 }
 
@@ -1302,7 +1302,7 @@ test "repeated value is correctly expanded" {
     }
 }
 
-test "value in if block is comptime known" {
+test "value in if block is comptime-known" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const first = blk: {

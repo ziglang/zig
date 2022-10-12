@@ -1769,7 +1769,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            return self.fail("TODO implement calling runtime-known function pointer", .{});
         }
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});

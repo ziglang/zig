@@ -11,4 +11,4 @@ pub export fn entry() void {
 // target=native
 //
 // :6:31: error: unable to resolve comptime value
-// :6:31: note: argument to parameter with comptime only type must be comptime known
+// :6:31: note: argument to parameter with comptime-only type must be comptime-known

@@ -400,7 +400,7 @@ test "function callconv expression depends on generic parameter" {
     comptime try S.doTheTest();
 }
 
-test "runtime known array index has best alignment possible" {
+test "runtime-known array index has best alignment possible" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment

@@ -3494,7 +3494,7 @@ fn freeExportList(gpa: Allocator, export_list: []*Export) void {
 const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
 // TODO This is taking advantage of matching stage1 debug union layout.
 // We need a better language feature for initializing a union with
-// a runtime known tag.
+// a runtime-known tag.
 const Stage1DataLayout = extern struct {
     data: [8]u8 align(@alignOf(Zir.Inst.Data)),
     safety_tag: u8,
@@ -4594,7 +4594,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const decl_linksection: ?[*:0]const u8 = blk: {
         const linksection_ref = decl.zirLinksectionRef();
         if (linksection_ref == .none) break :blk null;
-        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime known");
+        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime-known");
         if (mem.indexOfScalar(u8, bytes, 0) != null) {
             return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
         } else if (bytes.len == 0) {

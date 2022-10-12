@@ -29,7 +29,7 @@ pub const FormatOptions = struct {
 /// If `writer` returns an error, the error is returned from `format` and
 /// `writer` is not called again.
 ///
-/// The format string must be comptime known and may contain placeholders following
+/// The format string must be comptime-known and may contain placeholders following
 /// this format:
 /// `{[argument][specifier]:[fill][alignment][width].[precision]}`
 ///
