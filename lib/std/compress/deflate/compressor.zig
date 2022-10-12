@@ -202,7 +202,7 @@ fn bulkHash4(b: []u8, dst: []u32) u32 {
     return hb;
 }
 
-const CompressorOptions = struct {
+pub const CompressorOptions = struct {
     level: Compression = .default_compression,
     dictionary: ?[]const u8 = null,
 };

@@ -5,6 +5,7 @@ const deflate = @import("deflate/compressor.zig");
 const inflate = @import("deflate/decompressor.zig");
 
 pub const Compression = deflate.Compression;
+pub const CompressorOptions = deflate.CompressorOptions;
 pub const Compressor = deflate.Compressor;
 pub const Decompressor = inflate.Decompressor;
 
