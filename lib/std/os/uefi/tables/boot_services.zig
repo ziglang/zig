@@ -191,7 +191,7 @@ pub const BootServices = extern struct {
     pub const tpl_high_level: usize = 31;
 };
 
-pub const EfiEventNotify = fn (event: Event, ctx: *anyopaque) callconv(.C) void;
+pub const EfiEventNotify = std.meta.FnPtr(fn (event: Event, ctx: *anyopaque) callconv(.C) void);
 
 pub const TimerDelay = enum(u32) {
     TimerCancel,

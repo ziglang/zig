@@ -15,7 +15,7 @@ pub const ManagedNetworkProtocol = extern struct {
     _transmit: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status),
     _receive: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status),
     _cancel: std.meta.FnPtr(fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(.C) Status),
-    _poll: std.meta.FnPtr(fn (*const ManagedNetworkProtocol) callconv(.C) usize),
+    _poll: std.meta.FnPtr(fn (*const ManagedNetworkProtocol) callconv(.C) Status),
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
@@ -31,8 +31,7 @@ pub const ManagedNetworkProtocol = extern struct {
     /// Translates an IP multicast address to a hardware (MAC) multicast address.
     /// This function may be unsupported in some MNP implementations.
     pub fn mcastIpToMac(self: *const ManagedNetworkProtocol, ipv6flag: bool, ipaddress: *const anyopaque, mac_address: *MacAddress) Status {
-        _ = mac_address;
-        return self._mcast_ip_to_mac(self, ipv6flag, ipaddress);
+        return self._mcast_ip_to_mac(self, ipv6flag, ipaddress, mac_address);
     }
 
     /// Enables and disables receive filters for multicast address.
