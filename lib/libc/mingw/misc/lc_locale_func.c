@@ -2,17 +2,10 @@
 #define ___lc_codepage_func __dummy____lc_codepage_func
 #include <windows.h>
 #include <locale.h>
-#include <msvcrt.h>
 
 #undef __lc_codepage
 #undef ___lc_codepage_func
 #include "mb_wc_common.h"
-
-static unsigned int *msvcrt__lc_codepage;
-static unsigned int __cdecl msvcrt___lc_codepage_func(void)
-{
-    return *msvcrt__lc_codepage;
-}
 
 static unsigned int __cdecl setlocale_codepage_hack(void)
 {
@@ -21,13 +14,22 @@ static unsigned int __cdecl setlocale_codepage_hack(void)
     return cp_str ? atoi(cp_str + 1) : 0;
 }
 
+#ifndef __LIBMSVCRT_OS__
+
+unsigned int (__cdecl *__MINGW_IMP_SYMBOL(___lc_codepage_func))(void) = setlocale_codepage_hack;
+
+#else
+
+#include <msvcrt.h>
+
+static unsigned int *msvcrt__lc_codepage;
+static unsigned int __cdecl msvcrt___lc_codepage_func(void)
+{
+    return *msvcrt__lc_codepage;
+}
+
 static unsigned int __cdecl init_codepage_func(void);
 unsigned int (__cdecl *__MINGW_IMP_SYMBOL(___lc_codepage_func))(void) = init_codepage_func;
-
-unsigned int __cdecl ___lc_codepage_func (void)
-{
-  return __MINGW_IMP_SYMBOL(___lc_codepage_func) ();
-}
 
 static unsigned int __cdecl init_codepage_func(void)
 {
@@ -47,4 +49,11 @@ static unsigned int __cdecl init_codepage_func(void)
         func = setlocale_codepage_hack;
 
     return (__MINGW_IMP_SYMBOL(___lc_codepage_func) = func)();
+}
+
+#endif
+
+unsigned int __cdecl ___lc_codepage_func(void)
+{
+    return __MINGW_IMP_SYMBOL(___lc_codepage_func)();
 }

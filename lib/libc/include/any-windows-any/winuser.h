@@ -2241,7 +2241,10 @@ extern "C" {
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
   WINUSERAPI WINBOOL WINAPI GetLayeredWindowAttributes (HWND hwnd, COLORREF *pcrKey, BYTE *pbAlpha, DWORD *pdwFlags);
 
-#define PW_CLIENTONLY 0x00000001
+#define PW_CLIENTONLY         0x00000001
+#if _WIN32_WINNT >= 0x0603
+#define PW_RENDERFULLCONTENT  0x00000002
+#endif
 
   WINUSERAPI WINBOOL WINAPI PrintWindow (HWND hwnd, HDC hdcBlt, UINT nFlags);
   WINUSERAPI WINBOOL WINAPI SetLayeredWindowAttributes (HWND hwnd, COLORREF crKey, BYTE bAlpha, DWORD dwFlags);

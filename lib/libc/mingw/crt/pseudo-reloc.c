@@ -21,6 +21,7 @@
 #include <stdarg.h>
 #include <memory.h>
 #include <internal.h>
+#include <stdint.h>
 
 #if defined(__CYGWIN__)
 #include <wchar.h>
@@ -47,7 +48,7 @@
 
 extern char __RUNTIME_PSEUDO_RELOC_LIST__;
 extern char __RUNTIME_PSEUDO_RELOC_LIST_END__;
-extern char __MINGW_LSYMBOL(_image_base__);
+extern IMAGE_DOS_HEADER __MINGW_LSYMBOL(_image_base__);
 
 void _pei386_runtime_relocator (void);
 
@@ -311,6 +312,7 @@ do_pseudo_reloc (void * start, void * end, void * base)
   ptrdiff_t reloc_target = (ptrdiff_t) ((char *)end - (char*)start);
   runtime_pseudo_reloc_v2 *v2_hdr = (runtime_pseudo_reloc_v2 *) start;
   runtime_pseudo_reloc_item_v2 *r;
+  unsigned int bits;
 
   /* A valid relocation list will contain at least one entry, and
    * one v1 data structure (the smallest one) requires two DWORDs.
@@ -439,6 +441,23 @@ do_pseudo_reloc (void * start, void * end, void * base)
       /* Adjust the relocation value */
       reldata -= ((ptrdiff_t) base + r->sym);
       reldata += addr_imp;
+
+      bits = r->flags & 0xff;
+      if (bits < sizeof(ptrdiff_t)*8)
+        {
+          /* Check for overflows. We don't know if the target address is
+           * interpreted as a relative offset or as a truncated absolute
+           * address - to avoid false positives, allow offsets within the
+           * whole range of signed and unsigned N bits numbers, but error
+           * out for anything outside of that. Thus for relative offsets,
+           * this won't catch offsets that are only barely too large. */
+          ptrdiff_t max_unsigned = (1LL << bits) - 1;
+          ptrdiff_t min_signed = UINTPTR_MAX << (bits - 1);
+          if (reldata > max_unsigned || reldata < min_signed)
+	    __report_error ("%d bit pseudo relocation at %p out of range, "
+                            "targeting %p, yielding the value %p.\n",
+                            bits, reloc_target, addr_imp, reldata);
+        }
 
       /* Write the new relocation value back to *reloc_target */
       switch ((r->flags & 0xff))

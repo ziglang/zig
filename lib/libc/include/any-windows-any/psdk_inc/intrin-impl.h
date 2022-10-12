@@ -1424,6 +1424,123 @@ unsigned char _BitScanReverse64(unsigned __LONG32 *Index, unsigned __int64 Mask)
 #endif /* __INTRINSIC_PROLOG */
 
 #endif /* defined(__aarch64__) || define(_ARM64_) */
+
+#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+
+#if __INTRINSIC_PROLOG(_bittest)
+unsigned char _bittest(const __LONG32 *__a, __LONG32 __b);
+#if !__has_builtin(_bittest)
+__INTRINSICS_USEINLINE
+unsigned char _bittest(const __LONG32 *__a, __LONG32 __b)
+{
+    return (*__a >> __b) & 1;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittest
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandset)
+unsigned char _bittestandset(__LONG32 *__a, __LONG32 __b);
+#if !__has_builtin(_bittestandset)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandset(__LONG32 *__a, __LONG32 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a |= 1UL << __b;
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandset
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandreset)
+unsigned char _bittestandreset(__LONG32 *__a, __LONG32 __b);
+#if !__has_builtin(_bittestandreset)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandreset(__LONG32 *__a, __LONG32 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a &= ~(1UL << __b);
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandreset
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandcomplement)
+unsigned char _bittestandcomplement(__LONG32 *a, __LONG32 b);
+#if !__has_builtin(_bittestandcomplement)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandcomplement(__LONG32 *__a, __LONG32 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a ^= 1UL << __b;
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandcomplement
+#endif /* __INTRINSIC_PROLOG */
+
+#endif /* defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) */
+
+#if defined(__aarch64__) || defined(_ARM64_)
+
+#if __INTRINSIC_PROLOG(_bittest64)
+unsigned char _bittest64(const __int64 *__a, __int64 __b);
+#if !__has_builtin(_bittest64)
+__INTRINSICS_USEINLINE
+unsigned char _bittest64(const __int64 *__a, __int64 __b)
+{
+    return (*__a >> __b) & 1;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittest64
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandset64)
+unsigned char _bittestandset64(__int64 *__a, __int64 __b);
+#if !__has_builtin(_bittestandset64)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandset64(__int64 *__a, __int64 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a |= 1ULL << __b;
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandset64
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandreset64)
+unsigned char _bittestandreset64(__int64 *__a, __int64 __b);
+#if !__has_builtin(_bittestandreset64)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandreset64(__int64 *__a, __int64 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a &= ~(1ULL << __b);
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandreset64
+#endif /* __INTRINSIC_PROLOG */
+
+#if __INTRINSIC_PROLOG(_bittestandcomplement64)
+unsigned char _bittestandcomplement64(__int64 *a, __int64 b);
+#if !__has_builtin(_bittestandcomplement64)
+__INTRINSICS_USEINLINE
+unsigned char _bittestandcomplement64(__int64 *__a, __int64 __b)
+{
+    unsigned char __v = (*__a >> __b) & 1;
+    *__a ^= 1ULL << __b;
+    return __v;
+}
+#endif
+#define __INTRINSIC_DEFINED__bittestandcomplement64
+#endif /* __INTRINSIC_PROLOG */
+
+#endif /* defined(__aarch64__) || define(_ARM64_) */
+
 /* ***************************************************** */
 
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
@@ -1906,6 +2023,7 @@ void __cpuid(int CPUInfo[4], int InfoType) {
 #define __INTRINSIC_DEFINED___cpuid
 #endif /* __INTRINSIC_PROLOG */
 
+#if (!defined(__GNUC__) || __GNUC__ < 11)
 #if __INTRINSIC_PROLOG(__cpuidex)
 void __cpuidex(int CPUInfo[4], int, int);
 #if !__has_builtin(__cpuidex)
@@ -1919,6 +2037,7 @@ void __cpuidex(int CPUInfo[4], int function_id, int subfunction_id) {
 #endif
 #define __INTRINSIC_DEFINED___cpuidex
 #endif /* __INTRINSIC_PROLOG */
+#endif /* __GNUC__ < 11 */
 
 #if __INTRINSIC_PROLOG(__readmsr)
 __MINGW_EXTENSION unsigned __int64 __readmsr(unsigned __LONG32);

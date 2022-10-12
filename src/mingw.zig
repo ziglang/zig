@@ -91,6 +91,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-D_CRTBLD",
                     "-D_WIN32_WINNT=0x0f00",
                     "-D__MSVCRT_VERSION__=0x700",
+                    "-D__USE_MINGW_ANSI_STDIO=0",
                 });
                 c_source_files[i] = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -105,7 +106,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
         .msvcrt_os_lib => {
             const extra_flags = try arena.dupe([]const u8, &[_][]const u8{
                 "-DHAVE_CONFIG_H",
-                "-D__LIBMSVCRT__",
+                "-D__LIBMSVCRT_OS__",
 
                 "-I",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "include" }),
@@ -114,6 +115,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-D_CRTBLD",
                 "-D_WIN32_WINNT=0x0f00",
                 "-D__MSVCRT_VERSION__=0x700",
+                "-D__USE_MINGW_ANSI_STDIO=0",
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
@@ -162,6 +164,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-D_CRTBLD",
                 "-D_WIN32_WINNT=0x0f00",
                 "-D__MSVCRT_VERSION__=0x700",
+                "-D__USE_MINGW_ANSI_STDIO=0",
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
@@ -224,6 +227,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-D_CRTBLD",
                 "-D_WIN32_WINNT=0x0f00",
                 "-D__MSVCRT_VERSION__=0x700",
+                "-D__USE_MINGW_ANSI_STDIO=0",
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -269,6 +273,7 @@ fn add_cc_args(
         "-D_CRTBLD",
         "-D_WIN32_WINNT=0x0f00",
         "-D__MSVCRT_VERSION__=0x700",
+        "-D__USE_MINGW_ANSI_STDIO=0",
     });
 }
 
@@ -677,7 +682,6 @@ const mingwex_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "cbrt.c",
     "math" ++ path.sep_str ++ "cbrtf.c",
     "math" ++ path.sep_str ++ "cbrtl.c",
-    "math" ++ path.sep_str ++ "cephes_emath.c",
     "math" ++ path.sep_str ++ "copysign.c",
     "math" ++ path.sep_str ++ "copysignf.c",
     "math" ++ path.sep_str ++ "coshf.c",
@@ -810,7 +814,6 @@ const mingwex_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "strnlen.c",
     "misc" ++ path.sep_str ++ "strsafe.c",
     "misc" ++ path.sep_str ++ "strtoimax.c",
-    "misc" ++ path.sep_str ++ "strtold.c",
     "misc" ++ path.sep_str ++ "strtoumax.c",
     "misc" ++ path.sep_str ++ "tdelete.c",
     "misc" ++ path.sep_str ++ "tfind.c",
