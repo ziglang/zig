@@ -55,3 +55,16 @@ test "exporting with internal linkage" {
     };
     S.foo();
 }
+
+test "exporting using field access" {
+    const S = struct {
+        const Inner = struct {
+            const x: u32 = 5;
+        };
+        comptime {
+            @export(Inner.x, .{ .name = "foo", .linkage = .Internal });
+        }
+    };
+
+    _ = S.Inner.x;
+}

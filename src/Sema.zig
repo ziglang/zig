@@ -5180,10 +5180,13 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const decl_name = sema.code.nullTerminatedString(extra.decl_name);
-    if (extra.namespace != .none) {
-        return sema.fail(block, src, "TODO: implement exporting with field access", .{});
-    }
-    const decl_index = try sema.lookupIdentifier(block, operand_src, decl_name);
+    const decl_index = if (extra.namespace != .none) index_blk: {
+        const container_ty = try sema.resolveType(block, operand_src, extra.namespace);
+        const container_namespace = container_ty.getNamespace().?;
+
+        const maybe_index = try sema.lookupInNamespace(block, operand_src, container_namespace, decl_name, false);
+        break :index_blk maybe_index.?; // AstGen would produce error in case of unidentified name
+    } else try sema.lookupIdentifier(block, operand_src, decl_name);
     const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
         error.NeededSourceLocation => {
             _ = try sema.resolveExportOptions(block, options_src, extra.options);
