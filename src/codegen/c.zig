@@ -485,14 +485,24 @@ pub const DeclGen = struct {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
                 const container_ty = field_ptr.container_ty;
                 const index = field_ptr.field_index;
-                const field_name = switch (container_ty.zigTypeTag()) {
-                    .Struct => container_ty.structFields().keys()[index],
-                    .Union => container_ty.unionFields().keys()[index],
-                    else => unreachable,
-                };
-                const field_ty = switch (container_ty.zigTypeTag()) {
-                    .Struct => container_ty.structFields().values()[index].ty,
-                    .Union => container_ty.unionFields().values()[index].ty,
+                const FieldInfo = struct { name: []const u8, ty: Type };
+                const field_info: FieldInfo = switch (container_ty.zigTypeTag()) {
+                    .Struct => .{
+                        .name = container_ty.structFields().keys()[index],
+                        .ty = container_ty.structFields().values()[index].ty,
+                    },
+                    .Union => .{
+                        .name = container_ty.unionFields().keys()[index],
+                        .ty = container_ty.unionFields().values()[index].ty,
+                    },
+                    .Pointer => switch (container_ty.ptrSize()) {
+                        .Slice => switch (index) {
+                            0 => FieldInfo{ .name = "ptr", .ty = container_ty.childType() },
+                            1 => FieldInfo{ .name = "len", .ty = Type.usize },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    },
                     else => unreachable,
                 };
                 var container_ptr_ty_pl: Type.Payload.ElemType = .{
@@ -501,16 +511,16 @@ pub const DeclGen = struct {
                 };
                 const container_ptr_ty = Type.initPayload(&container_ptr_ty_pl.base);
 
-                if (field_ty.hasRuntimeBitsIgnoreComptime()) {
+                if (field_info.ty.hasRuntimeBitsIgnoreComptime()) {
                     try writer.writeAll("&(");
                     try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
                     if (field_ptr.container_ty.tag() == .union_tagged or field_ptr.container_ty.tag() == .union_safety_tagged) {
-                        try writer.print(")->payload.{ }", .{fmtIdent(field_name)});
+                        try writer.print(")->payload.{ }", .{fmtIdent(field_info.name)});
                     } else {
-                        try writer.print(")->{ }", .{fmtIdent(field_name)});
+                        try writer.print(")->{ }", .{fmtIdent(field_info.name)});
                     }
                 } else {
-                    try dg.renderParentPtr(writer, field_ptr.container_ptr, field_ty);
+                    try dg.renderParentPtr(writer, field_ptr.container_ptr, field_info.ty);
                 }
             },
             .elem_ptr => {

@@ -2289,6 +2289,14 @@ fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WV
                     const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
                     break :blk offset;
                 },
+                .Pointer => switch (parent_ty.ptrSize()) {
+                    .Slice => switch (field_ptr.field_index) {
+                        0 => 0,
+                        1 => self.ptrSize(),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
                 else => unreachable,
             };
 

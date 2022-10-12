@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqualStrings = std.testing.expectEqualStrings;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
@@ -686,8 +687,6 @@ test "slice len modification at comptime" {
 }
 
 test "slice field ptr const" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const const_slice: []const u8 = "string";
 
     const const_ptr_const_slice = &const_slice;
@@ -700,8 +699,6 @@ test "slice field ptr const" {
 }
 
 test "slice field ptr var" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     var var_slice: []const u8 = "string";
 
     var var_ptr_var_slice = &var_slice;
@@ -711,4 +708,19 @@ test "slice field ptr var" {
     const const_ptr_var_slice = &var_slice;
     try expectEqual(*[]const u8, @TypeOf(&const_ptr_var_slice.*));
     try expectEqual(*[*]const u8, @TypeOf(&const_ptr_var_slice.ptr));
+}
+
+test "global slice field access" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        var slice: []const u8 = undefined;
+    };
+    S.slice = "string";
+    S.slice.ptr += 1;
+    S.slice.len -= 2;
+    try expectEqualStrings("trin", S.slice);
 }
