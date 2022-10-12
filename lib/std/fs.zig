@@ -301,7 +301,7 @@ pub const IterableDir = struct {
         .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
             dir: Dir,
             seek: i64,
-            buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
+            buf: [1024]u8, // TODO align(@alignOf(os.system.dirent)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -490,10 +490,16 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .haiku => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            buf: [1024]u8, // TODO align(@alignOf(os.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -577,12 +583,18 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .linux => struct {
             dir: Dir,
             // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
             // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
+            buf: [1024]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -655,10 +667,16 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .windows => struct {
             dir: Dir,
-            buf: [8192]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
+            buf: [1024]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -727,10 +745,16 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .wasi => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
+            buf: [1024]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
             cookie: u64,
             index: usize,
             end_index: usize,
@@ -806,11 +830,28 @@ pub const IterableDir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.cookie = os.wasi.DIRCOOKIE_START;
+            }
         },
         else => @compileError("unimplemented"),
     };
 
     pub fn iterate(self: IterableDir) Iterator {
+        return self.iterateImpl(true);
+    }
+
+    /// Like `iterate`, but will not reset the directory cursor before the first
+    /// iteration. This should only be used in cases where it is known that the
+    /// `IterableDir` has not had its cursor modified yet (e.g. it was just opened).
+    pub fn iterateAssumeFirstIteration(self: IterableDir) Iterator {
+        return self.iterateImpl(false);
+    }
+
+    fn iterateImpl(self: IterableDir, first_iter_start_value: bool) Iterator {
         switch (builtin.os.tag) {
             .macos,
             .ios,
@@ -825,20 +866,20 @@ pub const IterableDir = struct {
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .linux, .haiku => return Iterator{
                 .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .windows => return Iterator{
                 .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
                 .buf = undefined,
                 .name_data = undefined,
             },
@@ -2035,55 +2076,197 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        start_over: while (true) {
-            var got_access_denied = false;
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
 
-            // First, try deleting the item as a file. This way we don't follow sym links.
-            if (self.deleteFile(sub_path)) {
-                return;
-            } else |err| switch (err) {
-                error.FileNotFound => return,
-                error.IsDir => {},
-                error.AccessDenied => got_access_denied = true,
+        const StackItem = struct {
+            name: []const u8,
+            parent_dir: Dir,
+            iter: IterableDir.Iterator,
+        };
 
-                error.InvalidUtf8,
-                error.SymLinkLoop,
-                error.NameTooLong,
-                error.SystemResources,
-                error.ReadOnlyFileSystem,
-                error.NotDir,
-                error.FileSystem,
-                error.FileBusy,
-                error.BadPathName,
-                error.Unexpected,
-                => |e| return e,
+        var stack = std.BoundedArray(StackItem, 16){};
+        defer {
+            for (stack.slice()) |*item| {
+                item.iter.dir.close();
             }
-            var iterable_dir = self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
-                error.NotDir => {
-                    if (got_access_denied) {
-                        return error.AccessDenied;
-                    }
-                    continue :start_over;
-                },
-                error.FileNotFound => {
-                    // That's fine, we were trying to remove this directory anyway.
-                    continue :start_over;
-                },
+        }
 
-                error.InvalidHandle,
-                error.AccessDenied,
-                error.SymLinkLoop,
-                error.ProcessFdQuotaExceeded,
-                error.NameTooLong,
-                error.SystemFdQuotaExceeded,
-                error.NoDevice,
-                error.SystemResources,
-                error.Unexpected,
-                error.InvalidUtf8,
-                error.BadPathName,
-                error.DeviceBusy,
-                => |e| return e,
+        stack.appendAssumeCapacity(StackItem{
+            .name = sub_path,
+            .parent_dir = self,
+            .iter = initial_iterable_dir.iterateAssumeFirstIteration(),
+        });
+
+        process_stack: while (stack.len != 0) {
+            var top = &(stack.slice()[stack.len - 1]);
+            while (try top.iter.next()) |entry| {
+                var treat_as_dir = entry.kind == .Directory;
+                handle_entry: while (true) {
+                    if (treat_as_dir) {
+                        if (stack.ensureUnusedCapacity(1)) {
+                            var iterable_dir = top.iter.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    break :handle_entry;
+                                },
+
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                            stack.appendAssumeCapacity(StackItem{
+                                .name = entry.name,
+                                .parent_dir = top.iter.dir,
+                                .iter = iterable_dir.iterateAssumeFirstIteration(),
+                            });
+                            continue :process_stack;
+                        } else |_| {
+                            try top.iter.dir.deleteTreeMinStackSizeWithKindHint(entry.name, entry.kind);
+                            break :handle_entry;
+                        }
+                    } else {
+                        if (top.iter.dir.deleteFile(entry.name)) {
+                            break :handle_entry;
+                        } else |err| switch (err) {
+                            error.FileNotFound => break :handle_entry,
+
+                            // Impossible because we do not pass any path separators.
+                            error.NotDir => unreachable,
+
+                            error.IsDir => {
+                                treat_as_dir = true;
+                                continue :handle_entry;
+                            },
+
+                            error.AccessDenied,
+                            error.InvalidUtf8,
+                            error.SymLinkLoop,
+                            error.NameTooLong,
+                            error.SystemResources,
+                            error.ReadOnlyFileSystem,
+                            error.FileSystem,
+                            error.FileBusy,
+                            error.BadPathName,
+                            error.Unexpected,
+                            => |e| return e,
+                        }
+                    }
+                }
+            }
+
+            // On Windows, we can't delete until the dir's handle has been closed, so
+            // close it before we try to delete.
+            top.iter.dir.close();
+
+            // In order to avoid double-closing the directory when cleaning up
+            // the stack in the case of an error, we save the relevant portions and
+            // pop the value from the stack.
+            const parent_dir = top.parent_dir;
+            const name = top.name;
+            _ = stack.pop();
+
+            var need_to_retry: bool = false;
+            parent_dir.deleteDir(name) catch |err| switch (err) {
+                error.FileNotFound => {},
+                error.DirNotEmpty => need_to_retry = false,
+                else => |e| return e,
             };
+
+            if (need_to_retry) {
+                // Since we closed the handle that the previous iterator used, we
+                // need to re-open the dir and re-create the iterator.
+                var iterable_dir = iterable_dir: {
+                    var treat_as_dir = true;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            break :iterable_dir parent_dir.openIterableDir(name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :process_stack;
+                                },
+
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                        } else {
+                            if (parent_dir.deleteFile(name)) {
+                                continue :process_stack;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :process_stack,
+
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
+
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
+
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
+                            }
+                        }
+                    }
+                };
+                // We know there is room on the stack since we are just re-adding
+                // the StackItem that we previously popped.
+                stack.appendAssumeCapacity(StackItem{
+                    .name = name,
+                    .parent_dir = parent_dir,
+                    .iter = iterable_dir.iterateAssumeFirstIteration(),
+                });
+                continue :process_stack;
+            }
+        }
+    }
+
+    /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
+    /// This is slower than `deleteTree` but uses less stack space.
+    pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
+        return self.deleteTreeMinStackWithKindHint(sub_path, .File);
+    }
+
+    fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
+        start_over: while (true) {
+            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
             var cleanup_dir_parent: ?IterableDir = null;
             defer if (cleanup_dir_parent) |*d| d.close();
 
@@ -2101,63 +2284,69 @@ pub const Dir = struct {
             // open it, and close the original directory. Repeat. Then start the entire operation over.
 
             scan_dir: while (true) {
-                var dir_it = iterable_dir.iterate();
-                while (try dir_it.next()) |entry| {
-                    if (iterable_dir.dir.deleteFile(entry.name)) {
-                        continue;
-                    } else |err| switch (err) {
-                        error.FileNotFound => continue,
+                var dir_it = iterable_dir.iterateAssumeFirstIteration();
+                dir_it: while (try dir_it.next()) |entry| {
+                    var treat_as_dir = entry.kind == .Directory;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :dir_it;
+                                },
 
-                        // Impossible because we do not pass any path separators.
-                        error.NotDir => unreachable,
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                            if (cleanup_dir_parent) |*d| d.close();
+                            cleanup_dir_parent = iterable_dir;
+                            iterable_dir = new_dir;
+                            mem.copy(u8, &dir_name_buf, entry.name);
+                            dir_name = dir_name_buf[0..entry.name.len];
+                            continue :scan_dir;
+                        } else {
+                            if (iterable_dir.dir.deleteFile(entry.name)) {
+                                continue :dir_it;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :dir_it,
 
-                        error.IsDir => {},
-                        error.AccessDenied => got_access_denied = true,
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
 
-                        error.InvalidUtf8,
-                        error.SymLinkLoop,
-                        error.NameTooLong,
-                        error.SystemResources,
-                        error.ReadOnlyFileSystem,
-                        error.FileSystem,
-                        error.FileBusy,
-                        error.BadPathName,
-                        error.Unexpected,
-                        => |e| return e,
-                    }
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
 
-                    const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
-                        error.NotDir => {
-                            if (got_access_denied) {
-                                return error.AccessDenied;
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
                             }
-                            continue :scan_dir;
-                        },
-                        error.FileNotFound => {
-                            // That's fine, we were trying to remove this directory anyway.
-                            continue :scan_dir;
-                        },
-
-                        error.InvalidHandle,
-                        error.AccessDenied,
-                        error.SymLinkLoop,
-                        error.ProcessFdQuotaExceeded,
-                        error.NameTooLong,
-                        error.SystemFdQuotaExceeded,
-                        error.NoDevice,
-                        error.SystemResources,
-                        error.Unexpected,
-                        error.InvalidUtf8,
-                        error.BadPathName,
-                        error.DeviceBusy,
-                        => |e| return e,
-                    };
-                    if (cleanup_dir_parent) |*d| d.close();
-                    cleanup_dir_parent = iterable_dir;
-                    iterable_dir = new_dir;
-                    mem.copy(u8, &dir_name_buf, entry.name);
-                    dir_name = dir_name_buf[0..entry.name.len];
-                    continue :scan_dir;
+                        }
+                    }
                 }
                 // Reached the end of the directory entries, which means we successfully deleted all of them.
                 // Now to remove the directory itself.
@@ -2181,6 +2370,67 @@ pub const Dir = struct {
                 }
             }
         }
+    }
+
+    /// On successful delete, returns null.
+    fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
+        return iterable_dir: {
+            // Treat as a file by default
+            var treat_as_dir = kind_hint == .Directory;
+
+            handle_entry: while (true) {
+                if (treat_as_dir) {
+                    break :iterable_dir self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
+                        error.NotDir => {
+                            treat_as_dir = false;
+                            continue :handle_entry;
+                        },
+                        error.FileNotFound => {
+                            // That's fine, we were trying to remove this directory anyway.
+                            return null;
+                        },
+
+                        error.InvalidHandle,
+                        error.AccessDenied,
+                        error.SymLinkLoop,
+                        error.ProcessFdQuotaExceeded,
+                        error.NameTooLong,
+                        error.SystemFdQuotaExceeded,
+                        error.NoDevice,
+                        error.SystemResources,
+                        error.Unexpected,
+                        error.InvalidUtf8,
+                        error.BadPathName,
+                        error.DeviceBusy,
+                        => |e| return e,
+                    };
+                } else {
+                    if (self.deleteFile(sub_path)) {
+                        return null;
+                    } else |err| switch (err) {
+                        error.FileNotFound => return null,
+
+                        error.IsDir => {
+                            treat_as_dir = true;
+                            continue :handle_entry;
+                        },
+
+                        error.AccessDenied,
+                        error.InvalidUtf8,
+                        error.SymLinkLoop,
+                        error.NameTooLong,
+                        error.SystemResources,
+                        error.ReadOnlyFileSystem,
+                        error.NotDir,
+                        error.FileSystem,
+                        error.FileBusy,
+                        error.BadPathName,
+                        error.Unexpected,
+                        => |e| return e,
+                    }
+                }
+            }
+        };
     }
 
     /// Writes content to the file system, creating a new file if it does not exist, truncating
