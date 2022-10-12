@@ -26792,10 +26792,10 @@ fn analyzeDeclVal(
     src: LazySrcLoc,
     decl_index: Decl.Index,
 ) CompileError!Air.Inst.Ref {
+    try sema.addReferencedBy(block, src, decl_index);
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    try sema.addReferencedBy(block, src, decl_index);
     const decl_ref = try sema.analyzeDeclRef(decl_index);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
