@@ -142,12 +142,11 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         if (process.getEnvVarOwned(allocator, "C_INCLUDE_PATH")) |c_include_path| {
             defer allocator.free(c_include_path);
             var it = mem.tokenize(u8, c_include_path, ":");
-            while (true) {
-                const dir = it.next() orelse break;
+            while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         } else |err| switch (err) {
-            error.InvalidUtf8 => {},
+            error.InvalidUtf8 => unreachable,
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
         }
@@ -155,12 +154,11 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         if (process.getEnvVarOwned(allocator, "CPLUS_INCLUDE_PATH")) |cplus_include_path| {
             defer allocator.free(cplus_include_path);
             var it = mem.tokenize(u8, cplus_include_path, ":");
-            while (true) {
-                const dir = it.next() orelse break;
+            while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         } else |err| switch (err) {
-            error.InvalidUtf8 => {},
+            error.InvalidUtf8 => unreachable,
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
         }
@@ -168,12 +166,11 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         if (process.getEnvVarOwned(allocator, "LIBRARY_PATH")) |library_path| {
             defer allocator.free(library_path);
             var it = mem.tokenize(u8, library_path, ":");
-            while (true) {
-                const dir = it.next() orelse break;
+            while (it.next()) |dir| {
                 try self.addLibDir(dir);
             }
         } else |err| switch (err) {
-            error.InvalidUtf8 => {},
+            error.InvalidUtf8 => unreachable,
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
         }
