@@ -178,6 +178,22 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
+    self.calculateMaxWidth();
+    self.root = Node{
+        .context = self,
+        .parent = null,
+        .name = name,
+        .unprotected_estimated_total_items = estimated_total_items,
+        .unprotected_completed_items = 0,
+    };
+    self.columns_written = 0;
+    self.prev_refresh_timestamp = 0;
+    self.timer = time.Timer.start() catch null;
+    self.done = false;
+    return &self.root;
+}
+
+fn calculateMaxWidth(self: *Progress) void {
     if (self.max_width == null) {
         if (self.terminal) |terminal| {
             // choose an optimal width and account for progress output that could have been printed
@@ -194,18 +210,6 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         truncation_suffix.len, // make sure we can at least truncate
         self.output_buffer.len - 1,
     );
-    self.root = Node{
-        .context = self,
-        .parent = null,
-        .name = name,
-        .unprotected_estimated_total_items = estimated_total_items,
-        .unprotected_completed_items = 0,
-    };
-    self.columns_written = 0;
-    self.prev_refresh_timestamp = 0;
-    self.timer = time.Timer.start() catch null;
-    self.done = false;
-    return &self.root;
 }
 
 fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
