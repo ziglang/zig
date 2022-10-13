@@ -442,8 +442,8 @@ test "behavior on buffer overflow" {
     if (skip_tests)
         return error.SkipZigTest;
 
-    // move the cursor
-    std.debug.print("{s}", .{"A" ** 300});
+    // uncomment this to move the cursor
+    //std.debug.print("{s}", .{"A" ** 300});
 
     var progress = Progress{};
 
