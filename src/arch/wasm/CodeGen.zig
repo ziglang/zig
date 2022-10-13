@@ -789,8 +789,13 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
 fn processDeath(self: *Self, ref: Air.Inst.Ref) void {
     const inst = Air.refToIndex(ref) orelse return;
     if (self.air.instructions.items(.tag)[inst] == .constant) return;
-    var value = self.values.get(ref) orelse return;
-    value.free(self);
+    const value = self.values.getPtr(ref) orelse return;
+    if (value.* != .local) return;
+    std.debug.print("Decreasing reference for ref: %{?d}\n", .{Air.refToIndex(ref)});
+    value.local.references -= 1; // if this panics, a call to `reuseOperand` was forgotten by the developer
+    if (value.local.references == 0) {
+        value.free(self);
+    }
 }
 
 /// Appends a MIR instruction and returns its index within the list of instructions
@@ -909,8 +914,27 @@ fn emitWValue(self: *Self, value: WValue) InnerError!void {
             try self.addInst(.{ .tag = .memory_address, .data = .{ .payload = extra_index } });
         },
         .function_index => |index| try self.addLabel(.function_index, index), // write function index and generate relocation
-        .stack_offset => try self.addLabel(.local_get, self.bottom_stack_value.local), // caller must ensure to address the offset
+        .stack_offset => try self.addLabel(.local_get, self.bottom_stack_value.local.value), // caller must ensure to address the offset
     }
+}
+
+/// If given a local or stack-offset, increases the reference count by 1.
+/// The old `WValue` found at instruction `ref` is then replaced by the
+/// modified `WValue` and returned. When given a non-local or non-stack-offset,
+/// returns the given `operand` itself instead.
+fn reuseOperand(self: *Self, ref: Air.Inst.Ref, operand: WValue) WValue {
+    if (operand != .local and operand != .stack_offset) return operand;
+    var copy = operand;
+    switch (copy) {
+        .local => |*local| local.references += 1,
+        .stack_offset => |*stack_offset| stack_offset.references += 1,
+        else => unreachable,
+    }
+
+    const gop = self.values.getOrPutAssumeCapacity(ref);
+    assert(gop.found_existing);
+    gop.value_ptr.* = copy;
+    return copy;
 }
 
 /// Creates one locals for a given `Type`.
@@ -2956,7 +2980,8 @@ fn airUnreachable(self: *Self, inst: Air.Inst.Index) InnerError!void {
 fn airBitcast(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result = if (!self.liveness.isUnused(inst)) result: {
-        break :result try self.resolveInst(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
+        break :result self.reuseOperand(ty_op.operand, operand);
     } else WValue{ .none = {} };
     self.finishAir(inst, result, &.{});
 }
