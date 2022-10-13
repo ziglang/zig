@@ -146,6 +146,8 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                 try self.addIncludeDir(dir);
             }
         } else |err| switch (err) {
+            // NOTE: since the above code won't be executed on windows, this
+            // InvalidUtf8 error is generally unreachable
             error.InvalidUtf8 => unreachable,
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
