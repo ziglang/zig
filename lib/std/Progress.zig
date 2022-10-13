@@ -57,6 +57,8 @@ output_buffer_slice: []u8 = undefined,
 ///
 /// It is recommended to leave this as `null` so that `start` can automatically decide an
 /// optimal width for the terminal.
+///
+/// Note that this will be clamped to at least 4 and output will appear malformed if it is < 4.
 max_width: ?usize = null,
 
 /// How many nanoseconds between writing updates to the terminal.
@@ -156,9 +158,13 @@ pub const Node = struct {
 
 /// Create a new progress node.
 /// Call `Node.end` when done.
-/// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
-/// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
+///
+/// Note that as soon as work is started and progress output is printed,
+/// `std.Progress` expects you to lean back and wait and not resize the terminal.
+/// Resizing the terminal during progress output may result in malformed output.
+// TODO: solve https://github.com/ziglang/zig/issues/2765 and then change this
+// API to return Progress rather than accept it as a parameter.
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
     const stderr = std.io.getStdErr();
     self.terminal = null;
