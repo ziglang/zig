@@ -609,7 +609,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
             .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
             .tag_name        => try self.airTagName(inst),
-            .error_name      => @panic("TODO try self.airErrorName(inst)"),
+            .error_name      => try self.airErrorName(inst),
             .splat           => @panic("TODO try self.airSplat(inst)"),
             .select          => @panic("TODO try self.airSelect(inst)"),
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
@@ -1517,6 +1517,16 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
+        _ = operand;
+        return self.fail("TODO implement airErrorName for {}", .{self.target.cpu.arch});
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
