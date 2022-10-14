@@ -2868,10 +2868,7 @@ pub const PROV_RSA_FULL = 1;
 
 pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
-pub const HKEY = *HKEY__;
-pub const HKEY__ = extern struct {
-    unused: c_int,
-};
+pub const HKEY = *opaque {};
 pub const LSTATUS = LONG;
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {
