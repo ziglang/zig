@@ -5920,6 +5920,7 @@ pub fn send(
         error.NetworkUnreachable => unreachable,
         error.AddressNotAvailable => unreachable,
         error.SocketNotConnected => unreachable,
+        error.UnreachableAddress => unreachable,
         else => |e| return e,
     };
 }
