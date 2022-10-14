@@ -615,7 +615,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),
-            .union_init      => @panic("TODO try self.airUnionInit(inst)"),
+            .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => @panic("TODO try self.airMulAdd(inst)"),
             .addrspace_cast  => @panic("TODO try self.airAddrSpaceCast(int)"),
@@ -2425,6 +2425,13 @@ fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
     else
         return self.fail("TODO implement airUnaryMath for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    _ = extra;
+    return self.fail("TODO implement airUnionInit for {}", .{self.target.cpu.arch});
 }
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
