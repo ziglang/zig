@@ -48,6 +48,23 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
         @compileError("PATH_MAX not implemented for " ++ @tagName(builtin.os.tag)),
 };
 
+/// This represents the maximum size of a UTF-8 encoded file name component that the
+/// operating system will accept. All file name components returned by file system
+/// operations are assumed to fit into a UTF-8 encoded array of this length.
+/// The byte count does not include a null sentinel byte.
+pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
+    .linux, .macos, .ios, .freebsd, .dragonfly, .haiku => os.NAME_MAX,
+    .netbsd, .openbsd, .solaris => os.MAXNAMLEN,
+    // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
+    // If it would require 4 UTF-8 bytes, then there would be a surrogate
+    // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
+    .windows => os.NAME_MAX * 3,
+    else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
+        root.os.NAME_MAX
+    else
+        @compileError("NAME_MAX not implemented for " ++ @tagName(builtin.os.tag)),
+};
+
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.

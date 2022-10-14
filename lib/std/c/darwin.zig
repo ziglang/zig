@@ -1014,6 +1014,7 @@ pub const vm_machine_attribute_val_t = isize;
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 255;
 pub const IOV_MAX = 16;
 
 pub const STDIN_FILENO = 0;

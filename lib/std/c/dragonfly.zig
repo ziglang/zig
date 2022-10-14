@@ -234,6 +234,7 @@ pub const SA = struct {
 };
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 255;
 pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const ino_t = c_ulong;

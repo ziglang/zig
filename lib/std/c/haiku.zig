@@ -266,6 +266,7 @@ pub const area_info = extern struct {
 };
 
 pub const MAXPATHLEN = PATH_MAX;
+pub const MAXNAMLEN = NAME_MAX;
 
 pub const image_info = extern struct {
     id: u32,
@@ -371,6 +372,7 @@ pub const KERN = struct {};
 pub const IOV_MAX = 1024;
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 256;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;

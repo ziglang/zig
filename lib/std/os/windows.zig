@@ -2977,6 +2977,12 @@ pub const PMEMORY_BASIC_INFORMATION = *MEMORY_BASIC_INFORMATION;
 /// from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
 pub const PATH_MAX_WIDE = 32767;
 
+/// > [Each file name component can be] up to the value returned in the
+/// > lpMaximumComponentLength parameter of the GetVolumeInformation function
+/// > (this value is commonly 255 characters)
+/// from https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+pub const NAME_MAX = 255;
+
 pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
 pub const FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
 pub const FORMAT_MESSAGE_FROM_HMODULE = 0x00000800;
