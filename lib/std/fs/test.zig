@@ -735,6 +735,11 @@ test "filename limits" {
         // so Windows allows for NAME_MAX of them
         const maxed_windows_filename = ("€".*) ** std.os.windows.NAME_MAX;
         try testFilenameLimits(tmp.iterable_dir, &maxed_windows_filename);
+    } else if (builtin.os.tag == .wasi) {
+        // On WASI, the maxed filename depends on the host OS, so in order for this test to
+        // work on any host, we need to use a length that will work for all platforms.
+        const maxed_wasi_filename = [_]u8{'1'} ** 255;
+        try testFilenameLimits(tmp.iterable_dir, &maxed_wasi_filename);
     } else {
         const maxed_ascii_filename = [_]u8{'1'} ** std.fs.MAX_NAME_BYTES;
         try testFilenameLimits(tmp.iterable_dir, &maxed_ascii_filename);
