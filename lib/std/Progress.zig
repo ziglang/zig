@@ -48,8 +48,9 @@ timer: ?time.Timer = null,
 /// Used to compare with `refresh_rate_ms`.
 prev_refresh_timestamp: u64 = undefined,
 
-/// This buffer represents the maximum number of bytes written to the terminal
-/// with each refresh.
+/// This is the maximum number of bytes that can be written to the terminal each refresh.
+/// Anything larger than this is truncated.
+// we can bump this up if we need to
 output_buffer: [256]u8 = undefined,
 output_buffer_slice: []u8 = undefined,
 
@@ -247,7 +248,7 @@ fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
         };
 
         try file.writeAll("\x1b[6n");
-        var buf: ["\x1b[256;256R".len]u8 = undefined;
+        var buf: ["\x1b[65536;65536R".len]u8 = undefined;
         const output = try file.reader().readUntilDelimiter(&buf, 'R');
         var splitter = std.mem.split(u8, output, ";");
         _ = splitter.next().?; // skip first half
@@ -356,7 +357,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     // we possibly wrote previously don't affect whether we truncate the line in `bufWrite`.
     const unprintables = end;
     end = 0;
-    self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
+    self.output_buffer_slice = self.output_buffer[unprintables..@minimum(self.output_buffer.len, unprintables + self.max_width.?)];
 
     if (!self.done) {
         var need_ellipsis = false;
