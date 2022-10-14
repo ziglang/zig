@@ -601,8 +601,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_load     => @panic("TODO try self.airAtomicLoad(inst)"),
             .memcpy          => @panic("TODO try self.airMemcpy(inst)"),
             .memset          => try self.airMemset(inst),
-            .set_union_tag   => @panic("TODO try self.airSetUnionTag(inst)"),
-            .get_union_tag   => @panic("TODO try self.airGetUnionTag(inst)"),
+            .set_union_tag   => try self.airSetUnionTag(inst),
+            .get_union_tag   => try self.airGetUnionTag(inst),
             .clz             => try self.airClz(inst),
             .ctz             => try self.airCtz(inst),
             .popcount        => try self.airPopcount(inst),
@@ -1556,6 +1556,12 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     if (self.liveness.isUnused(inst))
@@ -2069,6 +2075,12 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+}
+
+fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    _ = bin_op;
+    return self.fail("TODO implement airSetUnionTag for {}", .{self.target.cpu.arch});
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
