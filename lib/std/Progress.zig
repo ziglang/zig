@@ -48,8 +48,9 @@ timer: ?time.Timer = null,
 /// Used to compare with `refresh_rate_ms`.
 prev_refresh_timestamp: u64 = undefined,
 
-/// This buffer represents the maximum number of bytes written to the terminal
-/// with each refresh.
+/// This is the maximum number of bytes that can be written to the terminal each refresh.
+/// Anything larger than this is truncated.
+// we can bump this up if we need to
 output_buffer: [256]u8 = undefined,
 output_buffer_slice: []u8 = undefined,
 
@@ -57,6 +58,8 @@ output_buffer_slice: []u8 = undefined,
 ///
 /// It is recommended to leave this as `null` so that `start` can automatically decide an
 /// optimal width for the terminal.
+///
+/// Note that this will be clamped to at least 4 and output will appear malformed if it is < 4.
 max_width: ?usize = null,
 
 /// How many nanoseconds between writing updates to the terminal.
@@ -156,9 +159,13 @@ pub const Node = struct {
 
 /// Create a new progress node.
 /// Call `Node.end` when done.
-/// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
-/// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
+///
+/// Note that as soon as work is started and progress output is printed,
+/// `std.Progress` expects you to lean back and wait and not resize the terminal.
+/// Resizing the terminal during progress output may result in malformed output.
+// TODO: solve https://github.com/ziglang/zig/issues/2765 and then change this
+// API to return Progress rather than accept it as a parameter.
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
     const stderr = std.io.getStdErr();
     self.terminal = null;
@@ -172,6 +179,22 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
+    self.calculateMaxWidth();
+    self.root = Node{
+        .context = self,
+        .parent = null,
+        .name = name,
+        .unprotected_estimated_total_items = estimated_total_items,
+        .unprotected_completed_items = 0,
+    };
+    self.columns_written = 0;
+    self.prev_refresh_timestamp = 0;
+    self.timer = time.Timer.start() catch null;
+    self.done = false;
+    return &self.root;
+}
+
+fn calculateMaxWidth(self: *Progress) void {
     if (self.max_width == null) {
         if (self.terminal) |terminal| {
             // choose an optimal width and account for progress output that could have been printed
@@ -188,18 +211,6 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         truncation_suffix.len, // make sure we can at least truncate
         self.output_buffer.len - 1,
     );
-    self.root = Node{
-        .context = self,
-        .parent = null,
-        .name = name,
-        .unprotected_estimated_total_items = estimated_total_items,
-        .unprotected_completed_items = 0,
-    };
-    self.columns_written = 0;
-    self.prev_refresh_timestamp = 0;
-    self.timer = time.Timer.start() catch null;
-    self.done = false;
-    return &self.root;
 }
 
 fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
@@ -237,7 +248,7 @@ fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
         };
 
         try file.writeAll("\x1b[6n");
-        var buf: ["\x1b[256;256R".len]u8 = undefined;
+        var buf: ["\x1b[65536;65536R".len]u8 = undefined;
         const output = try file.reader().readUntilDelimiter(&buf, 'R');
         var splitter = std.mem.split(u8, output, ";");
         _ = splitter.next().?; // skip first half
@@ -346,7 +357,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     // we possibly wrote previously don't affect whether we truncate the line in `bufWrite`.
     const unprintables = end;
     end = 0;
-    self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
+    self.output_buffer_slice = self.output_buffer[unprintables..@minimum(self.output_buffer.len, unprintables + self.max_width.?)];
 
     if (!self.done) {
         var need_ellipsis = false;
@@ -432,8 +443,8 @@ test "behavior on buffer overflow" {
     if (skip_tests)
         return error.SkipZigTest;
 
-    // move the cursor
-    std.debug.print("{s}", .{"A" ** 300});
+    // uncomment this to move the cursor
+    //std.debug.print("{s}", .{"A" ** 300});
 
     var progress = Progress{};
 
