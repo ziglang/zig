@@ -59,6 +59,8 @@ pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
     .windows => os.windows.NAME_MAX * 3,
+    // TODO work out what a reasonable value we should use here
+    .wasi => 1024,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
         root.os.NAME_MAX
     else
