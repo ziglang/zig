@@ -139,42 +139,27 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         // NOTE: distro like guix doesn't use FHS, so it relies on envorinment
         // variables (C_INCLUDE_PATH, CPLUS_INCLUDE_PATH and LIBRARY_PATH) to
         // search for headers and libraries
-        if (process.getEnvVarOwned(allocator, "C_INCLUDE_PATH")) |c_include_path| {
-            defer allocator.free(c_include_path);
+        // NOTE: we use os.getenv here since this part won't be executed on
+        // windows, to get rid of unnecessary error handling
+        if (std.os.getenv("C_INCLUDE_PATH")) |c_include_path| {
             var it = mem.tokenize(u8, c_include_path, ":");
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
-        } else |err| switch (err) {
-            // NOTE: since the above code won't be executed on windows, this
-            // InvalidUtf8 error is generally unreachable
-            error.InvalidUtf8 => unreachable,
-            error.EnvironmentVariableNotFound => {},
-            error.OutOfMemory => |e| return e,
         }
 
-        if (process.getEnvVarOwned(allocator, "CPLUS_INCLUDE_PATH")) |cplus_include_path| {
-            defer allocator.free(cplus_include_path);
+        if (std.os.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
             var it = mem.tokenize(u8, cplus_include_path, ":");
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
-        } else |err| switch (err) {
-            error.InvalidUtf8 => unreachable,
-            error.EnvironmentVariableNotFound => {},
-            error.OutOfMemory => |e| return e,
         }
 
-        if (process.getEnvVarOwned(allocator, "LIBRARY_PATH")) |library_path| {
-            defer allocator.free(library_path);
+        if (std.os.getenv("LIBRARY_PATH")) |library_path| {
             var it = mem.tokenize(u8, library_path, ":");
             while (it.next()) |dir| {
                 try self.addLibDir(dir);
             }
-        } else |err| switch (err) {
-            error.InvalidUtf8 => unreachable,
-            error.EnvironmentVariableNotFound => {},
-            error.OutOfMemory => |e| return e,
         }
     }
 
