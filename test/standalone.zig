@@ -99,4 +99,5 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     //cases.add("tools/update_spirv_features.zig");
 
     cases.addBuildFile("test/standalone/issue_13030/build.zig", .{ .build_modes = true });
+    cases.addBuildFile("test/standalone/emit_asm_and_bin/build.zig", .{});
 }
