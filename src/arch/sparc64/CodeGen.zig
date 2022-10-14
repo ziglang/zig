@@ -610,7 +610,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
             .tag_name        => try self.airTagName(inst),
             .error_name      => try self.airErrorName(inst),
-            .splat           => @panic("TODO try self.airSplat(inst)"),
+            .splat           => try self.airSplat(inst),
             .select          => @panic("TODO try self.airSelect(inst)"),
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
@@ -2289,6 +2289,12 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
             else => return self.fail("TODO implement slice_len for {}", .{mcv}),
         }
     };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSplat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
