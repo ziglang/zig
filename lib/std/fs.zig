@@ -58,7 +58,7 @@ pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
-    .windows => os.NAME_MAX * 3,
+    .windows => os.windows.NAME_MAX * 3,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
         root.os.NAME_MAX
     else
@@ -697,7 +697,7 @@ pub const IterableDir = struct {
             index: usize,
             end_index: usize,
             first_iter: bool,
-            name_data: [256]u8,
+            name_data: [MAX_NAME_BYTES]u8,
 
             const Self = @This();
 

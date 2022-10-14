@@ -703,6 +703,44 @@ test "makePath in a directory that no longer exists" {
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
 
+fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !void {
+    // setup, create a dir and a nested file both with maxed filenames, and walk the dir
+    {
+        var maxed_dir = try iterable_dir.dir.makeOpenPath(maxed_filename, .{});
+        defer maxed_dir.close();
+
+        try maxed_dir.writeFile(maxed_filename, "");
+
+        var walker = try iterable_dir.walk(testing.allocator);
+        defer walker.deinit();
+
+        var count: usize = 0;
+        while (try walker.next()) |entry| {
+            try testing.expectEqualStrings(maxed_filename, entry.basename);
+            count += 1;
+        }
+        try testing.expectEqual(@as(usize, 2), count);
+    }
+
+    // ensure that we can delete the tree
+    try iterable_dir.dir.deleteTree(maxed_filename);
+}
+
+test "filename limits" {
+    var tmp = tmpIterableDir(.{});
+    defer tmp.cleanup();
+
+    if (builtin.os.tag == .windows) {
+        // € is the character with the largest codepoint that is encoded as a single u16 in UTF-16,
+        // so Windows allows for NAME_MAX of them
+        const maxed_windows_filename = ("€".*) ** std.os.windows.NAME_MAX;
+        try testFilenameLimits(tmp.iterable_dir, &maxed_windows_filename);
+    } else {
+        const maxed_ascii_filename = [_]u8{'1'} ** std.fs.MAX_NAME_BYTES;
+        try testFilenameLimits(tmp.iterable_dir, &maxed_ascii_filename);
+    }
+}
+
 test "writev, readv" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
