@@ -2261,7 +2261,7 @@ pub const Dir = struct {
     /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
     /// This is slower than `deleteTree` but uses less stack space.
     pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        return self.deleteTreeMinStackWithKindHint(sub_path, .File);
+        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .File);
     }
 
     fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {

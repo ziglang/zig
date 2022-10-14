@@ -677,6 +677,22 @@ test "makePath, put some files in it, deleteTree" {
     }
 }
 
+test "makePath, put some files in it, deleteTreeMinStackSize" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try tmp.dir.deleteTreeMinStackSize("os_test_tmp");
+    if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
+        _ = dir;
+        @panic("expected error");
+    } else |err| {
+        try testing.expect(err == error.FileNotFound);
+    }
+}
+
 test "makePath in a directory that no longer exists" {
     if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
 
