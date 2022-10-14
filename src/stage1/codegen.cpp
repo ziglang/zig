@@ -9936,6 +9936,7 @@ static void define_builtin_types(CodeGen *g) {
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
             break;
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
