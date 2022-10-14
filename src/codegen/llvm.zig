@@ -780,7 +780,7 @@ pub const Object = struct {
             null;
 
         const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
-        const emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
+        var emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
         const emit_llvm_bc_path = try locPath(arena, comp.emit_llvm_bc, cache_dir);
 
         const emit_asm_msg = emit_asm_path orelse "(none)";
@@ -791,7 +791,34 @@ pub const Object = struct {
             emit_asm_msg, emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
         });
 
+        // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
+        // So we call the entire pipeline multiple times if this is requested.
         var error_message: [*:0]const u8 = undefined;
+        if (emit_asm_path != null and emit_bin_path != null) {
+            if (self.target_machine.emitToFile(
+                self.llvm_module,
+                &error_message,
+                comp.bin_file.options.optimize_mode == .Debug,
+                comp.bin_file.options.optimize_mode == .ReleaseSmall,
+                comp.time_report,
+                comp.bin_file.options.tsan,
+                comp.bin_file.options.lto,
+                null,
+                emit_bin_path,
+                emit_llvm_ir_path,
+                null,
+            )) {
+                defer llvm.disposeMessage(error_message);
+
+                log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
+                    emit_bin_msg, emit_llvm_ir_msg, error_message,
+                });
+                return error.FailedToEmit;
+            }
+            emit_bin_path = null;
+            emit_llvm_ir_path = null;
+        }
+
         if (self.target_machine.emitToFile(
             self.llvm_module,
             &error_message,
