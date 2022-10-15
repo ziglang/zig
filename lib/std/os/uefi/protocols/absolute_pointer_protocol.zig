@@ -31,6 +31,12 @@ pub const AbsolutePointerProtocol = extern struct {
     };
 };
 
+pub const AbsolutePointerModeAttributes = packed struct(u32) {
+    supports_alt_active: bool,
+    supports_pressure_as_z: bool,
+    _pad: u30 = 0,
+};
+
 pub const AbsolutePointerMode = extern struct {
     absolute_min_x: u64,
     absolute_min_y: u64,
@@ -38,20 +44,18 @@ pub const AbsolutePointerMode = extern struct {
     absolute_max_x: u64,
     absolute_max_y: u64,
     absolute_max_z: u64,
-    attributes: packed struct {
-        supports_alt_active: bool,
-        supports_pressure_as_z: bool,
-        _pad: u30 = 0,
-    },
+    attributes: AbsolutePointerModeAttributes,
+};
+
+pub const AbsolutePointerStateActiveButtons = packed struct(u32) {
+    touch_active: bool,
+    alt_active: bool,
+    _pad: u30 = 0,
 };
 
 pub const AbsolutePointerState = extern struct {
     current_x: u64,
     current_y: u64,
     current_z: u64,
-    active_buttons: packed struct {
-        touch_active: bool,
-        alt_active: bool,
-        _pad: u30 = 0,
-    },
+    active_buttons: AbsolutePointerStateActiveButtons,
 };

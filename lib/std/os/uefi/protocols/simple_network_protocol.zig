@@ -121,7 +121,7 @@ pub const SimpleNetworkMode = extern struct {
     media_present: bool,
 };
 
-pub const SimpleNetworkReceiveFilter = packed struct {
+pub const SimpleNetworkReceiveFilter = packed struct(u32) {
     receive_unicast: bool,
     receive_multicast: bool,
     receive_broadcast: bool,
@@ -165,7 +165,7 @@ pub const NetworkStatistics = extern struct {
     tx_retry_frames: u64,
 };
 
-pub const SimpleNetworkInterruptStatus = packed struct {
+pub const SimpleNetworkInterruptStatus = packed struct(u32) {
     receive_interrupt: bool,
     transmit_interrupt: bool,
     command_interrupt: bool,

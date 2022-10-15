@@ -6,19 +6,17 @@ const Status = uefi.Status;
 
 /// Override EDID information
 pub const EdidOverrideProtocol = extern struct {
-    _get_edid: std.meta.FnPtr(fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) callconv(.C) Status),
+    _get_edid: std.meta.FnPtr(fn (*const EdidOverrideProtocol, Handle, *EdidOverrideProtocolAttributes, *usize, *?[*]u8) callconv(.C) Status),
 
     /// Returns policy information and potentially a replacement EDID for the specified video output device.
     pub fn getEdid(
         self: *const EdidOverrideProtocol,
         handle: Handle,
-        /// The align(4) here should really be part of the EdidOverrideProtocolAttributes type.
-        /// TODO remove this workaround when packed(u32) structs are implemented.
-        attributes: *align(4) EdidOverrideProtocolAttributes,
+        attributes: *EdidOverrideProtocolAttributes,
         edid_size: *usize,
         edid: *?[*]u8,
     ) Status {
-        return self._get_edid(self, handle, @ptrCast(*u32, attributes), edid_size, edid);
+        return self._get_edid(self, handle, attributes, edid_size, edid);
     }
 
     pub const guid align(8) = Guid{
@@ -31,7 +29,7 @@ pub const EdidOverrideProtocol = extern struct {
     };
 };
 
-pub const EdidOverrideProtocolAttributes = packed struct {
+pub const EdidOverrideProtocolAttributes = packed struct(u32) {
     dont_override: bool,
     enable_hot_plug: bool,
     _pad: u30 = 0,

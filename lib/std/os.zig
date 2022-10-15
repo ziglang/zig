@@ -50,7 +50,9 @@ comptime {
 test {
     _ = darwin;
     _ = linux;
-    _ = uefi;
+    if (builtin.os.tag == .uefi) {
+        _ = uefi;
+    }
     _ = wasi;
     _ = windows;
     _ = posix_spawn;
