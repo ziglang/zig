@@ -4077,7 +4077,7 @@ pub const DeclGen = struct {
         }
 
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
-        if (!is_fn_body and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+        if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
             return self.lowerPtrToVoid(tv.ty);
         }
 
