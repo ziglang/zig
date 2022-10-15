@@ -940,6 +940,8 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
                         provided_name = args_iter.nextOrFatal();
+                        if (!mem.eql(u8, provided_name.?, fs.path.basename(provided_name.?)))
+                            fatal("invalid package name '{s}': cannot contain folder separators", .{provided_name.?});
                     } else if (mem.eql(u8, arg, "-rpath")) {
                         try rpath_list.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
