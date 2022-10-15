@@ -1401,7 +1401,21 @@ test "continue in inline for inside a comptime switch" {
     try expect(count == 4);
 }
 
+test "length of global array is determinable at comptime" {
+    const S = struct {
+        var bytes: [1024]u8 = undefined;
+
+        fn foo() !void {
+            try std.testing.expect(bytes.len == 1024);
+        }
+    };
+    comptime try S.foo();
+}
+
 test "continue nested inline for loop" {
+    // TODO: https://github.com/ziglang/zig/issues/13175
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+
     var a: u8 = 0;
     loop: inline for ([_]u8{ 1, 2 }) |x| {
         inline for ([_]u8{1}) |y| {
@@ -1415,13 +1429,21 @@ test "continue nested inline for loop" {
     try expect(a == 2);
 }
 
-test "length of global array is determinable at comptime" {
-    const S = struct {
-        var bytes: [1024]u8 = undefined;
+test "continue nested inline for loop in named block expr" {
+    // TODO: https://github.com/ziglang/zig/issues/13175
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
 
-        fn foo() !void {
-            try std.testing.expect(bytes.len == 1024);
-        }
-    };
-    comptime try S.foo();
+    var a: u8 = 0;
+    loop: inline for ([_]u8{ 1, 2 }) |x| {
+        a = b: {
+            inline for ([_]u8{1}) |y| {
+                if (x == y) {
+                    continue :loop;
+                }
+            }
+            break :b x;
+        };
+        try expect(x == 2);
+    }
+    try expect(a == 2);
 }
