@@ -284,6 +284,12 @@ test "@bitCast packed struct of floats" {
 }
 
 test "comptime @bitCast packed struct to int" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = packed struct {
         @"void": void = {},
         uint: u8 = 13,
