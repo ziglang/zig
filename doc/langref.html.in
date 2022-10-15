@@ -7956,6 +7956,15 @@ fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
       The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
       at compile time.
       </p>
+      {#header_open|@addrSpaceCast#}
+      <pre>{#syntax#}@addrSpaceCast(comptime addrspace: std.builtin.AddressSpace, ptr: anytype) anytype{#endsyntax#}</pre>
+      <p>
+      Converts a pointer from one address space to another. Depending on the current target and
+      address spaces, this cast may be a no-op, a complex operation, or illegal. If the cast is
+      legal, then the resulting pointer points to the same memory location as the pointer operand.
+      It is always valid to cast a pointer between the same address spaces.
+      </p>
+      {#header_close#}
       {#header_open|@addWithOverflow#}
       <pre>{#syntax#}@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>

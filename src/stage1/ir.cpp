@@ -11753,6 +11753,7 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
                 case CallingConventionSysV:
                 case CallingConventionWin64:
                 case CallingConventionPtxKernel:
+                case CallingConventionAmdgpuKernel:
                     add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, cc);
                     fn_entry->section_name = section_name;
                     break;
@@ -23745,6 +23746,50 @@ static Stage1AirInst *ir_analyze_instruction_align_cast(IrAnalyze *ira, Stage1Zi
     return result;
 }
 
+static bool ir_resolve_addrspace(IrAnalyze *ira, Stage1AirInst *value, AddressSpace *out) {
+    if (type_is_invalid(value->value->type))
+        return false;
+
+    ZigType *addrspace_type = get_builtin_type(ira->codegen, "AddressSpace");
+
+    Stage1AirInst *casted_value = ir_implicit_cast(ira, value, addrspace_type);
+    if (type_is_invalid(casted_value->value->type))
+        return false;
+
+    ZigValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    *out = (AddressSpace)bigint_as_u32(&const_val->data.x_enum_tag);
+    return true;
+}
+
+static Stage1AirInst *ir_analyze_instruction_addrspace_cast(IrAnalyze *ira, Stage1ZirInstAddrSpaceCast *instruction) {
+    Stage1AirInst *ptr_inst = instruction->ptr->child;
+    ZigType *ptr_type = ptr_inst->value->type;
+    if (type_is_invalid(ptr_type))
+        return ira->codegen->invalid_inst_gen;
+
+    AddressSpace addrspace;
+    if (!ir_resolve_addrspace(ira, instruction->addrspace->child, &addrspace))
+        return ira->codegen->invalid_inst_gen;
+
+    if (addrspace != AddressSpaceGeneric) {
+        ir_add_error_node(ira, instruction->addrspace->source_node, buf_sprintf(
+            "address space '%s' not available in stage 1 compiler, must be .generic",
+            address_space_name(addrspace)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (is_slice(ptr_type) || get_src_ptr_type(ptr_type) != nullptr) {
+        ir_add_error_node(ira, instruction->ptr->source_node,
+                buf_sprintf("expected pointer or slice, found '%s'", buf_ptr(&ptr_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    return ptr_inst;
+}
+
 static Stage1AirInst *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, Stage1ZirInstSetAlignStack *instruction) {
     uint32_t align_bytes;
     Stage1AirInst *align_bytes_inst = instruction->align_bytes->child;
@@ -25450,6 +25495,8 @@ static Stage1AirInst *ir_analyze_instruction_base(IrAnalyze *ira, Stage1ZirInst 
             return ir_analyze_instruction_src(ira, (Stage1ZirInstSrc *)instruction);
         case Stage1ZirInstIdPrefetch:
             return ir_analyze_instruction_prefetch(ira, (Stage1ZirInstPrefetch *)instruction);
+        case Stage1ZirInstIdAddrSpaceCast:
+            return ir_analyze_instruction_addrspace_cast(ira, (Stage1ZirInstAddrSpaceCast *)instruction);
     }
     zig_unreachable();
 }
@@ -25831,6 +25878,7 @@ bool ir_inst_src_has_side_effects(Stage1ZirInst *instruction) {
         case Stage1ZirInstIdWasmMemorySize:
         case Stage1ZirInstIdSrc:
         case Stage1ZirInstIdReduce:
+        case Stage1ZirInstIdAddrSpaceCast:
             return false;
 
         case Stage1ZirInstIdAsm:

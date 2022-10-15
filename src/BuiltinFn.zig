@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Tag = enum {
     add_with_overflow,
+    addrspace_cast,
     align_cast,
     align_of,
     as,
@@ -150,6 +151,13 @@ pub const list = list: {
             .{
                 .tag = .add_with_overflow,
                 .param_count = 4,
+            },
+        },
+        .{
+            "@addrSpaceCast",
+            .{
+                .tag = .addrspace_cast,
+                .param_count = 2,
             },
         },
         .{

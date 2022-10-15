@@ -4617,7 +4617,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 .constant => target_util.defaultAddressSpace(target, .global_constant),
                 else => unreachable,
             },
-            else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx),
+            else => |addrspace_ref| try sema.analyzeAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx),
         };
     };
 

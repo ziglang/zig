@@ -217,6 +217,9 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             assert(g->zig_target->arch == ZigLLVM_nvptx ||
                 g->zig_target->arch == ZigLLVM_nvptx64);
                 return ZigLLVM_PTX_Kernel;
+        case CallingConventionAmdgpuKernel:
+            assert(g->zig_target->arch == ZigLLVM_amdgcn);
+            return ZigLLVM_AMDGPU_KERNEL;
 
     }
     zig_unreachable();
@@ -365,6 +368,7 @@ static bool cc_want_sret_attr(CallingConvention cc) {
         case CallingConventionSysV:
         case CallingConventionWin64:
         case CallingConventionPtxKernel:
+        case CallingConventionAmdgpuKernel:
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
@@ -3515,7 +3519,7 @@ static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref,
 
     // Handle integers of non-pot bitsize by shortening them on the output
     if (result_type != wider_type) {
-        result = gen_widen_or_shorten(g, false, wider_type, result_type, result); 
+        result = gen_widen_or_shorten(g, false, wider_type, result_type, result);
     }
 
     return result;
@@ -4370,7 +4374,7 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
 
 static LLVMValueRef gen_soft_float_neg(CodeGen *g, ZigType *operand_type, LLVMValueRef operand) {
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
-    uint16_t num_bits = operand_type->id == ZigTypeIdVector ? 
+    uint16_t num_bits = operand_type->id == ZigTypeIdVector ?
         operand_type->data.vector.elem_type->data.floating.bit_count :
         operand_type->data.floating.bit_count;
 
@@ -10181,6 +10185,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
     create_builtin_fn(g, BuiltinFnIdPrefetch, "prefetch", 2);
+    create_builtin_fn(g, BuiltinFnIdAddrSpaceCast, "addrSpaceCast", 2);
 }
 
 static const char *bool_to_str(bool b) {

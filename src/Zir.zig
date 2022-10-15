@@ -1969,6 +1969,9 @@ pub const Inst = struct {
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
+        /// Implement the builtin `@addrSpaceCast`
+        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        addrspace_cast,
 
         pub const InstData = struct {
             opcode: Extended,

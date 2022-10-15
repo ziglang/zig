@@ -157,6 +157,7 @@ pub const CallingConvention = enum {
     SysV,
     Win64,
     PtxKernel,
+    AmdgpuKernel,
 };
 
 /// This data structure is used by the Zig language code generation and

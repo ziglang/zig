@@ -7789,6 +7789,14 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+        .addrspace_cast => {
+            const result = try gz.addExtendedPayload(.addrspace_cast, Zir.Inst.BinNode{
+                .lhs = try comptimeExpr(gz, scope, .{ .ty = .address_space_type }, params[0]),
+                .rhs = try expr(gz, scope, .none, params[1]),
+                .node = gz.nodeIndexToRelative(node),
+            });
+            return rvalue(gz, rl, result, node);
+        },
 
         // zig fmt: off
         .has_decl  => return hasDeclOrField(gz, scope, rl, node, params[0], params[1], .has_decl),
