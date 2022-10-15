@@ -4319,10 +4319,9 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 comp.emit_llvm_bc == null);
 
             const dump_air = builtin.mode == .Debug and comp.verbose_air;
+            const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
 
-            if (no_bin_file and !dump_air) {
-                return;
-            }
+            if (no_bin_file and !dump_air and !dump_llvm_ir) return;
 
             log.debug("analyze liveness of {s}", .{decl.name});
             var liveness = try Liveness.analyze(gpa, air);
@@ -4337,9 +4336,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
             }
 
-            if (no_bin_file) {
-                return;
-            }
+            if (no_bin_file and !dump_llvm_ir) return;
 
             comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -6484,7 +6481,14 @@ pub fn populateTestFunctions(mod: *Module) !void {
 pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
     const comp = mod.comp;
 
-    if (comp.bin_file.options.emit == null) return;
+    const no_bin_file = (comp.bin_file.options.emit == null and
+        comp.emit_asm == null and
+        comp.emit_llvm_ir == null and
+        comp.emit_llvm_bc == null);
+
+    const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
+
+    if (no_bin_file and !dump_llvm_ir) return;
 
     const decl = mod.declPtr(decl_index);
 
