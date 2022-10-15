@@ -18,3 +18,25 @@ test "inf" {
     var i: usize = 0;
     try std.testing.expect(f > i);
 }
+test "-inf < 0" {
+    const f = comptime -std.math.inf(f64);
+    var i: usize = 0;
+    try std.testing.expect(f < i);
+}
+test "inf >= 1" {
+    const f = comptime std.math.inf(f64);
+    var i: usize = 1;
+    try std.testing.expect(f >= i);
+}
+test "isNan(nan * 0)" {
+    const nan_times_zero = comptime std.math.nan(f64) * 0;
+    try std.testing.expect(std.math.isNan(nan_times_zero));
+}
+test "isNan(inf * 0)" {
+    const inf_times_zero = comptime std.math.inf(f64) * 0;
+    try std.testing.expect(std.math.isNan(inf_times_zero));
+}
+test "isNan(nan * 1)" {
+    const nan_times_one = comptime std.math.nan(f64) * 1;
+    try std.testing.expect(std.math.isNan(nan_times_one));
+}

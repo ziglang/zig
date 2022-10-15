@@ -2081,6 +2081,15 @@ pub const Value = extern union {
         op: std.math.CompareOperator,
         opt_sema: ?*Sema,
     ) Module.CompileError!bool {
+        if (lhs.isInf()) {
+            switch (op) {
+                .neq => return true,
+                .eq => return false,
+                .gt, .gte => return !lhs.isNegativeInf(),
+                .lt, .lte => return lhs.isNegativeInf(),
+            }
+        }
+
         switch (lhs.tag()) {
             .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvanced(op, opt_sema),
             .aggregate => {
@@ -2089,11 +2098,11 @@ pub const Value = extern union {
                 }
                 return true;
             },
-            .float_16 => if (std.math.isNan(lhs.castTag(.float_16).?.data)) return op != .neq,
-            .float_32 => if (std.math.isNan(lhs.castTag(.float_32).?.data)) return op != .neq,
-            .float_64 => if (std.math.isNan(lhs.castTag(.float_64).?.data)) return op != .neq,
-            .float_80 => if (std.math.isNan(lhs.castTag(.float_80).?.data)) return op != .neq,
-            .float_128 => if (std.math.isNan(lhs.castTag(.float_128).?.data)) return op != .neq,
+            .float_16 => if (std.math.isNan(lhs.castTag(.float_16).?.data)) return op == .neq,
+            .float_32 => if (std.math.isNan(lhs.castTag(.float_32).?.data)) return op == .neq,
+            .float_64 => if (std.math.isNan(lhs.castTag(.float_64).?.data)) return op == .neq,
+            .float_80 => if (std.math.isNan(lhs.castTag(.float_80).?.data)) return op == .neq,
+            .float_128 => if (std.math.isNan(lhs.castTag(.float_128).?.data)) return op == .neq,
             else => {},
         }
         return (try orderAgainstZeroAdvanced(lhs, opt_sema)).compare(op);
@@ -3813,6 +3822,17 @@ pub const Value = extern union {
             .float_64 => std.math.isInf(val.castTag(.float_64).?.data),
             .float_80 => std.math.isInf(val.castTag(.float_80).?.data),
             .float_128 => std.math.isInf(val.castTag(.float_128).?.data),
+            else => false,
+        };
+    }
+
+    pub fn isNegativeInf(val: Value) bool {
+        return switch (val.tag()) {
+            .float_16 => std.math.isNegativeInf(val.castTag(.float_16).?.data),
+            .float_32 => std.math.isNegativeInf(val.castTag(.float_32).?.data),
+            .float_64 => std.math.isNegativeInf(val.castTag(.float_64).?.data),
+            .float_80 => std.math.isNegativeInf(val.castTag(.float_80).?.data),
+            .float_128 => std.math.isNegativeInf(val.castTag(.float_128).?.data),
             else => false,
         };
     }
