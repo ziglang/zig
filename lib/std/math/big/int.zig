@@ -21,6 +21,9 @@ const debug_safety = false;
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
+/// Note: A comptime-known upper bound of this value that may be used
+/// instead if `scalar` is not already comptime-known is
+/// `calcTwosCompLimbCount(@typeInfo(@TypeOf(scalar)).Int.bits)`
 pub fn calcLimbLen(scalar: anytype) usize {
     if (scalar == 0) {
         return 1;
@@ -391,7 +394,18 @@ pub const Mutable = struct {
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `math.max(a.limbs.len, calcLimbLen(scalar)) + 1`.
     pub fn addScalar(r: *Mutable, a: Const, scalar: anytype) void {
-        var limbs: [calcLimbLen(scalar)]Limb = undefined;
+        // Normally we could just determine the number of limbs needed with calcLimbLen,
+        // but that is not comptime-known when scalar is not a comptime_int.  Instead, we
+        // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
+        // in the case that scalar happens to be small in magnitude within its type, but it
+        // is well worth being able to use the stack and not needing an allocator passed in.
+        // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
+        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+            .ComptimeInt => calcLimbLen(scalar),
+            .Int => |info| calcTwosCompLimbCount(info.bits),
+            else => @compileError("expected scalar to be an int"),
+        };
+        var limbs: [limb_len]Limb = undefined;
         const operand = init(&limbs, scalar).toConst();
         return add(r, a, operand);
     }
@@ -2303,7 +2317,18 @@ pub const Const = struct {
 
     /// Same as `order` but the right-hand operand is a primitive integer.
     pub fn orderAgainstScalar(lhs: Const, scalar: anytype) math.Order {
-        var limbs: [calcLimbLen(scalar)]Limb = undefined;
+        // Normally we could just determine the number of limbs needed with calcLimbLen,
+        // but that is not comptime-known when scalar is not a comptime_int.  Instead, we
+        // use calcTwosCompLimbCount for a non-comptime_int scalar, which can be pessimistic
+        // in the case that scalar happens to be small in magnitude within its type, but it
+        // is well worth being able to use the stack and not needing an allocator passed in.
+        // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
+        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+            .ComptimeInt => calcLimbLen(scalar),
+            .Int => |info| calcTwosCompLimbCount(info.bits),
+            else => @compileError("expected scalar to be an int"),
+        };
+        var limbs: [limb_len]Limb = undefined;
         const rhs = Mutable.init(&limbs, scalar);
         return order(lhs, rhs.toConst());
     }
