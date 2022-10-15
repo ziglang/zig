@@ -3341,7 +3341,6 @@ fn doTheTest() !void {
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
       {#code_begin|test|pointer_to_non-byte_aligned_field#}
-      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3398,7 +3397,6 @@ fn bar(x: *const u3) u3 {
       Pointers to non-ABI-aligned fields share the same address as the other fields within their host integer:
       </p>
       {#code_begin|test|packed_struct_field_addrs#}
-      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3463,9 +3461,6 @@ test "overaligned pointer to packed struct" {
     try expect(ptr_to_b.* == 2);
 }
       {#code_end#}
-      <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
-      cause the test suite to fail, notifying the bug fixer to update these docs.
-      </p>
       <p>
       It's also possible to set alignment of struct fields:
       </p>

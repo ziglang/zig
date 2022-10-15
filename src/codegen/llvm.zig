@@ -3943,7 +3943,7 @@ pub const DeclGen = struct {
                                 }
                                 break :b b;
                             };
-                            const byte_offset = llvm_usize.constInt((prev_bits + 7) / 8, .False);
+                            const byte_offset = llvm_usize.constInt(prev_bits / 8, .False);
                             const field_addr = base_addr.constAdd(byte_offset);
                             bitcast_needed = false;
                             const final_llvm_ty = (try dg.lowerType(ptr_child_ty)).pointerType(0);
