@@ -28,10 +28,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
     if (!build_options.have_llvm) return error.PtxArchNotSupported;
     if (!options.use_llvm) return error.PtxArchNotSupported;
 
-    switch (options.target.cpu.arch) {
-        .nvptx, .nvptx64 => {},
-        else => return error.PtxArchNotSupported,
-    }
+    if (!options.target.cpu.arch.isNvptx()) return error.PtxArchNotSupported;
 
     switch (options.target.os.tag) {
         // TODO: does it also work with nvcl ?
@@ -59,9 +56,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     if (!options.use_llvm) return error.PtxArchNotSupported;
     assert(options.target.ofmt == .nvptx);
 
-    const nvptx = try createEmpty(allocator, options);
-    log.info("Opening .ptx target file {s}", .{sub_path});
-    return nvptx;
+    log.debug("Opening .ptx target file {s}", .{sub_path});
+    return createEmpty(allocator, options);
 }
 
 pub fn deinit(self: *NvPtx) void {
@@ -109,13 +105,19 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     const tracy = trace(@src());
     defer tracy.end();
 
-    var hack_comp = comp;
-    if (comp.bin_file.options.emit) |emit| {
-        hack_comp.emit_asm = .{
-            .directory = emit.directory,
-            .basename = comp.bin_file.intermediary_basename.?,
-        };
-        hack_comp.bin_file.options.emit = null;
+    const outfile = comp.bin_file.options.emit.?;
+    // We modify 'comp' before passing it to LLVM, but restore value afterwards.
+    // We tell LLVM to not try to build a .o, only an "assembly" file.
+    // This is required by the LLVM PTX backend.
+    comp.bin_file.options.emit = null;
+    comp.emit_asm = .{
+        .directory = outfile.directory,
+        .basename = comp.bin_file.intermediary_basename.?,
+    };
+    defer {
+        comp.bin_file.options.emit = outfile;
+        comp.emit_asm = null;
     }
-    return try self.llvm_object.flushModule(hack_comp, prog_node);
+
+    try self.llvm_object.flushModule(comp, prog_node);
 }

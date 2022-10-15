@@ -411,7 +411,11 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    _ = target;
+    if (target.cpu.arch.isNvptx()) {
+        // TODO: not sure how to test "ptx >= 7.5" with featureset
+        return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
+    }
+
     return true;
 }
 
@@ -651,7 +655,7 @@ pub fn addrSpaceCastIsValid(
     const arch = target.cpu.arch;
     switch (arch) {
         .x86_64, .i386 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
-        .amdgcn => {
+        .nvptx64, .nvptx, .amdgcn => {
             const to_generic = arch.supportsAddressSpace(from) and to == .generic;
             const from_generic = arch.supportsAddressSpace(to) and from == .generic;
             return to_generic or from_generic;

@@ -500,9 +500,15 @@ pub fn abort() noreturn {
         @breakpoint();
         exit(1);
     }
+    if (builtin.os.tag == .cuda) {
+        // TODO: introduce `@trap` instead of abusing https://github.com/ziglang/zig/issues/2291
+        @"llvm.trap"();
+    }
 
     system.abort();
 }
+
+extern fn @"llvm.trap"() noreturn;
 
 pub const RaiseError = UnexpectedError;
 

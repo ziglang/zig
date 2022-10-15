@@ -720,6 +720,15 @@ pub const Decl = struct {
         var buffer = std.ArrayList(u8).init(mod.gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(mod, buffer.writer());
+
+        // Sanitize the name for nvptx which is more restrictive.
+        if (mod.comp.bin_file.options.target.cpu.arch.isNvptx()) {
+            for (buffer.items) |*byte| switch (byte.*) {
+                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
+                else => {},
+            };
+        }
+
         return buffer.toOwnedSliceSentinel(0);
     }
 

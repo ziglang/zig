@@ -951,6 +951,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isNvptx(arch: Arch) bool {
+                return switch (arch) {
+                    .nvptx, .nvptx64 => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
