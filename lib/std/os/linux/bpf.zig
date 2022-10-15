@@ -409,7 +409,7 @@ pub const Insn = packed struct {
         msh = MSH,
     };
 
-    const AluOp = enum(u8) {
+    pub const AluOp = enum(u8) {
         add = ADD,
         sub = SUB,
         mul = MUL,
@@ -432,7 +432,7 @@ pub const Insn = packed struct {
         double_word = DW,
     };
 
-    const JmpOp = enum(u8) {
+    pub const JmpOp = enum(u8) {
         ja = JA,
         jeq = JEQ,
         jgt = JGT,
@@ -453,7 +453,7 @@ pub const Insn = packed struct {
     };
 
     fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
-        const imm_or_reg = if (@typeInfo(@TypeOf(src)) == .EnumLiteral)
+        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .EnumLiteral)
             ImmOrReg{ .reg = @as(Reg, src) }
         else
             ImmOrReg{ .imm = src };
@@ -478,7 +478,7 @@ pub const Insn = packed struct {
         };
     }
 
-    fn alu(comptime width: comptime_int, op: AluOp, dst: Reg, src: anytype) Insn {
+    pub fn alu(comptime width: comptime_int, op: AluOp, dst: Reg, src: anytype) Insn {
         const width_bitfield = switch (width) {
             32 => ALU,
             64 => ALU64,
@@ -540,7 +540,7 @@ pub const Insn = packed struct {
         return alu(64, .arsh, dst, src);
     }
 
-    fn jmp(op: JmpOp, dst: Reg, src: anytype, off: i16) Insn {
+    pub fn jmp(op: JmpOp, dst: Reg, src: anytype, off: i16) Insn {
         return imm_reg(JMP | @enumToInt(op), dst, src, off);
     }
 
