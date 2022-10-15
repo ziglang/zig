@@ -3403,7 +3403,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) In
         }
 
         if (op_is_ptr or !payload_ty.hasRuntimeBitsIgnoreComptime()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
 
         const error_val = try self.load(operand, Type.anyerror, @intCast(u32, errUnionErrorOffset(payload_ty, self.target)));
@@ -3422,7 +3422,7 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const pl_ty = self.air.typeOf(ty_op.operand);
     const result = result: {
         if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
 
         const err_union = try self.allocStack(err_ty);
@@ -3449,7 +3449,7 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const result = result: {
         if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
 
         const err_union = try self.allocStack(err_ty);
@@ -3481,7 +3481,7 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!void {
     }
 
     const result = try (try self.intcast(operand, operand_ty, ty)).toLocal(self, ty);
-    self.finishAir(inst, result, &.{ty_op.operand});
+    self.finishAir(inst, result, &.{});
 }
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
@@ -3579,7 +3579,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     const result = result: {
         const operand = try self.resolveInst(ty_op.operand);
-        if (opt_ty.optionalReprIsPayload()) break :result operand;
+        if (opt_ty.optionalReprIsPayload()) break :result self.reuseOperand(ty_op.operand, operand);
 
         const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
 
@@ -3603,7 +3603,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!void {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = opt_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime() or opt_ty.optionalReprIsPayload()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
 
         const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
@@ -3656,7 +3656,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!void {
         const operand = try self.resolveInst(ty_op.operand);
         const op_ty = self.air.typeOfIndex(inst);
         if (op_ty.optionalReprIsPayload()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
         const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) orelse {
             const module = self.bin_file.base.options.module.?;
@@ -3793,8 +3793,10 @@ fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result = if (self.liveness.isUnused(inst))
         WValue{ .none = {} }
-    else
-        try self.resolveInst(un_op);
+    else result: {
+        const operand = try self.resolveInst(un_op);
+        break :result self.reuseOperand(un_op, operand);
+    };
 
     self.finishAir(inst, result, &.{un_op});
 }
@@ -3939,7 +3941,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const len = try self.resolveInst(bin_op.rhs);
     try self.memset(ptr, len, value);
 
-    self.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
+    self.finishAir(inst, .none, &.{pl_op.operand});
 }
 
 /// Sets a region of memory at `ptr` to the value of `value`
@@ -4489,7 +4491,7 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!void {
         if (self.liveness.isUnused(inst)) break :result WValue{ .none = {} };
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-            break :result operand;
+            break :result self.reuseOperand(ty_op.operand, operand);
         }
 
         break :result try self.buildPointerOffset(operand, @intCast(u32, errUnionPayloadOffset(payload_ty, self.target)), .new);
@@ -4513,7 +4515,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) InnerError!void {
         try self.addTag(.i32_sub);
         try self.addLabel(.local_set, base.local.value);
         break :result base;
-    } else field_ptr;
+    } else self.reuseOperand(extra.field_ptr, field_ptr);
 
     self.finishAir(inst, result, &.{extra.field_ptr});
 }
@@ -4526,7 +4528,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const len = try self.resolveInst(bin_op.rhs);
     try self.memcpy(dst, src, len);
 
-    self.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
+    self.finishAir(inst, .none, &.{pl_op.operand});
 }
 
 fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!void {
@@ -5220,7 +5222,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     // bytes are no-op
     if (int_info.bits == 8) {
-        return self.finishAir(inst, operand, &.{ty_op.operand});
+        return self.finishAir(inst, self.reuseOperand(ty_op.operand, operand), &.{ty_op.operand});
     }
 
     const result = result: {
