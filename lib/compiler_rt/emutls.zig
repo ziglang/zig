@@ -18,7 +18,7 @@ const gcc_word = usize;
 pub const panic = common.panic;
 
 comptime {
-    if (builtin.link_libc and builtin.os.tag == .openbsd) {
+    if (builtin.abi.tag == .android or (builtin.link_libc and builtin.os.tag == .openbds)) {
         @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage });
     }
 }
