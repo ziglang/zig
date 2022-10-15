@@ -374,6 +374,10 @@ const atomic_rmw_orderings = [_]Ordering{
 };
 
 test "Atomic.swap" {
+    // TODO: Re-enable when LLVM is released with a bugfix for isel of
+    //       atomic load (currently fixed on trunk, broken on 15.0.2)
+    if (builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
+
     inline for (atomic_rmw_orderings) |ordering| {
         var x = Atomic(usize).init(5);
         try testing.expectEqual(x.swap(10, ordering), 5);

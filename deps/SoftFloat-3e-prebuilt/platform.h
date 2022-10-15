@@ -3,6 +3,10 @@
 
 #if defined(__BIG_ENDIAN__)
 #define BIGENDIAN 1
+#elif defined(_BIG_ENDIAN) && (_BIG_ENDIAN == 1)
+#define BIGENDIAN 1
+#elif defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define BIGENDIAN 1
 #elif defined(__ARMEB__)
 #define BIGENDIAN 1
 #elif defined(__THUMBEB__)
@@ -15,17 +19,11 @@
 #define BIGENDIAN 1
 #elif defined(__MIPSEB__)
 #define BIGENDIAN 1
-#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define BIGENDIAN 1
 #elif defined(__sparc)
 #define BIGENDIAN 1
 #elif defined(__sparc__)
 #define BIGENDIAN 1
 #elif defined(_POWER)
-#define BIGENDIAN 1
-#elif defined(__powerpc__)
-#define BIGENDIAN 1
-#elif defined(__ppc__)
 #define BIGENDIAN 1
 #elif defined(__hpux)
 #define BIGENDIAN 1
@@ -39,6 +37,10 @@
 
 #if defined(__LITTLE_ENDIAN__)
 #define LITTLEENDIAN 1
+#elif defined(_LITTLE_ENDIAN) && (_LITTLE_ENDIAN == 1)
+#define LITTLEENDIAN 1
+#elif defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#define LITTLEENDIAN 1
 #elif defined(__ARMEL__)
 #define LITTLEENDIAN 1
 #elif defined(__THUMBEL__)
@@ -50,8 +52,6 @@
 #elif defined(__MIPSEL)
 #define LITTLEENDIAN 1
 #elif defined(__MIPSEL__)
-#define LITTLEENDIAN 1
-#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define LITTLEENDIAN 1
 #elif defined(__i386__)
 #define LITTLEENDIAN 1

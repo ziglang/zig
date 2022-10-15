@@ -80,6 +80,7 @@ void codegen_set_strip(CodeGen *g, bool strip) {
     }
 }
 
+static LLVMValueRef get_soft_float_fn(CodeGen *g, const char *name, int param_count, LLVMTypeRef param_type, LLVMTypeRef return_type);
 static void render_const_val(CodeGen *g, ZigValue *const_val, const char *name);
 static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char *name);
 static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *name);
@@ -1736,12 +1737,7 @@ static LLVMValueRef gen_soft_float_widen_or_shorten(CodeGen *g, ZigType *actual_
         }
     }
 
-    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, fn_name);
-    if (func_ref == nullptr) {
-        LLVMTypeRef fn_type = LLVMFunctionType(return_type, &param_type, 1, false);
-        func_ref = LLVMAddFunction(g->module, fn_name, fn_type);
-    }
-
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 1, param_type, return_type);
     result = LLVMBuildCall2(g->builder, LLVMGlobalGetValueType(func_ref), func_ref, &expr_val, 1, "");
 
     // On non-Arm platforms we need to bitcast __trunc<>fhf2 result back to f16
@@ -1766,9 +1762,12 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
     uint64_t wanted_bits;
     if (scalar_actual_type->id == ZigTypeIdFloat) {
 
-        if ((scalar_actual_type == g->builtin_types.entry_f80
+        if (((scalar_actual_type == g->builtin_types.entry_f80
             || scalar_wanted_type == g->builtin_types.entry_f80)
-         && !target_has_f80(g->zig_target))
+         && !target_has_f80(g->zig_target)) ||
+            ((scalar_actual_type == g->builtin_types.entry_f16
+            || scalar_wanted_type == g->builtin_types.entry_f16)
+         && !target_is_arm(g->zig_target)))
         {
             return gen_soft_float_widen_or_shorten(g, actual_type, wanted_type, expr_val);
         }
@@ -3100,6 +3099,7 @@ static LLVMValueRef gen_float_un_op(CodeGen *g, LLVMValueRef operand, ZigType *o
     ZigType *elem_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
     if ((elem_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
         (elem_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        (elem_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target)) ||
         op == BuiltinFnIdTan)
     {
         return gen_soft_float_un_op(g, operand, operand_type, op);
@@ -3690,7 +3690,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
     ZigType *operand_type = op1->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
     if ((scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
         // LLVM incorrectly lowers the soft float calls for f128 as if they operated on `long double`.
         // On some targets this will be incorrect, so we manually lower the call ourselves.
         LLVMValueRef op1_value = ir_llvm_value(g, op1);
@@ -4024,7 +4025,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, Stage1Air *executable,
             assert(actual_type->id == ZigTypeIdInt);
             {
                 if ((wanted_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-                    (wanted_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+                    (wanted_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+                    (wanted_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
                     return gen_soft_int_to_float_op(g, expr_val, actual_type, wanted_type);
                 } else {
                     if (actual_type->data.integral.is_signed) {
@@ -4042,7 +4044,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, Stage1Air *executable,
 
             LLVMValueRef result;
             if ((actual_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-                (actual_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+                (actual_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+                (actual_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
                 result = gen_soft_float_to_int_op(g, expr_val, actual_type, wanted_type);
             } else {
                 if (wanted_type->data.integral.is_signed) {
@@ -4396,7 +4399,8 @@ static LLVMValueRef gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirInst 
         operand_type->data.vector.elem_type : operand_type;
 
     if ((scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
         return gen_soft_float_neg(g, operand_type, llvm_operand);
     }
 
@@ -6477,6 +6481,55 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, Stage1Air *executable, Stage1A
     return result_loc;
 }
 
+static LLVMValueRef ir_render_reduced_call(CodeGen *g, LLVMValueRef llvm_fn, LLVMValueRef operand_vector, size_t vector_len, LLVMValueRef accum_init, ZigType *accum_ty) {
+    LLVMTypeRef llvm_usize_ty = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef llvm_vector_len = LLVMConstInt(llvm_usize_ty, vector_len, false);
+    LLVMTypeRef llvm_result_ty = LLVMTypeOf(accum_init);
+
+    // Allocate and initialize our mutable variables
+    LLVMValueRef i_ptr = build_alloca(g, g->builtin_types.entry_usize, "i", 0);
+    LLVMBuildStore(g->builder, LLVMConstInt(llvm_usize_ty, 0, false), i_ptr);
+    LLVMValueRef accum_ptr = build_alloca(g, accum_ty, "accum", 0);
+    LLVMBuildStore(g->builder, accum_init, accum_ptr);
+
+    // Setup the loop
+    LLVMBasicBlockRef loop = LLVMAppendBasicBlock(g->cur_fn_val, "ReduceLoop");
+    LLVMBasicBlockRef loop_exit = LLVMAppendBasicBlock(g->cur_fn_val, "AfterReduce");
+    LLVMBuildBr(g->builder, loop);
+    {
+        LLVMPositionBuilderAtEnd(g->builder, loop);
+
+        // while (i < vec.len)
+        LLVMValueRef i = LLVMBuildLoad2(g->builder, llvm_usize_ty, i_ptr, "");
+        LLVMValueRef cond = LLVMBuildICmp(g->builder, LLVMIntULT, i, llvm_vector_len, "");
+        LLVMBasicBlockRef loop_then = LLVMAppendBasicBlock(g->cur_fn_val, "ReduceLoopThen");
+
+        LLVMBuildCondBr(g->builder, cond, loop_then, loop_exit);
+
+        {
+            LLVMPositionBuilderAtEnd(g->builder, loop_then);
+
+            // accum = f(accum, vec[i]);
+            LLVMValueRef accum = LLVMBuildLoad2(g->builder, llvm_result_ty, accum_ptr, "");
+            LLVMValueRef element = LLVMBuildExtractElement(g->builder, operand_vector, i, "");
+            LLVMValueRef params[] {
+                accum,
+                element
+            };
+            LLVMValueRef new_accum = LLVMBuildCall2(g->builder, LLVMGlobalGetValueType(llvm_fn), llvm_fn, params, 2, "");
+            LLVMBuildStore(g->builder, new_accum, accum_ptr);
+
+            // i += 1
+            LLVMValueRef new_i = LLVMBuildAdd(g->builder, i, LLVMConstInt(llvm_usize_ty, 1, false), "");
+            LLVMBuildStore(g->builder, new_i, i_ptr);
+            LLVMBuildBr(g->builder, loop);
+        }
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, loop_exit);
+    return LLVMBuildLoad2(g->builder, llvm_result_ty, accum_ptr, "");
+}
+
 static LLVMValueRef ir_render_reduce(CodeGen *g, Stage1Air *executable, Stage1AirInstReduce *instruction) {
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
@@ -6484,61 +6537,100 @@ static LLVMValueRef ir_render_reduce(CodeGen *g, Stage1Air *executable, Stage1Ai
     assert(value_type->id == ZigTypeIdVector);
     ZigType *scalar_type = value_type->data.vector.elem_type;
 
+    bool float_intrinsics_allowed = true;
+    const char *compiler_rt_type_abbrev = nullptr;
+    const char *math_float_prefix = nullptr;
+    const char *math_float_suffix = nullptr;
+    if ((scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
+        float_intrinsics_allowed = false;
+        compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(scalar_type);
+        math_float_prefix = libc_float_prefix(g, scalar_type);
+        math_float_suffix = libc_float_suffix(g, scalar_type);
+    }
+
     ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &instruction->base));
 
-    LLVMValueRef result_val;
+    char fn_name[64];
+    ZigValue *init_value = nullptr;
     switch (instruction->op) {
         case ReduceOp_and:
             assert(scalar_type->id == ZigTypeIdInt || scalar_type->id == ZigTypeIdBool);
-            result_val = ZigLLVMBuildAndReduce(g->builder, value);
+            return ZigLLVMBuildAndReduce(g->builder, value);
             break;
         case ReduceOp_or:
             assert(scalar_type->id == ZigTypeIdInt || scalar_type->id == ZigTypeIdBool);
-            result_val = ZigLLVMBuildOrReduce(g->builder, value);
+            return ZigLLVMBuildOrReduce(g->builder, value);
             break;
         case ReduceOp_xor:
             assert(scalar_type->id == ZigTypeIdInt || scalar_type->id == ZigTypeIdBool);
-            result_val = ZigLLVMBuildXorReduce(g->builder, value);
+            return ZigLLVMBuildXorReduce(g->builder, value);
             break;
         case ReduceOp_min: {
             if (scalar_type->id == ZigTypeIdInt) {
                 const bool is_signed = scalar_type->data.integral.is_signed;
-                result_val = ZigLLVMBuildIntMinReduce(g->builder, value, is_signed);
+                return ZigLLVMBuildIntMinReduce(g->builder, value, is_signed);
             } else if (scalar_type->id == ZigTypeIdFloat) {
-                result_val = ZigLLVMBuildFPMinReduce(g->builder, value);
+                if (float_intrinsics_allowed) {
+                    return ZigLLVMBuildFPMinReduce(g->builder, value);
+                } else {
+                    snprintf(fn_name, sizeof(fn_name), "%sfmin%s", math_float_prefix, math_float_suffix);
+                    init_value = create_const_float(g, scalar_type, NAN);
+                }
             } else zig_unreachable();
         } break;
         case ReduceOp_max: {
             if (scalar_type->id == ZigTypeIdInt) {
                 const bool is_signed = scalar_type->data.integral.is_signed;
-                result_val = ZigLLVMBuildIntMaxReduce(g->builder, value, is_signed);
+                return ZigLLVMBuildIntMaxReduce(g->builder, value, is_signed);
             } else if (scalar_type->id == ZigTypeIdFloat) {
-                result_val = ZigLLVMBuildFPMaxReduce(g->builder, value);
+                if (float_intrinsics_allowed) {
+                    return ZigLLVMBuildFPMaxReduce(g->builder, value);
+                } else {
+                    snprintf(fn_name, sizeof(fn_name), "%sfmax%s", math_float_prefix, math_float_suffix);
+                    init_value = create_const_float(g, scalar_type, NAN);
+                }
             } else zig_unreachable();
         } break;
         case ReduceOp_add: {
             if (scalar_type->id == ZigTypeIdInt) {
-                result_val = ZigLLVMBuildAddReduce(g->builder, value);
+                return ZigLLVMBuildAddReduce(g->builder, value);
             } else if (scalar_type->id == ZigTypeIdFloat) {
-                LLVMValueRef neutral_value = LLVMConstReal(
-                        get_llvm_type(g, scalar_type), -0.0);
-                result_val = ZigLLVMBuildFPAddReduce(g->builder, neutral_value, value);
+                if (float_intrinsics_allowed) {
+                    LLVMValueRef neutral_value = LLVMConstReal(
+                            get_llvm_type(g, scalar_type), -0.0);
+                    return ZigLLVMBuildFPAddReduce(g->builder, neutral_value, value);
+                } else {
+                    snprintf(fn_name, sizeof(fn_name), "__add%sf3", compiler_rt_type_abbrev);
+                    init_value = create_const_float(g, scalar_type, 0.0);
+                }
             } else zig_unreachable();
         } break;
         case ReduceOp_mul: {
             if (scalar_type->id == ZigTypeIdInt) {
-                result_val = ZigLLVMBuildMulReduce(g->builder, value);
+                return ZigLLVMBuildMulReduce(g->builder, value);
             } else if (scalar_type->id == ZigTypeIdFloat) {
-                LLVMValueRef neutral_value = LLVMConstReal(
-                        get_llvm_type(g, scalar_type), 1.0);
-                result_val = ZigLLVMBuildFPMulReduce(g->builder, neutral_value, value);
+                if (float_intrinsics_allowed) {
+                    LLVMValueRef neutral_value = LLVMConstReal(
+                            get_llvm_type(g, scalar_type), 1.0);
+                    return ZigLLVMBuildFPMulReduce(g->builder, neutral_value, value);
+                } else {
+                    snprintf(fn_name, sizeof(fn_name), "__mul%sf3", compiler_rt_type_abbrev);
+                    init_value = create_const_float(g, scalar_type, 1.0);
+                }
             } else zig_unreachable();
         } break;
         default:
             zig_unreachable();
     }
 
-    return result_val;
+
+    LLVMValueRef llvm_init_value = gen_const_val(g, init_value, "");
+    uint32_t vector_len = value_type->data.vector.len;
+    LLVMTypeRef llvm_scalar_type = get_llvm_type(g, scalar_type);
+    const LLVMValueRef llvm_fn = get_soft_float_fn(g, fn_name, 2, llvm_scalar_type, llvm_scalar_type);
+    return ir_render_reduced_call(g, llvm_fn, value, vector_len, llvm_init_value, scalar_type);
 }
 
 static LLVMValueRef ir_render_fence(CodeGen *g, Stage1Air *executable, Stage1AirInstFence *instruction) {
@@ -6650,6 +6742,10 @@ static LLVMValueRef ir_render_prefetch(CodeGen *g, Stage1Air *executable, Stage1
         switch (g->zig_target->arch) {
             case ZigLLVM_x86:
             case ZigLLVM_x86_64:
+            case ZigLLVM_ppc:
+            case ZigLLVM_ppcle:
+            case ZigLLVM_ppc64:
+            case ZigLLVM_ppc64le:
                 return nullptr;
             default:
                 break;
@@ -7374,7 +7470,9 @@ static LLVMValueRef ir_render_soft_mul_add(CodeGen *g, Stage1Air *executable, St
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
 
     const char *fn_name;
-    if (float_type == g->builtin_types.entry_f32)
+    if (float_type == g->builtin_types.entry_f16)
+        fn_name = "__fmah";
+    else if (float_type == g->builtin_types.entry_f32)
         fn_name = "fmaf";
     else if (float_type == g->builtin_types.entry_f64)
         fn_name = "fma";
@@ -7385,13 +7483,8 @@ static LLVMValueRef ir_render_soft_mul_add(CodeGen *g, Stage1Air *executable, St
     else
         zig_unreachable();
 
-    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, fn_name);
-    if (func_ref == nullptr) {
-        LLVMTypeRef float_type_ref = float_type->llvm_type;
-        LLVMTypeRef params[3] = { float_type_ref, float_type_ref, float_type_ref };
-        LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, params, 3, false);
-        func_ref = LLVMAddFunction(g->module, fn_name, fn_type);
-    }
+    LLVMTypeRef float_type_ref = float_type->llvm_type;
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 3, float_type_ref, float_type_ref); 
 
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
@@ -7421,7 +7514,8 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, Stage1Air *executable, Stage1A
     ZigType *operand_type = instruction->op1->value->type;
     operand_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
     if ((operand_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-        (operand_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        (operand_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        (operand_type == g->builtin_types.entry_f16 && !target_is_arm(g->zig_target))) {
         return ir_render_soft_mul_add(g, executable, instruction, operand_type);
     }
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
@@ -9740,7 +9834,12 @@ static void define_builtin_types(CodeGen *g) {
         }
     }
 
-    add_fp_entry(g, "f16", 16, LLVMHalfType(), &g->builtin_types.entry_f16);
+    if (target_is_arm(g->zig_target)) {
+        add_fp_entry(g, "f16", 16, LLVMHalfType(), &g->builtin_types.entry_f16);
+    } else {
+        ZigType *u16_ty = get_int_type(g, false, 16);
+        add_fp_entry(g, "f16", 16, get_llvm_type(g, u16_ty), &g->builtin_types.entry_f16);
+    }
     add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
@@ -9837,6 +9936,7 @@ static void define_builtin_types(CodeGen *g) {
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
             break;
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);

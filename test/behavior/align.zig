@@ -566,6 +566,8 @@ test "@alignCast null" {
 }
 
 test "alignment of slice element" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const a: []align(1024) const u8 = undefined;
     try expect(@TypeOf(&a[0]) == *align(1024) const u8);
 }

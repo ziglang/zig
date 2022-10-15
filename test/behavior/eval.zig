@@ -1339,6 +1339,8 @@ test "lazy value is resolved as slice operand" {
 }
 
 test "break from inline loop depends on runtime condition" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const S = struct {
         fn foo(a: u8) bool {
             return a == 4;

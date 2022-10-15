@@ -71,17 +71,6 @@ test "@mulAdd f128" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/9900
-        return error.SkipZigTest;
-    }
-
-    if (builtin.zig_backend == .stage1 and
-        builtin.cpu.arch == .i386 and builtin.os.tag == .linux)
-    {
-        return error.SkipZigTest;
-    }
-
     comptime try testMulAdd128();
     try testMulAdd128();
 }

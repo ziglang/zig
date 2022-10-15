@@ -950,7 +950,6 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_msp430:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
-        case ZigLLVM_ppc64le:
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
@@ -971,6 +970,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_ppc:
         case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
         case ZigLLVM_ve:
         case ZigLLVM_spirv32:
         case ZigLLVM_spirv64:
@@ -1125,8 +1125,8 @@ bool target_is_mips(const ZigTarget *target) {
 }
 
 bool target_is_ppc(const ZigTarget *target) {
-    return target->arch == ZigLLVM_ppc || target->arch == ZigLLVM_ppc64 ||
-        target->arch == ZigLLVM_ppc64le;
+    return target->arch == ZigLLVM_ppc || target->arch == ZigLLVM_ppcle ||
+        target->arch == ZigLLVM_ppc64 || target->arch == ZigLLVM_ppc64le;
 }
 
 // Returns the minimum alignment for every function pointer on the given
