@@ -810,7 +810,7 @@ const BigTomb = struct {
 };
 
 fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigTomb {
-    try self.currentBranch().values.ensureUnusedCapacity(self.gpa, @intCast(u32, operand_count + 1));
+    try self.currentBranch().values.ensureUnusedCapacity(self.gpa, operand_count + 1);
     return BigTomb{
         .gen = self,
         .inst = inst,
@@ -826,7 +826,7 @@ fn processDeath(self: *Self, ref: Air.Inst.Ref) void {
     // TODO: Upon branch consolidation free any locals if needed.
     const value = self.currentBranch().values.getPtr(ref) orelse return;
     if (value.* != .local) return;
-    std.debug.print("Decreasing reference for ref: %{?d}\n", .{Air.refToIndex(ref)});
+    log.debug("Decreasing reference for ref: %{?d}\n", .{Air.refToIndex(ref)});
     value.local.references -= 1; // if this panics, a call to `reuseOperand` was forgotten by the developer
     if (value.local.references == 0) {
         value.free(self);
@@ -989,18 +989,23 @@ fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
     const valtype = typeToValtype(ty, self.target);
     switch (valtype) {
         .i32 => if (self.free_locals_i32.popOrNull()) |index| {
+            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .i64 => if (self.free_locals_i64.popOrNull()) |index| {
+            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f32 => if (self.free_locals_f32.popOrNull()) |index| {
+            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f64 => if (self.free_locals_f64.popOrNull()) |index| {
+            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
     }
+    log.debug("new local of type {}\n", .{valtype});
     // no local was free to be re-used, so allocate a new local instead
     return self.ensureAllocLocal(ty);
 }
@@ -1888,7 +1893,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) InnerError!void {
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     for (body) |inst| {
         const old_bookkeeping_value = self.air_bookkeeping;
-        try self.currentBranch().values.ensureUnusedCapacity(self.gpa, Liveness.bpi);
+        // TODO: Determine why we need to pre-allocate an extra 4 possible values here.
+        try self.currentBranch().values.ensureUnusedCapacity(self.gpa, Liveness.bpi + 4);
         try self.genInst(inst);
 
         if (builtin.mode == .Debug and self.air_bookkeeping < old_bookkeeping_value + 1) {
@@ -1897,10 +1903,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                 self.air.instructions.items(.tag)[inst],
             });
         }
-        // if (result != .none) {
-        //     assert(result != .stack); // not allowed to store stack values as we cannot keep track of where they are on the stack
-        //     try self.values.putNoClobber(self.gpa, Air.indexToRef(inst), result);
-        // }
     }
 }
 
@@ -2844,65 +2846,43 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!void {
 
     try self.branches.ensureUnusedCapacity(self.gpa, 2);
 
-    const else_stack = self.branches.addOneAssumeCapacity();
-    else_stack.* = .{};
-    defer else_stack.deinit(self.gpa);
-
+    self.branches.appendAssumeCapacity(.{});
     try self.currentBranch().values.ensureUnusedCapacity(self.gpa, @intCast(u32, liveness_condbr.else_deaths.len));
     for (liveness_condbr.else_deaths) |death| {
         self.processDeath(Air.indexToRef(death));
-        std.debug.print("Death inst: %{d}\n", .{death});
     }
     try self.genBody(else_body);
     try self.endBlock();
-    else_stack.* = self.branches.pop();
+    var else_stack = self.branches.pop();
+    defer else_stack.deinit(self.gpa);
 
     // Outer block that matches the condition
-    const then_stack = self.branches.addOneAssumeCapacity();
-    then_stack.* = .{};
-    defer then_stack.deinit(self.gpa);
-
+    self.branches.appendAssumeCapacity(.{});
     try self.currentBranch().values.ensureUnusedCapacity(self.gpa, @intCast(u32, liveness_condbr.then_deaths.len));
     for (liveness_condbr.then_deaths) |death| {
         self.processDeath(Air.indexToRef(death));
-        std.debug.print("Death inst: %{d}\n", .{death});
     }
     try self.genBody(then_body);
-    then_stack.* = self.branches.pop();
+    var then_stack = self.branches.pop();
+    defer then_stack.deinit(self.gpa);
 
-    try self.canonicaliseBranches(then_stack, else_stack);
+    try self.mergeBranch(&else_stack);
+    try self.mergeBranch(&then_stack);
 
-    // TODO: Branch consilidation to process deaths from branches
     self.finishAir(inst, .none, &.{});
 }
 
-fn canonicaliseBranches(self: *Self, canon_branch: *Branch, target_branch: *Branch) !void {
+fn mergeBranch(self: *Self, branch: *const Branch) !void {
     const parent = self.currentBranch();
 
-    const target_slice = target_branch.values.entries.slice();
+    const target_slice = branch.values.entries.slice();
     const target_keys = target_slice.items(.key);
     const target_values = target_slice.items(.value);
 
-    try parent.values.ensureUnusedCapacity(self.gpa, target_branch.values.count());
+    try parent.values.ensureUnusedCapacity(self.gpa, branch.values.count());
     for (target_keys) |key, index| {
-        const value = target_values[index];
-        const canon_value = if (canon_branch.values.fetchSwapRemove(key)) |canon_entry| {
-            // try parent.values.putAssumeCapacity(key, canon_entry.value);
-            _ = canon_entry;
-            // _ = result_value;
-            @panic("HMMMM THIS occurs");
-            // break :result_value canon_entry.value;
-        } else value;
-
-        parent.values.putAssumeCapacity(key, canon_value);
-    }
-
-    try parent.values.ensureUnusedCapacity(self.gpa, canon_branch.values.count());
-    const canon_slice = canon_branch.values.entries.slice();
-    const canon_keys = canon_slice.items(.key);
-    const canon_values = canon_slice.items(.value);
-    for (canon_keys) |key, index| {
-        parent.values.putAssumeCapacity(key, canon_values[index]);
+        // TODO: process deaths from branches
+        parent.values.putAssumeCapacity(key, target_values[index]);
     }
 }
 
@@ -3173,6 +3153,9 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const target = try self.resolveInst(pl_op.operand);
     const target_ty = self.air.typeOf(pl_op.operand);
     const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.data.cases_len + 1);
+    defer self.gpa.free(liveness.deaths);
+
     var extra_index: usize = switch_br.end;
     var case_i: u32 = 0;
 
@@ -3283,7 +3266,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!void {
     };
 
     try self.branches.ensureUnusedCapacity(self.gpa, case_list.items.len + @boolToInt(has_else_body));
-    for (case_list.items) |case| {
+    for (case_list.items) |case, index| {
         // when sparse, we use if/else-chain, so emit conditional checks
         if (is_sparse) {
             // for single value prong we can emit a simple if
@@ -3318,18 +3301,31 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!void {
                 try self.endBlock();
             }
         }
-        // try self.branches.items
         self.branches.appendAssumeCapacity(.{});
+
+        try self.currentBranch().values.ensureUnusedCapacity(self.gpa, liveness.deaths[index].len);
+        for (liveness.deaths[index]) |operand| {
+            self.processDeath(Air.indexToRef(operand));
+        }
         try self.genBody(case.body);
         try self.endBlock();
-        _ = self.branches.pop();
+        var case_branch = self.branches.pop();
+        defer case_branch.deinit(self.gpa);
+        try self.mergeBranch(&case_branch);
     }
 
     if (has_else_body) {
         self.branches.appendAssumeCapacity(.{});
+        const else_deaths = liveness.deaths.len - 1;
+        try self.currentBranch().values.ensureUnusedCapacity(self.gpa, liveness.deaths[else_deaths].len);
+        for (liveness.deaths[else_deaths]) |operand| {
+            self.processDeath(Air.indexToRef(operand));
+        }
         try self.genBody(else_body);
         try self.endBlock();
-        _ = self.branches.pop();
+        var else_branch = self.branches.pop();
+        defer else_branch.deinit(self.gpa);
+        try self.mergeBranch(&else_branch);
     }
     self.finishAir(inst, .none, &.{});
 }
