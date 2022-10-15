@@ -13889,9 +13889,25 @@ fn analyzeArithmetic(
                 // because there is a possible value for which the addition would
                 // overflow (max_int), causing illegal behavior.
                 // For floats: either operand being undef makes the result undef.
+                // If either of the operands are inf, and the other operand is zero,
+                // the result is nan.
+                // If either of the operands are nan, the result is nan.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
-                        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                        if (lhs_val.isNan()) {
+                            return sema.addConstant(resolved_type, lhs_val);
+                        }
+                        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) lz: {
+                            if (maybe_rhs_val) |rhs_val| {
+                                if (rhs_val.isNan()) {
+                                    return sema.addConstant(resolved_type, rhs_val);
+                                }
+                                if (rhs_val.isInf()) {
+                                    return sema.addConstant(resolved_type, try Value.Tag.float_32.create(sema.arena, std.math.nan_f32));
+                                }
+                            } else if (resolved_type.isAnyFloat()) {
+                                break :lz;
+                            }
                             const zero_val = if (is_vector) b: {
                                 break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
                             } else Value.zero;
@@ -13911,7 +13927,17 @@ fn analyzeArithmetic(
                             return sema.addConstUndef(resolved_type);
                         }
                     }
-                    if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    if (rhs_val.isNan()) {
+                        return sema.addConstant(resolved_type, rhs_val);
+                    }
+                    if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) rz: {
+                        if (maybe_lhs_val) |lhs_val| {
+                            if (lhs_val.isInf()) {
+                                return sema.addConstant(resolved_type, try Value.Tag.float_32.create(sema.arena, std.math.nan_f32));
+                            }
+                        } else if (resolved_type.isAnyFloat()) {
+                            break :rz;
+                        }
                         const zero_val = if (is_vector) b: {
                             break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
                         } else Value.zero;

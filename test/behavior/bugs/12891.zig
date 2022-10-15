@@ -28,15 +28,35 @@ test "inf >= 1" {
     var i: usize = 1;
     try std.testing.expect(f >= i);
 }
+test "isNan(nan * 1)" {
+    const nan_times_one = comptime std.math.nan(f64) * 1;
+    try std.testing.expect(std.math.isNan(nan_times_one));
+}
+test "runtime isNan(nan * 1)" {
+    const nan_times_one = std.math.nan(f64) * 1;
+    try std.testing.expect(std.math.isNan(nan_times_one));
+}
 test "isNan(nan * 0)" {
     const nan_times_zero = comptime std.math.nan(f64) * 0;
     try std.testing.expect(std.math.isNan(nan_times_zero));
+    const zero_times_nan = 0 * comptime std.math.nan(f64);
+    try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "isNan(inf * 0)" {
     const inf_times_zero = comptime std.math.inf(f64) * 0;
     try std.testing.expect(std.math.isNan(inf_times_zero));
+    const zero_times_inf = 0 * comptime std.math.inf(f64);
+    try std.testing.expect(std.math.isNan(zero_times_inf));
 }
-test "isNan(nan * 1)" {
-    const nan_times_one = comptime std.math.nan(f64) * 1;
-    try std.testing.expect(std.math.isNan(nan_times_one));
+test "runtime isNan(nan * 0)" {
+    const nan_times_zero = std.math.nan(f64) * 0;
+    try std.testing.expect(std.math.isNan(nan_times_zero));
+    const zero_times_nan = 0 * std.math.nan(f64);
+    try std.testing.expect(std.math.isNan(zero_times_nan));
+}
+test "runtime isNan(inf * 0)" {
+    const inf_times_zero = std.math.inf(f64) * 0;
+    try std.testing.expect(std.math.isNan(inf_times_zero));
+    const zero_times_inf = 0 * std.math.inf(f64);
+    try std.testing.expect(std.math.isNan(zero_times_inf));
 }
