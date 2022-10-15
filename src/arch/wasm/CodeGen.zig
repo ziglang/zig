@@ -106,8 +106,8 @@ const WValue = union(enum) {
     fn free(value: *WValue, gen: *Self) void {
         if (value.* != .local) return;
         const local_value = value.local.value;
-        const reserved = gen.args.len + @boolToInt(gen.return_value != .none) + 2; // 2 for stack locals
-        if (local_value < reserved) return; // reserved locals may never be re-used.
+        const reserved = gen.args.len + @boolToInt(gen.return_value != .none);
+        if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
         const valtype = @intToEnum(wasm.Valtype, gen.locals.items[index]);
