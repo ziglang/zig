@@ -1699,6 +1699,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .set_err_return_trace,
         .is_named_enum_value,
         .error_set_has_value,
+        .addrspace_cast,
         => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .add_optimized,

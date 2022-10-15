@@ -512,6 +512,7 @@ const Writer = struct {
             .err_set_cast,
             .wasm_memory_grow,
             .prefetch,
+            .addrspace_cast,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);

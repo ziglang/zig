@@ -2786,6 +2786,12 @@ pub const Type = extern union {
 
             .pointer => self.castTag(.pointer).?.data.@"addrspace",
 
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_type = self.optionalChild(&buf);
+                return child_type.ptrAddressSpace();
+            },
+
             else => unreachable,
         };
     }
@@ -6768,6 +6774,13 @@ pub const CType = enum {
                 },
             },
 
+            .amdhsa, .amdpal => switch (self) {
+                .short, .ushort => return 16,
+                .int, .uint => return 32,
+                .long, .ulong, .longlong, .ulonglong => return 64,
+                .longdouble => return 128,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -6777,13 +6790,11 @@ pub const CType = enum {
             .aix,
             .cuda,
             .nvcl,
-            .amdhsa,
             .ps4,
             .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
-            .amdpal,
             .hermit,
             .hurd,
             .opencl,

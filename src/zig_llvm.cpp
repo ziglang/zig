@@ -512,22 +512,22 @@ LLVMValueRef ZigLLVMBuildUSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRe
 
 LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
     llvm::Type* types[1] = {
-        unwrap(LHS)->getType(), 
+        unwrap(LHS)->getType(),
     };
     // pass scale = 0 as third argument
     llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
-    
+
     CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::smul_fix_sat, types, values, nullptr, name);
     return wrap(call_inst);
 }
 
 LLVMValueRef ZigLLVMBuildUMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
     llvm::Type* types[1] = {
-        unwrap(LHS)->getType(), 
+        unwrap(LHS)->getType(),
     };
     // pass scale = 0 as third argument
     llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
-    
+
     CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::umul_fix_sat, types, values, nullptr, name);
     return wrap(call_inst);
 }
@@ -808,7 +808,7 @@ void ZigLLVMSetCurrentDebugLocation2(LLVMBuilderRef builder, unsigned int line,
         unsigned int column, ZigLLVMDIScope *scope, ZigLLVMDILocation *inlined_at)
 {
     DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
-    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, 
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope,
         reinterpret_cast<DILocation *>(inlined_at), false);
     unwrap(builder)->SetCurrentDebugLocation(debug_loc);
 }
@@ -1177,9 +1177,14 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
     return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
 }
 
+LLVMValueRef ZigLLVMBuildAllocaInAddressSpace(LLVMBuilderRef builder, LLVMTypeRef Ty,
+        unsigned AddressSpace, const char *Name) {
+  return wrap(unwrap(builder)->CreateAlloca(unwrap(Ty), AddressSpace, nullptr, Name));
+}
+
 void ZigLLVMSetTailCall(LLVMValueRef Call) {
     unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
-} 
+}
 
 void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
     CallInst *call_inst = unwrap<CallInst>(Call);

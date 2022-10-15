@@ -85,7 +85,8 @@ enum CallingConvention {
     CallingConventionAAPCSVFP,
     CallingConventionSysV,
     CallingConventionWin64,
-    CallingConventionPtxKernel
+    CallingConventionPtxKernel,
+    CallingConventionAmdgpuKernel
 };
 
 // Stage 1 supports only the generic address space
@@ -94,6 +95,11 @@ enum AddressSpace {
     AddressSpaceGS,
     AddressSpaceFS,
     AddressSpaceSS,
+    AddressSpaceGlobal,
+    AddressSpaceConstant,
+    AddressSpaceParam,
+    AddressSpaceShared,
+    AddressSpaceLocal
 };
 
 // This one corresponds to the builtin.zig enum.
@@ -1841,6 +1847,7 @@ enum BuiltinFnId {
     BuiltinFnIdMaximum,
     BuiltinFnIdMinimum,
     BuiltinFnIdPrefetch,
+    BuiltinFnIdAddrSpaceCast,
 };
 
 struct BuiltinFnEntry {
@@ -2672,6 +2679,7 @@ enum Stage1ZirInstId : uint8_t {
     Stage1ZirInstIdWasmMemoryGrow,
     Stage1ZirInstIdSrc,
     Stage1ZirInstIdPrefetch,
+    Stage1ZirInstIdAddrSpaceCast,
 };
 
 // ir_render_* functions in codegen.cpp consume Gen instructions and produce LLVM IR.
@@ -4166,6 +4174,13 @@ struct Stage1AirInstAlignCast {
     Stage1AirInst base;
 
     Stage1AirInst *target;
+};
+
+struct Stage1ZirInstAddrSpaceCast {
+    Stage1ZirInst base;
+
+    Stage1ZirInst *addrspace;
+    Stage1ZirInst *ptr;
 };
 
 struct Stage1ZirInstSetAlignStack {

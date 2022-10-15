@@ -171,6 +171,9 @@ pub const Value = opaque {
     pub const constAdd = LLVMConstAdd;
     extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
+    pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
+    extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
+
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *Value, IsWeak: Bool) void;
 
@@ -956,6 +959,12 @@ pub const Builder = opaque {
 
     pub const setFastMath = ZigLLVMSetFastMath;
     extern fn ZigLLVMSetFastMath(B: *Builder, on_state: bool) void;
+
+    pub const buildAddrSpaceCast = LLVMBuildAddrSpaceCast;
+    extern fn LLVMBuildAddrSpaceCast(B: *Builder, Val: *Value, DestTy: *Type, Name: [*:0]const u8) *Value;
+
+    pub const buildAllocaInAddressSpace = ZigLLVMBuildAllocaInAddressSpace;
+    extern fn ZigLLVMBuildAllocaInAddressSpace(B: *Builder, Ty: *Type, AddressSpace: c_uint, Name: [*:0]const u8) *Value;
 };
 
 pub const MDString = opaque {
