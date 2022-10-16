@@ -144,6 +144,7 @@ const MCValue = union(enum) {
     memory: u64,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
+    /// Note that this stores the plain value (i.e without the effects of the stack bias).
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
