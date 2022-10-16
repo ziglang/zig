@@ -953,7 +953,8 @@ fn analyzeBodyInner(
                     .frame_address         => try sema.zirFrameAddress(      block, extended),
                     .alloc                 => try sema.zirAllocExtended(     block, extended),
                     .builtin_extern        => try sema.zirBuiltinExtern(     block, extended),
-                    .@"asm"                => try sema.zirAsm(               block, extended),
+                    .@"asm"                => try sema.zirAsm(               block, extended, false),
+                    .asm_expr              => try sema.zirAsm(               block, extended, true),
                     .typeof_peer           => try sema.zirTypeofPeer(        block, extended),
                     .compile_log           => try sema.zirCompileLog(        block, extended),
                     .add_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
@@ -13846,6 +13847,7 @@ fn zirAsm(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    tmpl_is_expr: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -13859,13 +13861,11 @@ fn zirAsm(
     const is_volatile = @truncate(u1, extended.small >> 15) != 0;
     const is_global_assembly = sema.func == null;
 
-    if (extra.data.asm_source == 0) {
-        // This can move to become an AstGen error after inline assembly improvements land
-        // and stage1 code matches stage2 code.
-        return sema.fail(block, src, "assembly code must use string literal syntax", .{});
-    }
-
-    const asm_source = sema.code.nullTerminatedString(extra.data.asm_source);
+    const asm_source: []const u8 = if (tmpl_is_expr) blk: {
+        const tmpl = @intToEnum(Zir.Inst.Ref, extra.data.asm_source);
+        const s: []const u8 = try sema.resolveConstString(block, src, tmpl, "assembly code must be comptime-known");
+        break :blk s;
+    } else sema.code.nullTerminatedString(extra.data.asm_source);
 
     if (is_global_assembly) {
         if (outputs_len != 0) {

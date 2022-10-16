@@ -7194,21 +7194,19 @@ fn asmExpr(
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
 
-    const asm_source = switch (node_tags[full.ast.template]) {
-        .string_literal => try astgen.strLitAsString(main_tokens[full.ast.template]),
-        .multiline_string_literal => try astgen.strLitNodeAsString(full.ast.template),
-        else => blk: {
-            // stage1 allows this, and until we do another design iteration on inline assembly
-            // in stage2 to improve support for the various needed use cases, we allow inline
-            // assembly templates to be an expression. Once stage2 addresses the real world needs
-            // of people using inline assembly (primarily OS developers) then we can re-institute
-            // the rule into AstGen that assembly code must use string literal syntax.
-            //return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
-            // We still need to trigger all the expr() calls here to avoid errors for unused things.
-            // So we pass 0 as the asm source and stage2 Sema will notice this and
-            // report the error.
-            _ = try comptimeExpr(gz, scope, .none, full.ast.template);
-            break :blk IndexSlice{ .index = 0, .len = 0 };
+    const TagAndTmpl = struct { tag: Zir.Inst.Extended, tmpl: u32 };
+    const tag_and_tmpl: TagAndTmpl = switch (node_tags[full.ast.template]) {
+        .string_literal => .{
+            .tag = .@"asm",
+            .tmpl = (try astgen.strLitAsString(main_tokens[full.ast.template])).index,
+        },
+        .multiline_string_literal => .{
+            .tag = .@"asm",
+            .tmpl = (try astgen.strLitNodeAsString(full.ast.template)).index,
+        },
+        else => .{
+            .tag = .asm_expr,
+            .tmpl = @enumToInt(try comptimeExpr(gz, scope, .none, full.ast.template)),
         },
     };
 
@@ -7312,8 +7310,9 @@ fn asmExpr(
     }
 
     const result = try gz.addAsm(.{
+        .tag = tag_and_tmpl.tag,
         .node = node,
-        .asm_source = asm_source.index,
+        .asm_source = tag_and_tmpl.tmpl,
         .is_volatile = full.volatile_token != null,
         .output_type_bits = output_type_bits,
         .outputs = outputs,
@@ -11314,6 +11313,7 @@ const GenZir = struct {
     fn addAsm(
         gz: *GenZir,
         args: struct {
+            tag: Zir.Inst.Extended,
             /// Absolute node index. This function does the conversion to offset from Decl.
             node: Ast.Node.Index,
             asm_source: u32,
@@ -11360,7 +11360,7 @@ const GenZir = struct {
         astgen.instructions.appendAssumeCapacity(.{
             .tag = .extended,
             .data = .{ .extended = .{
-                .opcode = .@"asm",
+                .opcode = args.tag,
                 .small = small,
                 .operand = payload_index,
             } },

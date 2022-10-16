@@ -469,7 +469,8 @@ const Writer = struct {
                 try stream.print(":{d}:{d}", .{ inst_data.line + 1, inst_data.column + 1 });
             },
 
-            .@"asm" => try self.writeAsm(stream, extended),
+            .@"asm" => try self.writeAsm(stream, extended, false),
+            .asm_expr => try self.writeAsm(stream, extended, true),
             .variable => try self.writeVarExtended(stream, extended),
             .alloc => try self.writeAllocExtended(stream, extended),
 
@@ -1062,17 +1063,27 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeAsm(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+    fn writeAsm(
+        self: *Writer,
+        stream: anytype,
+        extended: Zir.Inst.Extended.InstData,
+        tmpl_is_expr: bool,
+    ) !void {
         const extra = self.code.extraData(Zir.Inst.Asm, extended.operand);
         const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const outputs_len = @truncate(u5, extended.small);
         const inputs_len = @truncate(u5, extended.small >> 5);
         const clobbers_len = @truncate(u5, extended.small >> 10);
         const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-        const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
 
         try self.writeFlag(stream, "volatile, ", is_volatile);
-        try stream.print("\"{}\", ", .{std.zig.fmtEscapes(asm_source)});
+        if (tmpl_is_expr) {
+            try self.writeInstRef(stream, @intToEnum(Zir.Inst.Ref, extra.data.asm_source));
+            try stream.writeAll(", ");
+        } else {
+            const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
+            try stream.print("\"{}\", ", .{std.zig.fmtEscapes(asm_source)});
+        }
         try stream.writeAll(", ");
 
         var extra_i: usize = extra.end;
