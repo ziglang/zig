@@ -1045,7 +1045,7 @@ elseif(MINGW)
   target_link_libraries(zig2 ntdll)
 endif()
 
-set(ZIG_BUILD_ARGS "build"
+set(ZIG_BUILD_ARGS
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     "-Denable-llvm"
@@ -1060,7 +1060,7 @@ set(ZIG_BUILD_ARGS "build"
 )
 
 add_custom_target(stage3 ALL
-    COMMAND zig2 ${ZIG_BUILD_ARGS}
+    COMMAND zig2 build compile ${ZIG_BUILD_ARGS}
     DEPENDS zig2
     COMMENT STATUS "Building stage3"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

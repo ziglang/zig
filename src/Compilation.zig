@@ -1109,11 +1109,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const use_stage1 = options.use_stage1 orelse false;
 
-        const cache_mode = if (use_stage1 and !options.disable_lld_caching)
-            CacheMode.whole
-        else
-            options.cache_mode;
-
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
             if (options.use_llvm) |explicit|
@@ -1153,6 +1148,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
             }
         }
+
+        // TODO: once we support incremental compilation for the LLVM backend via
+        // saving the LLVM module into a bitcode file and restoring it, along with
+        // compiler state, the second clause here can be removed so that incremental
+        // cache mode is used for LLVM backend too. We need some fuzz testing before
+        // that can be enabled.
+        const cache_mode = if ((use_stage1 and !options.disable_lld_caching) or
+            (use_llvm and !options.disable_lld_caching)) CacheMode.whole else options.cache_mode;
 
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
