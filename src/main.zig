@@ -696,6 +696,7 @@ fn buildOutputType(
     var linker_print_gc_sections: bool = false;
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
+    var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
     var linker_z_defs = false;
@@ -1262,6 +1263,8 @@ fn buildOutputType(
                             linker_z_defs = true;
                         } else if (mem.eql(u8, z_arg, "origin")) {
                             linker_z_origin = true;
+                        } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
+                            linker_z_nocopyreloc = true;
                         } else if (mem.eql(u8, z_arg, "now")) {
                             linker_z_now = true;
                         } else if (mem.eql(u8, z_arg, "lazy")) {
@@ -1825,6 +1828,8 @@ fn buildOutputType(
                         linker_z_defs = true;
                     } else if (mem.eql(u8, z_arg, "origin")) {
                         linker_z_origin = true;
+                    } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
+                        linker_z_nocopyreloc = true;
                     } else if (mem.eql(u8, z_arg, "noexecstack")) {
                         // noexecstack is the default when linking with LLD
                     } else if (mem.eql(u8, z_arg, "now")) {
@@ -2894,6 +2899,7 @@ fn buildOutputType(
         .linker_print_map = linker_print_map,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
+        .linker_z_nocopyreloc = linker_z_nocopyreloc,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
