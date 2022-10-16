@@ -19,6 +19,6 @@ test "oaeu" {
 
 // error
 // is_test=1
-// backend=stage2
+// backend=llvm
 //
 // :16:9: error: cannot assign to constant

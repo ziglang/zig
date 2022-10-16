@@ -14,4 +14,4 @@ test {
 
 // run
 // is_test=1
-// backend=stage2
+// backend=llvm

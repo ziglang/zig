@@ -8,4 +8,4 @@ test "incorrect bounds check on @ptrCast const value" {
 
 // run
 // is_test=1
-// backend=stage2
+// backend=llvm

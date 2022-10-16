@@ -9,4 +9,4 @@ test "while loop with comptime true condition needs no `else` block to return va
 
 // run
 // is_test=1
-// backend=stage2
+// backend=llvm

@@ -8,4 +8,4 @@ test "@floatToInt compiler crash on c_longdouble" {
 
 // run
 // is_test=1
-// backend=stage2
+// backend=llvm

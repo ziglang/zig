@@ -17,7 +17,7 @@ test {
 
 // error
 // is_test=1
-// backend=stage2
+// backend=llvm
 //
 // :7:15: error: cannot store to comptime variable in non-inline loop
 // :6:5: note: non-inline loop here
