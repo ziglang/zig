@@ -3002,7 +3002,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     };
 }
 
-pub fn getCompileLogOutput(self: *Compilation) []const u8 {
+pub fn getCompileLogText(self: Compilation) []const u8 {
     const module = self.bin_file.options.module orelse return &[0]u8{};
     return module.compile_log_text.items;
 }

@@ -3521,6 +3521,46 @@ const AfterUpdateHook = union(enum) {
     update: []const u8,
 };
 
+// we take the raw compile log text, split it back up, and prettify it
+fn printCompileLog(comp: Compilation, ttyconf: std.debug.TTY.Config) !void {
+    const log_text = comp.getCompileLogText();
+    if (log_text.len == 0) return;
+
+    var bw = io.bufferedWriter(io.getStdErr().writer());
+    const stderr = bw.writer();
+
+    try ttyconf.setColor(stderr, .Cyan);
+    try stderr.writeAll("compile log output:\n");
+    try ttyconf.setColor(stderr, .Reset);
+
+    var log_lines = mem.split(u8, log_text, "\n");
+    while (log_lines.next()) |log_line| {
+        if (log_lines.index == null) break;
+
+        try ttyconf.setColor(stderr, .Dim);
+        try stderr.writeAll("- ");
+        try ttyconf.setColor(stderr, .Reset);
+
+        var values = mem.split(u8, log_line, "\x00");
+        while (values.next()) |value| {
+            // we bolden the values and dim the commas to
+            // make the values easier to distinguish
+
+            try ttyconf.setColor(stderr, .Bold);
+            try stderr.writeAll(value);
+            try ttyconf.setColor(stderr, .Reset);
+
+            if (values.index != null) {
+                try ttyconf.setColor(stderr, .Dim);
+                try stderr.writeAll(", ");
+                try ttyconf.setColor(stderr, .Reset);
+            }
+        }
+        try stderr.writeByte('\n');
+    }
+    try bw.flush();
+}
+
 fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
     try comp.update();
 
@@ -3536,10 +3576,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
         for (errors.list) |full_err_msg| {
             full_err_msg.renderToStdErr(ttyconf);
         }
-        const log_text = comp.getCompileLogOutput();
-        if (log_text.len != 0) {
-            std.debug.print("\nCompile Log Output:\n{s}", .{log_text});
-        }
+        try printCompileLog(comp.*, ttyconf);
         return error.SemanticAnalyzeFail;
     } else switch (hook) {
         .none => {},

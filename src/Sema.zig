@@ -5009,7 +5009,8 @@ fn zirCompileLog(
     const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args) |arg_ref, i| {
-        if (i != 0) try writer.print(", ", .{});
+        // we rely on TypedValue's formatting to escape this in order for it to work
+        if (i != 0) try writer.writeByte('\x00');
 
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
@@ -5022,7 +5023,8 @@ fn zirCompileLog(
             try writer.print("@as({}, [runtime value])", .{arg_ty.fmt(sema.mod)});
         }
     }
-    try writer.print("\n", .{});
+    // we rely on TypedValue's formatting to escape this in order for it to work
+    try writer.writeByte('\n');
 
     const decl_index = if (sema.func) |some| some.owner_decl else sema.owner_decl_index;
     const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, decl_index);
