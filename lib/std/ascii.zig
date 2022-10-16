@@ -12,7 +12,7 @@ const std = @import("std");
 
 /// The C0 control codes of the ASCII encoding.
 ///
-/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`.
+/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`
 pub const control_code = struct {
     /// Null.
     pub const nul = 0x00;
@@ -88,188 +88,63 @@ pub const control_code = struct {
     pub const xoff = dc3;
 };
 
-const tIndex = enum(u3) {
-    Alpha,
-    Hex,
-    Space,
-    Digit,
-    Lower,
-    Upper,
-    // Ctrl, < 0x20 || == DEL
-    // Print, = Graph || == ' '. NOT '\t' et cetera
-    Punct,
-    Graph,
-    //ASCII, | ~0b01111111
-    //isBlank, == ' ' || == '\x09'
-};
-
-const combinedTable = init: {
-    comptime var table: [256]u8 = undefined;
-
-    const mem = std.mem;
-
-    const alpha = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-    };
-    const lower = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-    };
-    const upper = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const digit = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const hex = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const space = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const punct = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
-
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1,
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
-    };
-    const graph = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-    };
-
-    comptime var i = 0;
-    inline while (i < 128) : (i += 1) {
-        table[i] =
-            @as(u8, alpha[i]) << @enumToInt(tIndex.Alpha) |
-            @as(u8, hex[i]) << @enumToInt(tIndex.Hex) |
-            @as(u8, space[i]) << @enumToInt(tIndex.Space) |
-            @as(u8, digit[i]) << @enumToInt(tIndex.Digit) |
-            @as(u8, lower[i]) << @enumToInt(tIndex.Lower) |
-            @as(u8, upper[i]) << @enumToInt(tIndex.Upper) |
-            @as(u8, punct[i]) << @enumToInt(tIndex.Punct) |
-            @as(u8, graph[i]) << @enumToInt(tIndex.Graph);
-    }
-    mem.set(u8, table[128..256], 0);
-    break :init table;
-};
-
-fn inTable(c: u8, t: tIndex) bool {
-    return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
-}
-
-/// Returns whether the character is alphanumeric.
+/// Returns whether the character is alphanumeric: A-Z, a-z, or 0-9.
 pub fn isAlphanumeric(c: u8) bool {
-    return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
-        @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
+    return switch (c) {
+        'A'...'Z', 'a'...'z', '0'...'9' => true,
+        else => false,
+    };
 }
 
-/// Returns whether the character is alphabetic.
+/// Returns whether the character is alphabetic: A-Z or a-z.
 pub fn isAlphabetic(c: u8) bool {
-    return inTable(c, tIndex.Alpha);
+    return switch (c) {
+        'A'...'Z', 'a'...'z' => true,
+        else => false,
+    };
 }
 
 /// Returns whether the character is a control character.
-/// This is the same as `!isPrint(c)`.
 ///
-/// See also: `control_code`.
+/// See also: `control_code`
 pub fn isControl(c: u8) bool {
     return c <= control_code.us or c == control_code.del;
 }
 
 /// Returns whether the character is a digit.
 pub fn isDigit(c: u8) bool {
-    return inTable(c, tIndex.Digit);
+    return switch (c) {
+        '0'...'9' => true,
+        else => false,
+    };
 }
 
-/// Returns whether the character is a lowercased letter.
+/// Returns whether the character is a lowercase letter.
 pub fn isLower(c: u8) bool {
-    return inTable(c, tIndex.Lower);
+    return switch (c) {
+        'a'...'z' => true,
+        else => false,
+    };
 }
 
-/// Returns whether the character is printable and has some graphical representation.
-/// This also returns `true` for the space character.
-/// This is the same as `!isControl(c)`.
+/// Returns whether the character is printable and has some graphical representation,
+/// including the space character.
 pub fn isPrint(c: u8) bool {
-    return inTable(c, tIndex.Graph) or c == ' ';
+    return isASCII(c) and !isControl(c);
 }
 
 /// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
-    return inTable(c, tIndex.Space);
+    return for (whitespace) |other| {
+        if (c == other)
+            break true;
+    } else false;
 }
 
 /// Whitespace for general use.
 /// This may be used with e.g. `std.mem.trim` to trim whitespace.
 ///
-/// See also: `isWhitespace`.
+/// See also: `isWhitespace`
 pub const whitespace = [_]u8{ ' ', '\t', '\n', '\r', control_code.vt, control_code.ff };
 
 test "whitespace" {
@@ -281,14 +156,20 @@ test "whitespace" {
     }
 }
 
-/// Returns whether the character is an uppercased letter.
+/// Returns whether the character is an uppercase letter.
 pub fn isUpper(c: u8) bool {
-    return inTable(c, tIndex.Upper);
+    return switch (c) {
+        'A'...'Z' => true,
+        else => false,
+    };
 }
 
-/// Returns whether the character is a hexadecimal digit. Case-insensitive.
+/// Returns whether the character is a hexadecimal digit: A-F, a-f, or 0-9.
 pub fn isHex(c: u8) bool {
-    return inTable(c, tIndex.Hex);
+    return switch (c) {
+        'A'...'F', 'a'...'f', '0'...'9' => true,
+        else => false,
+    };
 }
 
 /// Returns whether the character is a 7-bit ASCII character.
@@ -322,6 +203,8 @@ test "ASCII character classes" {
     try testing.expect(isControl(control_code.nul));
     try testing.expect(isControl(control_code.ff));
     try testing.expect(isControl(control_code.us));
+    try testing.expect(!isControl(0x80));
+    try testing.expect(!isControl(0xff));
 
     try testing.expect('C' == toUpper('c'));
     try testing.expect(':' == toUpper(':'));
@@ -351,6 +234,7 @@ test "ASCII character classes" {
 
     try testing.expect(!isHex('g'));
     try testing.expect(isHex('b'));
+    try testing.expect(isHex('F'));
     try testing.expect(isHex('9'));
 
     try testing.expect(!isDigit('~'));
@@ -361,6 +245,8 @@ test "ASCII character classes" {
     try testing.expect(isPrint('@'));
     try testing.expect(isPrint('~'));
     try testing.expect(!isPrint(control_code.esc));
+    try testing.expect(!isPrint(0x80));
+    try testing.expect(!isPrint(0xff));
 }
 
 /// Writes a lower case copy of `ascii_string` to `output`.
