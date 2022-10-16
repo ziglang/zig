@@ -247,12 +247,6 @@ pub const DefaultRwLock = struct {
         if ((state & READER_MASK == READER) and (state & IS_WRITING != 0))
             rwl.semaphore.post();
     }
-
-    /// The instantaneous value of the waiting-to-write state, for testing only.
-    fn isWaitingToWrite(rwl: *DefaultRwLock) bool {
-        const state = @atomicLoad(usize, &rwl.state, .SeqCst);
-        return (state & DefaultRwLock.WRITER_MASK) != 0;
-    }
 };
 
 test "DefaultRwLock - internal state" {
@@ -261,10 +255,9 @@ test "DefaultRwLock - internal state" {
     // The following failed prior to the fix for Issue #13163,
     // where the WRITER flag was subtracted by the lock method.
 
-    try testing.expect(!rwl.isWaitingToWrite());
     rwl.lock();
     rwl.unlock();
-    try testing.expect(!rwl.isWaitingToWrite());
+    try testing.expectEqual(rwl, DefaultRwLock{});
 }
 
 test "RwLock - smoke test" {
@@ -303,6 +296,7 @@ test "RwLock - concurrent access" {
     const num_writers: usize = 2;
     const num_readers: usize = 4;
     const num_writes: usize = 10000;
+    const num_reads: usize = num_writes * 2;
 
     const Runner = struct {
         const Self = @This();
@@ -319,11 +313,13 @@ test "RwLock - concurrent access" {
             while (true) {
                 self.rwl.lockShared();
                 defer self.rwl.unlockShared();
-                if (self.writes >= num_writes) break;
+
+                if (self.writes >= num_writes or self.reads.load(.Unordered) >= num_reads)
+                    break;
 
                 try self.check();
 
-                _ = self.reads.fetchAdd(1, .AcqRel);
+                _ = self.reads.fetchAdd(1, .Acquire);
             }
         }
 
@@ -334,7 +330,9 @@ test "RwLock - concurrent access" {
             while (true) {
                 self.rwl.lock();
                 defer self.rwl.unlock();
-                if (self.writes >= num_writes) break;
+
+                if (self.writes >= num_writes)
+                    break;
 
                 try self.check();
 
@@ -372,7 +370,6 @@ test "RwLock - concurrent access" {
     for (threads) |t| t.join();
 
     try testing.expectEqual(num_writes, runner.writes);
-    try testing.expect(runner.reads.load(.SeqCst) >= 10 * num_readers);
 
-    //std.debug.print("reads={}\n", .{ runner.reads.load(.SeqCst)});
+    //std.debug.print("reads={}\n", .{ runner.reads.load(.Unordered)});
 }
