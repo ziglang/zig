@@ -10,83 +10,10 @@
 
 const std = @import("std");
 
-// TODO: remove all decls marked as DEPRECATED after 0.10.0's release
-
 /// The C0 control codes of the ASCII encoding.
 ///
 /// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`.
 pub const control_code = struct {
-    // DEPRECATED: use the lowercase variant
-    pub const NUL = 0x00;
-    // DEPRECATED: use the lowercase variant
-    pub const SOH = 0x01;
-    // DEPRECATED: use the lowercase variant
-    pub const STX = 0x02;
-    // DEPRECATED: use the lowercase variant
-    pub const ETX = 0x03;
-    // DEPRECATED: use the lowercase variant
-    pub const EOT = 0x04;
-    // DEPRECATED: use the lowercase variant
-    pub const ENQ = 0x05;
-    // DEPRECATED: use the lowercase variant
-    pub const ACK = 0x06;
-    // DEPRECATED: use the lowercase variant
-    pub const BEL = 0x07;
-    // DEPRECATED: use the lowercase variant
-    pub const BS = 0x08;
-    // DEPRECATED: use `ht`
-    pub const TAB = 0x09;
-    // DEPRECATED: use the lowercase variant
-    pub const LF = 0x0A;
-    // DEPRECATED: use the lowercase variant
-    pub const VT = 0x0B;
-    // DEPRECATED: use the lowercase variant
-    pub const FF = 0x0C;
-    // DEPRECATED: use the lowercase variant
-    pub const CR = 0x0D;
-    // DEPRECATED: use the lowercase variant
-    pub const SO = 0x0E;
-    // DEPRECATED: use the lowercase variant
-    pub const SI = 0x0F;
-    // DEPRECATED: use the lowercase variant
-    pub const DLE = 0x10;
-    // DEPRECATED: use the lowercase variant
-    pub const DC1 = 0x11;
-    // DEPRECATED: use the lowercase variant
-    pub const DC2 = 0x12;
-    // DEPRECATED: use the lowercase variant
-    pub const DC3 = 0x13;
-    // DEPRECATED: use the lowercase variant
-    pub const DC4 = 0x14;
-    // DEPRECATED: use the lowercase variant
-    pub const NAK = 0x15;
-    // DEPRECATED: use the lowercase variant
-    pub const SYN = 0x16;
-    // DEPRECATED: use the lowercase variant
-    pub const ETB = 0x17;
-    // DEPRECATED: use the lowercase variant
-    pub const CAN = 0x18;
-    // DEPRECATED: use the lowercase variant
-    pub const EM = 0x19;
-    // DEPRECATED: use the lowercase variant
-    pub const SUB = 0x1A;
-    // DEPRECATED: use the lowercase variant
-    pub const ESC = 0x1B;
-    // DEPRECATED: use the lowercase variant
-    pub const FS = 0x1C;
-    // DEPRECATED: use the lowercase variant
-    pub const GS = 0x1D;
-    // DEPRECATED: use the lowercase variant
-    pub const RS = 0x1E;
-    // DEPRECATED: use the lowercase variant
-    pub const US = 0x1F;
-    // DEPRECATED: use the lowercase variant
-    pub const DEL = 0x7F;
-    // DEPRECATED: use the lowercase variant
-    pub const XON = 0x11;
-    // DEPRECATED: use the lowercase variant
-    pub const XOFF = 0x13;
-
     /// Null.
     pub const nul = 0x00;
     /// Start of Heading.
@@ -298,19 +225,6 @@ fn inTable(c: u8, t: tIndex) bool {
     return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
 }
 
-/// DEPRECATED: use `isAlphanumeric`
-pub const isAlNum = isAlphanumeric;
-/// DEPRECATED: use `isAlphabetic`
-pub const isAlpha = isAlphabetic;
-/// DEPRECATED: use `isControl`
-pub const isCntrl = isControl;
-/// DEPRECATED: use `isWhitespace`.
-pub const isSpace = isWhitespace;
-/// DEPRECATED: use `whitespace`.
-pub const spaces = whitespace;
-/// DEPRECATED: use `isHex`.
-pub const isXDigit = isHex;
-
 /// Returns whether the character is alphanumeric.
 pub fn isAlphanumeric(c: u8) bool {
     return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
@@ -335,11 +249,6 @@ pub fn isDigit(c: u8) bool {
     return inTable(c, tIndex.Digit);
 }
 
-/// DEPRECATED: use `isPrint(c) and c != ' '` instead
-pub fn isGraph(c: u8) bool {
-    return inTable(c, tIndex.Graph);
-}
-
 /// Returns whether the character is a lowercased letter.
 pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
@@ -350,11 +259,6 @@ pub fn isLower(c: u8) bool {
 /// This is the same as `!isControl(c)`.
 pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Graph) or c == ' ';
-}
-
-/// DEPRECATED: create your own function based on your needs and what you want to do.
-pub fn isPunct(c: u8) bool {
-    return inTable(c, tIndex.Punct);
 }
 
 /// Returns whether this character is included in `whitespace`.
@@ -390,11 +294,6 @@ pub fn isHex(c: u8) bool {
 /// Returns whether the character is a 7-bit ASCII character.
 pub fn isASCII(c: u8) bool {
     return c < 128;
-}
-
-/// DEPRECATED: use `c == ' ' or c == '\t'` or try `isWhitespace`
-pub fn isBlank(c: u8) bool {
-    return (c == ' ') or (c == '\x09');
 }
 
 /// Uppercases the character and returns it as-is if it's already uppercased or not a letter.
@@ -440,9 +339,9 @@ test "ascii character classes" {
     try testing.expect(isAlphanumeric('5'));
     try testing.expect(!isAlphanumeric('!'));
 
-    try testing.expect(!isAlpha('5'));
-    try testing.expect(isAlpha('c'));
-    try testing.expect(!isAlpha('5'));
+    try testing.expect(!isAlphabetic('5'));
+    try testing.expect(isAlphabetic('c'));
+    try testing.expect(!isAlphabetic('5'));
 
     try testing.expect(isWhitespace(' '));
     try testing.expect(isWhitespace('\t'));

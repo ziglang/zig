@@ -1232,7 +1232,7 @@ pub const Tokenizer = struct {
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isASCII(c0)) {
-            if (std.ascii.isCntrl(c0)) {
+            if (std.ascii.isControl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
