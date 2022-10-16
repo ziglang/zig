@@ -22070,6 +22070,15 @@ fn fieldVal(
                 .Struct, .Opaque => {
                     if (child_type.getNamespace()) |namespace| {
                         if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
+                            // packed struct need init backing_int_ty.
+                            if (child_type.tag() == .@"struct") {
+                                const struct_obj = child_type.castTag(.@"struct").?.data;
+                                if (struct_obj.layout == .Packed) {
+                                    try sema.resolveTypeFieldsStruct(child_type, struct_obj);
+                                    try sema.resolveStructLayout(block, src, child_type);
+                                }
+                            }
+
                             return inst;
                         }
                     }
