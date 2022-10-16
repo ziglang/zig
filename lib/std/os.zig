@@ -6547,6 +6547,7 @@ pub const SetSockOptError = error{
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
+    NoDevice,
 } || UnexpectedError;
 
 /// Set a socket's options.
@@ -6577,6 +6578,7 @@ pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSo
             .NOMEM => return error.SystemResources,
             .NOBUFS => return error.SystemResources,
             .PERM => return error.PermissionDenied,
+            .NODEV => return error.NoDevice,
             else => |err| return unexpectedErrno(err),
         }
     }
