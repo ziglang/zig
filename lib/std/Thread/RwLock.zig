@@ -366,8 +366,8 @@ test "RwLock - concurrent access" {
     var runner = Runner{};
     var threads: [num_writers + num_readers]std.Thread = undefined;
 
-    for (threads[0..num_writers]) |*t, i| t.* = try std.Thread.spawn( .{}, Runner.writer, .{&runner, i});
-    for (threads[num_writers..]) |*t| t.* = try std.Thread.spawn( .{}, Runner.reader, .{&runner});
+    for (threads[0..num_writers]) |*t, i| t.* = try std.Thread.spawn(.{}, Runner.writer, .{ &runner, i });
+    for (threads[num_writers..]) |*t| t.* = try std.Thread.spawn(.{}, Runner.reader, .{&runner});
 
     for (threads) |t| t.join();
 
