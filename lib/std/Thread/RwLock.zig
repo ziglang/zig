@@ -374,5 +374,5 @@ test "RwLock - concurrent access" {
     try testing.expectEqual(num_writes, runner.writes);
     try testing.expect(runner.reads.load(.SeqCst) >= 10 * num_readers);
 
-    std.debug.print("reads={}\n", .{ runner.reads.load(.SeqCst)});
+    //std.debug.print("reads={}\n", .{ runner.reads.load(.SeqCst)});
 }
