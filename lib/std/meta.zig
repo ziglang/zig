@@ -68,7 +68,7 @@ pub fn isTag(tagged_value: anytype, comptime tag_name: []const u8) bool {
     const type_name = @typeName(T);
 
     // select the Enum type out of the type (in the case of the tagged union, extract it)
-    const E = if (.Enum == type_info) T else if (.Union == type_info) (if (type_info.Union.tag_type) |TT| TT else {
+    const E = if (.Enum == type_info) T else if (.Union == type_info) (type_info.Union.tag_type orelse {
         @compileError("attempted to use isTag on the untagged union " ++ type_name);
     }) else {
         @compileError("attempted to use isTag on a value of type (" ++ type_name ++ ") that isn't an enum or a union.");
