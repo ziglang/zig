@@ -1382,7 +1382,7 @@ pub const DebugInfo = struct {
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
-        if (os.dl_iterate_phdr(&ctx, anyerror, struct {
+        if (os.dl_iterate_phdr(&ctx, error{Found}, struct {
             fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
                 // The base address is too high
@@ -1410,7 +1410,6 @@ pub const DebugInfo = struct {
             return error.MissingDebugInfo;
         } else |err| switch (err) {
             error.Found => {},
-            else => return error.MissingDebugInfo,
         }
 
         if (self.address_map.get(ctx.base_address)) |obj_di| {
