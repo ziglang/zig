@@ -254,7 +254,7 @@ pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
 }
 
-/// Returns whether the character has some graphical representation and can be printed.
+/// Returns whether the character is printable and has some graphical representation.
 /// This also returns `true` for the space character.
 /// This is the same as `!isControl(c)`.
 pub fn isPrint(c: u8) bool {
@@ -286,7 +286,7 @@ pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
 
-/// Returns whether the character is a hexadecimal digit. This is case-insensitive.
+/// Returns whether the character is a hexadecimal digit. Case-insensitive.
 pub fn isHex(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
@@ -296,7 +296,7 @@ pub fn isASCII(c: u8) bool {
     return c < 128;
 }
 
-/// Uppercases the character and returns it as-is if it's already uppercased or not a letter.
+/// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -305,7 +305,7 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
-/// Lowercases the character and returns it as-is if it's already lowercased or not a letter.
+/// Lowercases the character and returns it as-is if already lowercase or not a letter.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
@@ -314,7 +314,7 @@ pub fn toLower(c: u8) u8 {
     }
 }
 
-test "ascii character classes" {
+test "ASCII character classes" {
     const testing = std.testing;
 
     try testing.expect(!isControl('a'));
@@ -440,7 +440,7 @@ pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[0..needle.len], needle);
 }
 
-test "ascii.startsWithIgnoreCase" {
+test "startsWithIgnoreCase" {
     try std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
     try std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
 }
@@ -449,7 +449,7 @@ pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[haystack.len - needle.len ..], needle);
 }
 
-test "ascii.endsWithIgnoreCase" {
+test "endsWithIgnoreCase" {
     try std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
     try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
