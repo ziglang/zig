@@ -96,7 +96,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         return self;
     }
 
-    if (comptime native_target.os.tag == .solaris) {
+    if (builtin.os.tag == .solaris) {
         try self.addLibDir("/usr/lib/64");
         try self.addLibDir("/usr/local/lib/64");
         try self.addLibDir("/lib/64");
@@ -107,7 +107,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         return self;
     }
 
-    if (native_target.os.tag != .windows) {
+    if (builtin.os.tag != .windows) {
         const triple = try native_target.linuxTriple(allocator);
         defer allocator.free(triple);
 
@@ -136,11 +136,10 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
         try self.addLibDirFmt("/lib/{s}", .{triple});
 
-        // NOTE: distro like guix doesn't use FHS, so it relies on envorinment
-        // variables (C_INCLUDE_PATH, CPLUS_INCLUDE_PATH and LIBRARY_PATH) to
-        // search for headers and libraries
-        // NOTE: we use os.getenv here since this part won't be executed on
-        // windows, to get rid of unnecessary error handling
+        // Distros like guix don't use FHS, so they rely on environment
+        // variables to search for headers and libraries.
+        // We use os.getenv here since this part won't be executed on
+        // windows, to get rid of unnecessary error handling.
         if (std.os.getenv("C_INCLUDE_PATH")) |c_include_path| {
             var it = mem.tokenize(u8, c_include_path, ":");
             while (it.next()) |dir| {
