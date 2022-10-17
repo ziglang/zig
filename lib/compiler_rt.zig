@@ -208,4 +208,10 @@ comptime {
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
+
+    _ = @import("compiler_rt/memcpy.zig");
+    _ = @import("compiler_rt/memset.zig");
+    _ = @import("compiler_rt/memmove.zig");
+    _ = @import("compiler_rt/cmp.zig");
+    _ = @import("compiler_rt/bcmp.zig");
 }

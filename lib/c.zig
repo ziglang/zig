@@ -1,8 +1,6 @@
 //! This is Zig's multi-target implementation of libc.
 //! When builtin.link_libc is true, we need to export all the functions and
 //! provide an entire C API.
-//! Otherwise, only the functions which LLVM generates calls to need to be generated,
-//! such as memcpy, memset, and some math functions.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -35,13 +33,6 @@ comptime {
         @export(clone, .{ .name = "clone" });
     }
 
-    @export(memset, .{ .name = "memset", .linkage = .Strong });
-    @export(__memset, .{ .name = "__memset", .linkage = .Strong });
-    @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
-    @export(memmove, .{ .name = "memmove", .linkage = .Strong });
-    @export(memcmp, .{ .name = "memcmp", .linkage = .Strong });
-    @export(bcmp, .{ .name = "bcmp", .linkage = .Strong });
-
     if (builtin.link_libc) {
         @export(strcmp, .{ .name = "strcmp", .linkage = .Strong });
         @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
@@ -73,116 +64,6 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
-}
-
-fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (len != 0) {
-        var d = dest.?;
-        var n = len;
-        while (true) {
-            d[0] = c;
-            n -= 1;
-            if (n == 0) break;
-            d += 1;
-        }
-    }
-
-    return dest;
-}
-
-fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
-    if (dest_n < n)
-        @panic("buffer overflow");
-    return memset(dest, c, n);
-}
-
-fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (len != 0) {
-        var d = dest.?;
-        var s = src.?;
-        var n = len;
-        while (true) {
-            d[0] = s[0];
-            n -= 1;
-            if (n == 0) break;
-            d += 1;
-            s += 1;
-        }
-    }
-
-    return dest;
-}
-
-fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (@ptrToInt(dest) < @ptrToInt(src)) {
-        var index: usize = 0;
-        while (index != n) : (index += 1) {
-            dest.?[index] = src.?[index];
-        }
-    } else {
-        var index = n;
-        while (index != 0) {
-            index -= 1;
-            dest.?[index] = src.?[index];
-        }
-    }
-
-    return dest;
-}
-
-fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) c_int {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1) {
-        const compare_val = @bitCast(i8, vl.?[index] -% vr.?[index]);
-        if (compare_val != 0) {
-            return compare_val;
-        }
-    }
-
-    return 0;
-}
-
-test "memcmp" {
-    const base_arr = &[_]u8{ 1, 1, 1 };
-    const arr1 = &[_]u8{ 1, 1, 1 };
-    const arr2 = &[_]u8{ 1, 0, 1 };
-    const arr3 = &[_]u8{ 1, 2, 1 };
-
-    try std.testing.expect(memcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    try std.testing.expect(memcmp(base_arr[0..], arr2[0..], base_arr.len) > 0);
-    try std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
-}
-
-fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) c_int {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1) {
-        if (vl[index] != vr[index]) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-test "bcmp" {
-    const base_arr = &[_]u8{ 1, 1, 1 };
-    const arr1 = &[_]u8{ 1, 1, 1 };
-    const arr2 = &[_]u8{ 1, 0, 1 };
-    const arr3 = &[_]u8{ 1, 2, 1 };
-
-    try std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    try std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
-    try std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
 }
 
 var _fltused: c_int = 1;

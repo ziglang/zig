@@ -18,9 +18,6 @@ pub fn build(b: *Builder) void {
     lib.strip = false;
 
     const check = lib.checkObject(.wasm);
-    check.checkStart("Section import");
-    check.checkNext("entries 1"); // __truncsfhf2 should have been resolved, so only 1 import (compiler-rt's memcpy).
-
     check.checkStart("Section custom");
     check.checkNext("name __truncsfhf2"); // Ensure it was imported and resolved
 
