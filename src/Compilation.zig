@@ -2390,8 +2390,20 @@ pub fn update(comp: *Compilation) !void {
         const o_sub_path = try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest });
         defer comp.gpa.free(o_sub_path);
 
+        // Work around windows `AccessDenied` if any files within this directory are open
+        // by doing the makeExecutable/makeWritable dance.
+        const need_writable_dance = builtin.os.tag == .windows and comp.bin_file.file != null;
+        if (need_writable_dance) {
+            try comp.bin_file.makeExecutable();
+        }
+
         try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
         comp.wholeCacheModeSetBinFilePath(&digest);
+
+        // Has to be after the `wholeCacheModeSetBinFilePath` above.
+        if (need_writable_dance) {
+            try comp.bin_file.makeWritable();
+        }
 
         // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
         if (comp.bin_file.options.module) |module| {
@@ -3207,8 +3219,8 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .mingw_crt_file,
-                    "unable to build mingw-w64 CRT file: {s}",
-                    .{@errorName(err)},
+                    "unable to build mingw-w64 CRT file {s}: {s}",
+                    .{ @tagName(crt_file), @errorName(err) },
                 );
             };
         },
