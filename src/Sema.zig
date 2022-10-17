@@ -6622,6 +6622,11 @@ fn instantiateGenericCall(
             }
 
             const arg_ty = sema.typeOf(uncasted_args[i]);
+            if (is_comptime or is_anytype) {
+                // Tuple default values are a part of the type and need to be
+                // resolved to hash the type.
+                try sema.resolveTupleLazyValues(block, call_src, arg_ty);
+            }
 
             if (is_comptime) {
                 const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[i]) catch |err| switch (err) {
@@ -6995,6 +7000,16 @@ fn instantiateGenericCall(
         return sema.handleTailCall(block, call_src, func_ty, result);
     }
     return result;
+}
+
+fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
+    if (!ty.isTuple()) return;
+    const tuple = ty.tupleFields();
+    for (tuple.values) |field_val, i| {
+        try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
+        if (field_val.tag() == .unreachable_value) continue;
+        try sema.resolveLazyValue(block, src, field_val);
+    }
 }
 
 fn emitDbgInline(
@@ -28605,6 +28620,20 @@ fn resolveLazyValue(
         .lazy_size => {
             const ty = val.castTag(.lazy_size).?.data;
             return sema.resolveTypeLayout(block, src, ty);
+        },
+        .comptime_field_ptr => {
+            const field_ptr = val.castTag(.comptime_field_ptr).?.data;
+            return sema.resolveLazyValue(block, src, field_ptr.field_val);
+        },
+        .@"union" => {
+            const union_val = val.castTag(.@"union").?.data;
+            return sema.resolveLazyValue(block, src, union_val.val);
+        },
+        .aggregate => {
+            const aggregate = val.castTag(.aggregate).?.data;
+            for (aggregate) |elem_val| {
+                try sema.resolveLazyValue(block, src, elem_val);
+            }
         },
         else => return,
     }
