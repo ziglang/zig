@@ -7,22 +7,30 @@ test "linksection" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    const prefix = switch (builtin.object_format) {
-        .elf => ".",
-        .macho => "__TEXT,__",
+    const prefix_character: u8 = switch (builtin.object_format) {
+        .elf => '.',
+        .macho => '_',
         else => return error.SkipZigTest,
     };
     const suffix = "ZigTest";
 
     const S = struct {
-        var global_in_section: *const fn () void linksection(prefix ++ "Global" ++ suffix) = undefined;
-        fn function_in_section() linksection(prefix ++ "Fn" ++ suffix) void {}
-        fn generic_function_in_section(comptime name: []const u8) linksection(prefix ++ "GenFn" ++ name ++ suffix) void {}
+        fn prefix(comptime kind: []const u8) []const u8 {
+            switch (builtin.object_format) {
+                .elf => return ".",
+                .macho => return "__" ++ kind ++ ",__",
+                else => unreachable,
+            }
+        }
+
+        var global_in_section: *const fn () void linksection(prefix("DATA") ++ "Global" ++ suffix) = undefined;
+        fn functionInSection() linksection(prefix("TEXT") ++ "Fn" ++ suffix) void {}
+        fn genericFunctionInSection(comptime name: []const u8) linksection(prefix("TEXT") ++ "GenFn" ++ name ++ suffix) void {}
     };
 
-    S.global_in_section = &S.function_in_section;
-    S.generic_function_in_section("A");
-    S.generic_function_in_section("B");
+    S.global_in_section = &S.functionInSection;
+    S.genericFunctionInSection("A");
+    S.genericFunctionInSection("B");
 
     const allocator = std.heap.page_allocator;
 
@@ -40,6 +48,6 @@ test "linksection" {
         // Prefix is checked separately to be completely sure.
         const index = std.mem.indexOfPos(u8, exe_contents, 1, name);
         try std.testing.expect(index != null);
-        try std.testing.expectEqual(prefix[prefix.len - 1], exe_contents[index.? - 1]);
+        try std.testing.expectEqual(prefix_character, exe_contents[index.? - 1]);
     }
 }
