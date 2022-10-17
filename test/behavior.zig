@@ -131,6 +131,7 @@ test {
     _ = @import("behavior/int_div.zig");
     _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
+    _ = @import("behavior/linksection.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");

@@ -83,7 +83,7 @@ const test_targets = blk: {
                 .cpu_arch = .arm,
                 .os_tag = .linux,
             },
-            .backend = .stage2_wasm,
+            .backend = .stage2_arm,
         },
         .{
             .target = CrossTarget.parse(.{
