@@ -6413,9 +6413,9 @@ fn analyzeInlineCallArg(
                 };
             }
             const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
-            try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
 
             if (is_comptime_call) {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
                 const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime-known") catch |err| {
                     if (err == error.AnalysisFail and sema.err != null) {
                         try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
@@ -6440,6 +6440,20 @@ fn analyzeInlineCallArg(
                     .ty = param_ty,
                     .val = arg_val,
                 };
+            } else if ((try sema.resolveMaybeUndefVal(arg_block, arg_src, casted_arg) == null) or
+                try sema.typeRequiresComptime(param_ty) or zir_tags[inst] == .param_comptime)
+            {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
+            } else {
+                // We have a comptime value but we need a runtime value to preserve inlining semantics,
+                const ptr_type = try Type.ptr(sema.arena, sema.mod, .{
+                    .pointee_type = param_ty,
+                    .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+                });
+                const alloc = try arg_block.addTy(.alloc, ptr_type);
+                _ = try arg_block.addBinOp(.store, alloc, casted_arg);
+                const loaded = try arg_block.addTyOp(.load, param_ty, alloc);
+                try sema.inst_map.putNoClobber(sema.gpa, inst, loaded);
             }
 
             arg_i.* += 1;
@@ -6448,9 +6462,10 @@ fn analyzeInlineCallArg(
             // No coercion needed.
             const uncasted_arg = uncasted_args[arg_i.*];
             new_fn_info.param_types[arg_i.*] = sema.typeOf(uncasted_arg);
-            try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
+            const param_ty = sema.typeOf(uncasted_arg);
 
             if (is_comptime_call) {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
                 const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime-known") catch |err| {
                     if (err == error.AnalysisFail and sema.err != null) {
                         try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
@@ -6475,6 +6490,20 @@ fn analyzeInlineCallArg(
                     .ty = sema.typeOf(uncasted_arg),
                     .val = arg_val,
                 };
+            } else if ((try sema.resolveMaybeUndefVal(arg_block, arg_src, uncasted_arg)) == null or
+                try sema.typeRequiresComptime(param_ty) or zir_tags[inst] == .param_anytype_comptime)
+            {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
+            } else {
+                // We have a comptime value but we need a runtime value to preserve inlining semantics,
+                const ptr_type = try Type.ptr(sema.arena, sema.mod, .{
+                    .pointee_type = param_ty,
+                    .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+                });
+                const alloc = try arg_block.addTy(.alloc, ptr_type);
+                _ = try arg_block.addBinOp(.store, alloc, uncasted_arg);
+                const loaded = try arg_block.addTyOp(.load, param_ty, alloc);
+                try sema.inst_map.putNoClobber(sema.gpa, inst, loaded);
             }
 
             arg_i.* += 1;
