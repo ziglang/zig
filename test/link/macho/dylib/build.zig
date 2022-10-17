@@ -40,6 +40,8 @@ pub fn build(b: *Builder) void {
     check_exe.checkNext("current version 10000");
     check_exe.checkNext("compatibility version 10000");
 
+    test_step.dependOn(&check_exe.step);
+
     check_exe.checkStart("cmd RPATH");
     check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{b.pathFromRoot("zig-out/lib")}) catch unreachable);
 

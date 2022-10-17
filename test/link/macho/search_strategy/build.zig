@@ -17,6 +17,7 @@ pub fn build(b: *Builder) void {
         const check = exe.checkObject(.macho);
         check.checkStart("cmd LOAD_DYLIB");
         check.checkNext("name @rpath/liba.dylib");
+        test_step.dependOn(&check.step);
 
         const run = check.runAndCompare();
         run.cwd = b.pathFromRoot(".");
