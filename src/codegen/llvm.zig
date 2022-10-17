@@ -2153,7 +2153,7 @@ pub const Object = struct {
                     ));
                 }
 
-                const union_name = if (layout.tag_size == 0) "AnonUnion" else name.ptr;
+                const union_name = if (layout.tag_size == 0) name.ptr else "AnonUnion";
 
                 const union_di_ty = dib.createUnionType(
                     compile_unit_scope,

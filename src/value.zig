@@ -22,7 +22,7 @@ pub const Value = extern union {
     tag_if_small_enough: Tag,
     ptr_otherwise: *Payload,
 
-    // Keep in sync with tools/zig-gdb.py
+    // Keep in sync with tools/stage2_pretty_printers_common.py
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
         u1_type,
