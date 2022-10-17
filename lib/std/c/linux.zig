@@ -364,3 +364,5 @@ pub const dirent64 = struct {
     d_type: u8,
     d_name: [256]u8,
 };
+
+pub const pthread_key_t = c_uint;

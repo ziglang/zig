@@ -548,6 +548,8 @@ comptime {
     std.debug.assert(@alignOf(kinfo_file) == @sizeOf(u64));
 }
 
+pub const pthread_key_t = c_int;
+
 pub const CTL = struct {
     pub const KERN = 1;
     pub const DEBUG = 5;
