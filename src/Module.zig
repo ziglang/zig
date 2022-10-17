@@ -5612,6 +5612,18 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         else => |e| return e,
     };
 
+    {
+        var it = sema.unresolved_inferred_allocs.keyIterator();
+        while (it.next()) |ptr_inst| {
+            // The lack of a resolve_inferred_alloc means that this instruction
+            // is unused so it just has to be a no-op.
+            sema.air_instructions.set(ptr_inst.*, .{
+                .tag = .alloc,
+                .data = .{ .ty = Type.initTag(.single_const_pointer_to_comptime_int) },
+            });
+        }
+    }
+
     // If we don't get an error return trace from a caller, create our own.
     if (func.calls_or_awaits_errorable_fn and
         mod.comp.bin_file.options.error_return_tracing and

@@ -82,6 +82,8 @@ is_generic_instantiation: bool = false,
 /// function types will emit generic poison instead of a partial type.
 no_partial_func_ty: bool = false,
 
+unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+
 const std = @import("std");
 const math = std.math;
 const mem = std.mem;
@@ -579,6 +581,7 @@ pub fn deinit(sema: *Sema) void {
         }
         sema.post_hoc_blocks.deinit(gpa);
     }
+    sema.unresolved_inferred_allocs.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -3238,6 +3241,7 @@ fn zirAllocExtended(
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
+    try sema.unresolved_inferred_allocs.putNoClobber(sema.gpa, Air.refToIndex(result).?, {});
     return result;
 }
 
@@ -3414,6 +3418,7 @@ fn zirAllocInferred(
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
+    try sema.unresolved_inferred_allocs.putNoClobber(sema.gpa, Air.refToIndex(result).?, {});
     return result;
 }
 
@@ -3463,6 +3468,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             }
         },
         .inferred_alloc => {
+            assert(sema.unresolved_inferred_allocs.remove(ptr_inst));
             const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
             const peer_inst_list = inferred_alloc.data.prongs.items(.stored_inst);
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
