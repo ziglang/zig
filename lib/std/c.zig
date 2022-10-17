@@ -9,6 +9,29 @@ test {
     _ = tokenizer;
 }
 
+/// A type that makes implementing strings in C structs more convenient:
+/// ```
+/// const User = extern struct {
+///   name: std.c.CharArray(64) = .{},
+///   path: std.c.CharArray(32) = .{},
+/// };
+/// const user: *User = getUser();
+/// std.debug.print("{s}\n", .{user.name.slice()});
+/// ```
+///
+/// This type is equivalent to a `char` array of size `N` in C.
+/// You can use to easily access such char arrays and preserve the
+/// implicit sentinel in these arrays.
+///
+/// **NOTE:** CharArray allows for contents up to length `N`, so
+/// there will be no NUL terminator present at the end. This is sometimes
+/// legal and sometimes not, depending on your API. In these cases, it's a good
+/// practise to assert that the sentinel is present before passing the data back
+/// to C.
+pub fn CharArray(comptime N: comptime_int) type {
+    return std.PaddedArrayExtra(u8, N, 0, .Extern);
+}
+
 pub const tokenizer = @import("c/tokenizer.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
