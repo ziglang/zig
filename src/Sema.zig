@@ -15652,7 +15652,9 @@ fn zirBoolBr(
     _ = try lhs_block.addBr(block_inst, lhs_result);
 
     const rhs_result = try sema.resolveBody(rhs_block, body, inst);
-    _ = try rhs_block.addBr(block_inst, rhs_result);
+    if (!sema.typeOf(rhs_result).isNoReturn()) {
+        _ = try rhs_block.addBr(block_inst, rhs_result);
+    }
 
     return finishCondBr(sema, parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
 }
