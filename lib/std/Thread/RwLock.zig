@@ -319,7 +319,7 @@ test "RwLock - concurrent access" {
 
                 try self.check();
 
-                _ = self.reads.fetchAdd(1, .Acquire);
+                _ = self.reads.fetchAdd(1, .Monotonic);
             }
         }
 
