@@ -883,7 +883,7 @@ template <class _Rp, class... _ArgTypes> class __policy_func<_Rp(_ArgTypes...)>
 #endif // _LIBCPP_NO_RTTI
 };
 
-#if defined(_LIBCPP_HAS_BLOCKS_RUNTIME) && !defined(_LIBCPP_HAS_OBJC_ARC)
+#if defined(_LIBCPP_HAS_BLOCKS_RUNTIME)
 
 extern "C" void *_Block_copy(const void *);
 extern "C" void _Block_release(const void *);
@@ -898,14 +898,22 @@ class __func<_Rp1(^)(_ArgTypes1...), _Alloc, _Rp(_ArgTypes...)>
 public:
     _LIBCPP_INLINE_VISIBILITY
     explicit __func(__block_type const& __f)
+#ifdef _LIBCPP_HAS_OBJC_ARC
+        : __f_(__f)
+#else
         : __f_(reinterpret_cast<__block_type>(__f ? _Block_copy(__f) : nullptr))
+#endif
     { }
 
     // [TODO] add && to save on a retain
 
     _LIBCPP_INLINE_VISIBILITY
     explicit __func(__block_type __f, const _Alloc& /* unused */)
+#ifdef _LIBCPP_HAS_OBJC_ARC
+        : __f_(__f)
+#else
         : __f_(reinterpret_cast<__block_type>(__f ? _Block_copy(__f) : nullptr))
+#endif
     { }
 
     virtual __base<_Rp(_ArgTypes...)>* __clone() const {
@@ -921,8 +929,10 @@ public:
     }
 
     virtual void destroy() _NOEXCEPT {
+#ifndef _LIBCPP_HAS_OBJC_ARC
         if (__f_)
             _Block_release(__f_);
+#endif
         __f_ = 0;
     }
 
@@ -950,7 +960,7 @@ public:
 #endif // _LIBCPP_NO_RTTI
 };
 
-#endif // _LIBCPP_HAS_EXTENSION_BLOCKS && !_LIBCPP_HAS_OBJC_ARC
+#endif // _LIBCPP_HAS_EXTENSION_BLOCKS
 
 } // namespace __function
 

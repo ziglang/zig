@@ -20,9 +20,21 @@
 #  pragma GCC system_header
 #endif
 
+#if defined(__apple_build_version__)
+#  define _LIBCPP_COMPILER_CLANG_BASED
+#  define _LIBCPP_APPLE_CLANG_VER (__apple_build_version__ / 10000)
+#elif defined(__clang__)
+#  define _LIBCPP_COMPILER_CLANG_BASED
+#  define _LIBCPP_CLANG_VER (__clang_major__ * 100 + __clang_minor__)
+#elif defined(__GNUC__)
+#  define _LIBCPP_COMPILER_GCC
+#elif defined(_MSC_VER)
+#  define _LIBCPP_COMPILER_MSVC
+#endif
+
 #ifdef __cplusplus
 
-#  define _LIBCPP_VERSION 15000
+#  define _LIBCPP_VERSION 15003
 
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
@@ -194,18 +206,6 @@
 
 #  ifndef __has_include
 #    define __has_include(...) 0
-#  endif
-
-#  if defined(__apple_build_version__)
-#    define _LIBCPP_COMPILER_CLANG_BASED
-#    define _LIBCPP_APPLE_CLANG_VER (__apple_build_version__ / 10000)
-#  elif defined(__clang__)
-#    define _LIBCPP_COMPILER_CLANG_BASED
-#    define _LIBCPP_CLANG_VER (__clang_major__ * 100 + __clang_minor__)
-#  elif defined(__GNUC__)
-#    define _LIBCPP_COMPILER_GCC
-#  elif defined(_MSC_VER)
-#    define _LIBCPP_COMPILER_MSVC
 #  endif
 
 #  if !defined(_LIBCPP_COMPILER_CLANG_BASED) && __cplusplus < 201103L
@@ -1098,6 +1098,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS
 #    define _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION
 #  endif // _LIBCPP_ENABLE_CXX17_REMOVED_FEATURES
+
+// Leave the deprecation notices in by default, but don't remove unary_function and
+// binary_function entirely just yet. That way, folks will have one release to act
+// on the deprecation warnings.
+#  ifndef _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION
+#    define _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION
+#  endif
 
 #  if defined(_LIBCPP_ENABLE_CXX20_REMOVED_FEATURES)
 #    define _LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS
