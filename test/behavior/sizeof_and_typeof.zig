@@ -218,7 +218,7 @@ test "@bitSizeOf" {
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
         a: u2,
-    }) == 2);
+    }) == 8);
     try expect(@bitSizeOf(packed struct {
         a: u2,
     }) == 2);
