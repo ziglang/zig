@@ -18,6 +18,7 @@ pub fn build(b: *Builder) void {
     const check_exe = exe.checkObject(.macho);
     check_exe.checkStart("cmd MAIN");
     check_exe.checkNext("stacksize 100000000");
+    test_step.dependOn(&check_exe.step);
 
     const run = check_exe.runAndCompare();
     test_step.dependOn(&run.step);

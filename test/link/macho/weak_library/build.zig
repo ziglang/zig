@@ -33,6 +33,8 @@ pub fn build(b: *Builder) void {
     check.checkNext("(undefined) weak external _a (from liba)");
     check.checkNext("(undefined) weak external _asStr (from liba)");
 
+    test_step.dependOn(&check.step);
+
     const run_cmd = check.runAndCompare();
     run_cmd.expectStdOutEqual("42 42");
     test_step.dependOn(&run_cmd.step);

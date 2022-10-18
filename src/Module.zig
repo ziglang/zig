@@ -4592,40 +4592,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, undefined);
-    const decl_align: u32 = blk: {
-        const align_ref = decl.zirAlignRef();
-        if (align_ref == .none) break :blk 0;
-        break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
-    };
-    const decl_linksection: ?[*:0]const u8 = blk: {
-        const linksection_ref = decl.zirLinksectionRef();
-        if (linksection_ref == .none) break :blk null;
-        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime-known");
-        if (mem.indexOfScalar(u8, bytes, 0) != null) {
-            return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
-        } else if (bytes.len == 0) {
-            return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
-        }
-        break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
-    };
-    const target = sema.mod.getTarget();
-    const address_space = blk: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
-            .function, .extern_fn => .function,
-            .variable => .variable,
-            else => .constant,
-        };
-
-        break :blk switch (decl.zirAddrspaceRef()) {
-            .none => switch (addrspace_ctx) {
-                .function => target_util.defaultAddressSpace(target, .function),
-                .variable => target_util.defaultAddressSpace(target, .global_mutable),
-                .constant => target_util.defaultAddressSpace(target, .global_constant),
-                else => unreachable,
-            },
-            else => |addrspace_ref| try sema.analyzeAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx),
-        };
-    };
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
@@ -4679,9 +4645,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
             decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
             decl.val = try decl_tv.val.copy(decl_arena_allocator);
-            decl.@"align" = decl_align;
-            decl.@"linksection" = decl_linksection;
-            decl.@"addrspace" = address_space;
+            // linksection, align, and addrspace were already set by Sema
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
             decl_arena_state.* = decl_arena.state;
@@ -4759,9 +4723,40 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
     decl.val = try decl_tv.val.copy(decl_arena_allocator);
-    decl.@"align" = decl_align;
-    decl.@"linksection" = decl_linksection;
-    decl.@"addrspace" = address_space;
+    decl.@"align" = blk: {
+        const align_ref = decl.zirAlignRef();
+        if (align_ref == .none) break :blk 0;
+        break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
+    };
+    decl.@"linksection" = blk: {
+        const linksection_ref = decl.zirLinksectionRef();
+        if (linksection_ref == .none) break :blk null;
+        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime-known");
+        if (mem.indexOfScalar(u8, bytes, 0) != null) {
+            return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
+        } else if (bytes.len == 0) {
+            return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
+        }
+        break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
+    };
+    decl.@"addrspace" = blk: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
+            .function, .extern_fn => .function,
+            .variable => .variable,
+            else => .constant,
+        };
+
+        const target = sema.mod.getTarget();
+        break :blk switch (decl.zirAddrspaceRef()) {
+            .none => switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
+                else => unreachable,
+            },
+            else => |addrspace_ref| try sema.analyzeAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx),
+        };
+    };
     decl.has_tv = true;
     decl_arena_state.* = decl_arena.state;
     decl.value_arena = decl_arena_state;

@@ -7899,7 +7899,7 @@ fn handleExternLibName(
 const FuncLinkSection = union(enum) {
     generic,
     default,
-    explicit: [*:0]const u8,
+    explicit: []const u8,
 };
 
 fn funcCommon(
@@ -8185,15 +8185,13 @@ fn funcCommon(
         });
     };
 
-    if (sema.owner_decl.owns_tv) {
-        switch (section) {
-            .generic => sema.owner_decl.@"linksection" = undefined,
-            .default => sema.owner_decl.@"linksection" = null,
-            .explicit => |s| sema.owner_decl.@"linksection" = s,
-        }
-        if (alignment) |a| sema.owner_decl.@"align" = a;
-        if (address_space) |a| sema.owner_decl.@"addrspace" = a;
-    }
+    sema.owner_decl.@"linksection" = switch (section) {
+        .generic => undefined,
+        .default => null,
+        .explicit => |section_name| try sema.perm_arena.dupeZ(u8, section_name),
+    };
+    sema.owner_decl.@"align" = alignment orelse 0;
+    sema.owner_decl.@"addrspace" = address_space orelse .generic;
 
     if (is_extern) {
         const new_extern_fn = try sema.gpa.create(Module.ExternFn);
@@ -20717,22 +20715,22 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, section_src, body, inst, Type.initTag(.const_slice_u8), "linksection must be comptime-known");
+        const ty = Type.initTag(.const_slice_u8);
+        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, "linksection must be comptime-known");
         if (val.tag() == .generic_poison) {
             break :blk FuncLinkSection{ .generic = {} };
         }
-        return sema.fail(block, section_src, "TODO implement linksection on functions", .{});
+        break :blk FuncLinkSection{ .explicit = try val.toAllocatedBytes(ty, sema.arena, sema.mod) };
     } else if (extra.data.bits.has_section_ref) blk: {
         const section_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
-        const section_tv = sema.resolveInstConst(block, section_src, section_ref, "linksection must be comptime-known") catch |err| switch (err) {
+        const section_name = sema.resolveConstString(block, section_src, section_ref, "linksection must be comptime-known") catch |err| switch (err) {
             error.GenericPoison => {
                 break :blk FuncLinkSection{ .generic = {} };
             },
             else => |e| return e,
         };
-        _ = section_tv;
-        return sema.fail(block, section_src, "TODO implement linksection on functions", .{});
+        break :blk FuncLinkSection{ .explicit = section_name };
     } else FuncLinkSection{ .default = {} };
 
     const cc: ?std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {

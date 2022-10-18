@@ -92,6 +92,10 @@ fn addMachOCases(cases: *tests.StandaloneContext) void {
         .requires_macos_sdk = true,
     });
 
+    cases.addBuildFile("test/link/macho/linksection/build.zig", .{
+        .build_modes = true,
+    });
+
     cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
