@@ -1169,3 +1169,11 @@ test "Non-exhaustive enum with nonstandard int size behaves correctly" {
     const E = enum(u15) { _ };
     try expect(@sizeOf(E) == @sizeOf(u15));
 }
+
+test "runtime int to enum with one possible value" {
+    const E = enum { one };
+    var runtime: usize = 0;
+    if (@intToEnum(E, runtime) != .one) {
+        @compileError("test failed");
+    }
+}

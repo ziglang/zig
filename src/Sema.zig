@@ -7372,9 +7372,23 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.addConstant(dest_ty, int_val);
     }
 
+    if (try sema.typeHasOnePossibleValue(block, operand_src, dest_ty)) |opv| {
+        const result = try sema.addConstant(dest_ty, opv);
+        // The operand is runtime-known but the result is comptime-known. In
+        // this case we still need a safety check.
+        // TODO add a safety check here. we can't use is_named_enum_value -
+        // it needs to convert the enum back to int and make sure it equals the operand int.
+        return result;
+    }
+
     try sema.requireRuntimeBlock(block, src, operand_src);
     const result = try block.addTyOp(.intcast, dest_ty, operand);
-    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and sema.mod.comp.bin_file.options.use_llvm) {
+    if (block.wantSafety() and
+        !dest_ty.isNonexhaustiveEnum() and
+        // TODO instead of "use_llvm", check a different condition so that backends
+        // can advertise themselves as supporting these extra AIR instructions for safety.
+        sema.mod.comp.bin_file.options.use_llvm)
+    {
         const ok = try block.addUnOp(.is_named_enum_value, result);
         try sema.addSafetyCheck(block, ok, .invalid_enum_value);
     }
