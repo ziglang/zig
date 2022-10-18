@@ -20,3 +20,14 @@ test "@src" {
 
     try doTheTest();
 }
+
+test "@src used as a comptime parameter" {
+    const S = struct {
+        fn Foo(comptime _: std.builtin.SourceLocation) type {
+            return struct {};
+        }
+    };
+    const T1 = S.Foo(@src());
+    const T2 = S.Foo(@src());
+    try expect(T1 != T2);
+}
