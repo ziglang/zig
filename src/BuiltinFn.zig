@@ -58,10 +58,10 @@ pub const Tag = enum {
     int_to_error,
     int_to_float,
     int_to_ptr,
-    maximum,
+    max,
     memcpy,
     memset,
-    minimum,
+    min,
     wasm_memory_size,
     wasm_memory_grow,
     mod,
@@ -556,9 +556,9 @@ pub const list = list: {
             },
         },
         .{
-            "@maximum",
+            "@max",
             .{
-                .tag = .maximum,
+                .tag = .max,
                 .param_count = 2,
             },
         },
@@ -577,9 +577,9 @@ pub const list = list: {
             },
         },
         .{
-            "@minimum",
+            "@min",
             .{
-                .tag = .minimum,
+                .tag = .min,
                 .param_count = 2,
             },
         },

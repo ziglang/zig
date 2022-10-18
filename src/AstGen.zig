@@ -2451,8 +2451,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .atomic_rmw,
             .mul_add,
             .field_parent_ptr,
-            .maximum,
-            .minimum,
+            .max,
+            .min,
             .c_import,
             .@"resume",
             .@"await",
@@ -7875,19 +7875,19 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
-        .maximum => {
+        .max => {
             const a = try expr(gz, scope, .none, params[0]);
             const b = try expr(gz, scope, .none, params[1]);
-            const result = try gz.addPlNode(.maximum, node, Zir.Inst.Bin{
+            const result = try gz.addPlNode(.max, node, Zir.Inst.Bin{
                 .lhs = a,
                 .rhs = b,
             });
             return rvalue(gz, rl, result, node);
         },
-        .minimum => {
+        .min => {
             const a = try expr(gz, scope, .none, params[0]);
             const b = try expr(gz, scope, .none, params[1]);
-            const result = try gz.addPlNode(.minimum, node, Zir.Inst.Bin{
+            const result = try gz.addPlNode(.min, node, Zir.Inst.Bin{
                 .lhs = a,
                 .rhs = b,
             });

@@ -3590,10 +3590,10 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
             snprintf(fn_name, sizeof(fn_name), "__ge%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_ONE;
             break;
-        case IrBinOpMaximum:
+        case IrBinOpMax:
             snprintf(fn_name, sizeof(fn_name), "%sfmax%s", math_float_prefix, math_float_suffix);
             break;
-        case IrBinOpMinimum:
+        case IrBinOpMin:
             snprintf(fn_name, sizeof(fn_name), "%sfmin%s", math_float_prefix, math_float_suffix);
             break;
         case IrBinOpMult:
@@ -3864,7 +3864,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
         case IrBinOpRemMod:
             return gen_rem(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, operand_type, RemKindMod);
-        case IrBinOpMaximum:
+        case IrBinOpMax:
             if (scalar_type->id == ZigTypeIdFloat) {
                 return ZigLLVMBuildMaxNum(g->builder, op1_value, op2_value, "");
             } else if (scalar_type->id == ZigTypeIdInt) {
@@ -3876,7 +3876,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpMinimum:
+        case IrBinOpMin:
             if (scalar_type->id == ZigTypeIdFloat) {
                 return ZigLLVMBuildMinNum(g->builder, op1_value, op2_value, "");
             } else if (scalar_type->id == ZigTypeIdInt) {
@@ -10182,8 +10182,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
     create_builtin_fn(g, BuiltinFnIdSrc, "src", 0);
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
-    create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
-    create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
+    create_builtin_fn(g, BuiltinFnIdMaximum, "max", 2);
+    create_builtin_fn(g, BuiltinFnIdMinimum, "min", 2);
     create_builtin_fn(g, BuiltinFnIdPrefetch, "prefetch", 2);
     create_builtin_fn(g, BuiltinFnIdAddrSpaceCast, "addrSpaceCast", 2);
 }

@@ -992,7 +992,7 @@ pub const Struct = struct {
             if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
                 // The C ABI requires 128 bit integer fields of structs
                 // to be 16-bytes aligned.
-                return @maximum(ty_abi_align, 16);
+                return @max(ty_abi_align, 16);
             }
 
             return ty_abi_align;
@@ -1326,7 +1326,7 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = field.normalAlignment(target);
-            max_align = @maximum(max_align, field_align);
+            max_align = @max(max_align, field_align);
         }
         return max_align;
     }
@@ -1391,7 +1391,7 @@ pub const Union = struct {
                 most_aligned_field_size = field_size;
             }
         }
-        payload_align = @maximum(payload_align, 1);
+        payload_align = @max(payload_align, 1);
         if (!have_tag or !u.tag_ty.hasRuntimeBits()) {
             return .{
                 .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
@@ -1409,7 +1409,7 @@ pub const Union = struct {
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
-        const tag_align = @maximum(1, u.tag_ty.abiAlignment(target));
+        const tag_align = @max(1, u.tag_ty.abiAlignment(target));
         var size: u64 = 0;
         var padding: u32 = undefined;
         if (tag_align >= payload_align) {
@@ -1431,7 +1431,7 @@ pub const Union = struct {
         }
         return .{
             .abi_size = size,
-            .abi_align = @maximum(tag_align, payload_align),
+            .abi_align = @max(tag_align, payload_align),
             .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
             .biggest_field = biggest_field,
@@ -5492,7 +5492,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         .func = func,
         .fn_ret_ty = decl.ty.fnReturnType(),
         .owner_func = func,
-        .branch_quota = @maximum(func.branch_quota, Sema.default_branch_quota),
+        .branch_quota = @max(func.branch_quota, Sema.default_branch_quota),
     };
     defer sema.deinit();
 

@@ -913,8 +913,8 @@ fn analyzeBodyInner(
             .mod       => try sema.zirMod(block, inst),
             .rem       => try sema.zirRem(block, inst),
 
-            .maximum => try sema.zirMinMax(block, inst, .max),
-            .minimum => try sema.zirMinMax(block, inst, .min),
+            .max => try sema.zirMinMax(block, inst, .max),
+            .min => try sema.zirMinMax(block, inst, .min),
 
             .shl       => try sema.zirShl(block, inst, .shl),
             .shl_exact => try sema.zirShl(block, inst, .shl_exact),
@@ -3886,9 +3886,9 @@ fn validateUnionInit(
         if (block_index > 0 and
             field_ptr_air_inst == block.instructions.items[block_index - 1])
         {
-            first_block_index = @minimum(first_block_index, block_index - 1);
+            first_block_index = @min(first_block_index, block_index - 1);
         } else {
-            first_block_index = @minimum(first_block_index, block_index);
+            first_block_index = @min(first_block_index, block_index);
         }
         init_val = try sema.resolveMaybeUndefValAllowVariables(block, init_src, bin_op.rhs);
         break;
@@ -4097,9 +4097,9 @@ fn validateStructInit(
                 if (block_index > 0 and
                     field_ptr_air_inst == block.instructions.items[block_index - 1])
                 {
-                    first_block_index = @minimum(first_block_index, block_index - 1);
+                    first_block_index = @min(first_block_index, block_index - 1);
                 } else {
-                    first_block_index = @minimum(first_block_index, block_index);
+                    first_block_index = @min(first_block_index, block_index);
                 }
                 if (try sema.resolveMaybeUndefValAllowVariables(block, field_src, bin_op.rhs)) |val| {
                     field_values[i] = val;
@@ -4278,7 +4278,7 @@ fn zirValidateArrayInit(
             }
             block_index -= 1;
         }
-        first_block_index = @minimum(first_block_index, block_index);
+        first_block_index = @min(first_block_index, block_index);
 
         // If the next instructon is a store with a comptime operand, this element
         // is comptime.
@@ -4606,7 +4606,7 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const quota = @intCast(u32, try sema.resolveInt(block, src, inst_data.operand, Type.u32, "eval branch quota must be comptime-known"));
-    sema.branch_quota = @maximum(sema.branch_quota, quota);
+    sema.branch_quota = @max(sema.branch_quota, quota);
 }
 
 fn zirStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -6887,7 +6887,7 @@ fn instantiateGenericCall(
         break :callee new_func;
     } else gop.key_ptr.*;
 
-    callee.branch_quota = @maximum(callee.branch_quota, sema.branch_quota);
+    callee.branch_quota = @max(callee.branch_quota, sema.branch_quota);
 
     const callee_inst = try sema.analyzeDeclVal(block, func_src, callee.owner_decl);
 
@@ -20396,7 +20396,7 @@ fn analyzeMinMax(
 ) CompileError!Air.Inst.Ref {
     const simd_op = try sema.checkSimdBinOp(block, src, lhs, rhs, lhs_src, rhs_src);
 
-    // TODO @maximum(max_int, undefined) should return max_int
+    // TODO @max(max_int, undefined) should return max_int
 
     const runtime_src = if (simd_op.lhs_val) |lhs_val| rs: {
         if (lhs_val.isUndef()) return sema.addConstUndef(simd_op.result_ty);

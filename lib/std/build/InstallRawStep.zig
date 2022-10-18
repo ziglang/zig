@@ -301,7 +301,7 @@ const HexWriter = struct {
             const row_address = @intCast(u32, segment.physicalAddress + bytes_read);
 
             const remaining = segment.fileSize - bytes_read;
-            const to_read = @minimum(remaining, MAX_PAYLOAD_LEN);
+            const to_read = @min(remaining, MAX_PAYLOAD_LEN);
             const did_read = try elf_file.preadAll(buf[0..to_read], segment.elfOffset + bytes_read);
             if (did_read < to_read) return error.UnexpectedEOF;
 

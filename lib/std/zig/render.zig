@@ -1236,7 +1236,15 @@ fn renderBuiltinCall(
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
 
-    try renderToken(ais, tree, builtin_token, .none); // @name
+    // TODO remove before release of 0.11.0
+    const slice = tree.tokenSlice(builtin_token);
+    if (mem.eql(u8, slice, "@maximum")) {
+        try ais.writer().writeAll("@max");
+    } else if (mem.eql(u8, slice, "@minimum")) {
+        try ais.writer().writeAll("@min");
+    } else {
+        try renderToken(ais, tree, builtin_token, .none); // @name
+    }
 
     if (params.len == 0) {
         try renderToken(ais, tree, builtin_token + 1, .none); // (
