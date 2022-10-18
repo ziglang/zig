@@ -555,22 +555,54 @@ test "ascii.endsWithIgnoreCase" {
     try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
 
-/// Finds `substr` in `container`, ignoring case, starting at `start_index`.
-/// TODO boyer-moore algorithm
-pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
-    if (substr.len > container.len) return null;
+/// Finds `needle` in `haystack`, ignoring case, starting at index 0.
+pub fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
+    return indexOfIgnoreCasePos(haystack, 0, needle);
+}
+
+/// Finds `needle` in `haystack`, ignoring case, starting at `start_index`.
+/// Uses Boyer-Moore-Horspool algorithm on large inputs; `indexOfIgnoreCasePosLinear` on small inputs.
+pub fn indexOfIgnoreCasePos(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
+    if (needle.len > haystack.len) return null;
+    if (needle.len == 0) return start_index;
+
+    if (haystack.len < 52 or needle.len <= 4)
+        return indexOfIgnoreCasePosLinear(haystack, start_index, needle);
+
+    var skip_table: [256]usize = undefined;
+    boyerMooreHorspoolPreprocessIgnoreCase(needle, skip_table[0..]);
 
     var i: usize = start_index;
-    const end = container.len - substr.len;
+    while (i <= haystack.len - needle.len) {
+        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
+        i += skip_table[toLower(haystack[i + needle.len - 1])];
+    }
+
+    return null;
+}
+
+/// Consider using `indexOfIgnoreCasePos` instead of this, which will automatically use a
+/// more sophisticated algorithm on larger inputs.
+pub fn indexOfIgnoreCasePosLinear(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
+    var i: usize = start_index;
+    const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eqlIgnoreCase(container[i .. i + substr.len], substr)) return i;
+        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
     }
     return null;
 }
 
-/// Finds `substr` in `container`, ignoring case, starting at index 0.
-pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
-    return indexOfIgnoreCasePos(container, 0, substr);
+fn boyerMooreHorspoolPreprocessIgnoreCase(pattern: []const u8, table: *[256]usize) void {
+    for (table) |*c| {
+        c.* = pattern.len;
+    }
+
+    var i: usize = 0;
+    // The last item is intentionally ignored and the skip size will be pattern.len.
+    // This is the standard way Boyer-Moore-Horspool is implemented.
+    while (i < pattern.len - 1) : (i += 1) {
+        table[toLower(pattern[i])] = pattern.len - 1 - i;
+    }
 }
 
 test "indexOfIgnoreCase" {
@@ -579,6 +611,9 @@ test "indexOfIgnoreCase" {
     try std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
     try std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
     try std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+
+    try std.testing.expect(indexOfIgnoreCase("one two three four five six seven eight nine ten eleven", "ThReE fOUr").? == 8);
+    try std.testing.expect(indexOfIgnoreCase("one two three four five six seven eight nine ten eleven", "Two tWo") == null);
 }
 
 /// Returns the lexicographical order of two slices. O(n).
