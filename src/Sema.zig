@@ -28775,6 +28775,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
 
         try sema.checkBackingIntType(&block, backing_int_src, backing_int_ty, fields_bit_sum);
         struct_obj.backing_int_ty = try backing_int_ty.copy(decl_arena_allocator);
+        try wip_captures.finalize();
     } else {
         var buf: Type.Payload.Bits = .{
             .base = .{ .tag = .int_unsigned },
@@ -29386,6 +29387,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             }
         }
     }
+    try wip_captures.finalize();
 
     struct_obj.have_field_inits = true;
 }
