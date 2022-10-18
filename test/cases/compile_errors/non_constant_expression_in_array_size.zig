@@ -10,5 +10,6 @@ export fn entry() usize { return @offsetOf(Foo, "y"); }
 // backend=stage2
 // target=native
 //
-// :5:25: error: cannot load runtime value in comptime block
+// :5:18: error: unable to resolve comptime value
+// :5:18: note: value being returned at comptime must be comptime-known
 // :2:12: note: called from here

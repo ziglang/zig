@@ -14,5 +14,5 @@ export fn entry2() void {
 // backend=llvm
 // target=native
 //
-// :2:14: error: cannot load runtime value in comptime block
+// :2:14: error: expected type 'f32', found 'f64'
 // :9:19: error: expected type 'f32', found 'f64'

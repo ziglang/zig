@@ -1414,3 +1414,14 @@ test "continue nested inline for loop" {
     }
     try expect(a == 2);
 }
+
+test "length of global array is determinable at comptime" {
+    const S = struct {
+        var bytes: [1024]u8 = undefined;
+
+        fn foo() !void {
+            try std.testing.expect(bytes.len == 1024);
+        }
+    };
+    comptime try S.foo();
+}
