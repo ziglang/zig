@@ -1,7 +1,9 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
+const assert = std.debug.assert;
 const testing = std.testing;
 const root = @import("root");
 
@@ -1243,4 +1245,123 @@ test "FnPtr" {
 
     func = std.time.milliTimestamp;
     _ = func();
+}
+
+/// Returns a packed struct with a field layout equivalent to the layout of `T`
+/// on stage2 on little-endian systems. Integer fields are still byte-swapped
+/// according to platform endianness.
+///
+/// Requires that fields that cross byte-boundaries are byte-aligned, and that
+/// the packed struct has a @bitSizeOf(T) divisible by 8.
+pub fn LittleEndianLayout(comptime T: type) type {
+    const ti = @typeInfo(T).Struct;
+    assert(ti.layout == .Packed);
+
+    var rev_fields: []const Type.StructField = &[_]Type.StructField{};
+    var bits: u16 = 0;
+    var i: usize = 0;
+    while (i < ti.fields.len) {
+        var fields_within_byte: []const Type.StructField = &[_]Type.StructField{};
+
+        // For stage2, reverse the fields overall but preserve order in each byte
+        // For stage1, reverse the fields in each byte but preserve overall order
+        const prev_bits = bits;
+        while (bits < prev_bits + 8) : (i += 1) {
+            const field_bit_size = @bitSizeOf(ti.fields[i].field_type);
+            const across_byte_boundary = field_bit_size > (8 - (bits % 8));
+            if (across_byte_boundary and (fields_within_byte.len != 0 or field_bit_size % 8 != 0))
+                @compileError("LittleEndianLayout(T) requires fields to be byte-aligned, if they span byte boundaries.");
+
+            if (builtin.zig_backend == .stage1) {
+                fields_within_byte = &[_]Type.StructField{ti.fields[i]} ++ fields_within_byte;
+            } else {
+                fields_within_byte = fields_within_byte ++ &[_]Type.StructField{ti.fields[i]};
+            }
+            bits += field_bit_size;
+        }
+        if (builtin.zig_backend == .stage1) {
+            rev_fields = rev_fields ++ fields_within_byte;
+        } else {
+            rev_fields = fields_within_byte ++ rev_fields;
+        }
+    }
+
+    if (bits % 8 != 0)
+        @compileError("LittleEndianLayout(T) requires @bitSizeOf(T) be divisible by 8.");
+
+    if (builtin.cpu.arch.endian() == .Little) {
+        return T;
+    } else {
+        return @Type(.{ .Struct = .{
+            .layout = .Packed,
+            .backing_integer = ti.backing_integer,
+            .fields = rev_fields,
+            .decls = &[_]Type.Declaration{},
+            .is_tuple = ti.is_tuple,
+        } });
+    }
+}
+
+/// Returns a packed struct with a field layout equivalent to the layout of
+/// `T` on stage1.
+///
+/// Requires that the packed struct has a @bitSizeOf(T) divisible by 8.
+pub fn Stage1Layout(comptime T: type) type {
+    const ti = @typeInfo(T).Struct;
+    assert(ti.layout == .Packed);
+
+    var rev_fields: []const Type.StructField = &[_]Type.StructField{};
+    var bits: u16 = 0;
+    var i: usize = 0;
+    while (i < ti.fields.len) : (i += 1) {
+        const field_bit_size = @bitSizeOf(ti.fields[i].field_type);
+        bits += field_bit_size;
+        rev_fields = &[_]Type.StructField{ti.fields[i]} ++ rev_fields;
+    }
+
+    if (bits % 8 != 0)
+        @compileError("Stage1Layout(T) requires @bitSizeOf(T) be divisible by 8.");
+
+    if (builtin.cpu.arch.endian() == .Little or builtin.zig_backend == .stage1) {
+        return T;
+    } else {
+        return @Type(.{ .Struct = .{
+            .layout = .Packed,
+            .backing_integer = ti.backing_integer,
+            .fields = rev_fields,
+            .decls = &[_]Type.Declaration{},
+            .is_tuple = ti.is_tuple,
+        } });
+    }
+}
+
+test "LittleEndianLayout" {
+    const T = packed struct { a: u2, b: u2, c: u4, d: u24 };
+
+    const U1 = LittleEndianLayout(T);
+    var st1 = U1{ .a = 1, .b = 2, .c = 13, .d = 16 };
+    const bytes1 = std.mem.asBytes(&st1);
+    try std.testing.expect(mem.readIntNative(u24, bytes1[1..4]) == 16);
+    try std.testing.expect(bytes1[0] == 0xd9);
+}
+
+test "Stage1Layout" {
+    const T1 = packed struct { a: u2, b: u2, c: u4, d: u24 };
+    const U1 = Stage1Layout(T1);
+    var st1 = U1{ .a = 1, .b = 2, .c = 13, .d = 16 };
+    const bytes1 = std.mem.asBytes(&st1);
+    try std.testing.expect(mem.readIntNative(u24, bytes1[1..4]) == 16);
+    switch (builtin.cpu.arch.endian()) {
+        .Little => try std.testing.expect(bytes1[0] == 0xd9),
+        .Big => try std.testing.expect(bytes1[0] == 0x6d),
+    }
+
+    const T2 = packed struct { a: u1, b: u2, d: u25, c: u4 };
+    const U2 = Stage1Layout(T2);
+    var st2 = U2{ .a = 1, .b = 2, .c = 13, .d = 16 };
+    const bytes2 = std.mem.asBytes(&st2);
+    switch (builtin.cpu.arch.endian()) {
+        .Little => try std.testing.expect(std.mem.eql(u8, bytes2, &[_]u8{ 0x85, 0x00, 0x00, 0xd0 })),
+        .Big => try std.testing.expect(std.mem.eql(u8, bytes2, &[_]u8{ 0xc0, 0x00, 0x01, 0x0d })),
+    }
 }
