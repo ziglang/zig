@@ -2878,6 +2878,32 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, full.ast.type_expr);
             },
+            .node_offset_store_ptr => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+
+                switch (node_tags[node]) {
+                    .assign => {
+                        return nodeToSpan(tree, node_datas[node].lhs);
+                    },
+                    else => return nodeToSpan(tree, node),
+                }
+            },
+            .node_offset_store_operand => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+
+                switch (node_tags[node]) {
+                    .assign => {
+                        return nodeToSpan(tree, node_datas[node].rhs);
+                    },
+                    else => return nodeToSpan(tree, node),
+                }
+            },
         }
     }
 
@@ -3213,6 +3239,12 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the type of an array or struct initializer.
     /// The Decl is determined contextually.
     node_offset_init_ty: i32,
+    /// The source location points to the LHS of an assignment.
+    /// The Decl is determined contextually.
+    node_offset_store_ptr: i32,
+    /// The source location points to the RHS of an assignment.
+    /// The Decl is determined contextually.
+    node_offset_store_operand: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3296,6 +3328,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_container_tag,
             .node_offset_field_default,
             .node_offset_init_ty,
+            .node_offset_store_ptr,
+            .node_offset_store_operand,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

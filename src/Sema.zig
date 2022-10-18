@@ -4639,8 +4639,8 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
         try sema.addToInferredErrorSet(operand);
     }
 
-    const ptr_src = src; // TODO better soruce location
-    const operand_src = src; // TODO better soruce location
+    const ptr_src: LazySrcLoc = .{ .node_offset_store_ptr = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_store_operand = inst_data.src_node };
     const air_tag: Air.Inst.Tag = if (is_ret) .ret_ptr else .store;
     return sema.storePtr2(block, src, ptr, ptr_src, operand, operand_src, air_tag);
 }

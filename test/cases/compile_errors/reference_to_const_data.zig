@@ -23,7 +23,7 @@ export fn qux() void {
 // backend=stage2
 // target=native
 //
-// :3:14: error: cannot assign to constant
-// :7:13: error: cannot assign to constant
-// :11:13: error: cannot assign to constant
-// :19:13: error: cannot assign to constant
+// :3:8: error: cannot assign to constant
+// :7:8: error: cannot assign to constant
+// :11:8: error: cannot assign to constant
+// :19:8: error: cannot assign to constant

@@ -9,5 +9,5 @@ pub fn main() void {
 
 // error
 //
-// :6:21: error: store to comptime variable depends on runtime condition
+// :6:19: error: store to comptime variable depends on runtime condition
 // :4:13: note: runtime condition here
