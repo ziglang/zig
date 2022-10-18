@@ -47,7 +47,6 @@ pub fn getTargetAtom(self: Relocation, macho_file: *MachO) ?*Atom {
         else => unreachable,
     }
     if (macho_file.getStubsAtomForSymbol(self.target)) |stubs_atom| return stubs_atom;
-    if (macho_file.getTlvPtrAtomForSymbol(self.target)) |tlv_ptr_atom| return tlv_ptr_atom;
     return macho_file.getAtomForSymbol(self.target);
 }
 

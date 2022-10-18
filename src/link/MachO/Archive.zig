@@ -3,7 +3,7 @@ const Archive = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
-const log = std.log.scoped(.link);
+const log = std.log.scoped(.macho);
 const macho = std.macho;
 const mem = std.mem;
 
@@ -88,7 +88,6 @@ const ar_hdr = extern struct {
 };
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
-    self.file.close();
     for (self.toc.keys()) |*key| {
         allocator.free(key.*);
     }
@@ -165,6 +164,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     while (true) {
         const n_strx = symtab_reader.readIntLittle(u32) catch |err| switch (err) {
             error.EndOfStream => break,
+            else => |e| return e,
         };
         const object_offset = try symtab_reader.readIntLittle(u32);
 
@@ -183,7 +183,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
 
 pub fn parseObject(
     self: Archive,
-    allocator: Allocator,
+    gpa: Allocator,
     cpu_arch: std.Target.Cpu.Arch,
     offset: u32,
 ) !Object {
@@ -198,15 +198,15 @@ pub fn parseObject(
     }
 
     const name_or_length = try object_header.nameOrLength();
-    const object_name = try parseName(allocator, name_or_length, reader);
-    defer allocator.free(object_name);
+    const object_name = try parseName(gpa, name_or_length, reader);
+    defer gpa.free(object_name);
 
     log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name });
 
     const name = name: {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const path = try std.os.realpath(self.name, &buffer);
-        break :name try std.fmt.allocPrint(allocator, "{s}({s})", .{ path, object_name });
+        break :name try std.fmt.allocPrint(gpa, "{s}({s})", .{ path, object_name });
     };
 
     const object_name_len = switch (name_or_length) {
@@ -214,19 +214,19 @@ pub fn parseObject(
         .Length => |len| len,
     };
     const object_size = (try object_header.size()) - object_name_len;
-    const contents = try allocator.allocWithOptions(u8, object_size, @alignOf(u64), null);
+    const contents = try gpa.allocWithOptions(u8, object_size, @alignOf(u64), null);
     const amt = try reader.readAll(contents);
     if (amt != object_size) {
-        return error.InputOutput;
+        return error.Io;
     }
 
     var object = Object{
         .name = name,
-        .mtime = try self.header.date(),
+        .mtime = object_header.date() catch 0,
         .contents = contents,
     };
 
-    try object.parse(allocator, cpu_arch);
+    try object.parse(gpa, cpu_arch);
 
     return object;
 }
