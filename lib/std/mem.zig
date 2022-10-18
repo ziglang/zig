@@ -1083,7 +1083,7 @@ fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) 
 
     var i: usize = pattern.len - 1;
     // The first item is intentionally ignored and the skip size will be pattern.len.
-    // This is the standard way boyer-moore-horspool is implemented.
+    // This is the standard way Boyer-Moore-Horspool is implemented.
     while (i > 0) : (i -= 1) {
         table[pattern[i]] = i;
     }
@@ -1096,14 +1096,15 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
 
     var i: usize = 0;
     // The last item is intentionally ignored and the skip size will be pattern.len.
-    // This is the standard way boyer-moore-horspool is implemented.
+    // This is the standard way Boyer-Moore-Horspool is implemented.
     while (i < pattern.len - 1) : (i += 1) {
         table[pattern[i]] = pattern.len - 1 - i;
     }
 }
+
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
-/// Uses the Reverse boyer-moore-horspool algorithm on large inputs;
+/// Uses the Reverse Boyer-Moore-Horspool algorithm on large inputs;
 /// `lastIndexOfLinear` on small inputs.
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
@@ -1131,7 +1132,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     return null;
 }
 
-/// Uses Boyer-moore-horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
+/// Uses Boyer-Moore-Horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return start_index;
@@ -1183,7 +1184,7 @@ test "indexOf" {
 
 test "indexOf multibyte" {
     {
-        // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
+        // make haystack and needle long enough to trigger Boyer-Moore-Horspool algorithm
         const haystack = [1]u16{0} ** 100 ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needle), 100);
@@ -1196,7 +1197,7 @@ test "indexOf multibyte" {
     }
 
     {
-        // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
+        // make haystack and needle long enough to trigger Boyer-Moore-Horspool algorithm
         const haystack = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(lastIndexOf(u16, &haystack, &needle), 0);
