@@ -382,3 +382,17 @@ test "generic struct as parameter type" {
     try S.doTheTest(u32, .{ .int = 123 });
     try S.doTheTest2(i32, .{ .int = 456 });
 }
+
+test "slice as parameter type" {
+    const S = struct {
+        fn internComptimeString(comptime str: []const u8) *const []const u8 {
+            return &struct {
+                const intern: []const u8 = str;
+            }.intern;
+        }
+    };
+
+    const source_a = "this is a string";
+    try expect(S.internComptimeString(source_a[1..2]) == S.internComptimeString(source_a[1..2]));
+    try expect(S.internComptimeString(source_a[2..4]) != S.internComptimeString(source_a[5..7]));
+}
