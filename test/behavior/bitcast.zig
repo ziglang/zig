@@ -282,3 +282,28 @@ test "@bitCast packed struct of floats" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "comptime @bitCast packed struct to int" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = packed struct {
+        @"void": void = {},
+        uint: u8 = 13,
+        uint_bit_aligned: u3 = 2,
+        iint_pos: i4 = 1,
+        iint_neg4: i3 = -4,
+        iint_neg2: i3 = -2,
+        float: f32 = 3.14,
+        @"enum": enum(u2) { A, B = 1, C, D } = .B,
+        vectorb: @Vector(3, bool) = .{ true, false, true },
+        vectori: @Vector(2, u8) = .{ 127, 42 },
+        vectorf: @Vector(2, f16) = .{ 3.14, 2.71 },
+    };
+    const Int = @typeInfo(S).Struct.backing_integer.?;
+    var s: S = .{};
+    try expectEqual(@bitCast(Int, s), comptime @bitCast(Int, S{}));
+}

@@ -1300,16 +1300,16 @@ pub const Value = extern union {
         for (fields) |field, i| {
             const field_val = field_vals[i];
             const field_bigint_const = switch (field.ty.zigTypeTag()) {
-                .Float => switch (field.ty.floatBits(target)) {
-                    16 => bitcastFloatToBigInt(f16, field_val.toFloat(f16), &field_buf),
-                    32 => bitcastFloatToBigInt(f32, field_val.toFloat(f32), &field_buf),
-                    64 => bitcastFloatToBigInt(f64, field_val.toFloat(f64), &field_buf),
-                    80 => bitcastFloatToBigInt(f80, field_val.toFloat(f80), &field_buf),
-                    128 => bitcastFloatToBigInt(f128, field_val.toFloat(f128), &field_buf),
-                    else => unreachable,
+                .Void => continue,
+                .Float => floatToBigInt(field_val, field.ty, target, &field_buf),
+                .Int, .Bool => intOrBoolToBigInt(field_val, field.ty, target, &field_buf, &field_space),
+                .Struct => switch (field.ty.containerLayout()) {
+                    .Auto, .Extern => unreachable, // Sema should have error'd before this.
+                    .Packed => packedStructToInt(field_val, field.ty, target, &field_buf),
                 },
-                .Int, .Bool => field_val.toBigInt(&field_space, target),
-                .Struct => packedStructToInt(field_val, field.ty, target, &field_buf),
+                .Vector => vectorToBigInt(field_val, field.ty, target, &field_buf),
+                .Enum => enumToBigInt(field_val, field.ty, target, &field_space),
+                .Union => unreachable, // TODO: packed structs support packed unions
                 else => unreachable,
             };
             var field_bigint = BigIntMutable.init(&field_buf2, 0);
@@ -1318,6 +1318,61 @@ pub const Value = extern union {
             bigint.bitOr(bigint.toConst(), field_bigint.toConst());
         }
         return bigint.toConst();
+    }
+
+    fn intOrBoolToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb, space: *BigIntSpace) BigIntConst {
+        const big_int_const = val.toBigInt(space, target);
+        if (big_int_const.positive) return big_int_const;
+
+        var big_int = BigIntMutable.init(buf, 0);
+        big_int.bitNotWrap(big_int_const.negate(), .unsigned, @intCast(u32, ty.bitSize(target)));
+        big_int.addScalar(big_int.toConst(), 1);
+        return big_int.toConst();
+    }
+
+    fn vectorToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
+        const endian = target.cpu.arch.endian();
+        var vec_bitint = BigIntMutable.init(buf, 0);
+        const vec_len = @intCast(usize, ty.arrayLen());
+        const elem_ty = ty.childType();
+        const elem_size = @intCast(usize, elem_ty.bitSize(target));
+
+        var elem_buf: [16]std.math.big.Limb = undefined;
+        var elem_space: BigIntSpace = undefined;
+        var elem_buf2: [16]std.math.big.Limb = undefined;
+
+        var elem_i: usize = 0;
+        while (elem_i < vec_len) : (elem_i += 1) {
+            const elem_i_target = if (endian == .Big) vec_len - elem_i - 1 else elem_i;
+            const elem_val = val.indexVectorlike(elem_i_target);
+            const elem_bigint_const = switch (elem_ty.zigTypeTag()) {
+                .Int, .Bool => intOrBoolToBigInt(elem_val, elem_ty, target, &elem_buf, &elem_space),
+                .Float => floatToBigInt(elem_val, elem_ty, target, &elem_buf),
+                .Pointer => unreachable, // TODO
+                else => unreachable, // Sema should not let this happen
+            };
+            var elem_bitint = BigIntMutable.init(&elem_buf2, 0);
+            elem_bitint.shiftLeft(elem_bigint_const, elem_size * elem_i);
+            vec_bitint.bitOr(vec_bitint.toConst(), elem_bitint.toConst());
+        }
+        return vec_bitint.toConst();
+    }
+
+    fn enumToBigInt(val: Value, ty: Type, target: Target, space: *BigIntSpace) BigIntConst {
+        var enum_buf: Payload.U64 = undefined;
+        const int_val = val.enumToInt(ty, &enum_buf);
+        return int_val.toBigInt(space, target);
+    }
+
+    fn floatToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
+        return switch (ty.floatBits(target)) {
+            16 => bitcastFloatToBigInt(f16, val.toFloat(f16), buf),
+            32 => bitcastFloatToBigInt(f32, val.toFloat(f32), buf),
+            64 => bitcastFloatToBigInt(f64, val.toFloat(f64), buf),
+            80 => bitcastFloatToBigInt(f80, val.toFloat(f80), buf),
+            128 => bitcastFloatToBigInt(f128, val.toFloat(f128), buf),
+            else => unreachable,
+        };
     }
 
     fn bitcastFloatToBigInt(comptime F: type, f: F, buf: []std.math.big.Limb) BigIntConst {
