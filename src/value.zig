@@ -2205,6 +2205,28 @@ pub const Value = extern union {
                 }
                 return true;
             },
+            .Pointer => switch (ty.ptrSize()) {
+                .Slice => {
+                    const a_len = switch (a_ty.ptrSize()) {
+                        .Slice => a.sliceLen(mod),
+                        .One => a_ty.childType().arrayLen(),
+                        else => unreachable,
+                    };
+                    if (a_len != b.sliceLen(mod)) {
+                        return false;
+                    }
+
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    const a_ptr = switch (a_ty.ptrSize()) {
+                        .Slice => a.slicePtr(),
+                        .One => a,
+                        else => unreachable,
+                    };
+                    return try eqlAdvanced(a_ptr, ptr_ty, b.slicePtr(), ptr_ty, mod, sema_kit);
+                },
+                .Many, .C, .One => {},
+            },
             .Struct => {
                 // A struct can be represented with one of:
                 //   .empty_struct_value,
