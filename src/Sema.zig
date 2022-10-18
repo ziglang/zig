@@ -6433,7 +6433,7 @@ fn analyzeInlineCallArg(
                     .ty = param_ty,
                     .val = arg_val,
                 };
-            } else if ((try sema.resolveMaybeUndefVal(arg_block, arg_src, casted_arg) == null) or
+            } else if (((try sema.resolveMaybeUndefVal(arg_block, arg_src, casted_arg)) == null) or
                 try sema.typeRequiresComptime(param_ty) or zir_tags[inst] == .param_comptime)
             {
                 try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
@@ -14519,6 +14519,12 @@ fn zirClosureGet(
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (tv.val.tag() == .unreachable_value) {
+        assert(block.is_typeof);
+        // We need a dummy runtime instruction with the correct type.
+        return block.addTy(.alloc, tv.ty);
     }
 
     return sema.addConstant(tv.ty, tv.val);
