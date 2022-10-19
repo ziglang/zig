@@ -1109,11 +1109,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const use_stage1 = options.use_stage1 orelse false;
 
-        const cache_mode = if (use_stage1 and !options.disable_lld_caching)
-            CacheMode.whole
-        else
-            options.cache_mode;
-
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
             if (options.use_llvm) |explicit|
@@ -1153,6 +1148,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
             }
         }
+
+        // TODO: once we support incremental compilation for the LLVM backend via
+        // saving the LLVM module into a bitcode file and restoring it, along with
+        // compiler state, the second clause here can be removed so that incremental
+        // cache mode is used for LLVM backend too. We need some fuzz testing before
+        // that can be enabled.
+        const cache_mode = if ((use_stage1 and !options.disable_lld_caching) or
+            (use_llvm and !options.disable_lld_caching)) CacheMode.whole else options.cache_mode;
 
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
@@ -2387,8 +2390,20 @@ pub fn update(comp: *Compilation) !void {
         const o_sub_path = try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest });
         defer comp.gpa.free(o_sub_path);
 
+        // Work around windows `AccessDenied` if any files within this directory are open
+        // by doing the makeExecutable/makeWritable dance.
+        const need_writable_dance = builtin.os.tag == .windows and comp.bin_file.file != null;
+        if (need_writable_dance) {
+            try comp.bin_file.makeExecutable();
+        }
+
         try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
         comp.wholeCacheModeSetBinFilePath(&digest);
+
+        // Has to be after the `wholeCacheModeSetBinFilePath` above.
+        if (need_writable_dance) {
+            try comp.bin_file.makeWritable();
+        }
 
         // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
         if (comp.bin_file.options.module) |module| {
@@ -3204,8 +3219,8 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .mingw_crt_file,
-                    "unable to build mingw-w64 CRT file: {s}",
-                    .{@errorName(err)},
+                    "unable to build mingw-w64 CRT file {s}: {s}",
+                    .{ @tagName(crt_file), @errorName(err) },
                 );
             };
         },

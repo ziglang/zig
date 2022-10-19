@@ -142,6 +142,10 @@ pub fn build(b: *Builder) !void {
     };
 
     const exe = b.addExecutable("zig", main_file);
+
+    const compile_step = b.step("compile", "Build the self-hosted compiler");
+    compile_step.dependOn(&exe.step);
+
     exe.stack_size = stack_size;
     exe.strip = strip;
     exe.sanitize_thread = sanitize_thread;

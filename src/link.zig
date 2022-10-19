@@ -403,10 +403,8 @@ pub const File = struct {
                         try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
                     }
                 }
-                if (base.intermediary_basename == null) {
-                    f.close();
-                    base.file = null;
-                }
+                f.close();
+                base.file = null;
             },
             .coff, .elf, .plan9, .wasm => if (base.file) |f| {
                 if (base.intermediary_basename != null) {
@@ -777,7 +775,7 @@ pub const File = struct {
         _ = base;
         while (true) {
             if (builtin.os.tag == .windows) {
-                // workaround windows `renameW` can't fail with `PathAlreadyExists`
+                // Work around windows `renameW` can't fail with `PathAlreadyExists`
                 // See https://github.com/ziglang/zig/issues/8362
                 if (cache_directory.handle.access(o_sub_path, .{})) |_| {
                     try cache_directory.handle.deleteTree(o_sub_path);
@@ -791,9 +789,9 @@ pub const File = struct {
                     tmp_dir_sub_path,
                     cache_directory.handle,
                     o_sub_path,
-                ) catch |err| switch (err) {
-                    error.AccessDenied => unreachable, // We are most likely trying to move a dir with open handles to its resources
-                    else => |e| return e,
+                ) catch |err| {
+                    log.err("unable to rename cache dir {s} to {s}: {s}", .{ tmp_dir_sub_path, o_sub_path, @errorName(err) });
+                    return err;
                 };
                 break;
             } else {

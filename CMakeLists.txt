@@ -1017,9 +1017,9 @@ if("${ZIG_EXECUTABLE}" STREQUAL "")
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
   if (WIN32)
-    set(ZIG_EXECUTABLE "${zig2_BINARY_DIR}/zig2.exe")
+    set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2.exe")
   else()
-    set(ZIG_EXECUTABLE "${zig2_BINARY_DIR}/zig2")
+    set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2")
   endif()
 else()
   add_custom_command(
@@ -1045,15 +1045,8 @@ elseif(MINGW)
   target_link_libraries(zig2 ntdll)
 endif()
 
-# Dummy install command so that the "install" target is not missing.
-# This is redundant from the "stage3" custom target below.
-if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
-  install(FILES "lib/compiler_rt.zig" DESTINATION "lib/zig")
-endif()
-
-set(ZIG_INSTALL_ARGS "build"
+set(ZIG_BUILD_ARGS
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
     "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     "-Denable-llvm"
     "-Denable-stage1"
@@ -1067,8 +1060,14 @@ set(ZIG_INSTALL_ARGS "build"
 )
 
 add_custom_target(stage3 ALL
-    COMMAND zig2 ${ZIG_INSTALL_ARGS}
+    COMMAND zig2 build compile ${ZIG_BUILD_ARGS}
     DEPENDS zig2
     COMMENT STATUS "Building stage3"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
+install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")
+install(CODE "set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")")
+install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
+install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/install.cmake")

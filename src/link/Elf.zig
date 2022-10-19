@@ -1282,7 +1282,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // linked are in the hash that namespaces the directory we are outputting to. Therefore,
     // we must hash those now, and the resulting digest will form the "id" of the linking
     // job we are about to perform.
-    // After a successful link, we store the id in the metadata of a symlink named "id.txt" in
+    // After a successful link, we store the id in the metadata of a symlink named "lld.id" in
     // the artifact directory. So, now, we check if this symlink exists, and if it matches
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
     const id_symlink_basename = "lld.id";
