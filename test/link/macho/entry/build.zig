@@ -26,7 +26,6 @@ pub fn build(b: *Builder) void {
     check_exe.checkNext("{n_value} (__TEXT,__text) external _non_main");
 
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
-    test_step.dependOn(&check_exe.step);
 
     const run = check_exe.runAndCompare();
     run.expectStdOutEqual("42");

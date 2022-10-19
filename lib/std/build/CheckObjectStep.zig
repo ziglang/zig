@@ -45,7 +45,9 @@ pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
     const exe = exe_step.cast(std.build.LibExeObjStep).?;
-    return EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
+    const emulatable_step = EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
+    emulatable_step.step.dependOn(&self.step);
+    return emulatable_step;
 }
 
 /// There two types of actions currently suported:
