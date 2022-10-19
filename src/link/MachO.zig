@@ -2702,13 +2702,17 @@ pub fn updateDeclExports(
 
         self.resolveGlobalSymbol(sym_loc) catch |err| switch (err) {
             error.MultipleSymbolDefinitions => {
-                _ = try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(),
-                    \\LinkError: symbol '{s}' defined multiple times
-                ,
-                    .{exp_name},
-                ));
+                // TODO: this needs rethinking
+                const global = self.getGlobal(exp_name).?;
+                if (sym_loc.sym_index != global.sym_index and global.file != null) {
+                    _ = try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(),
+                        \\LinkError: symbol '{s}' defined multiple times
+                    ,
+                        .{exp_name},
+                    ));
+                }
             },
             else => |e| return e,
         };
