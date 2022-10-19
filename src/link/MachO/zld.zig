@@ -1476,6 +1476,17 @@ pub const Zld = struct {
             });
         }
 
+        // __TEXT segment is non-optional
+        {
+            const protection = getSegmentMemoryProtection("__TEXT");
+            try self.segments.append(self.gpa, .{
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString("__TEXT"),
+                .maxprot = protection,
+                .initprot = protection,
+            });
+        }
+
         for (self.sections.items(.header)) |header, sect_id| {
             if (header.size == 0) continue; // empty section
 
@@ -1498,14 +1509,12 @@ pub const Zld = struct {
             self.sections.items(.segment_index)[sect_id] = segment_id;
         }
 
+        // __LINKEDIT always comes last
         {
             const protection = getSegmentMemoryProtection("__LINKEDIT");
-            const base = self.getSegmentAllocBase(@intCast(u8, self.segments.items.len));
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__LINKEDIT"),
-                .vmaddr = base.vmaddr,
-                .fileoff = base.fileoff,
                 .maxprot = protection,
                 .initprot = protection,
             });
