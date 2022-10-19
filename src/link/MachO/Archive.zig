@@ -3,7 +3,7 @@ const Archive = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
-const log = std.log.scoped(.macho);
+const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 
@@ -88,6 +88,7 @@ const ar_hdr = extern struct {
 };
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
+    self.file.close();
     for (self.toc.keys()) |*key| {
         allocator.free(key.*);
     }
@@ -217,7 +218,7 @@ pub fn parseObject(
     const contents = try gpa.allocWithOptions(u8, object_size, @alignOf(u64), null);
     const amt = try reader.readAll(contents);
     if (amt != object_size) {
-        return error.Io;
+        return error.InputOutput;
     }
 
     var object = Object{

@@ -1420,10 +1420,6 @@ pub const Zld = struct {
     pub fn deinit(self: *Zld) void {
         const gpa = self.gpa;
 
-        for (self.archives.items) |archive| {
-            archive.file.close();
-        }
-
         self.tlv_ptr_entries.deinit(gpa);
         self.tlv_ptr_table.deinit(gpa);
         self.got_entries.deinit(gpa);
