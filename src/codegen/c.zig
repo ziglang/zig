@@ -587,9 +587,9 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
-                    try writer.writeAll("){ .is_null = ");
+                    try writer.writeAll("){ .payload = ");
                     try dg.renderValue(writer, Type.bool, val, location);
-                    try writer.writeAll(", .payload = ");
+                    try writer.writeAll(", .is_null = ");
                     try dg.renderValue(writer, payload_ty, val, location);
                     return writer.writeAll(" }");
                 },
@@ -820,11 +820,13 @@ pub const DeclGen = struct {
                 try writer.writeAll("){");
                 if (val.castTag(.opt_payload)) |pl| {
                     const payload_val = pl.data;
-                    try writer.writeAll(" .is_null = false, .payload = ");
+                    try writer.writeAll(" .payload = ");
                     try dg.renderValue(writer, payload_ty, payload_val, location);
-                    try writer.writeAll(" }");
+                    try writer.writeAll(", .is_null = false }");
                 } else {
-                    try writer.writeAll(" .is_null = true }");
+                    try writer.writeAll(" .payload = ");
+                    try dg.renderValue(writer, payload_ty, Value.undef, location);
+                    try writer.writeAll(", .is_null = true }");
                 }
             },
             .ErrorSet => {
@@ -3870,10 +3872,23 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try f.writeCValue(writer, struct_byval);
-    try writer.print(".{s}{ };\n", .{ payload, fmtIdent(field_name) });
+    const is_array = inst_ty.zigTypeTag() == .Array;
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+
+    if (is_array) {
+        try writer.writeAll(";\n");
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, local);
+        try writer.writeAll(", ");
+        try f.writeCValue(writer, struct_byval);
+        try writer.print(".{s}{ }, sizeof(", .{ payload, fmtIdent(field_name) });
+        try f.writeCValue(writer, local);
+        try writer.writeAll("));\n");
+    } else {
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, struct_byval);
+        try writer.print(".{s}{ };\n", .{ payload, fmtIdent(field_name) });
+    }
     return local;
 }
 
@@ -3962,9 +3977,9 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
 
     // .wrap_optional is used to convert non-optionals into optionals so it can never be null.
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = { .is_null = false, .payload =");
+    try writer.writeAll(" = { .payload = ");
     try f.writeCValue(writer, operand);
-    try writer.writeAll("};\n");
+    try writer.writeAll(", .is_null = false };\n");
     return local;
 }
 
@@ -4203,23 +4218,54 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
     const inst_ty = f.air.typeOfIndex(inst);
+    const is_struct = !inst_ty.isPtrLikeOptional();
+    const ptr_ty = f.air.typeOf(extra.ptr);
     const ptr = try f.resolveInst(extra.ptr);
     const expected_value = try f.resolveInst(extra.expected_value);
     const new_value = try f.resolveInst(extra.new_value);
-    const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
 
-    try writer.print(" = zig_cmpxchg_{s}(", .{flavor});
+    const local = try f.allocLocal(inst_ty, .Mut);
+    try writer.writeAll(" = ");
+    if (is_struct) try writer.writeAll("{ .payload = ");
+    try f.writeCValue(writer, expected_value);
+    if (is_struct) try writer.writeAll(", .is_null = false }");
+    try writer.writeAll(";\n");
+
+    if (is_struct) {
+        try f.writeCValue(writer, local);
+        try writer.writeAll(".is_null = ");
+    } else {
+        try writer.writeAll("if (");
+    }
+    try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
+    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try writer.writeByte(')');
+    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, expected_value);
+    try f.writeCValue(writer, local);
+    if (is_struct) {
+        try writer.writeAll(".payload");
+    }
     try writer.writeAll(", ");
     try f.writeCValue(writer, new_value);
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, extra.successOrder());
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, extra.failureOrder());
-    try writer.writeAll(");\n");
+    try writer.writeByte(')');
+    if (is_struct) {
+        try writer.writeAll(";\n");
+    } else {
+        try writer.writeAll(") {\n");
+        f.object.indent_writer.pushIndent();
+        try f.writeCValue(writer, local);
+        try writer.writeAll(" = NULL;\n");
+        f.object.indent_writer.popIndent();
+        try writer.writeAll("}\n");
+    }
 
     return local;
 }
@@ -4228,12 +4274,26 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const extra = f.air.extraData(Air.AtomicRmw, pl_op.payload).data;
     const inst_ty = f.air.typeOfIndex(inst);
+    const ptr_ty = f.air.typeOf(pl_op.operand);
     const ptr = try f.resolveInst(pl_op.operand);
     const operand = try f.resolveInst(extra.operand);
     const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
 
-    try writer.print(" = zig_atomicrmw_{s}(", .{toAtomicRmwSuffix(extra.op())});
+    try writer.print(" = zig_atomicrmw_{s}((", .{toAtomicRmwSuffix(extra.op())});
+    switch (extra.op()) {
+        else => {
+            try writer.writeAll("zig_atomic(");
+            try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+            try writer.writeByte(')');
+        },
+        .Nand, .Min, .Max => {
+            // These are missing from stdatomic.h, so no atomic types for now.
+            try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+        },
+    }
+    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr);
     try writer.writeAll(", ");
     try f.writeCValue(writer, operand);
@@ -4255,7 +4315,11 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
 
-    try writer.writeAll(" = zig_atomic_load(");
+    try writer.writeAll(" = zig_atomic_load((zig_atomic(");
+    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try writer.writeByte(')');
+    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr);
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, atomic_load.order);
@@ -4266,19 +4330,22 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const ptr_ty = f.air.typeOf(bin_op.lhs);
     const ptr = try f.resolveInst(bin_op.lhs);
     const element = try f.resolveInst(bin_op.rhs);
-    const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
 
-    try writer.writeAll(" = zig_atomic_store(");
+    try writer.writeAll("zig_atomic_store((zig_atomic(");
+    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try writer.writeByte(')');
+    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr);
     try writer.writeAll(", ");
     try f.writeCValue(writer, element);
     try writer.print(", {s});\n", .{order});
 
-    return local;
+    return CValue.none;
 }
 
 fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {

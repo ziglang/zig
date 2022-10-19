@@ -101,19 +101,20 @@
 
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
+#define zig_atomic(type) _Atomic(type)
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)
-#define zig_cmpxchg_weak  (obj, expected, desired, succ, fail) atomic_compare_exchange_weak_explicit  (obj, &(expected), desired, succ, fail)
+#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail) atomic_compare_exchange_weak_explicit  (obj, &(expected), desired, succ, fail)
 #define zig_atomicrmw_xchg(obj, arg, order) atomic_exchange_explicit  (obj, arg, order)
-#define zig_atomicrmw_add (obj, arg, order) atomic_fetch_add_explicit (obj, arg, order)
-#define zig_atomicrmw_sub (obj, arg, order) atomic_fetch_sub_explicit (obj, arg, order)
-#define zig_atomicrmw_or  (obj, arg, order) atomic_fetch_or_explicit  (obj, arg, order)
-#define zig_atomicrmw_xor (obj, arg, order) atomic_fetch_xor_explicit (obj, arg, order)
-#define zig_atomicrmw_and (obj, arg, order) atomic_fetch_and_explicit (obj, arg, order)
-#define zig_atomicrmw_nand(obj, arg, order) atomic_fetch_nand_explicit(obj, arg, order)
-#define zig_atomicrmw_min (obj, arg, order) atomic_fetch_min_explicit (obj, arg, order)
-#define zig_atomicrmw_max (obj, arg, order) atomic_fetch_max_explicit (obj, arg, order)
-#define zig_atomic_store  (obj, arg, order) atomic_store_explicit     (obj, arg, order)
-#define zig_atomic_load   (obj,      order) atomic_load_explicit      (obj,      order)
+#define  zig_atomicrmw_add(obj, arg, order) atomic_fetch_add_explicit (obj, arg, order)
+#define  zig_atomicrmw_sub(obj, arg, order) atomic_fetch_sub_explicit (obj, arg, order)
+#define   zig_atomicrmw_or(obj, arg, order) atomic_fetch_or_explicit  (obj, arg, order)
+#define  zig_atomicrmw_xor(obj, arg, order) atomic_fetch_xor_explicit (obj, arg, order)
+#define  zig_atomicrmw_and(obj, arg, order) atomic_fetch_and_explicit (obj, arg, order)
+#define zig_atomicrmw_nand(obj, arg, order) __atomic_fetch_nand       (obj, arg, order)
+#define  zig_atomicrmw_min(obj, arg, order) __atomic_fetch_min        (obj, arg, order)
+#define  zig_atomicrmw_max(obj, arg, order) __atomic_fetch_max        (obj, arg, order)
+#define   zig_atomic_store(obj, arg, order) atomic_store_explicit     (obj, arg, order)
+#define    zig_atomic_load(obj,      order) atomic_load_explicit      (obj,      order)
 #define zig_fence(order) atomic_thread_fence(order)
 #elif __GNUC__
 #define memory_order_relaxed __ATOMIC_RELAXED
@@ -122,19 +123,20 @@
 #define memory_order_release __ATOMIC_RELEASE
 #define memory_order_acq_rel __ATOMIC_ACQ_REL
 #define memory_order_seq_cst __ATOMIC_SEQ_CST
+#define zig_atomic(type) type
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) __atomic_compare_exchange_n(obj, &(expected), desired, false, succ, fail)
-#define zig_cmpxchg_weak  (obj, expected, desired, succ, fail) __atomic_compare_exchange_n(obj, &(expected), desired, true , succ, fail)
+#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail) __atomic_compare_exchange_n(obj, &(expected), desired, true , succ, fail)
 #define zig_atomicrmw_xchg(obj, arg, order) __atomic_exchange_n(obj, arg, order)
-#define zig_atomicrmw_add (obj, arg, order) __atomic_fetch_add (obj, arg, order)
-#define zig_atomicrmw_sub (obj, arg, order) __atomic_fetch_sub (obj, arg, order)
-#define zig_atomicrmw_or  (obj, arg, order) __atomic_fetch_or  (obj, arg, order)
-#define zig_atomicrmw_xor (obj, arg, order) __atomic_fetch_xor (obj, arg, order)
-#define zig_atomicrmw_and (obj, arg, order) __atomic_fetch_and (obj, arg, order)
+#define  zig_atomicrmw_add(obj, arg, order) __atomic_fetch_add (obj, arg, order)
+#define  zig_atomicrmw_sub(obj, arg, order) __atomic_fetch_sub (obj, arg, order)
+#define   zig_atomicrmw_or(obj, arg, order) __atomic_fetch_or  (obj, arg, order)
+#define  zig_atomicrmw_xor(obj, arg, order) __atomic_fetch_xor (obj, arg, order)
+#define  zig_atomicrmw_and(obj, arg, order) __atomic_fetch_and (obj, arg, order)
 #define zig_atomicrmw_nand(obj, arg, order) __atomic_fetch_nand(obj, arg, order)
-#define zig_atomicrmw_min (obj, arg, order) __atomic_fetch_min (obj, arg, order)
-#define zig_atomicrmw_max (obj, arg, order) __atomic_fetch_max (obj, arg, order)
-#define zig_atomic_store  (obj, arg, order) __atomic_store     (obj, arg, order)
-#define zig_atomic_load   (obj,      order) __atomic_load      (obj,      order)
+#define  zig_atomicrmw_min(obj, arg, order) __atomic_fetch_min (obj, arg, order)
+#define  zig_atomicrmw_max(obj, arg, order) __atomic_fetch_max (obj, arg, order)
+#define   zig_atomic_store(obj, arg, order) __atomic_store_n   (obj, arg, order)
+#define    zig_atomic_load(obj,      order) __atomic_load_n    (obj,      order)
 #define zig_fence(order) __atomic_thread_fence(order)
 #else
 #define memory_order_relaxed 0
@@ -143,19 +145,20 @@
 #define memory_order_release 3
 #define memory_order_acq_rel 4
 #define memory_order_seq_cst 5
+#define zig_atomic(type) type
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) zig_unimplemented()
-#define zig_cmpxchg_weak  (obj, expected, desired, succ, fail) zig_unimplemented()
+#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail) zig_unimplemented()
 #define zig_atomicrmw_xchg(obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_add (obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_sub (obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_or  (obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_xor (obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_and (obj, arg, order) zig_unimplemented()
+#define  zig_atomicrmw_add(obj, arg, order) zig_unimplemented()
+#define  zig_atomicrmw_sub(obj, arg, order) zig_unimplemented()
+#define   zig_atomicrmw_or(obj, arg, order) zig_unimplemented()
+#define  zig_atomicrmw_xor(obj, arg, order) zig_unimplemented()
+#define  zig_atomicrmw_and(obj, arg, order) zig_unimplemented()
 #define zig_atomicrmw_nand(obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_min (obj, arg, order) zig_unimplemented()
-#define zig_atomicrmw_max (obj, arg, order) zig_unimplemented()
-#define zig_atomic_store  (obj, arg, order) zig_unimplemented()
-#define zig_atomic_load   (obj,      order) zig_unimplemented()
+#define  zig_atomicrmw_min(obj, arg, order) zig_unimplemented()
+#define  zig_atomicrmw_max(obj, arg, order) zig_unimplemented()
+#define   zig_atomic_store(obj, arg, order) zig_unimplemented()
+#define    zig_atomic_load(obj,      order) zig_unimplemented()
 #define zig_fence(order) zig_unimplemented()
 #endif
 
