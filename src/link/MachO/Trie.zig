@@ -108,7 +108,7 @@ pub const Node = struct {
                 .label = to_label,
             });
 
-            return if (match == label.len) to_node else mid.put(allocator, label[match..]);
+            return if (match == label.len) mid else mid.put(allocator, label[match..]);
         }
 
         // Add a new node.
@@ -489,6 +489,21 @@ test "Trie basic" {
     }
 }
 
+fn expectEqualHexStrings(expected: []const u8, given: []const u8) !void {
+    assert(expected.len > 0);
+    if (mem.eql(u8, expected, given)) return;
+    const expected_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(expected)});
+    defer testing.allocator.free(expected_fmt);
+    const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(given)});
+    defer testing.allocator.free(given_fmt);
+    const idx = mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
+    var padding = try testing.allocator.alloc(u8, idx + 5);
+    defer testing.allocator.free(padding);
+    mem.set(u8, padding, ' ');
+    std.debug.print("\nEXP: {s}\nGIV: {s}\n{s}^ -- first differing byte\n", .{ expected_fmt, given_fmt, padding });
+    return error.TestFailed;
+}
+
 test "write Trie to a byte stream" {
     var gpa = testing.allocator;
     var trie: Trie = .{};
@@ -523,16 +538,14 @@ test "write Trie to a byte stream" {
     defer gpa.free(buffer);
     var stream = std.io.fixedBufferStream(buffer);
     {
-        const nwritten = try trie.write(stream.writer());
-        try testing.expect(nwritten == trie.size);
-        try testing.expect(mem.eql(u8, buffer, &exp_buffer));
+        _ = try trie.write(stream.writer());
+        try expectEqualHexStrings(&exp_buffer, buffer);
     }
     {
         // Writing finalized trie again should yield the same result.
         try stream.seekTo(0);
-        const nwritten = try trie.write(stream.writer());
-        try testing.expect(nwritten == trie.size);
-        try testing.expect(mem.eql(u8, buffer, &exp_buffer));
+        _ = try trie.write(stream.writer());
+        try expectEqualHexStrings(&exp_buffer, buffer);
     }
 }
 
@@ -562,8 +575,37 @@ test "parse Trie from byte stream" {
     var out_buffer = try gpa.alloc(u8, trie.size);
     defer gpa.free(out_buffer);
     var out_stream = std.io.fixedBufferStream(out_buffer);
-    const nwritten = try trie.write(out_stream.writer());
+    _ = try trie.write(out_stream.writer());
+    try expectEqualHexStrings(&in_buffer, out_buffer);
+}
 
-    try testing.expect(nwritten == trie.size);
-    try testing.expect(mem.eql(u8, &in_buffer, out_buffer));
+test "ordering bug" {
+    var gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+
+    try trie.put(gpa, .{
+        .name = "_asStr",
+        .vmaddr_offset = 0x558,
+        .export_flags = 0,
+    });
+    try trie.put(gpa, .{
+        .name = "_a",
+        .vmaddr_offset = 0x8008,
+        .export_flags = 0,
+    });
+    try trie.finalize(gpa);
+
+    const exp_buffer = [_]u8{
+        0x00, 0x01, 0x5F, 0x61, 0x00, 0x06, 0x04, 0x00,
+        0x88, 0x80, 0x02, 0x01, 0x73, 0x53, 0x74, 0x72,
+        0x00, 0x12, 0x03, 0x00, 0xD8, 0x0A, 0x00,
+    };
+
+    var buffer = try gpa.alloc(u8, trie.size);
+    defer gpa.free(buffer);
+    var stream = std.io.fixedBufferStream(buffer);
+    // Writing finalized trie again should yield the same result.
+    _ = try trie.write(stream.writer());
+    try expectEqualHexStrings(&exp_buffer, buffer);
 }
