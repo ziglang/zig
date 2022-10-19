@@ -1357,9 +1357,9 @@ pub const Value = extern union {
                 else => unreachable,
             },
             .Vector => {
-                const len = ty.arrayLen();
                 const elem_ty = ty.childType();
                 const elem_bit_size = @intCast(u16, elem_ty.bitSize(target));
+                const len = @intCast(usize, ty.arrayLen());
 
                 var bits: u16 = 0;
                 var elem_i: usize = 0;
