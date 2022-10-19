@@ -5,7 +5,6 @@ pub fn f(_: [:null]const ?u8) void {}
 test {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const c: u8 = 42;
     f(&[_:null]?u8{c});

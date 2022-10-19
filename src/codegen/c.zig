@@ -88,23 +88,9 @@ pub fn typeToCIdentifier(ty: Type, mod: *Module) std.fmt.Formatter(formatTypeAsC
 }
 
 const reserved_idents = std.ComptimeStringMap(void, .{
-    .{ "_Alignas", {
+    .{ "alignas", {
         @setEvalBranchQuota(4000);
     } },
-    .{ "_Alignof", {} },
-    .{ "_Atomic", {} },
-    .{ "_Bool", {} },
-    .{ "_Complex", {} },
-    .{ "_Decimal128", {} },
-    .{ "_Decimal32", {} },
-    .{ "_Decimal64", {} },
-    .{ "_Generic", {} },
-    .{ "_Imaginary", {} },
-    .{ "_Noreturn", {} },
-    .{ "_Pragma", {} },
-    .{ "_Static_assert", {} },
-    .{ "_Thread_local", {} },
-    .{ "alignas", {} },
     .{ "alignof", {} },
     .{ "asm", {} },
     .{ "atomic_bool", {} },
@@ -199,6 +185,15 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "while ", {} },
 });
 
+fn isReservedIdent(ident: []const u8) bool {
+    if (ident.len >= 2 and ident[0] == '_') {
+        switch (ident[1]) {
+            'A'...'Z', '_' => return true,
+            else => return false,
+        }
+    } else return reserved_idents.has(ident);
+}
+
 fn formatIdent(
     ident: []const u8,
     comptime fmt: []const u8,
@@ -207,7 +202,7 @@ fn formatIdent(
 ) !void {
     _ = options;
     const solo = fmt.len != 0 and fmt[0] == ' '; // space means solo; not part of a bigger ident.
-    if (solo and reserved_idents.has(ident)) {
+    if (solo and isReservedIdent(ident)) {
         try writer.writeAll("zig_e_");
     }
     for (ident) |c, i| {
@@ -601,12 +596,17 @@ pub const DeclGen = struct {
                     try dg.renderTypecast(writer, ty);
                     try writer.writeAll("){");
 
+                    if (ty.unionTagTypeSafety()) |tag_ty| {
+                        try writer.writeAll(".tag = ");
+                        try dg.renderValue(writer, tag_ty, val, location);
+                        try writer.writeAll(", .payload = {");
+                    }
                     for (ty.unionFields().values()) |field| {
                         if (!field.ty.hasRuntimeBits()) continue;
                         try dg.renderValue(writer, field.ty, val, location);
                         break;
                     } else try writer.print("{x}", .{try dg.fmtIntLiteral(Type.u8, Value.undef)});
-
+                    if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
                     return writer.writeByte('}');
                 },
                 .ErrorUnion => {
@@ -3469,22 +3469,22 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         const output_ty = if (output == .none) inst_ty else f.air.typeOf(output).childType();
-        try writer.writeAll("register ");
-        try f.object.dg.renderTypeAndName(writer, output_ty, .{
-            .local = output_locals_begin + index,
-        }, .Mut, 0);
         if (std.mem.startsWith(u8, constraint, "={") and std.mem.endsWith(u8, constraint, "}")) {
+            try writer.writeAll("register ");
+            try f.object.dg.renderTypeAndName(writer, output_ty, .{
+                .local = output_locals_begin + index,
+            }, .Mut, 0);
             try writer.writeAll(" __asm(\"");
             try writer.writeAll(constraint["={".len .. constraint.len - "}".len]);
             try writer.writeAll("\")");
+            if (f.wantSafety()) {
+                try writer.writeAll(" = ");
+                try f.object.dg.renderValue(writer, output_ty, Value.undef, .Other);
+            }
+            try writer.writeAll(";\n");
         } else if (constraint.len < 2 or constraint[0] != '=') {
             return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
         }
-        if (f.wantSafety()) {
-            try writer.writeAll(" = ");
-            try f.object.dg.renderValue(writer, output_ty, Value.undef, .Other);
-        }
-        try writer.writeAll(";\n");
     }
     const input_locals_begin = f.next_local_index;
     f.next_local_index += inputs.len;
@@ -3497,20 +3497,29 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         const input_ty = f.air.typeOf(input);
-        try writer.writeAll("register ");
-        try f.object.dg.renderTypeAndName(writer, input_ty, .{
-            .local = input_locals_begin + index,
-        }, .Const, 0);
         if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
+            try writer.writeAll("register ");
+            try f.object.dg.renderTypeAndName(writer, input_ty, .{
+                .local = input_locals_begin + index,
+            }, .Const, 0);
             try writer.writeAll(" __asm(\"");
             try writer.writeAll(constraint["{".len .. constraint.len - "}".len]);
-            try writer.writeAll("\")");
-        } else if (constraint.len < 1 or std.mem.indexOfScalar(u8, "=+&%", constraint[0]) != null) {
+            try writer.writeAll("\") = ");
+            try f.writeCValue(writer, try f.resolveInst(input));
+            try writer.writeAll(";\n");
+        } else if (constraint.len >= 1 and std.mem.indexOfScalar(u8, "=+&%", constraint[0]) == null) {
+            const input_val = try f.resolveInst(input);
+            if (input_val == .constant) {
+                try f.object.dg.renderTypeAndName(writer, input_ty, .{
+                    .local = input_locals_begin + index,
+                }, .Const, 0);
+                try writer.writeAll(" = ");
+                try f.writeCValue(writer, input_val);
+                try writer.writeAll(";\n");
+            }
+        } else {
             return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
         }
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, try f.resolveInst(input));
-        try writer.writeAll(";\n");
     }
     {
         var clobber_i: u32 = 0;
@@ -3529,7 +3538,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
     extra_i = constraints_extra_begin;
     try writer.writeByte(':');
-    for (outputs) |_, index| {
+    for (outputs) |output, index| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3538,12 +3547,18 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         if (index > 0) try writer.writeByte(',');
-        try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[1] == '{') "=r" else constraint)});
-        try f.writeCValue(writer, .{ .local = output_locals_begin + index });
+        try writer.writeByte(' ');
+        if (constraint[1] == '{') {
+            try writer.print("{s}(", .{fmtStringLiteral("=r")});
+            try f.writeCValue(writer, .{ .local = output_locals_begin + index });
+        } else {
+            try writer.print("{s}(", .{fmtStringLiteral(constraint)});
+            try f.writeCValueDeref(writer, try f.resolveInst(output));
+        }
         try writer.writeByte(')');
     }
     try writer.writeByte(':');
-    for (inputs) |_, index| {
+    for (inputs) |input, index| {
         const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(extra_bytes, 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -3552,8 +3567,17 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         if (index > 0) try writer.writeByte(',');
-        try writer.print(" {s}(", .{fmtStringLiteral(if (constraint[0] == '{') "r" else constraint)});
-        try f.writeCValue(writer, .{ .local = input_locals_begin + index });
+        try writer.writeByte(' ');
+        if (constraint[0] == '{') {
+            try writer.print("{s}(", .{fmtStringLiteral("r")});
+            try f.writeCValue(writer, .{ .local = input_locals_begin + index });
+        } else {
+            const input_val = try f.resolveInst(input);
+            try writer.print("{s}(", .{fmtStringLiteral(constraint)});
+            try f.writeCValue(writer, if (input_val == .constant) .{
+                .local = input_locals_begin + index,
+            } else input_val);
+        }
         try writer.writeByte(')');
     }
     try writer.writeByte(':');
@@ -3582,12 +3606,14 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         // for the string, we still use the next u32 for the null terminator.
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-        try f.writeCValueDeref(writer, if (output == .none) CValue{
-            .local_ref = local.local,
-        } else try f.resolveInst(output));
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, .{ .local = output_locals_begin + index });
-        try writer.writeAll(";\n");
+        if (constraint[1] == '{') {
+            try f.writeCValueDeref(writer, if (output == .none) CValue{
+                .local_ref = local.local,
+            } else try f.resolveInst(output));
+            try writer.writeAll(" = ");
+            try f.writeCValue(writer, .{ .local = output_locals_begin + index });
+            try writer.writeAll(";\n");
+        }
     }
 
     f.object.indent_writer.popIndent();
@@ -4415,12 +4441,12 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
             const elem_ty = inst_ty.childType();
             var empty = true;
             for (elements) |element| {
-                if (empty) try writer.writeAll(", ");
+                if (!empty) try writer.writeAll(", ");
                 try f.writeCValue(writer, try f.resolveInst(element));
                 empty = false;
             }
             if (inst_ty.sentinel()) |sentinel| {
-                if (empty) try writer.writeAll(", ");
+                if (!empty) try writer.writeAll(", ");
                 try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
                 empty = false;
             }
