@@ -651,6 +651,112 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
     }
 }
 
+fn validateFeatures(wasm: *const Wasm, arena: Allocator) !void {
+    const cpu_features = wasm.base.options.target.cpu.features;
+    const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
+    var allowed = std.AutoHashMap(std.Target.wasm.Feature, void).init(arena);
+    var used = std.AutoArrayHashMap(std.Target.wasm.Feature, []const u8).init(arena);
+    var disallowed = std.AutoHashMap(std.Target.wasm.Feature, []const u8).init(arena);
+    var required = std.AutoHashMap(std.Target.wasm.Feature, []const u8).init(arena);
+
+    // when false, we fail linking. We only verify this after a loop to catch all invalid features.
+    var valid_feature_set = true;
+
+    // When the user has given an explicit list of features to enable,
+    // we extract them and insert each into the 'allowed' list.
+    if (!infer) {
+        try allowed.ensureUnusedCapacity(std.Target.wasm.all_features.len);
+        // std.builtin.Type.EnumField
+        inline for (@typeInfo(std.Target.wasm.Feature).Enum.fields) |feature_field| {
+            if (cpu_features.isEnabled(feature_field.value)) {
+                allowed.putAssumeCapacityNoClobber(@intToEnum(std.Target.wasm.Feature, feature_field.value), {});
+            }
+        }
+    }
+
+    // extract all the used, disallowed and required features from each
+    // linked object file so we can test them.
+    for (wasm.objects.items) |object| {
+        for (object.features) |feature| {
+            switch (feature.prefix) {
+                .used => {
+                    const gop = try used.getOrPut(feature.tag);
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = object.name;
+                    }
+                },
+                .disallowed => {
+                    const gop = try disallowed.getOrPut(feature.tag);
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = object.name;
+                    }
+                },
+                .required => {
+                    const gop = try required.getOrPut(feature.tag);
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = object.name;
+                    }
+                    const used_gop = try used.getOrPut(feature.tag);
+                    if (!used_gop.found_existing) {
+                        used_gop.value_ptr.* = object.name;
+                    }
+                },
+            }
+        }
+    }
+
+    // when we infer the features, we allow each feature found in the 'used' set
+    // and insert it into the 'allowed' set. When features are not inferred,
+    // we validate that a used feature is allowed.
+    if (infer) try allowed.ensureUnusedCapacity(@intCast(u32, used.count()));
+    for (used.keys()) |used_feature, used_index| {
+        if (infer) {
+            allowed.putAssumeCapacityNoClobber(used_feature, {});
+        } else if (!allowed.contains(used_feature)) {
+            log.err("feature '{s}' not allowed, but used by linked object", .{@tagName(used_feature)});
+            log.err("  defined in '{s}'", .{used.values()[used_index]});
+            valid_feature_set = false;
+        }
+    }
+
+    if (!valid_feature_set) {
+        return error.InvalidFeatureSet;
+    }
+
+    // For each linked object, validate the required and disallowed features
+    for (wasm.objects.items) |object| {
+        var object_used_features = std.AutoHashMap(std.Target.wasm.Feature, void).init(arena);
+        try object_used_features.ensureTotalCapacity(@intCast(u32, object.features.len));
+        for (object.features) |feature| {
+            if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
+            // from here a feature is always used
+            if (disallowed.get(feature.tag)) |disallowed_object_name| {
+                log.err("feature '{s}' is disallowed, but used by linked object", .{@tagName(feature.tag)});
+                log.err("  disallowed by '{s}'", .{disallowed_object_name});
+                log.err("  used in '{s}'", .{object.name});
+                valid_feature_set = false;
+            }
+
+            object_used_features.putAssumeCapacity(feature.tag, {});
+        }
+
+        // validate the linked object file has each required feature
+        var required_it = required.iterator();
+        while (required_it.next()) |required_feature| {
+            if (!object_used_features.contains(required_feature.key_ptr.*)) {
+                log.err("feature '{s}' is required but not used in linked object", .{@tagName(required_feature.key_ptr.*)});
+                log.err("  required by '{s}'", .{required_feature.value_ptr.*});
+                log.err("  missing in '{s}'", .{object.name});
+                valid_feature_set = false;
+            }
+        }
+    }
+
+    if (!valid_feature_set) {
+        return error.InvalidFeatureSet;
+    }
+}
+
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
     if (wasm.base.options.output_mode == .Obj) return;
 
@@ -2158,6 +2264,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try wasm.resolveSymbolsInObject(@intCast(u16, object_index));
     }
 
+    try wasm.validateFeatures(arena);
     try wasm.resolveSymbolsInArchives();
     try wasm.checkUndefinedSymbols();
 

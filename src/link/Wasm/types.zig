@@ -183,18 +183,7 @@ pub const Feature = struct {
     /// Type of the feature, must be unique in the sequence of features.
     tag: Tag,
 
-    pub const Tag = enum {
-        atomics,
-        bulk_memory,
-        exception_handling,
-        multivalue,
-        mutable_globals,
-        nontrapping_fptoint,
-        sign_ext,
-        simd128,
-        tail_call,
-        shared_mem,
-    };
+    pub const Tag = std.Target.wasm.Feature;
 
     pub const Prefix = enum(u8) {
         used = '+',
@@ -204,13 +193,18 @@ pub const Feature = struct {
 
     pub fn toString(feature: Feature) []const u8 {
         return switch (feature.tag) {
+            .atomics => "atomics",
             .bulk_memory => "bulk-memory",
             .exception_handling => "exception-handling",
+            .extended_const => "extended-const",
+            .multivalue => "multivalue",
             .mutable_globals => "mutable-globals",
             .nontrapping_fptoint => "nontrapping-fptoint",
+            .reference_types => "reference-types",
+            .relaxed_simd => "relaxed-simd",
             .sign_ext => "sign-ext",
+            .simd128 => "simd128",
             .tail_call => "tail-call",
-            else => @tagName(feature),
         };
     }
 
@@ -225,11 +219,13 @@ pub const known_features = std.ComptimeStringMap(Feature.Tag, .{
     .{ "atomics", .atomics },
     .{ "bulk-memory", .bulk_memory },
     .{ "exception-handling", .exception_handling },
+    .{ "extended-const", .extended_const },
     .{ "multivalue", .multivalue },
     .{ "mutable-globals", .mutable_globals },
     .{ "nontrapping-fptoint", .nontrapping_fptoint },
+    .{ "reference-types", .reference_types },
+    .{ "relaxed-simd", .relaxed_simd },
     .{ "sign-ext", .sign_ext },
     .{ "simd128", .simd128 },
     .{ "tail-call", .tail_call },
-    .{ "shared-mem", .shared_mem },
 });
