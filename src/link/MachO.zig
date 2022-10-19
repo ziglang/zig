@@ -3537,7 +3537,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 }
 
 inline fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool) u64 {
-    const name_len = if (assume_max_path_len) std.os.PATH_MAX else std.mem.len(name) + 1;
+    const darwin_path_max = 1024;
+    const name_len = if (assume_max_path_len) darwin_path_max else std.mem.len(name) + 1;
     return mem.alignForwardGeneric(u64, cmd_size + name_len, @alignOf(u64));
 }
 
