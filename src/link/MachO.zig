@@ -55,8 +55,6 @@ pub const SearchStrategy = enum {
     dylibs_first,
 };
 
-pub const N_DESC_GCED: u16 = @bitCast(u16, @as(i16, -1));
-
 const Section = struct {
     header: macho.section_64,
     segment_index: u8,
@@ -3602,7 +3600,6 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
 
             if (sym.undf()) continue;
             if (!sym.ext()) continue;
-            if (sym.n_desc == N_DESC_GCED) continue;
 
             const sym_name = self.getSymbolName(global);
             log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
@@ -3850,7 +3847,6 @@ fn writeSymtab(self: *MachO, lc: *macho.symtab_command) !SymtabCtx {
 
     for (self.locals.items) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
-        if (sym.n_desc == N_DESC_GCED) continue; // GCed, skip
         const sym_loc = SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
         if (self.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
         if (self.getGlobal(self.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
@@ -3863,7 +3859,6 @@ fn writeSymtab(self: *MachO, lc: *macho.symtab_command) !SymtabCtx {
     for (self.globals.items) |global| {
         const sym = self.getSymbol(global);
         if (sym.undf()) continue; // import, skip
-        if (sym.n_desc == N_DESC_GCED) continue; // GCed, skip
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
         try exports.append(out_sym);
@@ -3966,8 +3961,6 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx, lc: *macho.dysymtab_command) !voi
         stubs.reserved1 = 0;
         for (self.stubs.items) |entry| {
             if (entry.sym_index == 0) continue;
-            const atom_sym = entry.getSymbol(self);
-            if (atom_sym.n_desc == N_DESC_GCED) continue;
             const target_sym = self.getSymbol(entry.target);
             assert(target_sym.undf());
             try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
@@ -3979,8 +3972,6 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx, lc: *macho.dysymtab_command) !voi
         got.reserved1 = nstubs;
         for (self.got_entries.items) |entry| {
             if (entry.sym_index == 0) continue;
-            const atom_sym = entry.getSymbol(self);
-            if (atom_sym.n_desc == N_DESC_GCED) continue;
             const target_sym = self.getSymbol(entry.target);
             if (target_sym.undf()) {
                 try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
@@ -3995,8 +3986,6 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx, lc: *macho.dysymtab_command) !voi
         la_symbol_ptr.reserved1 = nstubs + ngot_entries;
         for (self.stubs.items) |entry| {
             if (entry.sym_index == 0) continue;
-            const atom_sym = entry.getSymbol(self);
-            if (atom_sym.n_desc == N_DESC_GCED) continue;
             const target_sym = self.getSymbol(entry.target);
             assert(target_sym.undf());
             try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
@@ -4594,7 +4583,7 @@ pub fn logSections(self: *MachO) void {
     }
 }
 
-fn logSymAttributes(sym: macho.nlist_64, buf: *[9]u8) []const u8 {
+fn logSymAttributes(sym: macho.nlist_64, buf: *[4]u8) []const u8 {
     mem.set(u8, buf[0..4], '_');
     mem.set(u8, buf[4..], ' ');
     if (sym.sect()) {
@@ -4613,14 +4602,11 @@ fn logSymAttributes(sym: macho.nlist_64, buf: *[9]u8) []const u8 {
     if (sym.undf()) {
         buf[3] = 'u';
     }
-    if (sym.n_desc == N_DESC_GCED) {
-        mem.copy(u8, buf[5..], "DEAD");
-    }
     return buf[0..];
 }
 
 pub fn logSymtab(self: *MachO) void {
-    var buf: [9]u8 = undefined;
+    var buf: [4]u8 = undefined;
 
     log.debug("symtab:", .{});
     for (self.locals.items) |sym, sym_id| {
@@ -4648,7 +4634,6 @@ pub fn logSymtab(self: *MachO) void {
     log.debug("GOT entries:", .{});
     for (self.got_entries.items) |entry, i| {
         const atom_sym = entry.getSymbol(self);
-        if (atom_sym.n_desc == N_DESC_GCED) continue;
         const target_sym = self.getSymbol(entry.target);
         if (target_sym.undf()) {
             log.debug("  {d}@{x} => import('{s}')", .{
