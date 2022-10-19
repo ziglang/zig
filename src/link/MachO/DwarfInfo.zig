@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const dwarf = std.dwarf;
 const leb = std.leb;
 const log = std.log.scoped(.macho);
+const math = std.math;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
@@ -32,13 +33,14 @@ const CompileUnitIterator = struct {
 
         const cuh = try CompileUnit.Header.read(reader);
         const total_length = cuh.length + @as(u64, if (cuh.is_64bit) @sizeOf(u64) else @sizeOf(u32));
+        const offset = math.cast(usize, creader.bytes_read) orelse return error.Overflow;
 
         const cu = CompileUnit{
             .cuh = cuh,
-            .debug_info_off = creader.bytes_read,
+            .debug_info_off = offset,
         };
 
-        self.pos += total_length;
+        self.pos += (math.cast(usize, total_length) orelse return error.Overflow);
 
         return cu;
     }
@@ -102,7 +104,7 @@ pub fn genAbbrevLookupByKind(self: DwarfInfo, off: usize, lookup: *AbbrevLookupT
 
         if (kind == 0) break;
 
-        const pos = creader.bytes_read;
+        const pos = math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         _ = try leb.readULEB128(u64, reader); // TAG
         _ = try reader.readByte(); // CHILDREN
 
@@ -113,9 +115,11 @@ pub fn genAbbrevLookupByKind(self: DwarfInfo, off: usize, lookup: *AbbrevLookupT
             if (name == 0 and form == 0) break;
         }
 
+        const next_pos = math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+
         try lookup.putNoClobber(kind, .{
             .pos = pos,
-            .len = creader.bytes_read - pos - 2,
+            .len = next_pos - pos - 2,
         });
     }
 }
@@ -179,7 +183,7 @@ const AbbrevEntryIterator = struct {
         const reader = creader.reader();
 
         const kind = try leb.readULEB128(u64, reader);
-        self.pos += creader.bytes_read;
+        self.pos += (math.cast(usize, creader.bytes_read) orelse return error.Overflow);
 
         if (kind == 0) {
             return AbbrevEntry.@"null"();
@@ -325,7 +329,7 @@ const AttributeIterator = struct {
         const name = try leb.readULEB128(u64, reader);
         const form = try leb.readULEB128(u64, reader);
 
-        self.debug_abbrev_pos += creader.bytes_read;
+        self.debug_abbrev_pos += (math.cast(usize, creader.bytes_read) orelse return error.Overflow);
 
         const len = try findFormSize(
             self.ctx,
@@ -366,11 +370,13 @@ fn getAbbrevEntry(self: DwarfInfo, da_off: usize, da_len: usize, di_off: usize, 
         else => try reader.readByte(),
     };
 
+    const pos = math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+
     return AbbrevEntry{
         .tag = tag,
         .children = children,
-        .debug_abbrev_off = creader.bytes_read + da_off,
-        .debug_abbrev_len = da_len - creader.bytes_read,
+        .debug_abbrev_off = pos + da_off,
+        .debug_abbrev_len = da_len - pos,
         .debug_info_off = di_off,
         .debug_info_len = di_len,
     };
@@ -392,7 +398,7 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
             while (i < expr_len) : (i += 1) {
                 _ = try reader.readByte();
             }
-            return creader.bytes_read;
+            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
         dwarf.FORM.flag_present => return 0,
 
@@ -402,11 +408,11 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         dwarf.FORM.data8 => return @sizeOf(u64),
         dwarf.FORM.udata => {
             _ = try leb.readULEB128(u64, reader);
-            return creader.bytes_read;
+            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
         dwarf.FORM.sdata => {
             _ = try leb.readILEB128(i64, reader);
-            return creader.bytes_read;
+            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
 
         dwarf.FORM.ref1 => return @sizeOf(u8),
@@ -415,7 +421,7 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         dwarf.FORM.ref8 => return @sizeOf(u64),
         dwarf.FORM.ref_udata => {
             _ = try leb.readULEB128(u64, reader);
-            return creader.bytes_read;
+            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
 
         else => return error.ToDo,
@@ -457,5 +463,5 @@ fn findAbbrevEntrySize(self: DwarfInfo, da_off: usize, da_len: usize, di_off: us
 
 fn getString(self: DwarfInfo, off: u64) []const u8 {
     assert(off < self.debug_str.len);
-    return mem.sliceTo(@ptrCast([*:0]const u8, self.debug_str.ptr + off), 0);
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.debug_str.ptr + @intCast(usize, off)), 0);
 }

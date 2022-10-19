@@ -1725,11 +1725,12 @@ pub const Zld = struct {
                 } else {
                     const code = Atom.getAtomCode(self, atom_index);
                     const relocs = Atom.getAtomRelocs(self, atom_index);
+                    const size = math.cast(usize, atom.size) orelse return error.Overflow;
                     buffer.appendSliceAssumeCapacity(code);
                     try Atom.resolveRelocs(
                         self,
                         atom_index,
-                        buffer.items[offset..][0..atom.size],
+                        buffer.items[offset..][0..size],
                         relocs,
                         reverse_lookups[atom.getFile().?],
                     );
@@ -2457,7 +2458,7 @@ pub const Zld = struct {
         const export_size = trie.size;
         log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
 
-        const needed_size = export_off + export_size - rebase_off;
+        const needed_size = math.cast(usize, export_off + export_size - rebase_off) orelse return error.Overflow;
         link_seg.filesize = needed_size;
 
         var buffer = try gpa.alloc(u8, needed_size);
@@ -2484,7 +2485,10 @@ pub const Zld = struct {
         });
 
         try self.file.pwriteAll(buffer, rebase_off);
-        try self.populateLazyBindOffsetsInStubHelper(buffer[lazy_bind_off - rebase_off ..][0..lazy_bind_size]);
+
+        const offset = math.cast(usize, lazy_bind_off - rebase_off) orelse return error.Overflow;
+        const size = math.cast(usize, lazy_bind_size) orelse return error.Overflow;
+        try self.populateLazyBindOffsetsInStubHelper(buffer[offset..][0..size]);
 
         try lc_writer.writeStruct(macho.dyld_info_command{
             .cmd = .DYLD_INFO_ONLY,
@@ -3210,7 +3214,8 @@ pub const Zld = struct {
         // We assume there is only one CU.
         var cu_it = debug_info.getCompileUnitIterator();
         const compile_unit = while (try cu_it.next()) |cu| {
-            try debug_info.genAbbrevLookupByKind(cu.cuh.debug_abbrev_offset, &lookup);
+            const offset = math.cast(usize, cu.cuh.debug_abbrev_offset) orelse return error.Overflow;
+            try debug_info.genAbbrevLookupByKind(offset, &lookup);
             break cu;
         } else {
             log.debug("no compile unit found in debug info in {s}; skipping", .{object.name});
@@ -4273,7 +4278,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 physical_zerofill_start = header.offset + header.size;
             } else break :blk;
             const linkedit = zld.getLinkeditSegmentPtr();
-            const physical_zerofill_size = linkedit.fileoff - physical_zerofill_start;
+            const physical_zerofill_size = math.cast(usize, linkedit.fileoff - physical_zerofill_start) orelse
+                return error.Overflow;
             if (physical_zerofill_size > 0) {
                 var padding = try zld.gpa.alloc(u8, physical_zerofill_size);
                 defer zld.gpa.free(padding);

@@ -925,13 +925,15 @@ pub fn getAtomCode(zld: *Zld, atom_index: AtomIndex) []const u8 {
 
         assert(!source_sect.isZerofill());
         const code = object.getSectionContents(source_sect);
-        return code[0..atom.size];
+        const code_len = @intCast(usize, atom.size);
+        return code[0..code_len];
     };
     const source_sect = object.getSourceSection(source_sym.n_sect - 1);
     assert(!source_sect.isZerofill());
-    const offset = source_sym.n_value - source_sect.addr;
     const code = object.getSectionContents(source_sect);
-    return code[offset..][0..atom.size];
+    const offset = @intCast(usize, source_sym.n_value - source_sect.addr);
+    const code_len = @intCast(usize, atom.size);
+    return code[offset..][0..code_len];
 }
 
 pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []align(1) const macho.relocation_info {
