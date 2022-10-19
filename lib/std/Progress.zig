@@ -1,30 +1,23 @@
-//! This is a non-allocating, non-fallible, and thread-safe API for printing
-//! progress indicators to the terminal.
+//! This API non-allocating, non-fallible, and thread-safe.
 //! The tradeoff is that users of this API must provide the storage
 //! for each `Progress.Node`.
-//!
-//! This library purposefully keeps its output simple and is ASCII-compatible.
 //!
 //! Initialize the struct directly, overriding these fields as desired:
 //! * `refresh_rate_ms`
 //! * `initial_delay_ms`
-//! * `dont_print_on_dumb`
-//! * `max_width`
 
 const std = @import("std");
 const builtin = @import("builtin");
 const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
-const os = std.os;
-const time = std.time;
 const Progress = @This();
 
 /// `null` if the current node (and its children) should
 /// not print on update()
 terminal: ?std.fs.File = undefined,
 
-/// Is this a Windows API terminal (note: this is not the same as being run on Windows
+/// Is this a windows API terminal (note: this is not the same as being run on windows
 /// because other terminals exist like MSYS/git-bash)
 is_windows_terminal: bool = false,
 
@@ -42,31 +35,21 @@ root: Node = undefined,
 
 /// Keeps track of how much time has passed since the beginning.
 /// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
-timer: ?time.Timer = null,
+timer: ?std.time.Timer = null,
 
 /// When the previous refresh was written to the terminal.
 /// Used to compare with `refresh_rate_ms`.
 prev_refresh_timestamp: u64 = undefined,
 
-/// This is the maximum number of bytes that can be written to the terminal each refresh.
-/// Anything larger than this is truncated.
-// we can bump this up if we need to
-output_buffer: [256]u8 = undefined,
-output_buffer_slice: []u8 = undefined,
-
-/// This is the maximum number of bytes written to the terminal with each refresh.
-///
-/// It is recommended to leave this as `null` so that `start` can automatically decide an
-/// optimal width for the terminal.
-///
-/// Note that this will be clamped to at least 4 and output will appear malformed if it is < 4.
-max_width: ?usize = null,
+/// This buffer represents the maximum number of bytes written to the terminal
+/// with each refresh.
+output_buffer: [100]u8 = undefined,
 
 /// How many nanoseconds between writing updates to the terminal.
-refresh_rate_ns: u64 = 50 * time.ns_per_ms,
+refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
 
-/// How many nanoseconds to keep the output hidden.
-initial_delay_ns: u64 = 500 * time.ns_per_ms,
+/// How many nanoseconds to keep the output hidden
+initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
 
 done: bool = true,
 
@@ -79,14 +62,11 @@ update_mutex: std.Thread.Mutex = .{},
 /// we can move the cursor back later.
 columns_written: usize = undefined,
 
-const truncation_suffix = "... ";
-
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
     context: *Progress,
     parent: ?*Node,
-    /// The name that will be displayed for this node.
     name: []const u8,
     /// Must be handled atomically to be thread-safe.
     recently_updated_child: ?*Node = null,
@@ -159,13 +139,9 @@ pub const Node = struct {
 
 /// Create a new progress node.
 /// Call `Node.end` when done.
+/// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
+/// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
-///
-/// Note that as soon as work is started and progress output is printed,
-/// `std.Progress` expects you to lean back and wait and not resize the terminal.
-/// Resizing the terminal during progress output may result in malformed output.
-// TODO: solve https://github.com/ziglang/zig/issues/2765 and then change this
-// API to return Progress rather than accept it as a parameter.
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
     const stderr = std.io.getStdErr();
     self.terminal = null;
@@ -179,7 +155,6 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
-    self.calculateMaxWidth();
     self.root = Node{
         .context = self,
         .parent = null,
@@ -189,81 +164,9 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
     };
     self.columns_written = 0;
     self.prev_refresh_timestamp = 0;
-    self.timer = time.Timer.start() catch null;
+    self.timer = std.time.Timer.start() catch null;
     self.done = false;
     return &self.root;
-}
-
-fn calculateMaxWidth(self: *Progress) void {
-    if (self.max_width == null) {
-        if (self.terminal) |terminal| {
-            // choose an optimal width and account for progress output that could have been printed
-            // before us by another `std.Progress` instance
-            const terminal_width = self.getTerminalWidth(terminal.handle) catch 100;
-            const chars_already_printed = self.getTerminalCursorColumn(terminal) catch 0;
-            self.max_width = terminal_width - chars_already_printed;
-        } else {
-            self.max_width = 100;
-        }
-    }
-    self.max_width = std.math.clamp(
-        self.max_width.?,
-        truncation_suffix.len, // make sure we can at least truncate
-        self.output_buffer.len - 1,
-    );
-}
-
-fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
-    if (builtin.os.tag == .linux) {
-        // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
-        //       they too should have capabilities to figure out the cursor column.
-        var winsize: os.linux.winsize = undefined;
-        switch (os.errno(os.linux.ioctl(file_handle, os.linux.T.IOCGWINSZ, @ptrToInt(&winsize)))) {
-            .SUCCESS => return winsize.ws_col,
-            else => return error.Unexpected,
-        }
-    } else if (builtin.os.tag == .windows) {
-        std.debug.assert(self.is_windows_terminal);
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
-            return error.Unexpected;
-        return @intCast(u16, info.dwSize.X);
-    } else {
-        return error.Unsupported;
-    }
-}
-
-fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
-    // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
-    //       they too should have termios or capabilities to figure out the terminal width.
-    if (builtin.os.tag == .linux and self.supports_ansi_escape_codes) {
-        // First, disable echo and enable non-canonical mode
-        // (so that no enter press required for us to read the output of the escape sequence below)
-        const original_termios = try os.tcgetattr(file.handle);
-        var new_termios = original_termios;
-        new_termios.lflag &= ~(os.linux.ECHO | os.linux.ICANON);
-        try os.tcsetattr(file.handle, .NOW, new_termios);
-        defer os.tcsetattr(file.handle, .NOW, original_termios) catch {
-            // Sorry for ruining your terminal
-        };
-
-        try file.writeAll("\x1b[6n");
-        var buf: ["\x1b[65536;65536R".len]u8 = undefined;
-        const output = try file.reader().readUntilDelimiter(&buf, 'R');
-        var splitter = std.mem.split(u8, output, ";");
-        _ = splitter.next().?; // skip first half
-        const column_half = splitter.next() orelse return error.UnexpectedEnd;
-        const column = try std.fmt.parseUnsigned(u16, column_half, 10);
-        return column - 1; // it's one-based
-    } else if (builtin.os.tag == .windows) {
-        std.debug.assert(self.is_windows_terminal);
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
-            return error.Unexpected;
-        return @intCast(u16, info.dwCursorPosition.X);
-    } else {
-        return error.Unsupported;
-    }
 }
 
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
@@ -295,16 +198,14 @@ fn refreshWithHeldLock(self: *Progress) void {
 
     const file = self.terminal orelse return;
 
-    // prepare for printing unprintable characters
-    self.output_buffer_slice = &self.output_buffer;
-
     var end: usize = 0;
     if (self.columns_written > 0) {
         // restore the cursor position by moving the cursor
-        // `columns_written` cells to the left, then clear the rest of the line
+        // `columns_written` cells to the left, then clear the rest of the
+        // line
         if (self.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[0K", .{}) catch unreachable).len;
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
         } else if (builtin.os.tag == .windows) winapi: {
             std.debug.assert(self.is_windows_terminal);
 
@@ -346,53 +247,47 @@ fn refreshWithHeldLock(self: *Progress) void {
                 unreachable;
         } else {
             // we are in a "dumb" terminal like in acme or writing to a file
-            self.output_buffer_slice[end] = '\n';
+            self.output_buffer[end] = '\n';
             end += 1;
         }
 
         self.columns_written = 0;
     }
 
-    // from here on we will write printable characters. we also make sure the unprintable characters
-    // we possibly wrote previously don't affect whether we truncate the line in `bufWrite`.
-    const unprintables = end;
-    end = 0;
-    self.output_buffer_slice = self.output_buffer[unprintables..@min(self.output_buffer.len, unprintables + self.max_width.?)];
-
     if (!self.done) {
-        var need_ellipsis = false;
+        var need_ellipse = false;
         var maybe_node: ?*Node = &self.root;
         while (maybe_node) |node| {
-            if (need_ellipsis) {
+            if (need_ellipse) {
                 self.bufWrite(&end, "... ", .{});
             }
-            need_ellipsis = false;
-            const estimated_total_items = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
+            need_ellipse = false;
+            const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
             const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
             const current_item = completed_items + 1;
-            if (node.name.len != 0 or estimated_total_items > 0) {
+            if (node.name.len != 0 or eti > 0) {
                 if (node.name.len != 0) {
                     self.bufWrite(&end, "{s}", .{node.name});
-                    need_ellipsis = true;
+                    need_ellipse = true;
                 }
-                if (estimated_total_items > 0) {
-                    if (need_ellipsis) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, estimated_total_items });
-                    need_ellipsis = false;
+                if (eti > 0) {
+                    if (need_ellipse) self.bufWrite(&end, " ", .{});
+                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
+                    need_ellipse = false;
                 } else if (completed_items != 0) {
-                    if (need_ellipsis) self.bufWrite(&end, " ", .{});
+                    if (need_ellipse) self.bufWrite(&end, " ", .{});
                     self.bufWrite(&end, "[{d}] ", .{current_item});
-                    need_ellipsis = false;
+                    need_ellipse = false;
                 }
             }
             maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .Acquire);
         }
-        if (need_ellipsis) {
+        if (need_ellipse) {
             self.bufWrite(&end, "... ", .{});
         }
     }
 
-    _ = file.write(self.output_buffer[0 .. end + unprintables]) catch {
+    _ = file.write(self.output_buffer[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
@@ -415,113 +310,32 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
 }
 
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
-    if (std.fmt.bufPrint(self.output_buffer_slice[end.*..], format, args)) |written| {
+    if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
         const amt = written.len;
         end.* += amt;
         self.columns_written += amt;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
-            // truncate the line with a suffix.
-            // for example if we have "hello world" (len=11) and 10 is the limit,
-            // it would become "hello w... "
-            self.columns_written += self.output_buffer_slice.len - end.*;
-            end.* = self.output_buffer_slice.len;
-            std.mem.copy(
-                u8,
-                self.output_buffer_slice[self.output_buffer_slice.len - truncation_suffix.len ..],
-                truncation_suffix,
-            );
+            self.columns_written += self.output_buffer.len - end.*;
+            end.* = self.output_buffer.len;
+            const suffix = "... ";
+            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
     }
 }
 
-// By default these tests are disabled because they use time.sleep()
-// and are therefore slow. They also prints bogus progress data to stderr.
-const skip_tests = true;
-
-test "behavior on buffer overflow" {
-    if (skip_tests)
-        return error.SkipZigTest;
-
-    // uncomment this to move the cursor
-    //std.debug.print("{s}", .{"A" ** 300});
-
-    var progress = Progress{};
-
-    const long_string = "A" ** 300;
-    var node = progress.start(long_string, 0);
-
-    const speed_factor = time.ns_per_s / 4;
-
-    time.sleep(speed_factor);
-    node.activate();
-    time.sleep(speed_factor);
-    node.end();
-}
-
-test "multiple tasks with long names" {
-    if (skip_tests)
-        return error.SkipZigTest;
-
-    var progress = Progress{};
-
-    const tasks = [_][]const u8{
-        "A" ** 99,
-        "A" ** 100,
-        "A" ** 101,
-        "A" ** 102,
-        "A" ** 103,
-    };
-
-    const speed_factor = time.ns_per_s / 6;
-
-    for (tasks) |task| {
-        var node = progress.start(task, 3);
-        time.sleep(speed_factor);
-        node.activate();
-
-        time.sleep(speed_factor);
-        node.completeOne();
-        time.sleep(speed_factor);
-        node.completeOne();
-        time.sleep(speed_factor);
-        node.completeOne();
-
-        node.end();
-    }
-}
-
-test "very short max width" {
-    if (skip_tests)
-        return error.SkipZigTest;
-
-    var progress = Progress{ .max_width = 4 };
-
-    const task = "A" ** 300;
-
-    const speed_factor = time.ns_per_s / 2;
-
-    var node = progress.start(task, 3);
-    time.sleep(speed_factor);
-    node.activate();
-
-    time.sleep(speed_factor);
-    node.completeOne();
-    time.sleep(speed_factor);
-    node.completeOne();
-
-    node.end();
-}
-
 test "basic functionality" {
-    if (skip_tests)
+    var disable = true;
+    if (disable) {
+        // This test is disabled because it uses time.sleep() and is therefore slow. It also
+        // prints bogus progress data to stderr.
         return error.SkipZigTest;
-
+    }
     var progress = Progress{};
     const root_node = progress.start("", 100);
     defer root_node.end();
 
-    const speed_factor = time.ns_per_ms;
+    const speed_factor = std.time.ns_per_ms;
 
     const sub_task_names = [_][]const u8{
         "reticulating splines",
@@ -538,24 +352,24 @@ test "basic functionality" {
         next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
         node.completeOne();
-        time.sleep(5 * speed_factor);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        time.sleep(5 * speed_factor);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        time.sleep(5 * speed_factor);
+        std.time.sleep(5 * speed_factor);
 
         node.end();
 
-        time.sleep(5 * speed_factor);
+        std.time.sleep(5 * speed_factor);
     }
     {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", 0);
         node.activate();
-        time.sleep(10 * speed_factor);
+        std.time.sleep(10 * speed_factor);
         progress.refresh();
-        time.sleep(10 * speed_factor);
+        std.time.sleep(10 * speed_factor);
         node.end();
     }
 }
