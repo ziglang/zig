@@ -444,6 +444,13 @@ pub const Zld = struct {
                     );
                 },
                 macho.S_COALESCED => {
+                    // TODO unwind info
+                    if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+                        log.debug("TODO eh frame section: type 0x{x}, name '{s},{s}'", .{
+                            sect.flags, segname, sectname,
+                        });
+                        break :blk null;
+                    }
                     break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
                         segname,
                         sectname,

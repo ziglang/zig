@@ -104,11 +104,12 @@ fn markLive(
     alive: *AtomTable,
     reverse_lookups: [][]u32,
 ) anyerror!void {
+    log.debug("mark(ATOM({d}))", .{atom_index});
+
     if (alive.contains(atom_index)) return;
 
     alive.putAssumeCapacityNoClobber(atom_index, {});
 
-    log.debug("marking live", .{});
     zld.logAtom(atom_index, log);
 
     const cpu_arch = zld.options.target.cpu.arch;
@@ -152,11 +153,15 @@ fn markLive(
 
         const object = zld.objects.items[target.getFile().?];
         const target_atom_index = object.getAtomIndexForSymbol(target.sym_index).?;
+        log.debug("  following ATOM({d})", .{target_atom_index});
+
         try markLive(zld, target_atom_index, alive, reverse_lookups);
     }
 }
 
 fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable, reverse_lookups: [][]u32) !bool {
+    log.debug("refersLive(ATOM({d}))", .{atom_index});
+
     const cpu_arch = zld.options.target.cpu.arch;
 
     const atom = zld.getAtom(atom_index);
@@ -191,7 +196,10 @@ fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable, reverse_lookup
             log.debug("atom for symbol '{s}' not found; skipping...", .{zld.getSymbolName(target)});
             continue;
         };
-        if (alive.contains(target_atom_index)) return true;
+        if (alive.contains(target_atom_index)) {
+            log.debug("  refers live ATOM({d})", .{target_atom_index});
+            return true;
+        }
     }
 
     return false;
