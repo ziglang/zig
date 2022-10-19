@@ -287,7 +287,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
     for (sections) |sect, id| {
         if (sect.isDebug()) continue;
         const out_sect_id = (try zld.getOutputSection(sect)) orelse {
-            log.debug("  unhandled section", .{});
+            log.debug("  unhandled section '{s},{s}'", .{ sect.segName(), sect.sectName() });
             continue;
         };
         if (sect.size == 0) continue;
@@ -306,10 +306,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
     if (self.in_symtab == null) {
         for (sections) |sect, id| {
             if (sect.isDebug()) continue;
-            const out_sect_id = (try zld.getOutputSection(sect)) orelse {
-                log.debug("  unhandled section", .{});
-                continue;
-            };
+            const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
             if (sect.size == 0) continue;
 
             const sect_id = @intCast(u8, id);
@@ -367,10 +364,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get output segment/section in the final artifact.
-        const out_sect_id = (try zld.getOutputSection(sect)) orelse {
-            log.debug("  unhandled section", .{});
-            continue;
-        };
+        const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
 
         log.debug("  output sect({d}, '{s},{s}')", .{
             out_sect_id + 1,

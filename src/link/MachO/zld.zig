@@ -2527,6 +2527,8 @@ pub const Zld = struct {
         const gpa = self.gpa;
 
         const stub_helper_section_index = self.getSectionByName("__TEXT", "__stub_helper") orelse return;
+        const la_symbol_ptr_section_index = self.getSectionByName("__DATA", "__la_symbol_ptr") orelse return;
+
         if (self.stub_helper_preamble_sym_index == null) return;
 
         const section = self.sections.get(stub_helper_section_index);
@@ -2537,7 +2539,6 @@ pub const Zld = struct {
 
         {
             var stub_atom_index = last_atom_index;
-            const la_symbol_ptr_section_index = self.getSectionByName("__DATA", "__la_symbol_ptr").?;
             var laptr_atom_index = self.sections.items(.last_atom_index)[la_symbol_ptr_section_index];
 
             const base_addr = blk: {
