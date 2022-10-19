@@ -1469,6 +1469,7 @@ pub const LibExeObjStep = struct {
     major_only_filename: ?[]const u8,
     name_only_filename: ?[]const u8,
     strip: ?bool,
+    unwind_tables: ?bool,
     // keep in sync with src/link.zig:CompressDebugSections
     compress_debug_sections: enum { none, zlib } = .none,
     lib_paths: ArrayList([]const u8),
@@ -1739,6 +1740,7 @@ pub const LibExeObjStep = struct {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = LibExeObjStep{
             .strip = null,
+            .unwind_tables = null,
             .builder = builder,
             .verbose_link = false,
             .verbose_cc = false,
@@ -2695,6 +2697,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fstrip");
             } else {
                 try zig_args.append("-fno-strip");
+            }
+        }
+
+        if (self.unwind_tables) |unwind_tables| {
+            if (unwind_tables) {
+                try zig_args.append("-funwind-tables");
+            } else {
+                try zig_args.append("-fno-unwind-tables");
             }
         }
 
