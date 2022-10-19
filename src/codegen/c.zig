@@ -336,6 +336,26 @@ pub const Function = struct {
     fn fmtIntLiteral(f: *Function, ty: Type, val: Value) !std.fmt.Formatter(formatIntLiteral) {
         return f.object.dg.fmtIntLiteral(ty, val);
     }
+
+    fn renderFloatFnName(f: *Function, fn_name: []const u8, float_ty: Type) !void {
+        const target = f.object.dg.module.getTarget();
+        const float_bits = float_ty.floatBits(target);
+        const is_longdouble = float_bits == CType.longdouble.sizeInBits(target);
+        const writer = f.object.writer();
+        if (!is_longdouble and float_bits == 80) {
+            try writer.writeAll("__");
+        }
+        try writer.writeAll(fn_name);
+        if (is_longdouble) {
+            try writer.writeByte('l');
+        } else switch (float_bits) {
+            16, 32 => try writer.writeByte('f'),
+            64 => {},
+            80 => try writer.writeByte('x'),
+            128 => try writer.writeByte('q'),
+            else => unreachable,
+        }
+    }
 };
 
 /// This data is available when outputting .c code for a `Module`.
@@ -2076,8 +2096,17 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .sub                   => try airBinOp (f, inst, " - "),
             .mul                   => try airBinOp (f, inst, " * "),
             .div_float, .div_exact => try airBinOp( f, inst, " / "),
-            .rem                   => try airBinOp( f, inst, " % "),
 
+            .rem => blk: {
+                const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+                const lhs_ty = f.air.typeOf(bin_op.lhs);
+                // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
+                // so we only check one.
+                break :blk if (lhs_ty.isInt())
+                    try airBinOp(f, inst, " % ")
+                else
+                    try airBinFloatOp(f, inst, "fmod"); // yes, @rem() => fmod()
+            },
             .div_trunc => blk: {
                 const bin_op = f.air.instructions.items(.data)[inst].bin_op;
                 const lhs_ty = f.air.typeOf(bin_op.lhs);
@@ -2115,8 +2144,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .floor,
             .ceil,
             .round,
-            .trunc_float,
-            => |tag| return f.fail("TODO: C backend: implement unary op for tag '{s}'", .{@tagName(tag)}),
+            => |tag| try airUnFloatOp(f, inst, @tagName(tag)),
+            .trunc_float => try airUnFloatOp(f, inst, "trunc"),
 
             .mul_add => try airMulAdd(f, inst),
 
@@ -4573,9 +4602,42 @@ fn airNeg(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const operand = try f.resolveInst(un_op);
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeByte('-');
+    try writer.writeAll(" = -");
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
+    return local;
+}
+
+fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, fn_name: []const u8) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try f.renderFloatFnName(fn_name, inst_ty);
+    try writer.writeByte('(');
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
+    return local;
+}
+
+fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, fn_name: []const u8) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try f.renderFloatFnName(fn_name, inst_ty);
+    try writer.writeByte('(');
+    try f.writeCValue(writer, lhs);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, rhs);
+    try writer.writeAll(");\n");
     return local;
 }
 
@@ -4588,17 +4650,10 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const mulend2 = try f.resolveInst(extra.rhs);
     const addend = try f.resolveInst(pl_op.operand);
     const writer = f.object.writer();
-    const target = f.object.dg.module.getTarget();
-    const fn_name = switch (inst_ty.floatBits(target)) {
-        16, 32 => "fmaf",
-        64 => "fma",
-        80 => if (CType.longdouble.sizeInBits(target) == 80) "fmal" else "__fmax",
-        128 => if (CType.longdouble.sizeInBits(target) == 128) "fmal" else "fmaq",
-        else => unreachable,
-    };
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
-    try writer.print("{s}(", .{fn_name});
+    try f.renderFloatFnName("fma", inst_ty);
+    try writer.writeByte('(');
     try f.writeCValue(writer, mulend1);
     try writer.writeAll(", ");
     try f.writeCValue(writer, mulend2);
