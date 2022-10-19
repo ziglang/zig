@@ -2144,6 +2144,8 @@ pub const Zld = struct {
             const segment = self.getSegment(@intCast(u8, sect_id));
             if (segment.maxprot & macho.PROT.WRITE == 0) continue;
 
+            log.debug("{s},{s}", .{ header.segName(), header.sectName() });
+
             const cpu_arch = self.options.target.cpu.arch;
             var atom_index = slice.items(.first_atom_index)[sect_id];
 
@@ -2153,13 +2155,13 @@ pub const Zld = struct {
 
                 const should_rebase = blk: {
                     if (self.dyld_private_sym_index) |sym_index| {
-                        if (atom.sym_index == sym_index) break :blk false;
+                        if (atom.getFile() == null and atom.sym_index == sym_index) break :blk false;
                     }
                     break :blk !sym.undf();
                 };
 
                 if (should_rebase) {
-                    log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
+                    log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
 
                     const object = self.objects.items[atom.getFile().?];
                     const source_sym = object.getSourceSymbol(atom.sym_index).?;
@@ -2273,15 +2275,17 @@ pub const Zld = struct {
             const cpu_arch = self.options.target.cpu.arch;
             var atom_index = slice.items(.first_atom_index)[sect_id];
 
+            log.debug("{s},{s}", .{ header.segName(), header.sectName() });
+
             while (true) {
                 const atom = self.getAtom(atom_index);
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
 
-                log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
+                log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
 
                 const should_bind = blk: {
                     if (self.dyld_private_sym_index) |sym_index| {
-                        if (atom.sym_index == sym_index) break :blk false;
+                        if (atom.getFile() == null and atom.sym_index == sym_index) break :blk false;
                     }
                     break :blk true;
                 };
