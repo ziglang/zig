@@ -3700,6 +3700,13 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
+    switch (builtin.cpu.arch) {
+        // This test generates too much code to execute on WASI.
+        // LLVM backend fails with "too many locals: locals exceed maximum"
+        .wasm32, .wasm64 => return error.SkipZigTest,
+        else => {},
+    }
+
     const foreign_endian: Endian = if (native_endian == .Big) .Little else .Big;
     const expect = std.testing.expect;
     var prng = std.rand.DefaultPrng.init(1234);
