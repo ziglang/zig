@@ -3018,7 +3018,10 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.appendSlice(&.{ self_exe_path, "run", "-lc", c_code_path });
+        try test_exec_args.append(self_exe_path);
+        try test_exec_args.append("run");
+        if (link_libc) try test_exec_args.append("-lc");
+        try test_exec_args.append(c_code_path);
     }
 
     const run_or_test = switch (arg_mode) {

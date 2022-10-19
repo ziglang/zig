@@ -14,6 +14,12 @@
 #define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
+#if defined(_MSC_VER)
+#define ZIG_NAKED __declspec(naked)
+#else
+#define ZIG_NAKED __attribute__((naked))
+#endif
+
 #if __GNUC__
 #define ZIG_COLD __attribute__ ((cold))
 #else
@@ -165,7 +171,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
-#include <math.h>
 
 #define int128_t __int128
 #define uint128_t unsigned __int128

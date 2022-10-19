@@ -108,11 +108,18 @@ pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid:
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("syscall"
-        :
-        : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
-        : "rcx", "r11", "memory"
-    );
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => return asm volatile (std.fmt.comptimePrint(
+                \\ movl ${d}, %%eax
+                \\ syscall
+                \\ retq
+            , .{@enumToInt(SYS.rt_sigreturn)}) ::: "rcx", "r11", "memory"),
+        else => return asm volatile ("syscall"
+            :
+            : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
+            : "rcx", "r11", "memory"
+        ),
+    }
 }
 
 pub const mode_t = usize;

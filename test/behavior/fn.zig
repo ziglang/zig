@@ -272,7 +272,6 @@ test "void parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
