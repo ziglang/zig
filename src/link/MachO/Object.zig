@@ -515,8 +515,9 @@ pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
 }
 
 /// Caller owns memory.
-pub fn createReverseSymbolLookup(self: Object, gpa: Allocator) ![]u32 {
-    const lookup = try gpa.alloc(u32, self.in_symtab.?.len);
+pub fn createReverseSymbolLookup(self: Object, arena: Allocator) ![]u32 {
+    const symtab = self.in_symtab orelse return &[0]u32{};
+    const lookup = try arena.alloc(u32, symtab.len);
     for (self.source_symtab_lookup) |source_id, id| {
         lookup[source_id] = @intCast(u32, id);
     }

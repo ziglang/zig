@@ -3486,6 +3486,7 @@ pub const Zld = struct {
         scoped_log.debug("locals:", .{});
         for (self.objects.items) |object, id| {
             scoped_log.debug("  object({d}): {s}", .{ id, object.name });
+            if (object.in_symtab == null) continue;
             for (object.symtab) |sym, sym_id| {
                 mem.set(u8, &buf, '_');
                 scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
@@ -3641,7 +3642,7 @@ pub const Zld = struct {
             sym.n_sect,
         });
 
-        if (atom.getFile() != null)  {
+        if (atom.getFile() != null) {
             var it = Atom.getInnerSymbolsIterator(self, atom_index);
             while (it.next()) |sym_loc| {
                 const inner = self.getSymbol(sym_loc);
