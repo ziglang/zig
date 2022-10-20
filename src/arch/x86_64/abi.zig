@@ -388,6 +388,19 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             }
             return result;
         },
+        .Array => {
+            const ty_size = ty.abiSize(target);
+            if (ty_size <= 64) {
+                result[0] = .integer;
+                return result;
+            }
+            if (ty_size <= 128) {
+                result[0] = .integer;
+                result[1] = .integer;
+                return result;
+            }
+            return memory_class;
+        },
         else => unreachable,
     }
 }

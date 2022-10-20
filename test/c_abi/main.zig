@@ -665,3 +665,19 @@ test "C ABI integer return types" {
     try expect(c_ret_i32() == -1);
     try expect(c_ret_i64() == -1);
 }
+
+const StructWithArray = extern struct {
+    a: i32,
+    padding: [4]u8,
+    b: i64,
+};
+extern fn c_struct_with_array(StructWithArray) void;
+extern fn c_ret_struct_with_array() StructWithArray;
+
+test "Struct with array as padding." {
+    c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
+
+    var x = c_ret_struct_with_array();
+    try std.testing.expect(x.a == 4);
+    try std.testing.expect(x.b == 155);
+}

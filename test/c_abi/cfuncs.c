@@ -596,3 +596,18 @@ int32_t c_ret_i32() {
 int64_t c_ret_i64() {
     return -1;
 }
+
+typedef struct {
+    uint32_t a;
+    uint8_t padding[4];
+    uint64_t b;
+} StructWithArray;
+
+void c_struct_with_array(StructWithArray x) {
+    assert_or_panic(x.a == 1);
+    assert_or_panic(x.b == 2);
+}
+
+StructWithArray c_ret_struct_with_array() {
+    return (StructWithArray) { 4, {}, 155 };
+}
