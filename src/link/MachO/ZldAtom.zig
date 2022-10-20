@@ -843,8 +843,10 @@ fn resolveRelocsX86(
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
-                // We need to rewrite the opcode from movq to leaq.
-                atom_code[rel_offset - 2] = 0x8d;
+                if (zld.tlv_ptr_table.get(target) == null) {
+                    // We need to rewrite the opcode from movq to leaq.
+                    atom_code[rel_offset - 2] = 0x8d;
+                }
 
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
