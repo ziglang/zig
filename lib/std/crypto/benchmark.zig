@@ -317,12 +317,13 @@ const pwhashes = [_]CryptoPwhash{
 };
 
 fn benchmarkPwhash(
+    allocator: mem.Allocator,
     comptime ty: anytype,
     comptime params: *const anyopaque,
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = .{ .allocator = std.testing.allocator, .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
+    const opts = .{ .allocator = allocator, .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
     var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
@@ -361,9 +362,10 @@ fn mode(comptime x: comptime_int) comptime_int {
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    var buffer: [1024]u8 = undefined;
-    var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-    const args = try std.process.argsAlloc(fixed.allocator());
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+    const args = try std.process.argsAlloc(arena_allocator);
 
     var filter: ?[]u8 = "";
 
@@ -463,7 +465,7 @@ pub fn main() !void {
 
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(H.ty, H.params, mode(64));
+            const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
         }
     }
