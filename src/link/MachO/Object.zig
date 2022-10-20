@@ -316,6 +316,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                 object_id,
                 sym_index,
                 0,
+                0,
                 sect.size,
                 sect.@"align",
                 out_sect_id,
@@ -392,6 +393,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                     object_id,
                     sym_index,
                     0,
+                    0,
                     atom_size,
                     sect.@"align",
                     out_sect_id,
@@ -429,6 +431,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                     zld,
                     object_id,
                     atom_sym_index,
+                    atom_sym_index + 1,
                     nsyms_trailing,
                     atom_size,
                     atom_align,
@@ -447,19 +450,17 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                 zld.addAtomToSection(atom_index);
             }
         } else {
-            const sym_index = self.getSectionAliasSymbolIndex(sect_id);
+            const alias_index = self.getSectionAliasSymbolIndex(sect_id);
             const atom_index = try self.createAtomFromSubsection(
                 zld,
                 object_id,
-                sym_index,
-                0,
+                alias_index,
+                sect_start_index,
+                sect_loc.len,
                 sect.size,
                 sect.@"align",
                 out_sect_id,
             );
-            // If there is no symbol to refer to this atom, we create
-            // a temp one, unless we already did that when working out the relocations
-            // of other atoms.
             zld.addAtomToSection(atom_index);
         }
     }
@@ -470,7 +471,8 @@ fn createAtomFromSubsection(
     zld: *Zld,
     object_id: u31,
     sym_index: u32,
-    nsyms_trailing: u32,
+    inner_sym_index: u32,
+    inner_nsyms_trailing: u32,
     size: u64,
     alignment: u32,
     out_sect_id: u8,
@@ -478,7 +480,8 @@ fn createAtomFromSubsection(
     const gpa = zld.gpa;
     const atom_index = try zld.createEmptyAtom(sym_index, size, alignment);
     const atom = zld.getAtomPtr(atom_index);
-    atom.nsyms_trailing = nsyms_trailing;
+    atom.inner_sym_index = inner_sym_index;
+    atom.inner_nsyms_trailing = inner_nsyms_trailing;
     atom.file = object_id;
     self.symtab[sym_index].n_sect = out_sect_id + 1;
 

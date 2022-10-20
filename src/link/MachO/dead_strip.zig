@@ -77,8 +77,15 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
     for (zld.objects.items) |object| {
         for (object.atoms.items) |atom_index| {
             const atom = zld.getAtom(atom_index);
-            const source_sym = object.getSourceSymbol(atom.sym_index) orelse continue;
-            const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+
+            const sect_id = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
+                source_sym.n_sect - 1
+            else blk: {
+                const nbase = @intCast(u32, object.in_symtab.?.len);
+                const sect_id = @intCast(u16, atom.sym_index - nbase);
+                break :blk sect_id;
+            };
+            const source_sect = object.getSourceSection(sect_id);
             const is_gc_root = blk: {
                 if (source_sect.isDontDeadStrip()) break :blk true;
                 if (mem.eql(u8, "__StaticInit", source_sect.sectName())) break :blk true;
@@ -220,8 +227,14 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable, reverse_lookups: [][]u32
                 if (alive.contains(atom_index)) continue;
 
                 const atom = zld.getAtom(atom_index);
-                const source_sym = object.getSourceSymbol(atom.sym_index) orelse continue;
-                const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+                const sect_id = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
+                    source_sym.n_sect - 1
+                else blk: {
+                    const nbase = @intCast(u32, object.in_symtab.?.len);
+                    const sect_id = @intCast(u16, atom.sym_index - nbase);
+                    break :blk sect_id;
+                };
+                const source_sect = object.getSourceSection(sect_id);
 
                 if (source_sect.isDontDeadStripIfReferencesLive()) {
                     if (try refersLive(zld, atom_index, alive.*, reverse_lookups)) {

@@ -1911,7 +1911,7 @@ pub const Zld = struct {
                     sym.n_value,
                 });
 
-                if (atom.getFile()) |_| {
+                if (atom.getFile() != null) {
                     // Update each symbol contained within the atom
                     var it = Atom.getInnerSymbolsIterator(self, atom_index);
                     while (it.next()) |sym_loc| {
@@ -2160,8 +2160,11 @@ pub const Zld = struct {
                     log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
 
                     const object = self.objects.items[atom.getFile().?];
-                    const source_sym = object.getSourceSymbol(atom.sym_index).?;
-                    const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+                    const base_rel_offset: i32 = blk: {
+                        const source_sym = object.getSourceSymbol(atom.sym_index) orelse break :blk 0;
+                        const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+                        break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
+                    };
                     const relocs = Atom.getAtomRelocs(self, atom_index);
 
                     for (relocs) |rel| {
@@ -2180,7 +2183,7 @@ pub const Zld = struct {
                         }
 
                         const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
-                        const rel_offset = rel.r_address - @intCast(i32, source_sym.n_value - source_sect.addr);
+                        const rel_offset = rel.r_address - base_rel_offset;
                         const offset = @intCast(u64, base_offset + rel_offset);
                         log.debug("    | rebase at {x}", .{offset});
 
@@ -2288,8 +2291,11 @@ pub const Zld = struct {
 
                 if (should_bind) {
                     const object = self.objects.items[atom.getFile().?];
-                    const source_sym = object.getSourceSymbol(atom.sym_index).?;
-                    const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+                    const base_rel_offset: i32 = blk: {
+                        const source_sym = object.getSourceSymbol(atom.sym_index) orelse break :blk 0;
+                        const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+                        break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
+                    };
                     const relocs = Atom.getAtomRelocs(self, atom_index);
 
                     for (relocs) |rel| {
@@ -2313,7 +2319,7 @@ pub const Zld = struct {
                         if (!bind_sym.undf()) continue;
 
                         const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
-                        const rel_offset = rel.r_address - @intCast(i32, source_sym.n_value - source_sect.addr);
+                        const rel_offset = rel.r_address - base_rel_offset;
                         const offset = @intCast(u64, base_offset + rel_offset);
 
                         const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
@@ -3491,7 +3497,7 @@ pub const Zld = struct {
                 });
             }
         }
-        scoped_log.debug("  object(null)", .{});
+        scoped_log.debug("  object(-1)", .{});
         for (self.locals.items) |sym, sym_id| {
             if (sym.undf()) continue;
             scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
@@ -3635,7 +3641,7 @@ pub const Zld = struct {
             sym.n_sect,
         });
 
-        if (atom.getFile()) |_| {
+        if (atom.getFile() != null)  {
             var it = Atom.getInnerSymbolsIterator(self, atom_index);
             while (it.next()) |sym_loc| {
                 const inner = self.getSymbol(sym_loc);

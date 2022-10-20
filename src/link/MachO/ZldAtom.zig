@@ -28,7 +28,8 @@ sym_index: u32,
 /// If this Atom references a subsection in an Object file, `nsyms_trailing`
 /// tells how many symbols trailing `sym_index` fall within this Atom's address
 /// range.
-nsyms_trailing: u32,
+inner_sym_index: u32,
+inner_nsyms_trailing: u32,
 
 /// -1 means symbol defined by the linker.
 /// Otherwise, it is the index into appropriate object file.
@@ -52,7 +53,8 @@ prev_index: ?AtomIndex,
 
 pub const empty = Atom{
     .sym_index = 0,
-    .nsyms_trailing = 0,
+    .inner_sym_index = 0,
+    .inner_nsyms_trailing = 0,
     .file = -1,
     .size = 0,
     .alignment = 0,
@@ -81,9 +83,10 @@ const InnerSymIterator = struct {
 
     pub fn next(it: *@This()) ?SymbolWithLoc {
         if (it.count == 0) return null;
+        const res = SymbolWithLoc{ .sym_index = it.sym_index, .file = it.file };
         it.sym_index += 1;
         it.count -= 1;
-        return SymbolWithLoc{ .sym_index = it.sym_index, .file = it.file };
+        return res;
     }
 };
 
@@ -91,8 +94,8 @@ pub fn getInnerSymbolsIterator(zld: *Zld, atom_index: AtomIndex) InnerSymIterato
     const atom = zld.getAtom(atom_index);
     assert(atom.getFile() != null);
     return .{
-        .sym_index = atom.sym_index,
-        .count = atom.nsyms_trailing,
+        .sym_index = atom.inner_sym_index,
+        .count = atom.inner_nsyms_trailing,
         .file = atom.file,
     };
 }
@@ -123,9 +126,16 @@ pub fn calcInnerSymbolOffset(zld: *Zld, atom_index: AtomIndex, sym_index: u32) u
     if (atom.sym_index == sym_index) return 0;
 
     const object = zld.objects.items[atom.getFile().?];
-    const source_atom_sym = object.getSourceSymbol(atom.sym_index).?;
     const source_sym = object.getSourceSymbol(sym_index).?;
-    return source_sym.n_value - source_atom_sym.n_value;
+    const base_addr = if (object.getSourceSymbol(atom.sym_index)) |sym|
+        sym.n_value
+    else blk: {
+        const nbase = @intCast(u32, object.in_symtab.?.len);
+        const sect_id = @intCast(u16, atom.sym_index - nbase);
+        const source_sect = object.getSourceSection(sect_id);
+        break :blk source_sect.addr;
+    };
+    return source_sym.n_value - base_addr;
 }
 
 pub fn scanAtomRelocs(
@@ -383,13 +393,13 @@ pub fn resolveRelocs(
                 .base_offset = @intCast(i32, source_sym.n_value - source_sect.addr),
             };
         }
-        for (object.getSourceSections()) |source_sect, i| {
-            const sym_index = object.getSectionAliasSymbolIndex(@intCast(u8, i));
-            if (sym_index == atom.sym_index) break :blk .{
-                .base_addr = source_sect.addr,
-                .base_offset = 0,
-            };
-        } else unreachable;
+        const nbase = @intCast(u32, object.in_symtab.?.len);
+        const sect_id = @intCast(u16, atom.sym_index - nbase);
+        const source_sect = object.getSourceSection(sect_id);
+        break :blk .{
+            .base_addr = source_sect.addr,
+            .base_offset = 0,
+        };
     };
 
     log.debug("resolving relocations in ATOM(%{d}, '{s}')", .{
@@ -918,11 +928,9 @@ pub fn getAtomCode(zld: *Zld, atom_index: AtomIndex) []const u8 {
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
-        const source_sect = for (object.getSourceSections()) |source_sect, sect_id| {
-            const sym_index = object.getSectionAliasSymbolIndex(@intCast(u8, sect_id));
-            if (sym_index == atom.sym_index) break source_sect;
-        } else unreachable;
-
+        const nbase = @intCast(u32, object.in_symtab.?.len);
+        const sect_id = @intCast(u16, atom.sym_index - nbase);
+        const source_sect = object.getSourceSection(sect_id);
         assert(!source_sect.isZerofill());
         const code = object.getSectionContents(source_sect);
         const code_len = @intCast(usize, atom.size);
@@ -949,10 +957,9 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []align(1) const macho.re
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
-        const source_sect = for (object.getSourceSections()) |source_sect, sect_id| {
-            const sym_index = object.getSectionAliasSymbolIndex(@intCast(u8, sect_id));
-            if (sym_index == atom.sym_index) break source_sect;
-        } else unreachable;
+        const nbase = @intCast(u32, object.in_symtab.?.len);
+        const sect_id = @intCast(u16, atom.sym_index - nbase);
+        const source_sect = object.getSourceSection(sect_id);
         assert(!source_sect.isZerofill());
         break :blk source_sect;
     };
