@@ -650,3 +650,30 @@ void c_struct_with_array(StructWithArray x) {
 StructWithArray c_ret_struct_with_array() {
     return (StructWithArray) { 4, {}, 155 };
 }
+
+typedef struct {
+    struct Point {
+        double x;
+        double y;
+    } origin;
+    struct Size {
+        double width;
+        double height;
+    } size;
+} FloatArrayStruct;
+
+void c_float_array_struct(FloatArrayStruct x) {
+    assert_or_panic(x.origin.x == 5);
+    assert_or_panic(x.origin.y == 6);
+    assert_or_panic(x.size.width == 7);
+    assert_or_panic(x.size.height == 8);
+}
+
+FloatArrayStruct c_ret_float_array_struct() {
+    FloatArrayStruct x;
+    x.origin.x = 1;
+    x.origin.y = 2;
+    x.size.width = 3;
+    x.size.height = 4;
+    return x;
+}

@@ -700,3 +700,36 @@ test "Struct with array as padding." {
     try std.testing.expect(x.a == 4);
     try std.testing.expect(x.b == 155);
 }
+
+const FloatArrayStruct = extern struct {
+    origin: extern struct {
+        x: f64,
+        y: f64,
+    },
+    size: extern struct {
+        width: f64,
+        height: f64,
+    },
+};
+
+extern fn c_float_array_struct(FloatArrayStruct) void;
+extern fn c_ret_float_array_struct() FloatArrayStruct;
+
+test "Float array like struct" {
+    c_float_array_struct(.{
+        .origin = .{
+            .x = 5,
+            .y = 6,
+        },
+        .size = .{
+            .width = 7,
+            .height = 8,
+        },
+    });
+
+    var x = c_ret_float_array_struct();
+    try std.testing.expect(x.origin.x == 1);
+    try std.testing.expect(x.origin.y == 2);
+    try std.testing.expect(x.size.width == 3);
+    try std.testing.expect(x.size.height == 4);
+}

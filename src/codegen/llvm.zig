@@ -3125,10 +3125,10 @@ pub const DeclGen = struct {
             .as_u16 => {
                 try llvm_params.append(dg.context.intType(16));
             },
-            .float_array => {
+            .float_array => |count| {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
-                const float_ty = try dg.lowerType(param_ty.structFieldType(0));
-                const field_count = @intCast(c_uint, param_ty.structFieldCount());
+                const float_ty = try dg.lowerType(aarch64_c_abi.getFloatArrayType(param_ty).?);
+                const field_count = @intCast(c_uint, count);
                 const arr_ty = float_ty.arrayType(field_count);
                 try llvm_params.append(arr_ty);
             },
@@ -4801,7 +4801,7 @@ pub const FuncGen = struct {
                 const casted = self.builder.buildBitCast(llvm_arg, self.dg.context.intType(16), "");
                 try llvm_args.append(casted);
             },
-            .float_array => {
+            .float_array => |count| {
                 const arg = args[it.zig_index - 1];
                 const arg_ty = self.air.typeOf(arg);
                 var llvm_arg = try self.resolveInst(arg);
@@ -4812,9 +4812,8 @@ pub const FuncGen = struct {
                     llvm_arg = store_inst;
                 }
 
-                const float_ty = try self.dg.lowerType(arg_ty.structFieldType(0));
-                const field_count = @intCast(u32, arg_ty.structFieldCount());
-                const array_llvm_ty = float_ty.arrayType(field_count);
+                const float_ty = try self.dg.lowerType(aarch64_c_abi.getFloatArrayType(arg_ty).?);
+                const array_llvm_ty = float_ty.arrayType(count);
 
                 const casted = self.builder.buildBitCast(llvm_arg, array_llvm_ty.pointerType(0), "");
                 const alignment = arg_ty.abiAlignment(target);
@@ -10214,7 +10213,7 @@ const ParamTypeIterator = struct {
     llvm_types_buffer: [8]u16,
     byval_attr: bool,
 
-    const Lowering = enum {
+    const Lowering = union(enum) {
         no_bits,
         byval,
         byref,
@@ -10223,7 +10222,7 @@ const ParamTypeIterator = struct {
         multiple_llvm_float,
         slice,
         as_u16,
-        float_array,
+        float_array: u8,
     };
 
     pub fn next(it: *ParamTypeIterator) ?Lowering {
@@ -10400,7 +10399,7 @@ const ParamTypeIterator = struct {
                             return .byref;
                         }
                         if (classes[0] == .float_array) {
-                            return .float_array;
+                            return Lowering{ .float_array = @enumToInt(classes[1]) };
                         }
                         if (classes[1] == .none) {
                             it.llvm_types_len = 1;
