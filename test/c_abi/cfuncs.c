@@ -16,7 +16,19 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_I128
 #endif
 
+#ifdef __arm__
+#  define ZIG_NO_I128
+#endif
+
+#ifdef __mips__
+#  define ZIG_NO_I128
+#endif
+
 #ifdef __i386__
+#  define ZIG_NO_COMPLEX
+#endif
+
+#ifdef __mips__
 #  define ZIG_NO_COMPLEX
 #endif
 
@@ -237,12 +249,14 @@ void run_c_tests(void) {
     }
 #endif
 
+#if !defined __mips__ && !defined __riscv
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
     }
+#endif
 
-#ifndef __i386__
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -267,25 +281,28 @@ void run_c_tests(void) {
         zig_small_packed_struct(s);
     }
 
-#ifndef __i386__
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
     }
 #endif
 
+#if !defined __arm__ && !defined __riscv
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
     }
+#endif
 
-#ifndef __i386__
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
 #endif
 
+#if !defined __mips__ && !defined __riscv
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -295,25 +312,32 @@ void run_c_tests(void) {
         assert_or_panic(res.d == 23);
         assert_or_panic(res.e == 24);
     }
+#endif
 
+#ifndef __riscv
     {
         struct Rect r1 = {1, 21, 16, 4};
         struct Rect r2 = {178, 189, 21, 15};
         zig_multiple_struct_ints(r1, r2);
     }
+#endif
 
+#if !defined __mips__ && !defined __riscv
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};
         zig_multiple_struct_floats(r1, r2);
     }
+#endif
 
     {
         assert_or_panic(zig_ret_bool() == 1);
 
         assert_or_panic(zig_ret_u8() == 0xff);
         assert_or_panic(zig_ret_u16() == 0xffff);
+#ifndef __riscv
         assert_or_panic(zig_ret_u32() == 0xffffffff);
+#endif
         assert_or_panic(zig_ret_u64() == 0xffffffffffffffff);
 
         assert_or_panic(zig_ret_i8() == -1);
