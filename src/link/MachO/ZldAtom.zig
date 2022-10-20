@@ -778,7 +778,7 @@ fn resolveRelocsX86(
                     .file = atom.file,
                 };
                 const sym = zld.getSymbol(sym_loc);
-                assert(sym.sect() and !sym.ext());
+                assert(sym.sect());
                 subtractor = sym_loc;
                 continue;
             },
