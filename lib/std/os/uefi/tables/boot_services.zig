@@ -34,7 +34,7 @@ pub const BootServices = extern struct {
     freePages: std.meta.FnPtr(fn (memory: [*]align(4096) u8, pages: usize) callconv(.C) Status),
 
     /// Returns the current memory map.
-    getMemoryMap: std.meta.FnPtr(fn (mmap_size: *usize, mmap: [*]MemoryDescriptor, mapKey: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(.C) Status),
+    getMemoryMap: std.meta.FnPtr(fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, mapKey: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(.C) Status),
 
     /// Allocates pool memory.
     allocatePool: std.meta.FnPtr(fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(.C) Status),
