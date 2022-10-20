@@ -129,25 +129,37 @@ fn markLive(
     const relocs = Atom.getAtomRelocs(zld, atom_index);
     const reverse_lookup = reverse_lookups[atom.getFile().?];
     for (relocs) |rel| {
-        switch (cpu_arch) {
-            .aarch64 => {
+        const target = switch (cpu_arch) {
+            .aarch64 => blk: {
                 const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
                 switch (rel_type) {
-                    .ARM64_RELOC_ADDEND, .ARM64_RELOC_SUBTRACTOR => continue,
-                    else => {},
+                    .ARM64_RELOC_ADDEND => continue,
+                    .ARM64_RELOC_SUBTRACTOR => {
+                        const sym_index = reverse_lookup[rel.r_symbolnum];
+                        break :blk SymbolWithLoc{
+                            .sym_index = sym_index,
+                            .file = atom.file,
+                        };
+                    },
+                    else => break :blk try Atom.parseRelocTarget(zld, atom_index, rel, reverse_lookup),
                 }
             },
-            .x86_64 => {
+            .x86_64 => blk: {
                 const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
                 switch (rel_type) {
-                    .X86_64_RELOC_SUBTRACTOR => continue,
-                    else => {},
+                    .X86_64_RELOC_SUBTRACTOR => {
+                        const sym_index = reverse_lookup[rel.r_symbolnum];
+                        break :blk SymbolWithLoc{
+                            .sym_index = sym_index,
+                            .file = atom.file,
+                        };
+                    },
+                    else => break :blk try Atom.parseRelocTarget(zld, atom_index, rel, reverse_lookup),
                 }
             },
             else => unreachable,
-        }
+        };
 
-        const target = try Atom.parseRelocTarget(zld, atom_index, rel, reverse_lookup);
         const target_sym = zld.getSymbol(target);
         if (target_sym.undf()) continue;
         if (target.getFile() == null) {
