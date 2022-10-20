@@ -48,6 +48,11 @@ const BlockData = struct {
     result: CValue,
 };
 
+const TypedefKind = enum {
+    Forward,
+    Complete,
+};
+
 pub const CValueMap = std.AutoHashMap(Air.Inst.Ref, CValue);
 pub const TypedefMap = std.ArrayHashMap(
     Type,
@@ -249,13 +254,7 @@ pub const Function = struct {
                 const decl_c_value = f.allocLocalValue();
                 gop.value_ptr.* = decl_c_value;
                 try writer.writeAll("static ");
-                try f.object.dg.renderTypeAndName(
-                    writer,
-                    ty,
-                    decl_c_value,
-                    .Const,
-                    0,
-                );
+                try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, .Const, 0, .Complete);
                 try writer.writeAll(" = ");
                 try f.object.dg.renderValue(writer, ty, val, .Initializer);
                 try writer.writeAll(";\n ");
@@ -294,6 +293,7 @@ pub const Function = struct {
             local_value,
             mutability,
             alignment,
+            .Complete,
         );
         return local_value;
     }
@@ -328,7 +328,7 @@ pub const Function = struct {
     }
 
     fn renderType(f: *Function, w: anytype, t: Type) !void {
-        return f.object.dg.renderType(w, t);
+        return f.object.dg.renderType(w, t, .Complete);
     }
 
     fn renderTypecast(f: *Function, w: anytype, t: Type) !void {
@@ -1024,10 +1024,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderFunctionSignature(dg: *DeclGen, w: anytype, is_global: bool) !void {
-        if (!is_global) {
-            try w.writeAll("static ");
-        }
+    fn renderFunctionSignature(dg: *DeclGen, w: anytype, kind: TypedefKind) !void {
         const fn_info = dg.decl.ty.fnInfo();
         if (fn_info.cc == .Naked) {
             try w.writeAll("ZIG_NAKED ");
@@ -1039,9 +1036,9 @@ pub const DeclGen = struct {
             }
         }
         if (fn_info.return_type.hasRuntimeBits()) {
-            try dg.renderType(w, fn_info.return_type);
+            try dg.renderType(w, fn_info.return_type, kind);
         } else if (fn_info.return_type.isError()) {
-            try dg.renderType(w, Type.anyerror);
+            try dg.renderType(w, Type.anyerror, kind);
         } else if (fn_info.return_type.zigTypeTag() == .NoReturn) {
             try w.writeAll("zig_noreturn void");
         } else {
@@ -1058,7 +1055,7 @@ pub const DeclGen = struct {
                 try w.writeAll(", ");
             }
             const name = CValue{ .arg = index };
-            try dg.renderTypeAndName(w, param_type, name, .Const, 0);
+            try dg.renderTypeAndName(w, param_type, name, .Const, 0, kind);
             index += 1;
         }
 
@@ -1071,15 +1068,15 @@ pub const DeclGen = struct {
         try w.writeByte(')');
     }
 
-    fn renderPtrToFnTypedef(dg: *DeclGen, t: Type, fn_ty: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+    fn renderPtrToFnTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
         const bw = buffer.writer();
 
-        const fn_info = fn_ty.fnInfo();
+        const fn_info = t.fnInfo();
 
         try bw.writeAll("typedef ");
-        try dg.renderType(bw, fn_info.return_type);
+        try dg.renderType(bw, fn_info.return_type, .Forward);
         try bw.writeAll(" (*");
 
         const name_begin = buffer.items.len;
@@ -1092,11 +1089,12 @@ pub const DeclGen = struct {
         var params_written: usize = 0;
         var index: usize = 0;
         while (index < param_len) : (index += 1) {
-            if (!fn_info.param_types[index].hasRuntimeBitsIgnoreComptime()) continue;
+            const param_ty = fn_info.param_types[index];
+            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
             if (params_written > 0) {
                 try bw.writeAll(", ");
             }
-            try dg.renderTypecast(bw, fn_info.param_types[index]);
+            try dg.renderTypeAndName(bw, param_ty, .{ .bytes = "" }, .Mut, 0, .Forward);
             params_written += 1;
         }
 
@@ -1133,7 +1131,7 @@ pub const DeclGen = struct {
         var ptr_type_buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const ptr_type = t.slicePtrFieldType(&ptr_type_buf);
         const ptr_name = CValue{ .bytes = "ptr" };
-        try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, 0);
+        try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, 0, .Complete);
 
         try bw.writeAll("; size_t len; } ");
         const name_begin = buffer.items.len;
@@ -1157,27 +1155,33 @@ pub const DeclGen = struct {
         return name;
     }
 
-    fn renderStructTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
-        const struct_obj = t.castTag(.@"struct").?.data; // Handle 0 bit types elsewhere.
-        const fqn = try struct_obj.getFullyQualifiedName(dg.module);
-        defer dg.typedefs.allocator.free(fqn);
+    fn renderFwdTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        // The forward declaration for T is stored with a key of *const T.
+        const child_ty = t.childType();
+
+        var fqn_buf = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer fqn_buf.deinit();
+
+        const owner_decl = dg.module.declPtr(child_ty.getOwnerDecl());
+        try owner_decl.renderFullyQualifiedName(dg.module, fqn_buf.writer());
 
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
 
-        const tag = "struct";
-        const tagged_name_begin = buffer.items.len + "typedef ".len + tag.len + " ".len;
-        try buffer.writer().print("typedef " ++ tag ++ " zig_S_{} ", .{fmtIdent(fqn)});
-        const tagged_name_end = buffer.items.len - " ".len;
-        try buffer.ensureUnusedCapacity(tagged_name_end - tagged_name_begin + ";\n".len);
-        const name_begin = buffer.items.len;
-        buffer.appendSliceAssumeCapacity(buffer.items[tagged_name_begin..tagged_name_end]);
-        const name_end = buffer.items.len;
+        const tag = switch (child_ty.zigTypeTag()) {
+            .Struct => "struct ",
+            .Union => if (child_ty.unionTagTypeSafety()) |_| "struct " else "union ",
+            else => unreachable,
+        };
+        const name_begin = buffer.items.len + "typedef ".len + tag.len;
+        try buffer.writer().print("typedef {s}zig_S_{} ", .{ tag, fmtIdent(fqn_buf.items) });
+        const name_end = buffer.items.len - " ".len;
+        try buffer.ensureUnusedCapacity((name_end - name_begin) + ";\n".len);
+        buffer.appendSliceAssumeCapacity(buffer.items[name_begin..name_end]);
         buffer.appendSliceAssumeCapacity(";\n");
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
-        const tagged_name = rendered[tagged_name_begin..tagged_name_end];
         const name = rendered[name_begin..name_end];
 
         try dg.typedefs.ensureUnusedCapacity(1);
@@ -1186,20 +1190,32 @@ pub const DeclGen = struct {
             .{ .name = name, .rendered = rendered },
         );
 
-        try buffer.appendSlice(tag ++ " ");
-        try buffer.appendSlice(tagged_name);
+        return name;
+    }
+
+    fn renderStructTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        var ptr_pl = Type.Payload.ElemType{ .base = .{ .tag = .single_const_pointer }, .data = t };
+        const ptr_ty = Type.initPayload(&ptr_pl.base);
+        const name = dg.getTypedefName(ptr_ty) orelse
+            try dg.renderFwdTypedef(ptr_ty);
+
+        var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer buffer.deinit();
+
+        try buffer.appendSlice("struct ");
+        try buffer.appendSlice(name);
         try buffer.appendSlice(" {\n");
         {
-            var it = struct_obj.fields.iterator();
+            var it = t.structFields().iterator();
             var empty = true;
-            while (it.next()) |entry| {
-                const field_ty = entry.value_ptr.ty;
+            while (it.next()) |field| {
+                const field_ty = field.value_ptr.ty;
                 if (!field_ty.hasRuntimeBits()) continue;
 
-                const alignment = entry.value_ptr.abi_align;
-                const field_name: CValue = .{ .identifier = entry.key_ptr.* };
+                const alignment = field.value_ptr.abi_align;
+                const field_name = CValue{ .identifier = field.key_ptr.* };
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), field_ty, field_name, .Mut, alignment);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, field_name, .Mut, alignment, .Complete);
                 try buffer.appendSlice(";\n");
 
                 empty = false;
@@ -1208,16 +1224,13 @@ pub const DeclGen = struct {
         }
         try buffer.appendSlice("};\n");
 
-        const rendered_body = buffer.toOwnedSlice();
-        errdefer dg.typedefs.allocator.free(rendered_body);
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
 
-        // We need to add another item to the TypedefMap, so we need a distinct
-        // type that is not used anywhere, but is still uniquely associated with
-        // this type, so use an empty struct which references our unique decls.
         try dg.typedefs.ensureUnusedCapacity(1);
         dg.typedefs.putAssumeCapacityNoClobber(
-            try Type.Tag.empty_struct.create(dg.typedefs_arena, &struct_obj.namespace),
-            .{ .name = undefined, .rendered = rendered_body },
+            try t.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
         );
 
         return name;
@@ -1240,7 +1253,7 @@ pub const DeclGen = struct {
                 defer dg.typedefs.allocator.free(field_name);
 
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .identifier = field_name }, .Mut, 0);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .identifier = field_name }, .Mut, 0, .Complete);
                 try buffer.appendSlice(";\n");
 
                 empty = false;
@@ -1265,37 +1278,16 @@ pub const DeclGen = struct {
     }
 
     fn renderUnionTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
-        const union_obj = t.cast(Type.Payload.Union).?.data;
-        const fqn = try union_obj.getFullyQualifiedName(dg.module);
-        defer dg.typedefs.allocator.free(fqn);
+        var ptr_pl = Type.Payload.ElemType{ .base = .{ .tag = .single_const_pointer }, .data = t };
+        const ptr_ty = Type.initPayload(&ptr_pl.base);
+        const name = dg.getTypedefName(ptr_ty) orelse
+            try dg.renderFwdTypedef(ptr_ty);
 
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
 
-        const tag: []const u8 = if (t.unionTagTypeSafety()) |_| "struct" else "union";
-        const tagged_name_begin = buffer.items.len + "typedef ".len + tag.len + " ".len;
-        try buffer.writer().print("typedef {s} zig_S_{} ", .{ tag, fmtIdent(fqn) });
-        const tagged_name_end = buffer.items.len - " ".len;
-        try buffer.ensureUnusedCapacity(tagged_name_end - tagged_name_begin + ";\n".len);
-        const name_begin = buffer.items.len;
-        buffer.appendSliceAssumeCapacity(buffer.items[tagged_name_begin..tagged_name_end]);
-        const name_end = buffer.items.len;
-        buffer.appendSliceAssumeCapacity(";\n");
-
-        const rendered = buffer.toOwnedSlice();
-        errdefer dg.typedefs.allocator.free(rendered);
-        const tagged_name = rendered[tagged_name_begin..tagged_name_end];
-        const name = rendered[name_begin..name_end];
-
-        try dg.typedefs.ensureUnusedCapacity(1);
-        dg.typedefs.putAssumeCapacityNoClobber(
-            try t.copy(dg.typedefs_arena),
-            .{ .name = name, .rendered = rendered },
-        );
-
-        try buffer.appendSlice(tag);
-        try buffer.append(' ');
-        try buffer.appendSlice(tagged_name);
+        try buffer.appendSlice(if (t.unionTagTypeSafety()) |_| "struct " else "union ");
+        try buffer.appendSlice(name);
         try buffer.appendSlice(" {\n");
 
         const indent = if (t.unionTagTypeSafety()) |tag_ty| indent: {
@@ -1303,7 +1295,7 @@ pub const DeclGen = struct {
             const layout = t.unionGetLayout(target);
             if (layout.tag_size != 0) {
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), tag_ty, .{ .identifier = "tag" }, .Mut, 0);
+                try dg.renderTypeAndName(buffer.writer(), tag_ty, .{ .identifier = "tag" }, .Mut, 0, .Complete);
                 try buffer.appendSlice(";\n");
             }
             try buffer.appendSlice(" union {\n");
@@ -1313,14 +1305,14 @@ pub const DeclGen = struct {
         {
             var it = t.unionFields().iterator();
             var empty = true;
-            while (it.next()) |entry| {
-                const field_ty = entry.value_ptr.ty;
+            while (it.next()) |field| {
+                const field_ty = field.value_ptr.ty;
                 if (!field_ty.hasRuntimeBits()) continue;
 
-                const alignment = entry.value_ptr.abi_align;
-                const field_name: CValue = .{ .identifier = entry.key_ptr.* };
+                const alignment = field.value_ptr.abi_align;
+                const field_name = CValue{ .identifier = field.key_ptr.* };
                 try buffer.appendSlice(indent);
-                try dg.renderTypeAndName(buffer.writer(), field_ty, field_name, .Mut, alignment);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, field_name, .Mut, alignment, .Complete);
                 try buffer.appendSlice(";\n");
 
                 empty = false;
@@ -1334,16 +1326,13 @@ pub const DeclGen = struct {
         if (t.unionTagTypeSafety()) |_| try buffer.appendSlice(" } payload;\n");
         try buffer.appendSlice("};\n");
 
-        const rendered_body = buffer.toOwnedSlice();
-        errdefer dg.typedefs.allocator.free(rendered_body);
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
 
-        // We need to add another item to the TypedefMap, so we need a distinct
-        // type that is not used anywhere, but is still uniquely associated with
-        // this type, so use an empty struct which references our unique decls.
         try dg.typedefs.ensureUnusedCapacity(1);
         dg.typedefs.putAssumeCapacityNoClobber(
-            try Type.Tag.empty_struct.create(dg.typedefs_arena, &union_obj.namespace),
-            .{ .name = undefined, .rendered = rendered_body },
+            try t.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
         );
 
         return name;
@@ -1363,11 +1352,11 @@ pub const DeclGen = struct {
         const error_align = Type.anyerror.abiAlignment(target);
         if (error_align > payload_align) {
             try bw.writeAll("typedef struct { ");
-            try dg.renderTypeAndName(bw, payload_ty, payload_name, .Mut, 0);
+            try dg.renderTypeAndName(bw, payload_ty, payload_name, .Mut, 0, .Complete);
             try bw.writeAll("; uint16_t error; } ");
         } else {
             try bw.writeAll("typedef struct { uint16_t error; ");
-            try dg.renderTypeAndName(bw, payload_ty, payload_name, .Mut, 0);
+            try dg.renderTypeAndName(bw, payload_ty, payload_name, .Mut, 0, .Complete);
             try bw.writeAll("; } ");
         }
 
@@ -1398,7 +1387,7 @@ pub const DeclGen = struct {
         const bw = buffer.writer();
 
         try bw.writeAll("typedef ");
-        try dg.renderType(bw, info.elem_type);
+        try dg.renderType(bw, info.elem_type, .Complete);
 
         const name_begin = buffer.items.len + " ".len;
         try bw.print(" zig_A_{}_{d}", .{ typeToCIdentifier(info.elem_type, dg.module), info.len });
@@ -1426,7 +1415,7 @@ pub const DeclGen = struct {
 
         try bw.writeAll("typedef struct { ");
         const payload_name = CValue{ .bytes = "payload" };
-        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, 0);
+        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, 0, .Complete);
         try bw.writeAll("; bool is_null; } ");
 
         const name_begin = buffer.items.len;
@@ -1488,7 +1477,12 @@ pub const DeclGen = struct {
     ///   | `renderTypeAndName` | "uint8_t *name" | "uint8_t *name[10]" |
     ///   | `renderType`        | "uint8_t *"     | "zig_A_uint8_t_10"  |
     ///
-    fn renderType(dg: *DeclGen, w: anytype, t: Type) error{ OutOfMemory, AnalysisFail }!void {
+    fn renderType(
+        dg: *DeclGen,
+        w: anytype,
+        t: Type,
+        kind: TypedefKind,
+    ) error{ OutOfMemory, AnalysisFail }!void {
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {
@@ -1540,10 +1534,11 @@ pub const DeclGen = struct {
                 }
             },
             .Pointer => {
+                const child_ty = t.childType();
                 if (t.isSlice()) {
                     var slice_pl = Type.Payload.ElemType{
                         .base = .{ .tag = if (t.ptrIsMutable()) .mut_slice else .const_slice },
-                        .data = t.childType(),
+                        .data = child_ty,
                     };
                     const slice_ty = Type.initPayload(&slice_pl.base);
 
@@ -1553,31 +1548,27 @@ pub const DeclGen = struct {
                     return w.writeAll(name);
                 }
 
-                if (t.castPtrToFn()) |fn_ty| {
-                    const name = dg.getTypedefName(t) orelse
-                        try dg.renderPtrToFnTypedef(t, fn_ty);
+                if (child_ty.zigTypeTag() == .Fn) {
+                    const name = dg.getTypedefName(child_ty) orelse
+                        try dg.renderPtrToFnTypedef(child_ty);
 
                     return w.writeAll(name);
                 }
 
-                const child_ty = t.childType();
                 if (t.isCPtr() and child_ty.eql(Type.u8, dg.module) and
-                    (dg.decl.val.tag() == .extern_fn or std.mem.eql(u8, std.mem.span(dg.decl.name), "main")))
+                    (dg.decl.val.tag() == .extern_fn or
+                    std.mem.eql(u8, std.mem.span(dg.decl.name), "main")))
                 {
                     // This is a hack, since the c compiler expects a lot of external
                     // library functions to have char pointers in their signatures, but
                     // u8 and i8 produce unsigned char and signed char respectively,
-                    // which in C are not very usefully different than char.
+                    // which in C are (not very usefully) different than char.
                     try w.writeAll("char");
                 } else {
-                    try dg.renderType(w, child_ty);
+                    try dg.renderType(w, child_ty, .Forward);
                 }
-                if (t.isConstPtr()) {
-                    try w.writeAll(" const");
-                }
-                if (t.isVolatilePtr()) {
-                    try w.writeAll(" volatile");
-                }
+                if (t.isConstPtr()) try w.writeAll(" const");
+                if (t.isVolatilePtr()) try w.writeAll(" volatile");
                 return w.writeAll(" *");
             },
             .Array => {
@@ -1601,7 +1592,7 @@ pub const DeclGen = struct {
                 }
 
                 if (t.optionalReprIsPayload()) {
-                    return dg.renderType(w, child_type);
+                    return dg.renderType(w, child_type, .Complete);
                 }
 
                 const name = dg.getTypedefName(t) orelse
@@ -1617,7 +1608,7 @@ pub const DeclGen = struct {
                 const payload_ty = t.errorUnionPayload();
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                    return dg.renderType(w, Type.anyerror);
+                    return dg.renderType(w, Type.anyerror, .Complete);
                 }
 
                 var error_union_pl = Type.Payload.ErrorUnion{
@@ -1630,17 +1621,26 @@ pub const DeclGen = struct {
 
                 return w.writeAll(name);
             },
-            .Struct => {
-                const name = dg.getTypedefName(t) orelse if (t.isTupleOrAnonStruct())
-                    try dg.renderTupleTypedef(t)
-                else
-                    try dg.renderStructTypedef(t);
+            .Struct, .Union => |tag| if (kind == .Complete or t.isTupleOrAnonStruct()) {
+                const name = dg.getTypedefName(t) orelse switch (tag) {
+                    .Struct => if (t.isTupleOrAnonStruct())
+                        try dg.renderTupleTypedef(t)
+                    else
+                        try dg.renderStructTypedef(t),
+                    .Union => try dg.renderUnionTypedef(t),
+                    else => unreachable,
+                };
 
                 return w.writeAll(name);
-            },
-            .Union => {
-                const name = dg.getTypedefName(t) orelse
-                    try dg.renderUnionTypedef(t);
+            } else {
+                var ptr_pl = Type.Payload.ElemType{
+                    .base = .{ .tag = .single_const_pointer },
+                    .data = t,
+                };
+                const ptr_ty = Type.initPayload(&ptr_pl.base);
+
+                const name = dg.getTypedefName(ptr_ty) orelse
+                    try dg.renderFwdTypedef(ptr_ty);
 
                 return w.writeAll(name);
             },
@@ -1649,7 +1649,7 @@ pub const DeclGen = struct {
                 var int_tag_buf: Type.Payload.Bits = undefined;
                 const int_tag_ty = t.intTagType(&int_tag_buf);
 
-                try dg.renderType(w, int_tag_ty);
+                try dg.renderType(w, int_tag_ty, kind);
             },
             .Opaque => switch (t.tag()) {
                 .anyopaque => try w.writeAll("void"),
@@ -1701,7 +1701,7 @@ pub const DeclGen = struct {
         ty: Type,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const name = CValue{ .bytes = "" };
-        return renderTypeAndName(dg, w, ty, name, .Mut, 0);
+        return renderTypeAndName(dg, w, ty, name, .Mut, 0, .Complete);
     }
 
     /// Renders a type and name in field declaration/definition format.
@@ -1720,6 +1720,7 @@ pub const DeclGen = struct {
         name: CValue,
         mutability: Mutability,
         alignment: u32,
+        kind: TypedefKind,
     ) error{ OutOfMemory, AnalysisFail }!void {
         var suffix = std.ArrayList(u8).init(dg.gpa);
         defer suffix.deinit();
@@ -1736,7 +1737,7 @@ pub const DeclGen = struct {
 
         if (alignment != 0)
             try w.print("ZIG_ALIGN({}) ", .{alignment});
-        try dg.renderType(w, render_ty);
+        try dg.renderType(w, render_ty, kind);
 
         const const_prefix = switch (mutability) {
             .Const => "const ",
@@ -1755,11 +1756,11 @@ pub const DeclGen = struct {
         const name_slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
 
         try buffer.appendSlice("static ");
-        try dg.renderType(bw, name_slice_ty);
+        try dg.renderType(bw, name_slice_ty, .Complete);
         const name_begin = buffer.items.len + " ".len;
         try bw.print(" zig_tagName_{}(", .{typeToCIdentifier(enum_ty, dg.module)});
         const name_end = buffer.items.len - "(".len;
-        try dg.renderTypeAndName(bw, enum_ty, .{ .identifier = "tag" }, .Const, 0);
+        try dg.renderTypeAndName(bw, enum_ty, .{ .identifier = "tag" }, .Const, 0, .Complete);
         try buffer.appendSlice(") {\n switch (tag) {\n");
         for (enum_ty.enumFields().keys()) |name, index| {
             const name_z = try dg.typedefs.allocator.dupeZ(u8, name);
@@ -1785,7 +1786,7 @@ pub const DeclGen = struct {
             const len_val = Value.initPayload(&len_pl.base);
 
             try bw.print("  case {}: {{\n   static ", .{try dg.fmtIntLiteral(enum_ty, int_val)});
-            try dg.renderTypeAndName(bw, name_ty, .{ .identifier = "name" }, .Const, 0);
+            try dg.renderTypeAndName(bw, name_ty, .{ .identifier = "name" }, .Const, 0, .Complete);
             try buffer.appendSlice(" = ");
             try dg.renderValue(bw, name_ty, name_val, .Initializer);
             try buffer.appendSlice(";\n   return (");
@@ -1948,7 +1949,7 @@ pub fn genErrDecls(o: *Object) !void {
         const name_val = Value.initPayload(&name_pl.base);
 
         try writer.writeAll("static ");
-        try o.dg.renderTypeAndName(writer, name_ty, .{ .identifier = identifier }, .Const, 0);
+        try o.dg.renderTypeAndName(writer, name_ty, .{ .identifier = identifier }, .Const, 0, .Complete);
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, name_ty, name_val, .Initializer);
         try writer.writeAll(";\n");
@@ -1961,7 +1962,7 @@ pub fn genErrDecls(o: *Object) !void {
     const name_array_ty = Type.initPayload(&name_array_ty_pl.base);
 
     try writer.writeAll("static ");
-    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = name_prefix }, .Const, 0);
+    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = name_prefix }, .Const, 0, .Complete);
     try writer.writeAll(" = {");
     for (o.dg.module.error_name_list.items) |name, value| {
         if (value != 0) try writer.writeByte(',');
@@ -1988,14 +1989,13 @@ pub fn genFunc(f: *Function) !void {
 
     const is_global = o.dg.module.decl_exports.contains(f.func.owner_decl);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
-    if (is_global) {
-        try fwd_decl_writer.writeAll("ZIG_EXTERN_C ");
-    }
-    try o.dg.renderFunctionSignature(fwd_decl_writer, is_global);
+    try fwd_decl_writer.writeAll(if (is_global) "ZIG_EXTERN_C " else "static ");
+    try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
     try fwd_decl_writer.writeAll(";\n");
 
     try o.indent_writer.insertNewline();
-    try o.dg.renderFunctionSignature(o.writer(), is_global);
+    if (!is_global) try o.writer().writeAll("static ");
+    try o.dg.renderFunctionSignature(o.writer(), .Complete);
     try o.writer().writeByte(' ');
 
     // In case we need to use the header, populate it with a copy of the function
@@ -2029,7 +2029,7 @@ pub fn genDecl(o: *Object) !void {
     if (tv.val.tag() == .extern_fn) {
         const writer = o.writer();
         try writer.writeAll("ZIG_EXTERN_C ");
-        try o.dg.renderFunctionSignature(writer, true);
+        try o.dg.renderFunctionSignature(writer, .Forward);
         try writer.writeAll(";\n");
     } else if (tv.val.castTag(.variable)) |var_payload| {
         const variable: *Module.Var = var_payload.data;
@@ -2048,7 +2048,7 @@ pub fn genDecl(o: *Object) !void {
             .decl = o.dg.decl_index,
         };
 
-        try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
+        try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
 
         if (variable.is_extern or variable.init.isUndefDeep()) {
@@ -2057,7 +2057,7 @@ pub fn genDecl(o: *Object) !void {
 
         try o.indent_writer.insertNewline();
         const w = o.writer();
-        try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
+        try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
         if (variable.init.tag() != .unreachable_value) {
             try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
@@ -2072,7 +2072,7 @@ pub fn genDecl(o: *Object) !void {
         // https://github.com/ziglang/zig/issues/7582
 
         const decl_c_value: CValue = .{ .decl = o.dg.decl_index };
-        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align");
+        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
 
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, tv.ty, tv.val, .Initializer);
@@ -2095,7 +2095,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
             const is_global = dg.declIsGlobal(tv);
             if (is_global) {
                 try writer.writeAll("ZIG_EXTERN_C ");
-                try dg.renderFunctionSignature(writer, is_global);
+                try dg.renderFunctionSignature(writer, .Complete);
                 try dg.fwd_decl.appendSlice(";\n");
             }
         },
@@ -2760,8 +2760,10 @@ fn airWrapOp(f: *Function, inst: Air.Inst.Index, operator: []const u8, fn_name: 
     const bits = int_info.bits;
 
     // if it's an unsigned int with non-arbitrary bit size then we can just add
-    if (int_info.signedness == .unsigned and bits == toCIntBits(bits)) {
-        return try airBinOp(f, inst, operator);
+    if (toCIntBits(bits)) |c_bits| {
+        if (int_info.signedness == .unsigned and bits == c_bits) {
+            return try airBinOp(f, inst, operator);
+        }
     }
 
     if (bits > 64) return f.fail("TODO: C backend: airWrapOp for large integers", .{});
@@ -3899,9 +3901,11 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     }
     const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
 
+    // Ensure complete type definition is visible before accessing fields.
+    try f.renderType(std.io.null_writer, struct_ty);
+
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
-
     if (field_val_ty.hasRuntimeBitsIgnoreComptime()) {
         try writer.writeAll(" = &");
         try f.writeCValueDeref(writer, struct_ptr);
@@ -3940,6 +3944,9 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         else => unreachable,
     };
     const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
+
+    // Ensure complete type definition is visible before accessing fields.
+    try f.renderType(std.io.null_writer, struct_ty);
 
     const inst_ty = f.air.typeOfIndex(inst);
     const is_array = inst_ty.zigTypeTag() == .Array;
@@ -4326,7 +4333,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writer.writeAll("if (");
     }
     try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
-    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try f.renderTypecast(writer, ptr_ty.elemType());
     try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
@@ -4371,12 +4378,12 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (extra.op()) {
         else => {
             try writer.writeAll("zig_atomic(");
-            try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+            try f.renderTypecast(writer, ptr_ty.elemType());
             try writer.writeByte(')');
         },
         .Nand, .Min, .Max => {
             // These are missing from stdatomic.h, so no atomic types for now.
-            try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+            try f.renderTypecast(writer, ptr_ty.elemType());
         },
     }
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
@@ -4403,7 +4410,7 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
 
     try writer.writeAll(" = zig_atomic_load((zig_atomic(");
-    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try f.renderTypecast(writer, ptr_ty.elemType());
     try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
@@ -4423,7 +4430,7 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     const writer = f.object.writer();
 
     try writer.writeAll("zig_atomic_store((zig_atomic(");
-    try f.object.dg.renderTypecast(writer, ptr_ty.elemType());
+    try f.renderTypecast(writer, ptr_ty.elemType());
     try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");

@@ -12,7 +12,6 @@ const b_list: []B = &[_]B{};
 const a = A{ .b_list_pointer = &b_list };
 
 test "segfault bug" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const assert = std.debug.assert;
     const obj = B{ .a_pointer = &a };
     assert(obj.a_pointer == &a); // this makes zig crash
