@@ -429,25 +429,23 @@ pub const AllErrors = struct {
                         try stderr.print(" ({d} times)\n", .{src.count});
                     }
                     ttyconf.setColor(stderr, .Reset);
-                    if (ttyconf != .no_color) {
-                        if (src.source_line) |line| {
-                            for (line) |b| switch (b) {
-                                '\t' => try stderr.writeByte(' '),
-                                else => try stderr.writeByte(b),
-                            };
-                            try stderr.writeByte('\n');
-                            // TODO basic unicode code point monospace width
-                            const before_caret = src.span.main - src.span.start;
-                            // -1 since span.main includes the caret
-                            const after_caret = src.span.end - src.span.main -| 1;
-                            try stderr.writeByteNTimes(' ', src.column - before_caret);
-                            ttyconf.setColor(stderr, .Green);
-                            try stderr.writeByteNTimes('~', before_caret);
-                            try stderr.writeByte('^');
-                            try stderr.writeByteNTimes('~', after_caret);
-                            try stderr.writeByte('\n');
-                            ttyconf.setColor(stderr, .Reset);
-                        }
+                    if (src.source_line) |line| {
+                        for (line) |b| switch (b) {
+                            '\t' => try stderr.writeByte(' '),
+                            else => try stderr.writeByte(b),
+                        };
+                        try stderr.writeByte('\n');
+                        // TODO basic unicode code point monospace width
+                        const before_caret = src.span.main - src.span.start;
+                        // -1 since span.main includes the caret
+                        const after_caret = src.span.end - src.span.main -| 1;
+                        try stderr.writeByteNTimes(' ', src.column - before_caret);
+                        ttyconf.setColor(stderr, .Green);
+                        try stderr.writeByteNTimes('~', before_caret);
+                        try stderr.writeByte('^');
+                        try stderr.writeByteNTimes('~', after_caret);
+                        try stderr.writeByte('\n');
+                        ttyconf.setColor(stderr, .Reset);
                     }
                     for (src.notes) |note| {
                         try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
