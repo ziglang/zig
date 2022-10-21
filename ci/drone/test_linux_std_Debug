@@ -13,3 +13,10 @@ $ZIG build test-std \
   -Dskip-release-fast \
   -Dskip-release-small \
   -Dskip-non-native
+
+# Produce the experimental std lib documentation.
+mkdir -p "$INSTALL_PREFIX/doc/std"
+$ZIG test "$DRONE_WORKSPACE/lib/std/std.zig" \
+  --zig-lib-dir "$DRONE_WORKSPACE/lib" \
+  -femit-docs="$INSTALL_PREFIX/doc/std" \
+  -fno-emit-bin

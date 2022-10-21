@@ -48,7 +48,7 @@ wget "https://ziglang.org/builds/$NATIVE_TARBALL"
 tar xf "$NATIVE_TARBALL"
 ZIGDIR="$(pwd)/$(basename $NATIVE_TARBALL .tar.xz)"
 ZIG="$ZIGDIR/zig"
-LANGREF="$ZIGDIR/docs/langref.html"
+LANGREF="$ZIGDIR/doc/langref.html"
 SRCTARBALLDIR="zig-$VERSION"
 export SRC_TARBALL="$SRCTARBALLDIR.tar.xz"
 mv "$SRCDIR" "$SRCTARBALLDIR"
@@ -120,20 +120,20 @@ $S3CMD put -P --no-mime-magic \
 
 $S3CMD put -P --no-mime-magic \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/index.html" s3://ziglang.org/documentation/master/std/index.html
+  "$ZIGDIR/doc/std/index.html" s3://ziglang.org/documentation/master/std/index.html
 
 $S3CMD put -P --no-mime-magic \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/main.js" s3://ziglang.org/documentation/master/std/main.js
+  "$ZIGDIR/doc/std/main.js" s3://ziglang.org/documentation/master/std/main.js
 
 $S3CMD put -P --no-mime-magic \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/data.js" s3://ziglang.org/documentation/master/std/data.js
+  "$ZIGDIR/doc/std/data.js" s3://ziglang.org/documentation/master/std/data.js
 
 $S3CMD put -P --no-mime-magic --recursive \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
   -m "text/html" \
-  "$ZIGDIR/docs/std/src/" s3://ziglang.org/documentation/master/std/src/
+  "$ZIGDIR/doc/std/src/" s3://ziglang.org/documentation/master/std/src/
 
 $S3CMD put -P --no-mime-magic \
   --add-header="cache-control: public, max-age=31536000, immutable" \
