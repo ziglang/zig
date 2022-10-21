@@ -32,6 +32,10 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_COMPLEX
 #endif
 
+#ifdef __arm__
+#  define ZIG_NO_COMPLEX
+#endif
+
 #ifndef ZIG_NO_I128
 struct i128 {
     __int128 value;

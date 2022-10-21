@@ -24,6 +24,7 @@ const CType = @import("../type.zig").CType;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
+const arm_c_abi = @import("../arch/arm/abi.zig");
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -1120,6 +1121,25 @@ pub const Object = struct {
                     args.appendAssumeCapacity(casted);
                 },
                 .float_array => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param = llvm_func.getParam(llvm_arg_i);
+                    llvm_arg_i += 1;
+
+                    const alignment = param_ty.abiAlignment(target);
+                    const arg_ptr = buildAllocaInner(builder, llvm_func, false, param_llvm_ty, alignment, target);
+                    const casted_ptr = builder.buildBitCast(arg_ptr, param.typeOf().pointerType(0), "");
+                    _ = builder.buildStore(param, casted_ptr);
+
+                    if (isByRef(param_ty)) {
+                        try args.append(arg_ptr);
+                    } else {
+                        const load_inst = builder.buildLoad(param_llvm_ty, arg_ptr, "");
+                        load_inst.setAlignment(alignment);
+                        try args.append(load_inst);
+                    }
+                },
+                .i32_array, .i64_array => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param_llvm_ty = try dg.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
@@ -2578,6 +2598,8 @@ pub const DeclGen = struct {
                 .multiple_llvm_float,
                 .as_u16,
                 .float_array,
+                .i32_array,
+                .i64_array,
                 => continue,
 
                 .slice => unreachable, // extern functions do not support slice types.
@@ -3130,6 +3152,11 @@ pub const DeclGen = struct {
                 const float_ty = try dg.lowerType(aarch64_c_abi.getFloatArrayType(param_ty).?);
                 const field_count = @intCast(c_uint, count);
                 const arr_ty = float_ty.arrayType(field_count);
+                try llvm_params.append(arr_ty);
+            },
+            .i32_array, .i64_array => |arr_len| {
+                const elem_size: u8 = if (lowering == .i32_array) 32 else 64;
+                const arr_ty = dg.context.intType(elem_size).arrayType(arr_len);
                 try llvm_params.append(arr_ty);
             },
         };
@@ -4815,6 +4842,25 @@ pub const FuncGen = struct {
                 const float_ty = try self.dg.lowerType(aarch64_c_abi.getFloatArrayType(arg_ty).?);
                 const array_llvm_ty = float_ty.arrayType(count);
 
+                const casted = self.builder.buildBitCast(llvm_arg, array_llvm_ty.pointerType(0), "");
+                const alignment = arg_ty.abiAlignment(target);
+                const load_inst = self.builder.buildLoad(array_llvm_ty, casted, "");
+                load_inst.setAlignment(alignment);
+                try llvm_args.append(load_inst);
+            },
+            .i32_array, .i64_array => |arr_len| {
+                const elem_size: u8 = if (lowering == .i32_array) 32 else 64;
+                const arg = args[it.zig_index - 1];
+                const arg_ty = self.air.typeOf(arg);
+                var llvm_arg = try self.resolveInst(arg);
+                if (!isByRef(arg_ty)) {
+                    const p = self.buildAlloca(llvm_arg.typeOf(), null);
+                    const store_inst = self.builder.buildStore(llvm_arg, p);
+                    store_inst.setAlignment(arg_ty.abiAlignment(target));
+                    llvm_arg = store_inst;
+                }
+
+                const array_llvm_ty = self.dg.context.intType(elem_size).arrayType(arr_len);
                 const casted = self.builder.buildBitCast(llvm_arg, array_llvm_ty.pointerType(0), "");
                 const alignment = arg_ty.abiAlignment(target);
                 const load_inst = self.builder.buildLoad(array_llvm_ty, casted, "");
@@ -10068,6 +10114,11 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target)[0] == .memory,
+            .arm, .armeb => switch (arm_c_abi.classifyType(fn_info.return_type, target)) {
+                .memory, .i64_array => return true,
+                .i32_array => |size| return size != 1,
+                .none, .byval => return false,
+            },
             else => return false, // TODO investigate C ABI for other architectures
         },
         else => return false,
@@ -10195,6 +10246,18 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
 
                     return dg.context.intType(64).arrayType(2);
                 },
+                .arm, .armeb => {
+                    switch (arm_c_abi.classifyType(fn_info.return_type, target)) {
+                        .memory, .i64_array => return dg.context.voidType(),
+                        .i32_array => |len| if (len == 1) {
+                            return dg.context.intType(32);
+                        } else {
+                            return dg.context.voidType();
+                        },
+                        .byval => return dg.lowerType(fn_info.return_type),
+                        .none => unreachable,
+                    }
+                },
                 // TODO investigate C ABI for other architectures
                 else => return dg.lowerType(fn_info.return_type),
             }
@@ -10223,6 +10286,8 @@ const ParamTypeIterator = struct {
         slice,
         as_u16,
         float_array: u8,
+        i32_array: u8,
+        i64_array: u8,
     };
 
     pub fn next(it: *ParamTypeIterator) ?Lowering {
@@ -10409,6 +10474,20 @@ const ParamTypeIterator = struct {
                         it.llvm_types_buffer[0] = 64;
                         it.llvm_types_buffer[1] = 64;
                         return .multiple_llvm_ints;
+                    },
+                    .arm, .armeb => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        switch (arm_c_abi.classifyType(ty, it.target)) {
+                            .none => unreachable,
+                            .memory => {
+                                it.byval_attr = true;
+                                return .byref;
+                            },
+                            .byval => return .byval,
+                            .i32_array => |size| return Lowering{ .i32_array = size },
+                            .i64_array => |size| return Lowering{ .i64_array = size },
+                        }
                     },
                     // TODO investigate C ABI for other architectures
                     else => {
