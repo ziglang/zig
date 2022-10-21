@@ -32,6 +32,8 @@ owner_func: ?*Module.Fn,
 /// This starts out the same as `owner_func` and then diverges in the case of
 /// an inline or comptime function call.
 func: ?*Module.Fn,
+/// Used to restore the error return trace when returning a non-error from a function.
+error_return_trace_index_on_fn_entry: Air.Inst.Ref = .none,
 /// When semantic analysis needs to know the return type of the function whose body
 /// is being analyzed, this `Type` should be used instead of going through `func`.
 /// This will correctly handle the case of a comptime/inline function call of a
@@ -156,8 +158,6 @@ pub const Block = struct {
     /// Keep track of the active error return trace index around blocks so that we can correctly
     /// pop the error trace upon block exit.
     error_return_trace_index: Air.Inst.Ref = .none,
-    error_return_trace_index_on_block_entry: Air.Inst.Ref = .none,
-    error_return_trace_index_on_function_entry: Air.Inst.Ref = .none,
 
     /// when null, it is determined by build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
@@ -233,8 +233,6 @@ pub const Block = struct {
             .c_import_buf = parent.c_import_buf,
             .switch_else_err_ty = parent.switch_else_err_ty,
             .error_return_trace_index = parent.error_return_trace_index,
-            .error_return_trace_index_on_block_entry = parent.error_return_trace_index,
-            .error_return_trace_index_on_function_entry = parent.error_return_trace_index_on_function_entry,
         };
     }
 
@@ -5039,8 +5037,6 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
         .error_return_trace_index = parent_block.error_return_trace_index,
-        .error_return_trace_index_on_block_entry = parent_block.error_return_trace_index,
-        .error_return_trace_index_on_function_entry = parent_block.error_return_trace_index_on_function_entry,
     };
 
     defer child_block.instructions.deinit(gpa);
@@ -6256,6 +6252,10 @@ fn analyzeCall(
         sema.func = module_fn;
         defer sema.func = parent_func;
 
+        const parent_err_ret_index = sema.error_return_trace_index_on_fn_entry;
+        sema.error_return_trace_index_on_fn_entry = block.error_return_trace_index;
+        defer sema.error_return_trace_index_on_fn_entry = parent_err_ret_index;
+
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, fn_owner_decl.src_scope);
         defer wip_captures.deinit();
 
@@ -6270,8 +6270,6 @@ fn analyzeCall(
             .inlining = &inlining,
             .is_comptime = is_comptime_call,
             .error_return_trace_index = block.error_return_trace_index,
-            .error_return_trace_index_on_block_entry = block.error_return_trace_index,
-            .error_return_trace_index_on_function_entry = block.error_return_trace_index,
         };
 
         const merges = &child_block.inlining.?.merges;
@@ -7020,10 +7018,9 @@ fn instantiateGenericCall(
 
         // Save the error trace as our first action in the function.
         // If this is unnecessary after all, Liveness will clean it up for us.
-        const err_ret_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
-        child_block.error_return_trace_index = err_ret_trace_index;
-        child_block.error_return_trace_index_on_block_entry = err_ret_trace_index;
-        child_block.error_return_trace_index_on_function_entry = err_ret_trace_index;
+        const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
+        child_sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
+        child_block.error_return_trace_index = error_return_trace_index;
 
         const new_func_inst = child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst) catch |err| {
             // TODO look up the compile error that happened here and attach a note to it
@@ -10218,8 +10215,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
         .error_return_trace_index = block.error_return_trace_index,
-        .error_return_trace_index_on_block_entry = block.error_return_trace_index,
-        .error_return_trace_index_on_function_entry = block.error_return_trace_index_on_function_entry,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -15741,8 +15736,6 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .is_typeof = true,
         .want_safety = false,
         .error_return_trace_index = block.error_return_trace_index,
-        .error_return_trace_index_on_block_entry = block.error_return_trace_index,
-        .error_return_trace_index_on_function_entry = block.error_return_trace_index_on_function_entry,
     };
     defer child_block.instructions.deinit(sema.gpa);
 
@@ -16444,16 +16437,22 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
         while (true) {
             if (block.label) |label| {
                 if (label.zir_block == zir_block) {
-                    if (start_block.error_return_trace_index != block.error_return_trace_index_on_block_entry)
-                        break :b block.error_return_trace_index_on_block_entry;
+                    const target_trace_index = if (block.parent) |parent_block| tgt: {
+                        break :tgt parent_block.error_return_trace_index;
+                    } else sema.error_return_trace_index_on_fn_entry;
+
+                    if (start_block.error_return_trace_index != target_trace_index)
+                        break :b target_trace_index;
+
                     return; // No need to restore
                 }
             }
             block = block.parent.?;
         }
     } else b: {
-        if (start_block.error_return_trace_index != start_block.error_return_trace_index_on_function_entry)
-            break :b start_block.error_return_trace_index_on_function_entry;
+        if (start_block.error_return_trace_index != sema.error_return_trace_index_on_fn_entry)
+            break :b sema.error_return_trace_index_on_fn_entry;
+
         return; // No need to restore
     };
 

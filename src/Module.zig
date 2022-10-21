@@ -5635,10 +5635,9 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
 
     // Save the error trace as our first action in the function.
     // If this is unnecessary after all, Liveness will clean it up for us.
-    const err_ret_trace_index = try sema.analyzeSaveErrRetIndex(&inner_block);
-    inner_block.error_return_trace_index = err_ret_trace_index;
-    inner_block.error_return_trace_index_on_block_entry = err_ret_trace_index;
-    inner_block.error_return_trace_index_on_function_entry = err_ret_trace_index;
+    const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&inner_block);
+    sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
+    inner_block.error_return_trace_index = error_return_trace_index;
 
     sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
