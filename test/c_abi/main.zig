@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
 const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
-    !builtin.cpu.arch.isMIPS();
+    !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
 extern fn run_c_tests() void;
 
@@ -112,6 +112,9 @@ test "C ABI floats" {
 }
 
 test "C ABI long double" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
     c_long_double(12.34);
 }
 
@@ -168,7 +171,7 @@ extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
 extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 
 const complex_abi_compatible = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isMIPS() and
-    !builtin.cpu.arch.isARM();
+    !builtin.cpu.arch.isARM() and !builtin.cpu.arch.isPPC();
 
 test "C ABI complex float" {
     if (!complex_abi_compatible) return error.SkipZigTest;
@@ -263,6 +266,7 @@ extern fn c_big_struct(BigStruct) void;
 test "C ABI big struct" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var s = BigStruct{
         .a = 1,
@@ -289,6 +293,7 @@ extern fn c_big_union(BigUnion) void;
 
 test "C ABI big union" {
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var x = BigUnion{
         .a = BigStruct{
@@ -323,6 +328,8 @@ test "C ABI medium struct of ints and floats" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = MedStructMixed{
         .a = 1234,
@@ -355,6 +362,8 @@ test "C ABI small struct of ints" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SmallStructInts{
         .a = 1,
@@ -436,6 +445,8 @@ test "C ABI split struct of ints" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SplitStructInt{
         .a = 1234,
@@ -463,6 +474,8 @@ test "C ABI split struct of ints and floats" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SplitStructMixed{
         .a = 1234,
@@ -490,6 +503,7 @@ extern fn c_multiple_struct_floats(FloatRect, FloatRect) void;
 test "C ABI sret and byval together" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var s = BigStruct{
         .a = 1,
@@ -542,6 +556,8 @@ extern fn c_big_struct_floats(Vector5) void;
 test "C ABI structs of floats as parameter" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var v3 = Vector3{
         .x = 3.0,
@@ -581,6 +597,8 @@ export fn zig_multiple_struct_ints(x: Rect, y: Rect) void {
 
 test "C ABI structs of ints as multiple parameters" {
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var r1 = Rect{
         .left = 1,
@@ -618,6 +636,7 @@ export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
 test "C ABI structs of floats as multiple parameters" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var r1 = FloatRect{
         .left = 1,
@@ -723,6 +742,8 @@ test "Struct with array as padding." {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
 
@@ -748,6 +769,7 @@ extern fn c_ret_float_array_struct() FloatArrayStruct;
 test "Float array like struct" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     c_float_array_struct(.{
         .origin = .{
@@ -775,6 +797,7 @@ extern fn c_ret_small_vec() SmallVec;
 test "small simd vector" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     c_small_vec(.{ 1, 2 });
 
@@ -789,6 +812,8 @@ extern fn c_big_vec(BigVec) void;
 extern fn c_ret_big_vec() BigVec;
 
 test "big simd vector" {
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
     var x = c_ret_big_vec();

@@ -12,6 +12,10 @@ static void assert_or_panic(bool ok) {
     }
 }
 
+#if defined __powerpc__ && !defined _ARCH_PPC64
+#  define ZIG_PPC32
+#endif
+
 #ifdef __i386__
 #  define ZIG_NO_I128
 #endif
@@ -24,6 +28,10 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_I128
 #endif
 
+#ifdef ZIG_PPC32
+#  define ZIG_NO_I128
+#endif
+
 #ifdef __i386__
 #  define ZIG_NO_COMPLEX
 #endif
@@ -33,6 +41,10 @@ static void assert_or_panic(bool ok) {
 #endif
 
 #ifdef __arm__
+#  define ZIG_NO_COMPLEX
+#endif
+
+#ifdef __powerpc__
 #  define ZIG_NO_COMPLEX
 #endif
 
@@ -253,14 +265,15 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined __riscv && !defined ZIG_PPC32
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined __riscv && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -285,28 +298,30 @@ void run_c_tests(void) {
         zig_small_packed_struct(s);
     }
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined __riscv  && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
     }
 #endif
 
-#if !defined __arm__ && !defined __riscv
+#if !defined __arm__ && !defined __riscv && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined __riscv && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined __riscv && !defined ZIG_PPC32
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -318,7 +333,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#ifndef __riscv
+#if !defined __riscv && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct Rect r1 = {1, 21, 16, 4};
         struct Rect r2 = {178, 189, 21, 15};
@@ -326,7 +341,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined __riscv && !defined ZIG_PPC32
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};
