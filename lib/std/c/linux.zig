@@ -320,6 +320,9 @@ pub const pthread_rwlock_t = switch (native_abi) {
         size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
     },
 };
+pub usingnamespace if (native_abi == .android) struct {
+    pub const pthread_key_t = c_int;
+} else struct {};
 pub const sem_t = extern struct {
     __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
 };

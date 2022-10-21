@@ -9,6 +9,7 @@ pub const want_aeabi = switch (builtin.abi) {
     .musleabihf,
     .gnueabi,
     .gnueabihf,
+    .android,
     => switch (builtin.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => true,
         else => false,
