@@ -165,7 +165,7 @@ pub fn parseRelocTarget(
     atom_index: AtomIndex,
     rel: macho.relocation_info,
     reverse_lookup: []u32,
-) !SymbolWithLoc {
+) SymbolWithLoc {
     const atom = zld.getAtom(atom_index);
     const object = &zld.objects.items[atom.getFile().?];
 
@@ -429,15 +429,17 @@ pub fn getRelocTargetAddress(zld: *Zld, rel: macho.relocation_info, target: Symb
         zld.getSymbolName(target_atom.getSymbolWithLoc()),
         target_atom.file,
     });
-    // If `target` is contained within the target atom, pull its address value.
+
     const target_sym = zld.getSymbol(target_atom.getSymbolWithLoc());
+    assert(target_sym.n_desc != @import("zld.zig").N_DEAD);
+
+    // If `target` is contained within the target atom, pull its address value.
     const offset = if (target_atom.getFile() != null) blk: {
         const object = zld.objects.items[target_atom.getFile().?];
         break :blk if (object.getSourceSymbol(target.sym_index)) |_|
             Atom.calcInnerSymbolOffset(zld, target_atom_index, target.sym_index)
         else
             0; // section alias
-
     } else 0;
     const base_address: u64 = if (is_tlv) base_address: {
         // For TLV relocations, the value specified as a relocation is the displacement from the
@@ -498,20 +500,13 @@ fn resolveRelocsArm64(
                     atom.file,
                 });
 
-                const sym_index = reverse_lookup[rel.r_symbolnum];
-                const sym_loc = SymbolWithLoc{
-                    .sym_index = sym_index,
-                    .file = atom.file,
-                };
-                const sym = zld.getSymbol(sym_loc);
-                assert(sym.sect());
-                subtractor = sym_loc;
+                subtractor = parseRelocTarget(zld, atom_index, rel, reverse_lookup);
                 continue;
             },
             else => {},
         }
 
-        const target = try parseRelocTarget(zld, atom_index, rel, reverse_lookup);
+        const target = parseRelocTarget(zld, atom_index, rel, reverse_lookup);
         const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
 
         log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
@@ -784,20 +779,13 @@ fn resolveRelocsX86(
                     atom.file,
                 });
 
-                const sym_index = reverse_lookup[rel.r_symbolnum];
-                const sym_loc = SymbolWithLoc{
-                    .sym_index = sym_index,
-                    .file = atom.file,
-                };
-                const sym = zld.getSymbol(sym_loc);
-                assert(sym.sect());
-                subtractor = sym_loc;
+                subtractor = parseRelocTarget(zld, atom_index, rel, reverse_lookup);
                 continue;
             },
             else => {},
         }
 
-        const target = try parseRelocTarget(zld, atom_index, rel, reverse_lookup);
+        const target = parseRelocTarget(zld, atom_index, rel, reverse_lookup);
         const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
 
         log.debug("  RELA({s}) @ {x} => %{d} in object({?})", .{
@@ -816,9 +804,10 @@ fn resolveRelocsX86(
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
             break :is_tlv header.@"type"() == macho.S_THREAD_LOCAL_VARIABLES;
         };
-        const target_addr = try getRelocTargetAddress(zld, rel, target, is_tlv);
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
+
+        const target_addr = try getRelocTargetAddress(zld, rel, target, is_tlv);
 
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
@@ -878,6 +867,7 @@ fn resolveRelocsX86(
                 }
 
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
+
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);

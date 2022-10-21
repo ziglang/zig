@@ -2313,7 +2313,7 @@ pub const Zld = struct {
                             else => unreachable,
                         }
 
-                        const global = try Atom.parseRelocTarget(self, atom_index, rel, reverse_lookups[atom.getFile().?]);
+                        const global = Atom.parseRelocTarget(self, atom_index, rel, reverse_lookups[atom.getFile().?]);
                         const bind_sym_name = self.getSymbolName(global);
                         const bind_sym = self.getSymbol(global);
                         if (!bind_sym.undf()) continue;
@@ -2750,14 +2750,20 @@ pub const Zld = struct {
                     continue;
                 }
 
-                const source_sym = object.getSourceSymbol(atom.sym_index) orelse continue;
-                const source_addr = math.cast(u32, source_sym.n_value) orelse return error.Overflow;
+                const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
+                    source_sym.n_value
+                else blk: {
+                    const nbase = @intCast(u32, object.in_symtab.?.len);
+                    const source_sect_id = @intCast(u16, atom.sym_index - nbase);
+                    break :blk object.getSourceSection(source_sect_id).addr;
+                };
                 const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
                 const base = math.cast(u32, sym.n_value - text_sect_header.addr + text_sect_header.offset) orelse
                     return error.Overflow;
 
                 for (filtered_dice) |single| {
-                    const offset = single.offset - source_addr + base;
+                    const offset = math.cast(u32, single.offset - source_addr + base) orelse
+                        return error.Overflow;
                     out_dice.appendAssumeCapacity(.{
                         .offset = offset,
                         .length = single.length,
@@ -4305,6 +4311,10 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             const physical_zerofill_size = math.cast(usize, linkedit.fileoff - physical_zerofill_start) orelse
                 return error.Overflow;
             if (physical_zerofill_size > 0) {
+                log.debug("zeroing out zerofill area of length {x} at {x}", .{
+                    physical_zerofill_size,
+                    physical_zerofill_start,
+                });
                 var padding = try zld.gpa.alloc(u8, physical_zerofill_size);
                 defer zld.gpa.free(padding);
                 mem.set(u8, padding, 0);

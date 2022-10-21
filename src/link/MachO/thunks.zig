@@ -224,7 +224,7 @@ fn scanRelocs(
     for (relocs) |rel| {
         if (!relocNeedsThunk(rel)) continue;
 
-        const target = Atom.parseRelocTarget(zld, atom_index, rel, reverse_lookup) catch unreachable;
+        const target = Atom.parseRelocTarget(zld, atom_index, rel, reverse_lookup);
         if (isReachable(zld, atom_index, rel, base_offset, target, allocated)) continue;
 
         log.debug("{x}: source = {s}@{x}, target = {s}@{x} unreachable", .{
