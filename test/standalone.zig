@@ -44,23 +44,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
-    // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
-    if (builtin.cpu.arch == .x86_64) {
-        if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
-            cases.addBuildFile("test/c_abi/build.zig", .{});
-        }
-    }
-    if (builtin.cpu.arch.isAARCH64() and builtin.zig_backend == .stage2_llvm) {
-        cases.addBuildFile("test/c_abi/build.zig", .{});
-    }
-    if (builtin.cpu.arch == .i386 and builtin.zig_backend == .stage2_llvm) {
-        cases.addBuildFile("test/c_abi/build.zig", .{});
-    }
-    // C ABI tests only pass for the Wasm target when using stage2
-    cases.addBuildFile("test/c_abi/build_wasm.zig", .{
-        .requires_stage2 = true,
-        .use_emulation = true,
-    });
 
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
         .build_modes = true,
