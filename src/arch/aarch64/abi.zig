@@ -9,23 +9,24 @@ pub const Class = enum(u8) { memory, integer, none, float_array, _ };
 
 /// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, target: std.Target) [2]Class {
-    var maybe_float_bits: ?u16 = null;
-    const float_count = countFloats(ty, target, &maybe_float_bits);
-    if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
-    return classifyTypeInner(ty, target);
-}
-
-fn classifyTypeInner(ty: Type, target: std.Target) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime()) return .{ .none, .none };
+    var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag()) {
         .Struct => {
             if (ty.containerLayout() == .Packed) return .{ .integer, .none };
+            const float_count = countFloats(ty, target, &maybe_float_bits);
+            if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
+
             const bit_size = ty.bitSize(target);
             if (bit_size > 128) return .{ .memory, .none };
             if (bit_size > 64) return .{ .integer, .integer };
             return .{ .integer, .none };
         },
         .Union => {
+            if (ty.containerLayout() == .Packed) return .{ .integer, .none };
+            const float_count = countFloats(ty, target, &maybe_float_bits);
+            if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
+
             const bit_size = ty.bitSize(target);
             if (bit_size > 128) return .{ .memory, .none };
             if (bit_size > 64) return .{ .integer, .integer };
