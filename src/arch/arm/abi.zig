@@ -21,7 +21,9 @@ pub const Class = union(enum) {
     }
 };
 
-pub fn classifyType(ty: Type, target: std.Target) Class {
+pub const Context = enum { ret, arg };
+
+pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
     if (!ty.hasRuntimeBitsIgnoreComptime()) return .none;
 
     var maybe_float_bits: ?u16 = null;
@@ -66,14 +68,17 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
             }
             return Class.arrSize(bit_size, 32);
         },
-        .Int, .Enum => {
+        .Bool, .Float => return .byval,
+        .Int, .Enum, .ErrorSet => {
             const bit_size = ty.bitSize(target);
             if (bit_size > 64) return .memory;
             return .byval;
         },
-        .ErrorSet, .Vector, .Float, .Bool => {
+        .Vector => {
             const bit_size = ty.bitSize(target);
-            if (bit_size > 128) return .memory;
+            // TODO is this controlled by a cpu feature?
+            if (ctx == .ret and bit_size > 128) return .memory;
+            if (bit_size > 512) return .memory;
             return .byval;
         },
         .Optional => {

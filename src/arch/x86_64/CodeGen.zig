@@ -7143,7 +7143,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 const classes: []const abi.Class = switch (self.target.os.tag) {
                     .windows => &[1]abi.Class{abi.classifyWindows(ty, self.target.*)},
-                    else => mem.sliceTo(&abi.classifySystemV(ty, self.target.*), .none),
+                    else => mem.sliceTo(&abi.classifySystemV(ty, self.target.*, .arg), .none),
                 };
                 if (classes.len > 1) {
                     return self.fail("TODO handle multiple classes per type", .{});

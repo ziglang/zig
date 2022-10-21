@@ -5,7 +5,14 @@ const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 
-pub const Class = union(enum) { memory, integer, double_integer, none, float_array: u8 };
+pub const Class = union(enum) {
+    memory,
+    byval,
+    integer,
+    double_integer,
+    none,
+    float_array: u8,
+};
 
 /// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, target: std.Target) Class {
@@ -13,7 +20,7 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag()) {
         .Struct => {
-            if (ty.containerLayout() == .Packed) return .integer;
+            if (ty.containerLayout() == .Packed) return .byval;
             const float_count = countFloats(ty, target, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
@@ -23,7 +30,7 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
             return .integer;
         },
         .Union => {
-            if (ty.containerLayout() == .Packed) return .integer;
+            if (ty.containerLayout() == .Packed) return .byval;
             const float_count = countFloats(ty, target, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
@@ -32,14 +39,20 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
-        .Int, .Enum, .ErrorSet, .Vector, .Float, .Bool => return .integer,
+        .Int, .Enum, .ErrorSet, .Float, .Bool => return .byval,
+        .Vector => {
+            const bit_size = ty.bitSize(target);
+            // TODO is this controlled by a cpu feature?
+            if (bit_size > 128) return .memory;
+            return .byval;
+        },
         .Optional => {
             std.debug.assert(ty.isPtrLikeOptional());
-            return .integer;
+            return .byval;
         },
         .Pointer => {
             std.debug.assert(!ty.isSlice());
-            return .integer;
+            return .byval;
         },
         .ErrorUnion,
         .Frame,

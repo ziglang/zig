@@ -1,8 +1,8 @@
-#include <inttypes.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
 #include <complex.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
 void zig_panic();
 
@@ -210,7 +210,7 @@ void run_c_tests(void) {
     zig_longdouble(12.34l);
     zig_five_floats(1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
 
-    zig_ptr((void*)0xdeadbeefL);
+    zig_ptr((void *)0xdeadbeefL);
 
     zig_bool(true);
 
@@ -408,7 +408,7 @@ void c_long_double(long double x) {
 }
 
 void c_ptr(void *x) {
-    assert_or_panic(x == (void*)0xdeadbeefL);
+    assert_or_panic(x == (void *)0xdeadbeefL);
 }
 
 void c_bool(bool x) {
@@ -676,7 +676,7 @@ void c_struct_with_array(StructWithArray x) {
 }
 
 StructWithArray c_ret_struct_with_array() {
-    return (StructWithArray) { 4, {}, 155 };
+    return (StructWithArray){4, {}, 155};
 }
 
 typedef struct {
@@ -704,4 +704,32 @@ FloatArrayStruct c_ret_float_array_struct() {
     x.size.width = 3;
     x.size.height = 4;
     return x;
+}
+
+typedef uint32_t SmallVec __attribute__((vector_size(2 * sizeof(uint32_t))));
+
+void c_small_vec(SmallVec vec) {
+    assert_or_panic(vec[0] == 1);
+    assert_or_panic(vec[1] == 2);
+}
+
+SmallVec c_ret_small_vec(void) {
+    return (SmallVec){3, 4};
+}
+
+typedef size_t BigVec __attribute__((vector_size(8 * sizeof(size_t))));
+
+void c_big_vec(BigVec vec) {
+    assert_or_panic(vec[0] == 1);
+    assert_or_panic(vec[1] == 2);
+    assert_or_panic(vec[2] == 3);
+    assert_or_panic(vec[3] == 4);
+    assert_or_panic(vec[4] == 5);
+    assert_or_panic(vec[5] == 6);
+    assert_or_panic(vec[6] == 7);
+    assert_or_panic(vec[7] == 8);
+}
+
+BigVec c_ret_big_vec(void) {
+    return (BigVec){9, 10, 11, 12, 13, 14, 15, 16};
 }

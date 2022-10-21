@@ -766,3 +766,38 @@ test "Float array like struct" {
     try std.testing.expect(x.size.width == 3);
     try std.testing.expect(x.size.height == 4);
 }
+
+const SmallVec = @Vector(2, u32);
+
+extern fn c_small_vec(SmallVec) void;
+extern fn c_ret_small_vec() SmallVec;
+
+test "small simd vector" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
+    c_small_vec(.{ 1, 2 });
+
+    var x = c_ret_small_vec();
+    try std.testing.expect(x[0] == 3);
+    try std.testing.expect(x[1] == 4);
+}
+
+const BigVec = @Vector(8, usize);
+
+extern fn c_big_vec(BigVec) void;
+extern fn c_ret_big_vec() BigVec;
+
+test "big simd vector" {
+    c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
+
+    var x = c_ret_big_vec();
+    try std.testing.expect(x[0] == 9);
+    try std.testing.expect(x[1] == 10);
+    try std.testing.expect(x[2] == 11);
+    try std.testing.expect(x[3] == 12);
+    try std.testing.expect(x[4] == 13);
+    try std.testing.expect(x[5] == 14);
+    try std.testing.expect(x[6] == 15);
+    try std.testing.expect(x[7] == 16);
+}
