@@ -5,42 +5,41 @@ const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 
-pub const Class = enum(u8) { memory, integer, none, float_array, _ };
+pub const Class = union(enum) { memory, integer, double_integer, none, float_array: u8 };
 
 /// For `float_array` the second element will be the amount of floats.
-pub fn classifyType(ty: Type, target: std.Target) [2]Class {
-    if (!ty.hasRuntimeBitsIgnoreComptime()) return .{ .none, .none };
+pub fn classifyType(ty: Type, target: std.Target) Class {
+    if (!ty.hasRuntimeBitsIgnoreComptime()) return .none;
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag()) {
         .Struct => {
-            if (ty.containerLayout() == .Packed) return .{ .integer, .none };
+            if (ty.containerLayout() == .Packed) return .integer;
             const float_count = countFloats(ty, target, &maybe_float_bits);
-            if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
+            if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
             const bit_size = ty.bitSize(target);
-            if (bit_size > 128) return .{ .memory, .none };
-            if (bit_size > 64) return .{ .integer, .integer };
-            return .{ .integer, .none };
+            if (bit_size > 128) return .memory;
+            if (bit_size > 64) return .double_integer;
+            return .integer;
         },
         .Union => {
-            if (ty.containerLayout() == .Packed) return .{ .integer, .none };
+            if (ty.containerLayout() == .Packed) return .integer;
             const float_count = countFloats(ty, target, &maybe_float_bits);
-            if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
+            if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
             const bit_size = ty.bitSize(target);
-            if (bit_size > 128) return .{ .memory, .none };
-            if (bit_size > 64) return .{ .integer, .integer };
-            return .{ .integer, .none };
+            if (bit_size > 128) return .memory;
+            if (bit_size > 64) return .double_integer;
+            return .integer;
         },
-        .Int, .Enum, .ErrorSet, .Vector, .Float, .Bool => return .{ .integer, .none },
-        .Array => return .{ .memory, .none },
+        .Int, .Enum, .ErrorSet, .Vector, .Float, .Bool => return .integer,
         .Optional => {
             std.debug.assert(ty.isPtrLikeOptional());
-            return .{ .integer, .none };
+            return .integer;
         },
         .Pointer => {
             std.debug.assert(!ty.isSlice());
-            return .{ .integer, .none };
+            return .integer;
         },
         .ErrorUnion,
         .Frame,
@@ -56,17 +55,18 @@ pub fn classifyType(ty: Type, target: std.Target) [2]Class {
         .Fn,
         .Opaque,
         .EnumLiteral,
+        .Array,
         => unreachable,
     }
 }
 
 const sret_float_count = 4;
-fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u32 {
-    const invalid = std.math.maxInt(u32);
+fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u8 {
+    const invalid = std.math.maxInt(u8);
     switch (ty.zigTypeTag()) {
         .Union => {
             const fields = ty.unionFields();
-            var max_count: u32 = 0;
+            var max_count: u8 = 0;
             for (fields.values()) |field| {
                 const field_count = countFloats(field.ty, target, maybe_float_bits);
                 if (field_count == invalid) return invalid;
@@ -77,7 +77,7 @@ fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u32 {
         },
         .Struct => {
             const fields_len = ty.structFieldCount();
-            var count: u32 = 0;
+            var count: u8 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
                 const field_ty = ty.structFieldType(i);

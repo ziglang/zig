@@ -10113,7 +10113,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
                 else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
-            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target)[0] == .memory,
+            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target) == .memory,
             .arm, .armeb => switch (arm_c_abi.classifyType(fn_info.return_type, target)) {
                 .memory, .i64_array => return true,
                 .i32_array => |size| return size != 1,
@@ -10232,19 +10232,15 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                     if (is_scalar) {
                         return dg.lowerType(fn_info.return_type);
                     }
-                    const classes = aarch64_c_abi.classifyType(fn_info.return_type, target);
-                    if (classes[0] == .memory or classes[0] == .none) {
-                        return dg.context.voidType();
+                    switch (aarch64_c_abi.classifyType(fn_info.return_type, target)) {
+                        .memory, .none => return dg.context.voidType(),
+                        .float_array => return dg.lowerType(fn_info.return_type),
+                        .integer => {
+                            const bit_size = fn_info.return_type.bitSize(target);
+                            return dg.context.intType(@intCast(c_uint, bit_size));
+                        },
+                        .double_integer => return dg.context.intType(64).arrayType(2),
                     }
-                    if (classes[0] == .float_array) {
-                        return dg.lowerType(fn_info.return_type);
-                    }
-                    if (classes[1] == .none) {
-                        const bit_size = fn_info.return_type.bitSize(target);
-                        return dg.context.intType(@intCast(c_uint, bit_size));
-                    }
-
-                    return dg.context.intType(64).arrayType(2);
                 },
                 .arm, .armeb => {
                     switch (arm_c_abi.classifyType(fn_info.return_type, target)) {
@@ -10459,21 +10455,17 @@ const ParamTypeIterator = struct {
                         if (is_scalar) {
                             return .byval;
                         }
-                        const classes = aarch64_c_abi.classifyType(ty, it.target);
-                        if (classes[0] == .memory) {
-                            return .byref;
+                        switch (aarch64_c_abi.classifyType(ty, it.target)) {
+                            .none => unreachable,
+                            .memory => return .byref,
+                            .float_array => |len| return Lowering{ .float_array = len },
+                            .integer => {
+                                it.llvm_types_len = 1;
+                                it.llvm_types_buffer[0] = 64;
+                                return .multiple_llvm_ints;
+                            },
+                            .double_integer => return Lowering{ .i64_array = 2 },
                         }
-                        if (classes[0] == .float_array) {
-                            return Lowering{ .float_array = @enumToInt(classes[1]) };
-                        }
-                        if (classes[1] == .none) {
-                            it.llvm_types_len = 1;
-                        } else {
-                            it.llvm_types_len = 2;
-                        }
-                        it.llvm_types_buffer[0] = 64;
-                        it.llvm_types_buffer[1] = 64;
-                        return .multiple_llvm_ints;
                     },
                     .arm, .armeb => {
                         it.zig_index += 1;
