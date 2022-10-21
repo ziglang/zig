@@ -150,6 +150,7 @@ pub fn emitMir(
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
 
+            .ldr_ptr_stack => try emit.mirLoadStoreStack(inst),
             .ldr_stack => try emit.mirLoadStoreStack(inst),
             .ldrb_stack => try emit.mirLoadStoreStack(inst),
             .ldrh_stack => try emit.mirLoadStoreStack(inst),
@@ -159,8 +160,8 @@ pub fn emitMir(
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
 
-            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
@@ -842,14 +843,14 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     // PC-relative displacement to the entry in memory.
     // adrp
     const offset = @intCast(u32, emit.code.items.len);
-    try emit.writeInstruction(Instruction.adrp(reg.to64(), 0));
+    try emit.writeInstruction(Instruction.adrp(reg.toX(), 0));
 
     switch (tag) {
         .load_memory_got => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -863,11 +864,11 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             // Note that this can potentially be optimised out by the codegen/linker if the
             // target address is appropriately aligned.
             // add reg, reg, offset
-            try emit.writeInstruction(Instruction.add(reg.to64(), reg.to64(), 0, false));
+            try emit.writeInstruction(Instruction.add(reg.toX(), reg.toX(), 0, false));
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -1003,23 +1004,43 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     const rt = load_store_stack.rt;
 
     const raw_offset = emit.stack_size - load_store_stack.offset;
-    const offset = switch (tag) {
-        .ldrb_stack, .ldrsb_stack, .strb_stack => blk: {
-            if (math.cast(u12, raw_offset)) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+    switch (tag) {
+        .ldr_ptr_stack => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| imm else {
+                return emit.fail("TODO load stack argument ptr with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(rt, .sp, offset, false)),
+                else => unreachable,
+            }
+        },
+        .ldrb_stack, .ldrsb_stack, .strb_stack => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack byte with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+                .ldrsb_stack => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+                .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldrh_stack, .ldrsh_stack, .strh_stack => blk: {
+        .ldrh_stack, .ldrsh_stack, .strh_stack => {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, 2))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack halfword with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+                .ldrsh_stack => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
+                .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldr_stack, .str_stack => blk: {
+        .ldr_stack, .str_stack => {
             const alignment: u32 = switch (rt.size()) {
                 32 => 4,
                 64 => 8,
@@ -1027,24 +1048,16 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
             };
 
             assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+                .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        else => unreachable,
-    };
-
-    switch (tag) {
-        .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
-        .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
-        .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
-        .ldrsb_stack => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
-        .ldrsh_stack => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
-        .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
-        .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
-        .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
         else => unreachable,
     }
 }
