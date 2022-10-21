@@ -5,29 +5,21 @@ const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 
-pub const Class = enum { memory, integer, none, float_array };
+pub const Class = enum(u8) { memory, integer, none, float_array, _ };
 
+/// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, target: std.Target) [2]Class {
+    var maybe_float_bits: ?u16 = null;
+    const float_count = countFloats(ty, target, &maybe_float_bits);
+    if (float_count <= sret_float_count) return .{ .float_array, @intToEnum(Class, float_count) };
+    return classifyTypeInner(ty, target);
+}
+
+fn classifyTypeInner(ty: Type, target: std.Target) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime()) return .{ .none, .none };
     switch (ty.zigTypeTag()) {
         .Struct => {
             if (ty.containerLayout() == .Packed) return .{ .integer, .none };
-
-            if (ty.structFieldCount() <= 4) {
-                const fields = ty.structFields();
-                var float_size: ?u64 = null;
-                for (fields.values()) |field| {
-                    if (field.ty.zigTypeTag() != .Float) break;
-                    const field_size = field.ty.bitSize(target);
-                    const prev_size = float_size orelse {
-                        float_size = field_size;
-                        continue;
-                    };
-                    if (field_size != prev_size) break;
-                } else {
-                    return .{ .float_array, .none };
-                }
-            }
             const bit_size = ty.bitSize(target);
             if (bit_size > 128) return .{ .memory, .none };
             if (bit_size > 64) return .{ .integer, .integer };
@@ -64,6 +56,70 @@ pub fn classifyType(ty: Type, target: std.Target) [2]Class {
         .Opaque,
         .EnumLiteral,
         => unreachable,
+    }
+}
+
+const sret_float_count = 4;
+fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u32 {
+    const invalid = std.math.maxInt(u32);
+    switch (ty.zigTypeTag()) {
+        .Union => {
+            const fields = ty.unionFields();
+            var max_count: u32 = 0;
+            for (fields.values()) |field| {
+                const field_count = countFloats(field.ty, target, maybe_float_bits);
+                if (field_count == invalid) return invalid;
+                if (field_count > max_count) max_count = field_count;
+                if (max_count > sret_float_count) return invalid;
+            }
+            return max_count;
+        },
+        .Struct => {
+            const fields_len = ty.structFieldCount();
+            var count: u32 = 0;
+            var i: u32 = 0;
+            while (i < fields_len) : (i += 1) {
+                const field_ty = ty.structFieldType(i);
+                const field_count = countFloats(field_ty, target, maybe_float_bits);
+                if (field_count == invalid) return invalid;
+                count += field_count;
+                if (count > sret_float_count) return invalid;
+            }
+            return count;
+        },
+        .Float => {
+            const float_bits = maybe_float_bits.* orelse {
+                maybe_float_bits.* = ty.floatBits(target);
+                return 1;
+            };
+            if (ty.floatBits(target) == float_bits) return 1;
+            return invalid;
+        },
+        .Void => return 0,
+        else => return invalid,
+    }
+}
+
+pub fn getFloatArrayType(ty: Type) ?Type {
+    switch (ty.zigTypeTag()) {
+        .Union => {
+            const fields = ty.unionFields();
+            for (fields.values()) |field| {
+                if (getFloatArrayType(field.ty)) |some| return some;
+            }
+            return null;
+        },
+        .Struct => {
+            const fields_len = ty.structFieldCount();
+            var i: u32 = 0;
+            while (i < fields_len) : (i += 1) {
+                const field_ty = ty.structFieldType(i);
+                if (getFloatArrayType(field_ty)) |some| return some;
+            }
+            return null;
+        },
+        .Float => return ty,
+        else => return null,
     }
 }
 

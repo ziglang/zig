@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
+const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
+    !builtin.cpu.arch.isMIPS();
 
 extern fn run_c_tests() void;
 
@@ -40,13 +42,13 @@ test "C ABI integers" {
     c_u16(0xfffe);
     c_u32(0xfffffffd);
     c_u64(0xfffffffffffffffc);
-    c_struct_u128(.{ .value = 0xfffffffffffffffc });
+    if (has_i128) c_struct_u128(.{ .value = 0xfffffffffffffffc });
 
     c_i8(-1);
     c_i16(-2);
     c_i32(-3);
     c_i64(-4);
-    c_struct_i128(.{ .value = -6 });
+    if (has_i128) c_struct_i128(.{ .value = -6 });
     c_five_integers(12, 34, 56, 78, 90);
 }
 
@@ -110,7 +112,6 @@ test "C ABI floats" {
 }
 
 test "C ABI long double" {
-    if (!builtin.cpu.arch.isWasm() and !builtin.cpu.arch.isAARCH64()) return error.SkipZigTest;
     c_long_double(12.34);
 }
 
@@ -166,8 +167,11 @@ extern fn c_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble;
 extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
 extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 
+const complex_abi_compatible = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isMIPS();
+
 test "C ABI complex float" {
-    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
+    if (!complex_abi_compatible) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
 
     const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
@@ -178,6 +182,8 @@ test "C ABI complex float" {
 }
 
 test "C ABI complex float by component" {
+    if (!complex_abi_compatible) return error.SkipZigTest;
+
     const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
 
@@ -187,6 +193,8 @@ test "C ABI complex float by component" {
 }
 
 test "C ABI complex double" {
+    if (!complex_abi_compatible) return error.SkipZigTest;
+
     const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
@@ -196,6 +204,8 @@ test "C ABI complex double" {
 }
 
 test "C ABI complex double by component" {
+    if (!complex_abi_compatible) return error.SkipZigTest;
+
     const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
@@ -250,6 +260,9 @@ const BigStruct = extern struct {
 extern fn c_big_struct(BigStruct) void;
 
 test "C ABI big struct" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = BigStruct{
         .a = 1,
         .b = 2,
@@ -274,6 +287,8 @@ const BigUnion = extern union {
 extern fn c_big_union(BigUnion) void;
 
 test "C ABI big union" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var x = BigUnion{
         .a = BigStruct{
             .a = 1,
@@ -304,6 +319,11 @@ extern fn c_med_struct_mixed(MedStructMixed) void;
 extern fn c_ret_med_struct_mixed() MedStructMixed;
 
 test "C ABI medium struct of ints and floats" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = MedStructMixed{
         .a = 1234,
         .b = 100.0,
@@ -332,6 +352,11 @@ extern fn c_small_struct_ints(SmallStructInts) void;
 extern fn c_ret_small_struct_ints() SmallStructInts;
 
 test "C ABI small struct of ints" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = SmallStructInts{
         .a = 1,
         .b = 2,
@@ -392,6 +417,8 @@ export fn zig_big_packed_struct(x: BigPackedStruct) void {
 }
 
 test "C ABI big packed struct" {
+    if (!has_i128) return error.SkipZigTest;
+
     var s = BigPackedStruct{ .a = 1, .b = 2 };
     c_big_packed_struct(s);
     var s2 = c_ret_big_packed_struct();
@@ -407,6 +434,11 @@ const SplitStructInt = extern struct {
 extern fn c_split_struct_ints(SplitStructInt) void;
 
 test "C ABI split struct of ints" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = SplitStructInt{
         .a = 1234,
         .b = 100,
@@ -430,6 +462,11 @@ extern fn c_split_struct_mixed(SplitStructMixed) void;
 extern fn c_ret_split_struct_mixed() SplitStructMixed;
 
 test "C ABI split struct of ints and floats" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = SplitStructMixed{
         .a = 1234,
         .b = 100,
@@ -454,6 +491,9 @@ extern fn c_multiple_struct_ints(Rect, Rect) void;
 extern fn c_multiple_struct_floats(FloatRect, FloatRect) void;
 
 test "C ABI sret and byval together" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var s = BigStruct{
         .a = 1,
         .b = 2,
@@ -503,6 +543,10 @@ const Vector5 = extern struct {
 extern fn c_big_struct_floats(Vector5) void;
 
 test "C ABI structs of floats as parameter" {
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var v3 = Vector3{
         .x = 3.0,
         .y = 6.0,
@@ -540,6 +584,8 @@ export fn zig_multiple_struct_ints(x: Rect, y: Rect) void {
 }
 
 test "C ABI structs of ints as multiple parameters" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var r1 = Rect{
         .left = 1,
         .right = 21,
@@ -574,6 +620,9 @@ export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
 }
 
 test "C ABI structs of floats as multiple parameters" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
     var r1 = FloatRect{
         .left = 1,
         .right = 21,
@@ -664,4 +713,61 @@ test "C ABI integer return types" {
     try expect(c_ret_i16() == -1);
     try expect(c_ret_i32() == -1);
     try expect(c_ret_i64() == -1);
+}
+
+const StructWithArray = extern struct {
+    a: i32,
+    padding: [4]u8,
+    b: i64,
+};
+extern fn c_struct_with_array(StructWithArray) void;
+extern fn c_ret_struct_with_array() StructWithArray;
+
+test "Struct with array as padding." {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
+    c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
+
+    var x = c_ret_struct_with_array();
+    try std.testing.expect(x.a == 4);
+    try std.testing.expect(x.b == 155);
+}
+
+const FloatArrayStruct = extern struct {
+    origin: extern struct {
+        x: f64,
+        y: f64,
+    },
+    size: extern struct {
+        width: f64,
+        height: f64,
+    },
+};
+
+extern fn c_float_array_struct(FloatArrayStruct) void;
+extern fn c_ret_float_array_struct() FloatArrayStruct;
+
+test "Float array like struct" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+
+    c_float_array_struct(.{
+        .origin = .{
+            .x = 5,
+            .y = 6,
+        },
+        .size = .{
+            .width = 7,
+            .height = 8,
+        },
+    });
+
+    var x = c_ret_float_array_struct();
+    try std.testing.expect(x.origin.x == 1);
+    try std.testing.expect(x.origin.y == 2);
+    try std.testing.expect(x.size.width == 3);
+    try std.testing.expect(x.size.height == 4);
 }

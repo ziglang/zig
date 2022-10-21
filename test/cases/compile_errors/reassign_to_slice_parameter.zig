@@ -9,4 +9,4 @@ export fn entry() void {
 // backend=llvm
 // target=native
 //
-// :2:10: error: cannot assign to constant
+// :2:5: error: cannot assign to constant

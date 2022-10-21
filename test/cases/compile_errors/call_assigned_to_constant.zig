@@ -20,5 +20,5 @@ export fn entry1() void {
 // backend=stage2
 // target=native
 //
-// :12:14: error: cannot assign to constant
-// :16:14: error: cannot assign to constant
+// :12:5: error: cannot assign to constant
+// :16:5: error: cannot assign to constant

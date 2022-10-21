@@ -232,7 +232,7 @@ pub const ResultLoc = union(enum) {
     coerced_ty: Zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
     /// from the expression must be ignored.
-    ptr: Zir.Inst.Ref,
+    ptr: PtrResultLoc,
     /// The expression must store its result into this allocation, which has an inferred type.
     /// The result instruction from the expression must be ignored.
     /// Always an instruction with tag `alloc_inferred`.
@@ -241,6 +241,11 @@ pub const ResultLoc = union(enum) {
     /// is inferred based on peer type resolution for a `Zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
     block_ptr: *GenZir,
+
+    const PtrResultLoc = struct {
+        inst: Zir.Inst.Ref,
+        src_node: ?Ast.Node.Index = null,
+    };
 
     pub const Strategy = struct {
         elide_store_to_block_ptr_instructions: bool,
@@ -1380,8 +1385,8 @@ fn arrayInitExpr(
             const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
             return rvalue(gz, rl, result, node);
         },
-        .ptr => |ptr_inst| {
-            return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
+        .ptr => |ptr_res| {
+            return arrayInitExprRlPtr(gz, scope, rl, node, ptr_res.inst, array_init.ast.elements, types.array);
         },
         .inferred_ptr => |ptr_inst| {
             if (types.array == .none) {
@@ -1513,7 +1518,7 @@ fn arrayInitExprRlPtrInner(
         });
         astgen.extra.items[extra_index] = refToIndex(elem_ptr).?;
         extra_index += 1;
-        _ = try expr(gz, scope, .{ .ptr = elem_ptr }, elem_init);
+        _ = try expr(gz, scope, .{ .ptr = .{ .inst = elem_ptr } }, elem_init);
     }
 
     const tag: Zir.Inst.Tag = if (gz.force_comptime)
@@ -1631,7 +1636,7 @@ fn structInitExpr(
             const result = try structInitExprRlTy(gz, scope, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, rl, result, node);
         },
-        .ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
+        .ptr => |ptr_res| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_res.inst),
         .inferred_ptr => |ptr_inst| {
             if (struct_init.ast.type_expr == 0) {
                 // We treat this case differently so that we don't get a crash when
@@ -1739,7 +1744,7 @@ fn structInitExprRlPtrInner(
         });
         astgen.extra.items[extra_index] = refToIndex(field_ptr).?;
         extra_index += 1;
-        _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
+        _ = try expr(gz, scope, .{ .ptr = .{ .inst = field_ptr } }, field_init);
     }
 
     const tag: Zir.Inst.Tag = if (gz.force_comptime)
@@ -2998,7 +3003,7 @@ fn varDecl(
                     }
                 };
                 gz.rl_ty_inst = type_inst;
-                break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
+                break :a .{ .alloc = alloc, .result_loc = .{ .ptr = .{ .inst = alloc } } };
             } else a: {
                 const alloc = alloc: {
                     if (align_inst == .none) {
@@ -3098,7 +3103,10 @@ fn assign(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerError!voi
         }
     }
     const lvalue = try lvalExpr(gz, scope, lhs);
-    _ = try expr(gz, scope, .{ .ptr = lvalue }, rhs);
+    _ = try expr(gz, scope, .{ .ptr = .{
+        .inst = lvalue,
+        .src_node = infix_node,
+    } }, rhs);
 }
 
 fn assignOp(
@@ -6729,7 +6737,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     }
 
     const rl: ResultLoc = if (nodeMayNeedMemoryLocation(tree, operand_node, true)) .{
-        .ptr = try gz.addNode(.ret_ptr, node),
+        .ptr = .{ .inst = try gz.addNode(.ret_ptr, node) },
     } else .{
         .ty = try gz.addNode(.ret_type, node),
     };
@@ -6748,7 +6756,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
-            const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr.inst, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             try emitDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
@@ -6765,7 +6773,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             }
 
             // Emit conditional branch for generating errdefers.
-            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr.inst, node) else operand;
             const is_non_err = try gz.addUnNode(.is_non_err, result, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
@@ -7336,7 +7344,10 @@ fn as(
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
-        .ptr, .inferred_ptr => |result_ptr| {
+        .ptr => |result_ptr| {
+            return asRlPtr(gz, scope, rl, node, result_ptr.inst, rhs, dest_type);
+        },
+        .inferred_ptr => |result_ptr| {
             return asRlPtr(gz, scope, rl, node, result_ptr, rhs, dest_type);
         },
         .block_ptr => |block_scope| {
@@ -9569,9 +9580,9 @@ fn rvalue(
                 }),
             }
         },
-        .ptr => |ptr_inst| {
-            _ = try gz.addPlNode(.store_node, src_node, Zir.Inst.Bin{
-                .lhs = ptr_inst,
+        .ptr => |ptr_res| {
+            _ = try gz.addPlNode(.store_node, ptr_res.src_node orelse src_node, Zir.Inst.Bin{
+                .lhs = ptr_res.inst,
                 .rhs = result,
             });
             return result;
@@ -10444,9 +10455,14 @@ const GenZir = struct {
                 gz.break_result_loc = parent_rl;
             },
 
-            .discard, .none, .ptr, .ref => {
+            .discard, .none, .ref => {
                 gz.rl_ty_inst = .none;
                 gz.break_result_loc = parent_rl;
+            },
+
+            .ptr => |ptr_res| {
+                gz.rl_ty_inst = .none;
+                gz.break_result_loc = .{ .ptr = .{ .inst = ptr_res.inst } };
             },
 
             .inferred_ptr => |ptr| {
@@ -11610,7 +11626,7 @@ const GenZir = struct {
 
     fn addRet(gz: *GenZir, rl: ResultLoc, operand: Zir.Inst.Ref, node: Ast.Node.Index) !void {
         switch (rl) {
-            .ptr => |ret_ptr| _ = try gz.addUnNode(.ret_load, ret_ptr, node),
+            .ptr => |ptr_res| _ = try gz.addUnNode(.ret_load, ptr_res.inst, node),
             .ty, .ty_shift_operand => _ = try gz.addUnNode(.ret_node, operand, node),
             else => unreachable,
         }

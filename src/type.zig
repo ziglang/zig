@@ -3619,6 +3619,9 @@ pub const Type = extern union {
 
             .@"struct" => {
                 if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (ty.containerLayout() != .Packed) {
+                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                }
                 var total: u64 = 0;
                 for (ty.structFields().values()) |field| {
                     total += try bitSizeAdvanced(field.ty, target, sema_kit);
@@ -3628,6 +3631,9 @@ pub const Type = extern union {
 
             .tuple, .anon_struct => {
                 if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (ty.containerLayout() != .Packed) {
+                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                }
                 var total: u64 = 0;
                 for (ty.tupleFields().types) |field_ty| {
                     total += try bitSizeAdvanced(field_ty, target, sema_kit);
@@ -3643,6 +3649,9 @@ pub const Type = extern union {
 
             .@"union", .union_safety_tagged, .union_tagged => {
                 if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (ty.containerLayout() != .Packed) {
+                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                }
                 const union_obj = ty.cast(Payload.Union).?.data;
                 assert(union_obj.haveFieldTypes());
 

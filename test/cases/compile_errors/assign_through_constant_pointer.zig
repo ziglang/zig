@@ -7,4 +7,4 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :3:13: error: cannot assign to constant
+// :3:7: error: cannot assign to constant

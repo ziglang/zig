@@ -2632,6 +2632,9 @@ pub const Value = extern union {
             .lazy_size,
             => return hashInt(ptr_val, hasher, target),
 
+            // The value is runtime-known and shouldn't affect the hash.
+            .runtime_int => {},
+
             else => unreachable,
         }
     }

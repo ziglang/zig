@@ -218,7 +218,7 @@ test "@bitSizeOf" {
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
         a: u2,
-    }) == 2);
+    }) == 8);
     try expect(@bitSizeOf(packed struct {
         a: u2,
     }) == 2);
@@ -313,4 +313,28 @@ test "lazy size cast to float" {
 
 test "bitSizeOf comptime_int" {
     try expect(@bitSizeOf(comptime_int) == 0);
+}
+
+test "runtime instructions inside typeof in comptime only scope" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    {
+        var y: i8 = 2;
+        const i: [2]i8 = [_]i8{ 1, y };
+        const T = struct {
+            a: @TypeOf(i) = undefined, // causes crash
+            b: @TypeOf(i[0]) = undefined, // causes crash
+        };
+        try expect(@TypeOf((T{}).a) == [2]i8);
+        try expect(@TypeOf((T{}).b) == i8);
+    }
+    {
+        var y: i8 = 2;
+        const i = .{ 1, y };
+        const T = struct {
+            b: @TypeOf(i[1]) = undefined,
+        };
+        try expect(@TypeOf((T{}).b) == i8);
+    }
 }
