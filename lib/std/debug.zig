@@ -93,15 +93,6 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
-/// Indicates code that is unfinshed. It will throw a compiler error by default in Release mode.
-/// This behaviour can be controlled with `root.allow_todo_in_release`.
-pub fn todo(comptime desc: []const u8) noreturn {
-    if (builtin.mode != .Debug and !(@hasDecl(root, "allow_todo_in_release") and root.allow_todo_in_release)) {
-        @compileError("TODO: " ++ desc);
-    }
-    @panic("TODO: " ++ desc);
-}
-
 pub fn getStderrMutex() *std.Thread.Mutex {
     return &stderr_mutex;
 }
