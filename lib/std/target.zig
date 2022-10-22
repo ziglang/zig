@@ -1781,68 +1781,89 @@ pub const Target = struct {
     }
 
     pub inline fn longDoubleIs(target: Target, comptime F: type) bool {
-        if (target.abi == .msvc or (target.abi == .android and target.cpu.arch == .i386)) {
-            return F == f64;
-        }
-        return switch (F) {
-            f128 => switch (target.cpu.arch) {
-                .aarch64 => {
-                    // According to Apple's official guide:
-                    // > The long double type is a double precision IEEE754 binary floating-point type,
-                    // > which makes it identical to the double type. This behavior contrasts to the
-                    // > standard specification, in which a long double is a quad-precision, IEEE754
-                    // > binary, floating-point type.
-                    // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
-                    return !target.isDarwin();
+        switch (target.os.tag) {
+            .windows, .uefi => switch (target.abi) {
+                .gnu, .gnuilp32, .cygnus => switch (target.cpu.arch) {
+                    .i386 => return F == f80,
+                    .x86_64 => return F == f128,
+                    else => return F == f64,
                 },
-
-                .riscv64,
-                .aarch64_be,
-                .aarch64_32,
-                .s390x,
-                .mips64,
-                .mips64el,
-                .sparc,
-                .sparc64,
-                .sparcel,
-                .powerpc,
-                .powerpcle,
-                .powerpc64,
-                .powerpc64le,
-                .wasm32,
-                .wasm64,
-                => true,
-
-                else => false,
+                else => return F == f64,
             },
-            f80 => switch (target.cpu.arch) {
-                .x86_64, .i386 => true,
-                else => false,
-            },
-            f64 => switch (target.cpu.arch) {
-                .aarch64 => target.isDarwin(),
+            else => {},
+        }
 
-                .x86_64,
-                .i386,
-                .riscv64,
-                .aarch64_be,
-                .aarch64_32,
-                .s390x,
-                .mips64,
-                .mips64el,
-                .sparc,
-                .sparc64,
-                .sparcel,
-                .powerpc,
-                .powerpcle,
-                .powerpc64,
-                .powerpc64le,
-                => false,
+        if (target.abi == .android and target.cpu.arch == .i386)
+            return F == f64;
 
-                else => true,
+        switch (target.cpu.arch) {
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            => switch (target.os.tag) {
+                // According to Apple's official guide:
+                // > The long double type is a double precision IEEE754 binary floating-point type,
+                // > which makes it identical to the double type. This behavior contrasts to the
+                // > standard specification, in which a long double is a quad-precision, IEEE754
+                // > binary, floating-point type.
+                // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+                .ios, .macos, .watchos, .tvos => return F == f64,
+                .windows, .uefi => return F == f64,
+                else => return F == f128,
             },
-            else => false,
-        };
+
+            .i386 => return F == f80,
+            .x86_64 => return F == f80,
+
+            .mips64,
+            .mips64el,
+            => switch (target.os.tag) {
+                .freebsd => return F == f64,
+                else => return F == f128,
+            },
+
+            .powerpc,
+            .powerpcle,
+            => switch (target.abi) {
+                .musl,
+                .musleabi,
+                .musleabihf,
+                .muslx32,
+                => return F == f64,
+                else => switch (target.os.tag) {
+                    .freebsd, .netbsd, .openbsd => return F == f64,
+                    else => return F == f128,
+                },
+            },
+
+            .powerpc64,
+            .powerpc64le,
+            => switch (target.abi) {
+                .musl,
+                .musleabi,
+                .musleabihf,
+                .muslx32,
+                => return F == f64,
+                else => switch (target.os.tag) {
+                    .freebsd, .openbsd => return F == f64,
+                    else => return F == f128,
+                },
+            },
+
+            .riscv32,
+            .riscv64,
+            .s390x,
+            .sparc,
+            .sparc64,
+            .sparcel,
+            .wasm32,
+            .wasm64,
+            => return F == f128,
+
+            .avr, .tce, .tcele => return F == f32,
+
+            else => return F == f64,
+        }
     }
 
     pub inline fn maxIntAlignment(target: Target) u16 {
@@ -1872,7 +1893,7 @@ pub const Target = struct {
             => 8,
 
             .i386 => return switch (target.os.tag) {
-                .windows => 8,
+                .windows, .uefi => 8,
                 else => 4,
             },
 
