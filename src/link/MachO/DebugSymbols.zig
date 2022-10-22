@@ -477,7 +477,6 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
 
     for (self.base.locals.items) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
-        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
         const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
         if (self.base.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
         if (self.base.getGlobal(self.base.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
@@ -492,7 +491,6 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     for (self.base.globals.items) |global| {
         const sym = self.base.getSymbol(global);
         if (sym.undf()) continue; // import, skip
-        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(global));
         try exports.append(out_sym);
