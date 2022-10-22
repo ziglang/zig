@@ -1314,7 +1314,7 @@ const c_abi_targets = [_]CrossTarget{
     .{
         .cpu_arch = .powerpc64le,
         .os_tag = .linux,
-        .abi = .none,
+        .abi = .musl,
     },
 };
 

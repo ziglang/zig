@@ -10432,11 +10432,6 @@ const ParamTypeIterator = struct {
                                 it.llvm_index += 1;
                                 return .abi_sized_int;
                             }
-                            if (classes[0] == .sse and classes[1] == .none) {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .byval;
-                            }
                             it.llvm_types_buffer = llvm_types_buffer;
                             it.llvm_types_len = llvm_types_index;
                             it.llvm_index += llvm_types_index;

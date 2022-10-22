@@ -758,3 +758,15 @@ void c_big_vec(BigVec vec) {
 BigVec c_ret_big_vec(void) {
     return (BigVec){9, 10, 11, 12, 13, 14, 15, 16};
 }
+
+typedef struct {
+    float x, y;
+} Vector2;
+
+void c_ptr_size_float_struct(Vector2 vec) {
+    assert_or_panic(vec.x == 1);
+    assert_or_panic(vec.y == 2);
+}
+Vector2 c_ret_ptr_size_float_struct(void) {
+    return (Vector2){3, 4};
+}

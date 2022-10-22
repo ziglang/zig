@@ -813,3 +813,21 @@ test "big simd vector" {
     try expect(x[6] == 15);
     try expect(x[7] == 16);
 }
+
+const Vector2 = extern struct { x: f32, y: f32 };
+
+extern fn c_ptr_size_float_struct(Vector2) void;
+extern fn c_ret_ptr_size_float_struct() Vector2;
+
+test "C ABI pointer sized float struct" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    c_ptr_size_float_struct(.{ .x = 1, .y = 2 });
+
+    var x = c_ret_ptr_size_float_struct();
+    try expect(x.x == 3);
+    try expect(x.y == 4);
+}
