@@ -254,6 +254,9 @@ const Writer = struct {
             .str => try self.writeStr(stream, inst),
             .int_type => try self.writeIntType(stream, inst),
 
+            .save_err_ret_index => try self.writeSaveErrRetIndex(stream, inst),
+            .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, inst),
+
             .@"break",
             .break_inline,
             => try self.writeBreak(stream, inst),
@@ -440,7 +443,7 @@ const Writer = struct {
 
             .dbg_block_begin,
             .dbg_block_end,
-            => try stream.writeAll("))"),
+            => try stream.writeAll(")"),
 
             .closure_get => try self.writeInstNode(stream, inst),
 
@@ -2270,6 +2273,22 @@ const Writer = struct {
         };
         try stream.print("{c}{d}) ", .{ prefix, int_type.bit_count });
         try self.writeSrc(stream, int_type.src());
+    }
+
+    fn writeSaveErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].save_err_ret_index;
+
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
+    }
+
+    fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].restore_err_ret_index;
+
+        try self.writeInstRef(stream, inst_data.block);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
     }
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

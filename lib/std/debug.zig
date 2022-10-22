@@ -411,6 +411,14 @@ pub fn writeStackTrace(
         const return_address = stack_trace.instruction_addresses[frame_index];
         try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
     }
+
+    if (stack_trace.index > stack_trace.instruction_addresses.len) {
+        const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
+
+        tty_config.setColor(out_stream, .Bold);
+        try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
+        tty_config.setColor(out_stream, .Reset);
+    }
 }
 
 pub const StackIterator = struct {

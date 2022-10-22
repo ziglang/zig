@@ -830,3 +830,16 @@ test "compare error union and error set" {
     try expect(a != b);
     try expect(b != a);
 }
+
+fn non_errorable() void {
+    // Make sure catch works even in a function that does not call any errorable functions.
+    //
+    // This test is needed because stage 2's fix for #1923 means that catch blocks interact
+    // with the error return trace index.
+    var x: error{Foo}!void = {};
+    return x catch {};
+}
+
+test "catch within a function that calls no errorable functions" {
+    non_errorable();
+}

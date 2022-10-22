@@ -2971,9 +2971,10 @@ pub const Value = extern union {
         };
     }
 
-    /// Valid for all types. Asserts the value is not undefined and not unreachable.
-    /// Prefer `errorUnionIsPayload` to find out whether something is an error or not
-    /// because it works without having to figure out the string.
+    /// Valid only for error (union) types. Asserts the value is not undefined and not
+    /// unreachable. For error unions, prefer `errorUnionIsPayload` to find out whether
+    /// something is an error or not because it works without having to figure out the
+    /// string.
     pub fn getError(self: Value) ?[]const u8 {
         return switch (self.tag()) {
             .@"error" => self.castTag(.@"error").?.data.name,

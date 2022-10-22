@@ -228,6 +228,7 @@ pub fn categorizeOperand(
         .frame_addr,
         .wasm_memory_size,
         .err_return_trace,
+        .save_err_return_trace_index,
         => return .none,
 
         .fence => return .write,
@@ -805,6 +806,7 @@ fn analyzeInst(
         .frame_addr,
         .wasm_memory_size,
         .err_return_trace,
+        .save_err_return_trace_index,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,

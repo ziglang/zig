@@ -733,6 +733,10 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         addrspace_cast,
 
+        /// Saves the error return trace index, if any. Otherwise, returns 0.
+        /// Uses the `ty_pl` field.
+        save_err_return_trace_index,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1179,6 +1183,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .slice_len,
         .ret_addr,
         .frame_addr,
+        .save_err_return_trace_index,
         => return Type.usize,
 
         .wasm_memory_grow => return Type.i32,

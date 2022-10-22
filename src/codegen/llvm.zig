@@ -4592,6 +4592,7 @@ pub const FuncGen = struct {
                 .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
                 .err_return_trace            => try self.airErrReturnTrace(inst),
                 .set_err_return_trace        => try self.airSetErrReturnTrace(inst),
+                .save_err_return_trace_index => try self.airSaveErrReturnTraceIndex(inst),
 
                 .wrap_optional         => try self.airWrapOptional(inst),
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
@@ -6541,6 +6542,24 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         self.err_ret_trace = operand;
         return null;
+    }
+
+    fn airSaveErrReturnTraceIndex(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        //const struct_ty = try self.resolveInst(ty_pl.ty);
+        const struct_ty = self.air.getRefType(ty_pl.ty);
+        const field_index = ty_pl.payload;
+
+        var ptr_ty_buf: Type.Payload.Pointer = undefined;
+        const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
+        const struct_llvm_ty = try self.dg.lowerType(struct_ty);
+        const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, self.err_ret_trace.?, llvm_field_index, "");
+        const field_ptr_ty = Type.initPayload(&ptr_ty_buf.base);
+        return self.load(field_ptr, field_ptr_ty);
     }
 
     fn airWrapOptional(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
