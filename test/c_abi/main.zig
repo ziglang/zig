@@ -181,8 +181,8 @@ test "C ABI complex float" {
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultf(a, b);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_float 1");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_float 2");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 test "C ABI complex float by component" {
@@ -192,8 +192,8 @@ test "C ABI complex float by component" {
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
 
     const z2 = c_cmultf_comp(a.real, a.imag, b.real, b.imag);
-    expect(z2.real == 1.5) catch @panic("test failure: zig_complex_float 3");
-    expect(z2.imag == 13.5) catch @panic("test failure: zig_complex_float 4");
+    try expect(z2.real == 1.5);
+    try expect(z2.imag == 13.5);
 }
 
 test "C ABI complex double" {
@@ -203,8 +203,8 @@ test "C ABI complex double" {
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultd(a, b);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 1");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 2");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 test "C ABI complex double by component" {
@@ -214,8 +214,8 @@ test "C ABI complex double by component" {
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultd_comp(a.real, a.imag, b.real, b.imag);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 3");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 4");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 export fn zig_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat {
@@ -335,9 +335,9 @@ test "C ABI medium struct of ints and floats" {
     };
     c_med_struct_mixed(s);
     var s2 = c_ret_med_struct_mixed();
-    expect(s2.a == 1234) catch @panic("test failure");
-    expect(s2.b == 100.0) catch @panic("test failure");
-    expect(s2.c == 1337.0) catch @panic("test failure");
+    try expect(s2.a == 1234);
+    try expect(s2.b == 100.0);
+    try expect(s2.c == 1337.0);
 }
 
 export fn zig_med_struct_mixed(x: MedStructMixed) void {
@@ -369,10 +369,10 @@ test "C ABI small struct of ints" {
     };
     c_small_struct_ints(s);
     var s2 = c_ret_small_struct_ints();
-    expect(s2.a == 1) catch @panic("test failure");
-    expect(s2.b == 2) catch @panic("test failure");
-    expect(s2.c == 3) catch @panic("test failure");
-    expect(s2.d == 4) catch @panic("test failure");
+    try expect(s2.a == 1);
+    try expect(s2.b == 2);
+    try expect(s2.c == 3);
+    try expect(s2.d == 4);
 }
 
 export fn zig_small_struct_ints(x: SmallStructInts) void {
@@ -478,9 +478,9 @@ test "C ABI split struct of ints and floats" {
     };
     c_split_struct_mixed(s);
     var s2 = c_ret_split_struct_mixed();
-    expect(s2.a == 1234) catch @panic("test failure");
-    expect(s2.b == 100) catch @panic("test failure");
-    expect(s2.c == 1337.0) catch @panic("test failure");
+    try expect(s2.a == 1234);
+    try expect(s2.b == 100);
+    try expect(s2.c == 1337.0);
 }
 
 export fn zig_split_struct_mixed(x: SplitStructMixed) void {
@@ -737,8 +737,8 @@ test "Struct with array as padding." {
     c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
 
     var x = c_ret_struct_with_array();
-    try std.testing.expect(x.a == 4);
-    try std.testing.expect(x.b == 155);
+    try expect(x.a == 4);
+    try expect(x.b == 155);
 }
 
 const FloatArrayStruct = extern struct {
@@ -771,10 +771,10 @@ test "Float array like struct" {
     });
 
     var x = c_ret_float_array_struct();
-    try std.testing.expect(x.origin.x == 1);
-    try std.testing.expect(x.origin.y == 2);
-    try std.testing.expect(x.size.width == 3);
-    try std.testing.expect(x.size.height == 4);
+    try expect(x.origin.x == 1);
+    try expect(x.origin.y == 2);
+    try expect(x.size.width == 3);
+    try expect(x.size.height == 4);
 }
 
 const SmallVec = @Vector(2, u32);
@@ -789,8 +789,8 @@ test "small simd vector" {
     c_small_vec(.{ 1, 2 });
 
     var x = c_ret_small_vec();
-    try std.testing.expect(x[0] == 3);
-    try std.testing.expect(x[1] == 4);
+    try expect(x[0] == 3);
+    try expect(x[1] == 4);
 }
 
 const BigVec = @Vector(8, usize);
@@ -804,12 +804,12 @@ test "big simd vector" {
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
     var x = c_ret_big_vec();
-    try std.testing.expect(x[0] == 9);
-    try std.testing.expect(x[1] == 10);
-    try std.testing.expect(x[2] == 11);
-    try std.testing.expect(x[3] == 12);
-    try std.testing.expect(x[4] == 13);
-    try std.testing.expect(x[5] == 14);
-    try std.testing.expect(x[6] == 15);
-    try std.testing.expect(x[7] == 16);
+    try expect(x[0] == 9);
+    try expect(x[1] == 10);
+    try expect(x[2] == 11);
+    try expect(x[3] == 12);
+    try expect(x[4] == 13);
+    try expect(x[5] == 14);
+    try expect(x[6] == 15);
+    try expect(x[7] == 16);
 }
