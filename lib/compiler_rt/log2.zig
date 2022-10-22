@@ -19,8 +19,10 @@ comptime {
     @export(log2f, .{ .name = "log2f", .linkage = common.linkage });
     @export(log2, .{ .name = "log2", .linkage = common.linkage });
     @export(__log2x, .{ .name = "__log2x", .linkage = common.linkage });
-    const log2q_sym_name = if (common.want_ppc_abi) "log2f128" else "log2q";
-    @export(log2q, .{ .name = log2q_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(log2q, .{ .name = "log2f128", .linkage = common.linkage });
+    }
+    @export(log2q, .{ .name = "log2q", .linkage = common.linkage });
     @export(log2l, .{ .name = "log2l", .linkage = common.linkage });
 }
 

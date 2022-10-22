@@ -10,8 +10,10 @@ comptime {
     @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage });
     @export(fabs, .{ .name = "fabs", .linkage = common.linkage });
     @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage });
-    const fabsq_sym_name = if (common.want_ppc_abi) "fabsf128" else "fabsq";
-    @export(fabsq, .{ .name = fabsq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(fabsq, .{ .name = "fabsf128", .linkage = common.linkage });
+    }
+    @export(fabsq, .{ .name = "fabsq", .linkage = common.linkage });
     @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage });
 }
 

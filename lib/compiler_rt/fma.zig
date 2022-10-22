@@ -19,8 +19,10 @@ comptime {
     @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage });
     @export(fma, .{ .name = "fma", .linkage = common.linkage });
     @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage });
-    const fmaq_sym_name = if (common.want_ppc_abi) "fmaf128" else "fmaq";
-    @export(fmaq, .{ .name = fmaq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(fmaq, .{ .name = "fmaf128", .linkage = common.linkage });
+    }
+    @export(fmaq, .{ .name = "fmaq", .linkage = common.linkage });
     @export(fmal, .{ .name = "fmal", .linkage = common.linkage });
 }
 

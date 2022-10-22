@@ -11,8 +11,10 @@ comptime {
     @export(fminf, .{ .name = "fminf", .linkage = common.linkage });
     @export(fmin, .{ .name = "fmin", .linkage = common.linkage });
     @export(__fminx, .{ .name = "__fminx", .linkage = common.linkage });
-    const fminq_sym_name = if (common.want_ppc_abi) "fminf128" else "fminq";
-    @export(fminq, .{ .name = fminq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(fminq, .{ .name = "fminf128", .linkage = common.linkage });
+    }
+    @export(fminq, .{ .name = "fminq", .linkage = common.linkage });
     @export(fminl, .{ .name = "fminl", .linkage = common.linkage });
 }
 

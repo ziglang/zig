@@ -18,8 +18,10 @@ comptime {
     @export(roundf, .{ .name = "roundf", .linkage = common.linkage });
     @export(round, .{ .name = "round", .linkage = common.linkage });
     @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage });
-    const roundq_sym_name = if (common.want_ppc_abi) "roundf128" else "roundq";
-    @export(roundq, .{ .name = roundq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(roundq, .{ .name = "roundf128", .linkage = common.linkage });
+    }
+    @export(roundq, .{ .name = "roundq", .linkage = common.linkage });
     @export(roundl, .{ .name = "roundl", .linkage = common.linkage });
 }
 
