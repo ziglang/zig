@@ -6862,6 +6862,18 @@ pub const CType = enum {
                 },
             },
 
+            .nvcl, .cuda => switch (self) {
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong => switch (target.cpu.arch) {
+                    .nvptx => return 32,
+                    .nvptx64 => return 64,
+                    else => return 64,
+                },
+                .longlong, .ulonglong, .double => return 64,
+                .longdouble => return 64,
+            },
+
             .amdhsa, .amdpal => switch (self) {
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
@@ -6876,8 +6888,6 @@ pub const CType = enum {
             .rtems,
             .nacl,
             .aix,
-            .cuda,
-            .nvcl,
             .ps4,
             .ps5,
             .elfiamcu,
