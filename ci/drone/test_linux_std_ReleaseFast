@@ -13,4 +13,5 @@ $ZIG build test-std \
   -Dskip-release-safe \
   -Dskip-release-small \
   -Dskip-non-native \
-  -Dskip-single-threaded
+  -Dskip-single-threaded \
+  -Dskip-libc
