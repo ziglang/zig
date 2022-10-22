@@ -1,3 +1,10 @@
+//! An algorithm for allocating output machine code section (aka `__TEXT,__text`),
+//! and insertion of range extending thunks. As such, this algorithm is only run
+//! for a target that requires range extenders such as arm64.
+//!
+//! The algorithm works pessimistically and assumes that any reference to an Atom in
+//! another output section is out of range.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.thunks);

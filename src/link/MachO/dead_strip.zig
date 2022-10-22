@@ -1,3 +1,5 @@
+//! An algorithm for dead stripping of unreferenced Atoms.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.dead_strip);

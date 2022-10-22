@@ -1,3 +1,9 @@
+//! An atom is a single smallest unit of measure that will get an
+//! allocated virtual memory address in the final linked image.
+//! For example, we parse each input section within an input relocatable
+//! object file into a set of atoms which are then laid out contiguously
+//! as they were defined in the input file.
+
 const Atom = @This();
 
 const std = @import("std");
@@ -17,33 +23,38 @@ const Object = @import("Object.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
-/// Each decl always gets a local symbol with the fully qualified name.
-/// The vaddr and size are found here directly.
-/// The file offset is found by computing the vaddr offset from the section vaddr
-/// the symbol references, and adding that to the file offset of the section.
-/// If this field is 0, it means the codegen size = 0 and there is no symbol or
-/// offset table entry.
+/// Each Atom always gets a symbol with the fully qualified name.
+/// The symbol can reside in any object file context structure in `symtab` array
+/// (see `Object`), or if the symbol is a synthetic symbol such as a GOT cell or
+/// a stub trampoline, it can be found in the linkers `locals` arraylist.
 sym_index: u32,
 
-/// If this Atom references a subsection in an Object file, `nsyms_trailing`
-/// tells how many symbols trailing `sym_index` fall within this Atom's address
-/// range.
+/// -1 means an Atom is a synthetic Atom such as a GOT cell defined by the linker.
+/// Otherwise, it is the index into appropriate object file.
+/// Prefer using `getFile()` helper to get the file index out rather than using
+/// the field directly.
+file: i32,
+
+/// If this Atom is not a synthetic Atom, i.e., references a subsection in an
+/// Object file, `inner_sym_index` and `inner_nsyms_trailing` tell where and if
+/// this Atom contains any additional symbol references that fall within this Atom's
+/// address range. These could for example be an alias symbol which can be used
+/// internally by the relocation records, or if the Object file couldn't be split
+/// into subsections, this Atom may encompass an entire input section.
 inner_sym_index: u32,
 inner_nsyms_trailing: u32,
 
-/// -1 means symbol defined by the linker.
-/// Otherwise, it is the index into appropriate object file.
-file: i32,
-
-/// Size and alignment of this atom
-/// Unlike in Elf, we need to store the size of this symbol as part of
-/// the atom since macho.nlist_64 lacks this information.
+/// Size of this atom.
 size: u64,
 
 /// Alignment of this atom as a power of 2.
 /// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
 alignment: u32,
 
+/// Cached index and length into the relocations records array that correspond to
+/// this Atom and need to be resolved before the Atom can be committed into the
+/// final linked image.
+/// Do not use these fields directly. Instead, use `getAtomRelocs()` helper.
 cached_relocs_start: i32,
 cached_relocs_len: u32,
 
@@ -64,6 +75,8 @@ pub const empty = Atom{
     .next_index = null,
 };
 
+/// Returns `null` if the Atom is a synthetic Atom.
+/// Otherwise, returns an index into an array of Objects.
 pub inline fn getFile(self: Atom) ?u31 {
     if (self.file == -1) return null;
     return @intCast(u31, self.file);
@@ -90,6 +103,8 @@ const InnerSymIterator = struct {
     }
 };
 
+/// Returns an iterator over potentially contained symbols.
+/// Panics when called on a synthetic Atom.
 pub fn getInnerSymbolsIterator(zld: *Zld, atom_index: AtomIndex) InnerSymIterator {
     const atom = zld.getAtom(atom_index);
     assert(atom.getFile() != null);
@@ -100,6 +115,10 @@ pub fn getInnerSymbolsIterator(zld: *Zld, atom_index: AtomIndex) InnerSymIterato
     };
 }
 
+/// Returns a section alias symbol if one is defined.
+/// An alias symbol is used to represent the start of an input section
+/// if there were no symbols defined within that range.
+/// Alias symbols are only used on x86_64.
 pub fn getSectionAlias(zld: *Zld, atom_index: AtomIndex) ?SymbolWithLoc {
     const atom = zld.getAtom(atom_index);
     assert(atom.getFile() != null);
@@ -119,6 +138,8 @@ pub fn getSectionAlias(zld: *Zld, atom_index: AtomIndex) ?SymbolWithLoc {
     return null;
 }
 
+/// Given an index into a contained symbol within, calculates an offset wrt
+/// the start of this Atom.
 pub fn calcInnerSymbolOffset(zld: *Zld, atom_index: AtomIndex, sym_index: u32) u64 {
     const atom = zld.getAtom(atom_index);
     assert(atom.getFile() != null);

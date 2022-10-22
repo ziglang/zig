@@ -1,3 +1,7 @@
+//! Represents an input relocatable Object file.
+//! Each Object is fully loaded into memory for easier
+//! access into different data within.
+
 const Object = @This();
 
 const std = @import("std");
@@ -278,6 +282,9 @@ fn sectionLessThanByAddress(ctx: void, lhs: SortedSection, rhs: SortedSection) b
     return lhs.header.addr < rhs.header.addr;
 }
 
+/// Splits input sections into Atoms.
+/// If the Object was compiled with `MH_SUBSECTIONS_VIA_SYMBOLS`, splits section
+/// into subsections where each subsection then represents an Atom.
 pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
     const gpa = zld.gpa;
 
@@ -514,6 +521,7 @@ pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
     return symtab[mapped_index];
 }
 
+/// Expects an arena allocator.
 /// Caller owns memory.
 pub fn createReverseSymbolLookup(self: Object, arena: Allocator) ![]u32 {
     const symtab = self.in_symtab orelse return &[0]u32{};
