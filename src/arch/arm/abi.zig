@@ -68,7 +68,14 @@ pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
             return Class.arrSize(bit_size, 32);
         },
         .Bool, .Float => return .byval,
-        .Int, .Enum, .ErrorSet => {
+        .Int => {
+            // TODO this is incorrect for _BitInt(128) but implementing
+            // this correctly makes implementing compiler-rt impossible.
+            // const bit_size = ty.bitSize(target);
+            // if (bit_size > 64) return .memory;
+            return .byval;
+        },
+        .Enum, .ErrorSet => {
             const bit_size = ty.bitSize(target);
             if (bit_size > 64) return .memory;
             return .byval;
