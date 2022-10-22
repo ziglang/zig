@@ -10,13 +10,13 @@ pub const Class = union(enum) {
     byval,
     integer,
     double_integer,
-    none,
     float_array: u8,
 };
 
 /// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, target: std.Target) Class {
-    if (!ty.hasRuntimeBitsIgnoreComptime()) return .none;
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime());
+
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag()) {
         .Struct => {

@@ -25,6 +25,7 @@ const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
+const riscv_c_abi = @import("../arch/riscv64/abi.zig");
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -10117,8 +10118,9 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .arm, .armeb => switch (arm_c_abi.classifyType(fn_info.return_type, target, .ret)) {
                 .memory, .i64_array => return true,
                 .i32_array => |size| return size != 1,
-                .none, .byval => return false,
+                .byval => return false,
             },
+            .riscv32, .riscv64 => return riscv_c_abi.classifyType(fn_info.return_type, target) == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
         else => return false,
@@ -10230,7 +10232,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                 },
                 .aarch64, .aarch64_be => {
                     switch (aarch64_c_abi.classifyType(fn_info.return_type, target)) {
-                        .memory, .none => return dg.context.voidType(),
+                        .memory => return dg.context.voidType(),
                         .float_array => return dg.lowerType(fn_info.return_type),
                         .byval => return dg.lowerType(fn_info.return_type),
                         .integer => {
@@ -10249,7 +10251,23 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                             return dg.context.voidType();
                         },
                         .byval => return dg.lowerType(fn_info.return_type),
-                        .none => unreachable,
+                    }
+                },
+                .riscv32, .riscv64 => {
+                    switch (riscv_c_abi.classifyType(fn_info.return_type, target)) {
+                        .memory => return dg.context.voidType(),
+                        .integer => {
+                            const bit_size = fn_info.return_type.bitSize(target);
+                            return dg.context.intType(@intCast(c_uint, bit_size));
+                        },
+                        .double_integer => {
+                            var llvm_types_buffer: [2]*llvm.Type = .{
+                                dg.context.intType(64),
+                                dg.context.intType(64),
+                            };
+                            return dg.context.structType(&llvm_types_buffer, 2, .False);
+                        },
+                        .byval => return dg.lowerType(fn_info.return_type),
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -10328,15 +10346,6 @@ const ParamTypeIterator = struct {
             .C => {
                 const is_scalar = isScalar(ty);
                 switch (it.target.cpu.arch) {
-                    .riscv32, .riscv64 => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        if (ty.tag() == .f16) {
-                            return .as_u16;
-                        } else {
-                            return .byval;
-                        }
-                    },
                     .mips, .mipsel => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
@@ -10451,7 +10460,6 @@ const ParamTypeIterator = struct {
                         it.zig_index += 1;
                         it.llvm_index += 1;
                         switch (aarch64_c_abi.classifyType(ty, it.target)) {
-                            .none => unreachable,
                             .memory => return .byref,
                             .float_array => |len| return Lowering{ .float_array = len },
                             .byval => return .byval,
@@ -10467,7 +10475,6 @@ const ParamTypeIterator = struct {
                         it.zig_index += 1;
                         it.llvm_index += 1;
                         switch (arm_c_abi.classifyType(ty, it.target, .arg)) {
-                            .none => unreachable,
                             .memory => {
                                 it.byval_attr = true;
                                 return .byref;
@@ -10475,6 +10482,21 @@ const ParamTypeIterator = struct {
                             .byval => return .byval,
                             .i32_array => |size| return Lowering{ .i32_array = size },
                             .i64_array => |size| return Lowering{ .i64_array = size },
+                        }
+                    },
+                    .riscv32, .riscv64 => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        if (ty.tag() == .f16) {
+                            return .as_u16;
+                        }
+                        switch (riscv_c_abi.classifyType(ty, it.target)) {
+                            .memory => {
+                                return .byref;
+                            },
+                            .byval => return .byval,
+                            .integer => return .abi_sized_int,
+                            .double_integer => return Lowering{ .i64_array = 2 },
                         }
                     },
                     // TODO investigate C ABI for other architectures
@@ -10523,8 +10545,16 @@ fn ccAbiPromoteInt(
     };
     if (int_info.bits <= 16) return int_info.signedness;
     switch (target.cpu.arch) {
+        .riscv64 => {
+            if (int_info.bits == 32) {
+                // LLVM always signextends 32 bit ints, unsure if bug.
+                return .signed;
+            }
+            if (int_info.bits < 64) {
+                return int_info.signedness;
+            }
+        },
         .sparc64,
-        .riscv64,
         .powerpc64,
         .powerpc64le,
         => {

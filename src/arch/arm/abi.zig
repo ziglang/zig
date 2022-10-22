@@ -7,7 +7,6 @@ const Type = @import("../../type.zig").Type;
 pub const Class = union(enum) {
     memory,
     byval,
-    none,
     i32_array: u8,
     i64_array: u8,
 
@@ -24,7 +23,7 @@ pub const Class = union(enum) {
 pub const Context = enum { ret, arg };
 
 pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
-    if (!ty.hasRuntimeBitsIgnoreComptime()) return .none;
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime());
 
     var maybe_float_bits: ?u16 = null;
     const max_byval_size = 512;
