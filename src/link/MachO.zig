@@ -625,7 +625,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
 
     if (codesig) |*csig| {
-        try self.writeCodeSignature(csig, codesig_offset.?); // code signing always comes last
+        try self.writeCodeSignature(comp, csig, codesig_offset.?); // code signing always comes last
     }
 
     if (self.d_sym) |*d_sym| {
@@ -4037,13 +4037,13 @@ fn writeCodeSignaturePadding(
     return @intCast(u32, offset);
 }
 
-fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature, offset: u32) !void {
+fn writeCodeSignature(self: *MachO, comp: *const Compilation, code_sig: *CodeSignature, offset: u32) !void {
     const seg = self.getSegment(self.text_section_index.?);
 
     var buffer = std.ArrayList(u8).init(self.base.allocator);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(code_sig.size());
-    try code_sig.writeAdhocSignature(self.base.allocator, .{
+    try code_sig.writeAdhocSignature(comp, .{
         .file = self.base.file.?,
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
