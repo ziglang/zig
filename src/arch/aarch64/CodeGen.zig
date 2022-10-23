@@ -91,7 +91,7 @@ register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 /// Tracks the current instruction allocated to the compare flags
-condition_flags_inst: ?Air.Inst.Index = null,
+compare_flags_inst: ?Air.Inst.Index = null,
 
 /// Offset from the stack base, representing the end of the stack frame.
 max_end_stack: u32 = 0,
@@ -154,7 +154,7 @@ const MCValue = union(enum) {
     /// The value resides in the N, Z, C, V flags. The value is 1 (if
     /// the type is u1) or true (if the type in bool) iff the
     /// specified condition is true.
-    condition_flags: Condition,
+    compare_flags: Condition,
     /// The value is a function argument passed via the stack.
     stack_argument_offset: u32,
 };
@@ -201,6 +201,29 @@ const BigTomb = struct {
             log.debug("%{d} => {}", .{ bt.inst, result });
             const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
             branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
+
+            switch (result) {
+                .register => |reg| {
+                    // In some cases (such as bitcast), an operand
+                    // may be the same MCValue as the result. If
+                    // that operand died and was a register, it
+                    // was freed by processDeath. We have to
+                    // "re-allocate" the register.
+                    if (bt.function.register_manager.isRegFree(reg)) {
+                        bt.function.register_manager.getRegAssumeFree(reg, bt.inst);
+                    }
+                },
+                .register_with_overflow => |rwo| {
+                    if (bt.function.register_manager.isRegFree(rwo.reg)) {
+                        bt.function.register_manager.getRegAssumeFree(rwo.reg, bt.inst);
+                    }
+                    bt.function.compare_flags_inst = bt.inst;
+                },
+                .compare_flags => |_| {
+                    bt.function.compare_flags_inst = bt.inst;
+                },
+                else => {},
+            }
         }
         bt.function.finishAirBookkeeping();
     }
@@ -764,10 +787,10 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
         },
         .register_with_overflow => |rwo| {
             self.register_manager.freeReg(rwo.reg);
-            self.condition_flags_inst = null;
+            self.compare_flags_inst = null;
         },
-        .condition_flags => {
-            self.condition_flags_inst = null;
+        .compare_flags => {
+            self.compare_flags_inst = null;
         },
         else => {}, // TODO process stack allocation death
     }
@@ -807,6 +830,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
                 if (self.register_manager.isRegFree(reg)) {
                     self.register_manager.getRegAssumeFree(reg, inst);
                 }
+            },
+            .register_with_overflow => |rwo| {
+                if (self.register_manager.isRegFree(rwo.reg)) {
+                    self.register_manager.getRegAssumeFree(rwo.reg, inst);
+                }
+                self.compare_flags_inst = inst;
+            },
+            .compare_flags => |_| {
+                self.compare_flags_inst = inst;
             },
             else => {},
         }
@@ -931,11 +963,11 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 /// Save the current instruction stored in the compare flags if
 /// occupied
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
-    if (self.condition_flags_inst) |inst_to_save| {
+    if (self.compare_flags_inst) |inst_to_save| {
         const ty = self.air.typeOfIndex(inst_to_save);
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
-            .condition_flags => try self.allocRegOrMem(ty, true, inst_to_save),
+            .compare_flags => try self.allocRegOrMem(ty, true, inst_to_save),
             .register_with_overflow => try self.allocRegOrMem(ty, false, inst_to_save),
             else => unreachable, // mcv doesn't occupy the compare flags
         };
@@ -946,7 +978,7 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
-        self.condition_flags_inst = null;
+        self.compare_flags_inst = null;
 
         // TODO consolidate with register manager and spillInstruction
         // this call should really belong in the register manager!
@@ -1155,7 +1187,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
         switch (operand) {
             .dead => unreachable,
             .unreach => unreachable,
-            .condition_flags => |cond| break :result MCValue{ .condition_flags = cond.negate() },
+            .compare_flags => |cond| break :result MCValue{ .compare_flags = cond.negate() },
             else => {
                 switch (operand_ty.zigTypeTag()) {
                     .Bool => {
@@ -1564,9 +1596,9 @@ fn allocRegs(
                 // If the previous MCValue occupied some space we track, we
                 // need to make sure it is marked as free now.
                 switch (mcv) {
-                    .condition_flags => {
-                        assert(self.condition_flags_inst.? == inst);
-                        self.condition_flags_inst = null;
+                    .compare_flags => {
+                        assert(self.compare_flags_inst.? == inst);
+                        self.compare_flags_inst = null;
                     },
                     .register => |prev_reg| {
                         assert(!self.register_manager.isRegFree(prev_reg));
@@ -2363,7 +2395,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
 
                         try self.spillCompareFlagsIfOccupied();
-                        self.condition_flags_inst = null;
+                        self.compare_flags_inst = null;
 
                         const base_tag: Air.Inst.Tag = switch (tag) {
                             .add_with_overflow => .add,
@@ -2395,7 +2427,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         });
 
                         try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                        try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .condition_flags = .ne });
+                        try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                         break :result MCValue{ .stack_offset = stack_offset };
                     },
@@ -2430,7 +2462,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         };
 
                         try self.spillCompareFlagsIfOccupied();
-                        self.condition_flags_inst = inst;
+                        self.compare_flags_inst = inst;
 
                         const dest = blk: {
                             if (rhs_immediate_ok) {
@@ -2539,7 +2571,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     }
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .condition_flags = .ne });
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits <= 64) {
@@ -2679,7 +2711,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .condition_flags = .ne });
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else return self.fail("TODO implement mul_with_overflow for integers > u64/i64", .{});
@@ -2811,7 +2843,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = dest_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .condition_flags = .ne });
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else {
@@ -3262,7 +3294,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .condition_flags,
+        .compare_flags,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
@@ -3274,7 +3306,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
-                .condition_flags => unreachable,
+                .compare_flags => unreachable,
                 .register => |dst_reg| {
                     try self.genLdrRegister(dst_reg, addr_reg, elem_ty);
                 },
@@ -3483,7 +3515,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .condition_flags,
+        .compare_flags,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| {
@@ -3638,7 +3670,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     0 => MCValue{ .register = rwo.reg },
 
                     // get overflow bit: return C or V flag
-                    1 => MCValue{ .condition_flags = rwo.flag },
+                    1 => MCValue{ .compare_flags = rwo.flag },
 
                     else => unreachable,
                 };
@@ -4092,8 +4124,8 @@ fn cmp(
         }
 
         return switch (int_info.signedness) {
-            .signed => MCValue{ .condition_flags = Condition.fromCompareOperatorSigned(op) },
-            .unsigned => MCValue{ .condition_flags = Condition.fromCompareOperatorUnsigned(op) },
+            .signed => MCValue{ .compare_flags = Condition.fromCompareOperatorSigned(op) },
+            .unsigned => MCValue{ .compare_flags = Condition.fromCompareOperatorUnsigned(op) },
         };
     } else {
         return self.fail("TODO AArch64 cmp for ints > 64 bits", .{});
@@ -4151,7 +4183,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 
 fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
     switch (condition) {
-        .condition_flags => |cond| return try self.addInst(.{
+        .compare_flags => |cond| return try self.addInst(.{
             .tag = .b_cond,
             .data = .{
                 .inst_cond = .{
@@ -4207,7 +4239,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     var parent_stack = try self.stack.clone(self.gpa);
     defer parent_stack.deinit(self.gpa);
     const parent_registers = self.register_manager.registers;
-    const parent_condition_flags_inst = self.condition_flags_inst;
+    const parent_compare_flags_inst = self.compare_flags_inst;
 
     try self.branch_stack.append(.{});
     errdefer {
@@ -4226,7 +4258,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
-    self.condition_flags_inst = parent_condition_flags_inst;
+    self.compare_flags_inst = parent_compare_flags_inst;
 
     self.stack.deinit(self.gpa);
     self.stack = parent_stack;
@@ -4354,9 +4386,9 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
 fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const is_err_result = try self.isErr(ty, operand);
     switch (is_err_result) {
-        .condition_flags => |cond| {
+        .compare_flags => |cond| {
             assert(cond == .hi);
-            return MCValue{ .condition_flags = cond.negate() };
+            return MCValue{ .compare_flags = cond.negate() };
         },
         .immediate => |imm| {
             assert(imm == 0);
@@ -4519,10 +4551,132 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const condition = pl_op.operand;
-    _ = condition;
+    const condition_ty = self.air.typeOf(pl_op.operand);
+    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    const liveness = try self.liveness.getSwitchBr(
+        self.gpa,
+        inst,
+        switch_br.data.cases_len + 1,
+    );
+    defer self.gpa.free(liveness.deaths);
 
-    return self.fail("TODO airSwitch for {}", .{self.target.cpu.arch});
+    var extra_index: usize = switch_br.end;
+    var case_i: u32 = 0;
+    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+        const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        assert(items.len > 0);
+        const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+        extra_index = case.end + items.len + case_body.len;
+
+        // For every item, we compare it to condition and branch into
+        // the prong if they are equal. After we compared to all
+        // items, we branch into the next prong (or if no other prongs
+        // exist out of the switch statement).
+        //
+        //             cmp condition, item1
+        //             beq prong
+        //             cmp condition, item2
+        //             beq prong
+        //             cmp condition, item3
+        //             beq prong
+        //             b out
+        // prong:      ...
+        //             ...
+        // out:        ...
+        const branch_into_prong_relocs = try self.gpa.alloc(u32, items.len);
+        defer self.gpa.free(branch_into_prong_relocs);
+
+        for (items) |item, idx| {
+            const cmp_result = try self.cmp(.{ .inst = pl_op.operand }, .{ .inst = item }, condition_ty, .neq);
+            branch_into_prong_relocs[idx] = try self.condBr(cmp_result);
+        }
+
+        const branch_away_from_prong_reloc = try self.addInst(.{
+            .tag = .b,
+            .data = .{ .inst = undefined }, // populated later through performReloc
+        });
+
+        for (branch_into_prong_relocs) |reloc| {
+            try self.performReloc(reloc);
+        }
+
+        // Capture the state of register and stack allocation state so that we can revert to it.
+        const parent_next_stack_offset = self.next_stack_offset;
+        const parent_free_registers = self.register_manager.free_registers;
+        const parent_compare_flags_inst = self.compare_flags_inst;
+        var parent_stack = try self.stack.clone(self.gpa);
+        defer parent_stack.deinit(self.gpa);
+        const parent_registers = self.register_manager.registers;
+
+        try self.branch_stack.append(.{});
+        errdefer {
+            _ = self.branch_stack.pop();
+        }
+
+        try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
+        for (liveness.deaths[case_i]) |operand| {
+            self.processDeath(operand);
+        }
+        try self.genBody(case_body);
+
+        // Revert to the previous register and stack allocation state.
+        var saved_case_branch = self.branch_stack.pop();
+        defer saved_case_branch.deinit(self.gpa);
+
+        self.register_manager.registers = parent_registers;
+        self.compare_flags_inst = parent_compare_flags_inst;
+        self.stack.deinit(self.gpa);
+        self.stack = parent_stack;
+        parent_stack = .{};
+
+        self.next_stack_offset = parent_next_stack_offset;
+        self.register_manager.free_registers = parent_free_registers;
+
+        try self.performReloc(branch_away_from_prong_reloc);
+    }
+
+    if (switch_br.data.else_body_len > 0) {
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+
+        // Capture the state of register and stack allocation state so that we can revert to it.
+        const parent_next_stack_offset = self.next_stack_offset;
+        const parent_free_registers = self.register_manager.free_registers;
+        const parent_compare_flags_inst = self.compare_flags_inst;
+        var parent_stack = try self.stack.clone(self.gpa);
+        defer parent_stack.deinit(self.gpa);
+        const parent_registers = self.register_manager.registers;
+
+        try self.branch_stack.append(.{});
+        errdefer {
+            _ = self.branch_stack.pop();
+        }
+
+        const else_deaths = liveness.deaths.len - 1;
+        try self.ensureProcessDeathCapacity(liveness.deaths[else_deaths].len);
+        for (liveness.deaths[else_deaths]) |operand| {
+            self.processDeath(operand);
+        }
+        try self.genBody(else_body);
+
+        // Revert to the previous register and stack allocation state.
+        var saved_case_branch = self.branch_stack.pop();
+        defer saved_case_branch.deinit(self.gpa);
+
+        self.register_manager.registers = parent_registers;
+        self.compare_flags_inst = parent_compare_flags_inst;
+        self.stack.deinit(self.gpa);
+        self.stack = parent_stack;
+        parent_stack = .{};
+
+        self.next_stack_offset = parent_next_stack_offset;
+        self.register_manager.free_registers = parent_free_registers;
+
+        // TODO consolidate returned MCValues between prongs and else branch like we do
+        // in airCondBr.
+    }
+
+    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
@@ -4551,7 +4705,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
-                .immediate, .stack_argument_offset, .condition_flags => blk: {
+                .immediate, .stack_argument_offset, .compare_flags => blk: {
                     const new_mcv = try self.allocRegOrMem(self.air.typeOfIndex(block), true, block);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
@@ -4734,7 +4888,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
-        .condition_flags,
+        .compare_flags,
         .immediate,
         .ptr_stack_offset,
         => {
@@ -4894,7 +5048,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 } },
             });
         },
-        .condition_flags => |condition| {
+        .compare_flags => |condition| {
             _ = try self.addInst(.{
                 .tag = .cset,
                 .data = .{ .r_cond = .{
@@ -5171,7 +5325,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
             }
         },
-        .condition_flags,
+        .compare_flags,
         .immediate,
         .ptr_stack_offset,
         => {
