@@ -6926,7 +6926,7 @@ pub const CType = enum {
             else => {},
         }
 
-        // Self-aligned, up to a maximum.
+        // Next-power-of-two-aligned, up to a maximum.
         return @min(
             std.math.ceilPowerOfTwoAssert(u16, (self.sizeInBits(target) + 7) / 8),
             switch (target.cpu.arch) {
@@ -6978,6 +6978,132 @@ pub const CType = enum {
                 .bpfeb,
                 .hexagon,
                 .hsail64,
+                .loongarch64,
+                .m68k,
+                .mips,
+                .mipsel,
+                .sparc,
+                .sparcel,
+                .sparc64,
+                .lanai,
+                .le64,
+                .nvptx,
+                .nvptx64,
+                .r600,
+                .s390x,
+                .spir64,
+                .spirv64,
+                .renderscript64,
+                => 8,
+
+                .aarch64,
+                .aarch64_be,
+                .mips64,
+                .mips64el,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                .riscv32,
+                .riscv64,
+                .x86_64,
+                .wasm32,
+                .wasm64,
+                => 16,
+            },
+        );
+    }
+
+    pub fn preferredAlignment(self: CType, target: Target) u16 {
+
+        // Overrides for unusual alignments
+        switch (target.cpu.arch) {
+            .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+                .netbsd => switch (target.abi) {
+                    .gnueabi,
+                    .gnueabihf,
+                    .eabi,
+                    .eabihf,
+                    .android,
+                    .musleabi,
+                    .musleabihf,
+                    => {},
+
+                    else => switch (self) {
+                        .longdouble => return 4,
+                        else => {},
+                    },
+                },
+                .ios, .tvos, .watchos => switch (self) {
+                    .longdouble => return 4,
+                    else => {},
+                },
+                else => {},
+            },
+            .arc => switch (self) {
+                .longdouble => return 4,
+                else => {},
+            },
+            .avr => switch (self) {
+                .int, .uint, .long, .ulong, .float, .longdouble => return 1,
+                .short, .ushort => return 2,
+                .double => return 4,
+                .longlong, .ulonglong => return 8,
+            },
+            .i386 => switch (target.os.tag) {
+                .windows, .uefi => switch (self) {
+                    .longdouble => switch (target.abi) {
+                        .gnu, .gnuilp32, .cygnus => return 4,
+                        else => return 8,
+                    },
+                    else => {},
+                },
+                else => switch (self) {
+                    .longdouble => return 4,
+                    else => {},
+                },
+            },
+            else => {},
+        }
+
+        // Next-power-of-two-aligned, up to a maximum.
+        return @min(
+            std.math.ceilPowerOfTwoAssert(u16, (self.sizeInBits(target) + 7) / 8),
+            switch (target.cpu.arch) {
+                .msp430 => @as(u16, 2),
+
+                .csky,
+                .xcore,
+                .dxil,
+                .loongarch32,
+                .tce,
+                .tcele,
+                .le32,
+                .amdil,
+                .hsail,
+                .spir,
+                .spirv32,
+                .kalimba,
+                .shave,
+                .renderscript32,
+                .ve,
+                .spu_2,
+                => 4,
+
+                .arc,
+                .arm,
+                .armeb,
+                .avr,
+                .thumb,
+                .thumbeb,
+                .aarch64_32,
+                .amdgcn,
+                .amdil64,
+                .bpfel,
+                .bpfeb,
+                .hexagon,
+                .hsail64,
+                .i386,
                 .loongarch64,
                 .m68k,
                 .mips,
