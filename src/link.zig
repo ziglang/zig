@@ -284,7 +284,8 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: Allocator, options: Options) !*File {
-        if (options.target.ofmt == .macho) {
+        const have_macho = !build_options.only_c;
+        if (have_macho and options.target.ofmt == .macho) {
             return &(try MachO.openPath(allocator, options)).base;
         }
 
@@ -332,18 +333,40 @@ pub const File = struct {
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
-        const file: *File = switch (options.target.ofmt) {
-            .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
-            .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
-            .macho => unreachable,
-            .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
-            .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
-            .c => &(try C.openPath(allocator, sub_path, options)).base,
-            .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
-            .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
-            .hex => return error.HexObjectFormatUnimplemented,
-            .raw => return error.RawObjectFormatUnimplemented,
-            .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
+        const file: *File = f: {
+            switch (options.target.ofmt) {
+                .coff => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Coff.openPath(allocator, sub_path, options)).base;
+                },
+                .elf => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Elf.openPath(allocator, sub_path, options)).base;
+                },
+                .macho => unreachable,
+                .plan9 => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Plan9.openPath(allocator, sub_path, options)).base;
+                },
+                .wasm => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Wasm.openPath(allocator, sub_path, options)).base;
+                },
+                .c => {
+                    break :f &(try C.openPath(allocator, sub_path, options)).base;
+                },
+                .spirv => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try SpirV.openPath(allocator, sub_path, options)).base;
+                },
+                .nvptx => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try NvPtx.openPath(allocator, sub_path, options)).base;
+                },
+                .hex => return error.HexObjectFormatUnimplemented,
+                .raw => return error.RawObjectFormatUnimplemented,
+                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
+            }
         };
 
         if (use_lld) {
@@ -366,6 +389,7 @@ pub const File = struct {
     pub fn makeWritable(base: *File) !void {
         switch (base.tag) {
             .coff, .elf, .macho, .plan9, .wasm => {
+                if (build_options.only_c) unreachable;
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
@@ -389,6 +413,7 @@ pub const File = struct {
         }
         switch (base.tag) {
             .macho => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
                     if (base.options.target.cpu.arch == .aarch64) {
                         // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -407,6 +432,7 @@ pub const File = struct {
                 base.file = null;
             },
             .coff, .elf, .plan9, .wasm => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -454,6 +480,7 @@ pub const File = struct {
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
+        if (build_options.only_c) @compileError("unreachable");
         const decl = base.options.module.?.declPtr(decl_index);
         log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
@@ -474,6 +501,7 @@ pub const File = struct {
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
     pub fn getGlobalSymbol(base: *File, name: []const u8) UpdateDeclError!u32 {
+        if (build_options.only_c) @compileError("unreachable");
         log.debug("getGlobalSymbol '{s}'", .{name});
         switch (base.tag) {
             // zig fmt: off
@@ -495,6 +523,10 @@ pub const File = struct {
         const decl = module.declPtr(decl_index);
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDecl(module, decl_index);
+        }
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl_index),
@@ -516,6 +548,10 @@ pub const File = struct {
         log.debug("updateFunc {*} ({s}), type={}", .{
             owner_decl, owner_decl.name, owner_decl.ty.fmtDebug(),
         });
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
+        }
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
@@ -535,6 +571,10 @@ pub const File = struct {
             decl, decl.name, decl.src_line + 1,
         });
         assert(decl.has_tv);
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl);
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -554,6 +594,10 @@ pub const File = struct {
     pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
         const decl = base.options.module.?.declPtr(decl_index);
         log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return;
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
@@ -584,16 +628,19 @@ pub const File = struct {
         base.options.system_libs.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Coff, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .elf => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Elf, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .macho => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(MachO, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
@@ -604,21 +651,25 @@ pub const File = struct {
                 base.allocator.destroy(parent);
             },
             .wasm => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Wasm, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .spirv => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(SpirV, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .plan9 => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Plan9, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .nvptx => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(NvPtx, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
@@ -629,6 +680,10 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
+        }
         if (comp.clang_preprocessor_mode == .yes) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -663,6 +718,10 @@ pub const File = struct {
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
     pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node);
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp, prog_node),
             .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp, prog_node),
@@ -677,6 +736,10 @@ pub const File = struct {
 
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl_index: Module.Decl.Index) void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).freeDecl(decl_index);
+        }
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl_index),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl_index),
@@ -716,6 +779,10 @@ pub const File = struct {
         const decl = module.declPtr(decl_index);
         log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports);
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl_index, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl_index, exports),
@@ -739,6 +806,7 @@ pub const File = struct {
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
     pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
+        if (build_options.only_c) unreachable;
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl_index, reloc_info),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl_index, reloc_info),
