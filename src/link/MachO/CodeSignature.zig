@@ -284,7 +284,7 @@ pub fn writeAdhocSignature(
 
     try self.code_directory.code_slots.ensureTotalCapacityPrecise(gpa, total_pages);
     self.code_directory.code_slots.items.len = total_pages;
-    self.code_directory.inner.nCodeSlots += total_pages;
+    self.code_directory.inner.nCodeSlots = total_pages;
 
     // Calculate hash for each page (in file) and write it to the buffer
     var wg: WaitGroup = .{};
@@ -308,7 +308,7 @@ pub fn writeAdhocSignature(
                 const out_hash = &self.code_directory.code_slots.items[i];
                 wg.start();
                 try comp.thread_pool.spawn(workerSha256Hash, .{
-                    opts.file, fstart, buffer[0..fsize], out_hash, &results[i], &wg,
+                    opts.file, fstart, buffer[fstart..][0..fsize], out_hash, &results[i], &wg,
                 });
             }
         }
