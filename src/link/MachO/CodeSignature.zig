@@ -289,12 +289,12 @@ pub fn writeAdhocSignature(
     // Calculate hash for each page (in file) and write it to the buffer
     var wg: WaitGroup = .{};
     {
+        const buffer = try gpa.alloc(u8, self.page_size * total_pages);
+        defer gpa.free(buffer);
+
         const results = try gpa.alloc(fs.File.PReadError!usize, total_pages);
         defer gpa.free(results);
         {
-            const buffer = try gpa.alloc(u8, self.page_size * total_pages);
-            defer gpa.free(buffer);
-
             wg.reset();
             defer wg.wait();
 
