@@ -3035,14 +3035,19 @@ pub const Zld = struct {
         return @intCast(u32, offset);
     }
 
-    fn writeCodeSignature(self: *Zld, code_sig: *CodeSignature, offset: u32) !void {
+    fn writeCodeSignature(
+        self: *Zld,
+        comp: *const Compilation,
+        code_sig: *CodeSignature,
+        offset: u32,
+    ) !void {
         const seg_id = self.getSegmentByName("__TEXT").?;
         const seg = self.segments.items[seg_id];
 
         var buffer = std.ArrayList(u8).init(self.gpa);
         defer buffer.deinit();
         try buffer.ensureTotalCapacityPrecise(code_sig.size());
-        try code_sig.writeAdhocSignature(self.gpa, .{
+        try code_sig.writeAdhocSignature(comp, .{
             .file = self.file,
             .exec_seg_base = seg.fileoff,
             .exec_seg_limit = seg.filesize,
@@ -4379,7 +4384,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
 
         if (codesig) |*csig| {
-            try zld.writeCodeSignature(csig, codesig_offset.?); // code signing always comes last
+            try zld.writeCodeSignature(comp, csig, codesig_offset.?); // code signing always comes last
         }
     }
 

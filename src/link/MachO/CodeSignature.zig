@@ -1,4 +1,6 @@
 const CodeSignature = @This();
+const Compilation = @import("../../Compilation.zig");
+const WaitGroup = @import("../../WaitGroup.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -258,17 +260,19 @@ pub const WriteOpts = struct {
 
 pub fn writeAdhocSignature(
     self: *CodeSignature,
-    allocator: Allocator,
+    comp: *const Compilation,
     opts: WriteOpts,
     writer: anytype,
 ) !void {
+    const gpa = comp.gpa;
+
     var header: macho.SuperBlob = .{
         .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
         .length = @sizeOf(macho.SuperBlob),
         .count = 0,
     };
 
-    var blobs = std.ArrayList(Blob).init(allocator);
+    var blobs = std.ArrayList(Blob).init(gpa);
     defer blobs.deinit();
 
     self.code_directory.inner.execSegBase = opts.exec_seg_base;
@@ -276,37 +280,49 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.execSegFlags = if (opts.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
     self.code_directory.inner.codeLimit = opts.file_size;
 
-    const total_pages = mem.alignForward(opts.file_size, self.page_size) / self.page_size;
+    const total_pages = @intCast(u32, mem.alignForward(opts.file_size, self.page_size) / self.page_size);
 
-    var buffer = try allocator.alloc(u8, self.page_size);
-    defer allocator.free(buffer);
-
-    try self.code_directory.code_slots.ensureTotalCapacityPrecise(allocator, total_pages);
+    try self.code_directory.code_slots.ensureTotalCapacityPrecise(gpa, total_pages);
+    self.code_directory.code_slots.items.len = total_pages;
+    self.code_directory.inner.nCodeSlots = total_pages;
 
     // Calculate hash for each page (in file) and write it to the buffer
-    var hash: [hash_size]u8 = undefined;
-    var i: usize = 0;
-    while (i < total_pages) : (i += 1) {
-        const fstart = i * self.page_size;
-        const fsize = if (fstart + self.page_size > opts.file_size)
-            opts.file_size - fstart
-        else
-            self.page_size;
-        const len = try opts.file.preadAll(buffer, fstart);
-        assert(fsize <= len);
+    var wg: WaitGroup = .{};
+    {
+        const buffer = try gpa.alloc(u8, self.page_size * total_pages);
+        defer gpa.free(buffer);
 
-        Sha256.hash(buffer[0..fsize], &hash, .{});
+        const results = try gpa.alloc(fs.File.PReadError!usize, total_pages);
+        defer gpa.free(results);
+        {
+            wg.reset();
+            defer wg.wait();
 
-        self.code_directory.code_slots.appendAssumeCapacity(hash);
-        self.code_directory.inner.nCodeSlots += 1;
+            var i: usize = 0;
+            while (i < total_pages) : (i += 1) {
+                const fstart = i * self.page_size;
+                const fsize = if (fstart + self.page_size > opts.file_size)
+                    opts.file_size - fstart
+                else
+                    self.page_size;
+                const out_hash = &self.code_directory.code_slots.items[i];
+                wg.start();
+                try comp.thread_pool.spawn(workerSha256Hash, .{
+                    opts.file, fstart, buffer[fstart..][0..fsize], out_hash, &results[i], &wg,
+                });
+            }
+        }
+        for (results) |result| _ = try result;
     }
 
     try blobs.append(.{ .code_directory = &self.code_directory });
     header.length += @sizeOf(macho.BlobIndex);
     header.count += 1;
 
+    var hash: [hash_size]u8 = undefined;
+
     if (self.requirements) |*req| {
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.ArrayList(u8).init(gpa);
         defer buf.deinit();
         try req.write(buf.writer());
         Sha256.hash(buf.items, &hash, .{});
@@ -318,7 +334,7 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.ArrayList(u8).init(gpa);
         defer buf.deinit();
         try ents.write(buf.writer());
         Sha256.hash(buf.items, &hash, .{});
@@ -354,6 +370,19 @@ pub fn writeAdhocSignature(
     for (blobs.items) |blob| {
         try blob.write(writer);
     }
+}
+
+fn workerSha256Hash(
+    file: fs.File,
+    fstart: usize,
+    buffer: []u8,
+    hash: *[hash_size]u8,
+    err: *fs.File.PReadError!usize,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+    err.* = file.preadAll(buffer, fstart);
+    Sha256.hash(buffer, hash, .{});
 }
 
 pub fn size(self: CodeSignature) u32 {
