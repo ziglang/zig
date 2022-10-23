@@ -10948,7 +10948,7 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
       </p>
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
       <ul>
-        <li>Supports all the syntax of the other two pointer types.</li>
+        <li>Supports all the syntax of the other two pointer types ({#syntax#}*T{#endsyntax#}) and ({#syntax#}[*]T{#endsyntax#}).</li>
         <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
             When a C pointer is coerced to a non-optional pointer, safety-checked
             {#link|Undefined Behavior#} occurs if the address is 0.
