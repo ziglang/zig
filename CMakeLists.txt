@@ -16,6 +16,22 @@ if(NOT CMAKE_INSTALL_PREFIX)
       "Directory to install zig to" FORCE)
 endif()
 
+# CMake recognizes the CMAKE_PREFIX_PATH environment variable for some things,
+# and also the CMAKE_PREFIX_PATH cache variable for other things. However, it
+# does not relate these two things, i.e. if the environment variable is set,
+# CMake does not populate the cache variable in a corresponding manner. Some
+# package systems, such as Homebrew, set the environment variable but not the
+# cache variable. Furthermore, the environment variable follows the system path
+# separator, such as ':' on POSIX and ';' on Windows, but the cache variable
+# follows CMake's array behavior, i.e. always ';' for a separator.
+list(APPEND ZIG_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
+if(WIN32)
+  list(APPEND ZIG_CMAKE_PREFIX_PATH $ENV{CMAKE_PREFIX_PATH})
+else()
+  string(REGEX REPLACE ":" ";" ZIG_CMAKE_PREFIX_PATH_STRING "$ENV{CMAKE_PREFIX_PATH}")
+  list(APPEND ZIG_CMAKE_PREFIX_PATH "${ZIG_CMAKE_PREFIX_PATH_STRING}")
+endif()
+
 set(CMAKE_USER_MAKE_RULES_OVERRIDE
    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flag_overrides.cmake)
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
