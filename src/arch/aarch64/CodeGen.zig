@@ -3459,6 +3459,104 @@ fn genInlineMemcpy(
     // end:
 }
 
+fn genInlineMemset(
+    self: *Self,
+    dst: MCValue,
+    val: MCValue,
+    len: MCValue,
+) !void {
+    const dst_reg = switch (dst) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.manyptr_u8), dst),
+    };
+    const dst_reg_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const val_reg = switch (val) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.u8), val),
+    };
+    const val_reg_lock = self.register_manager.lockReg(val_reg);
+    defer if (val_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const len_reg = switch (len) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.usize, len),
+    };
+    const len_reg_lock = self.register_manager.lockReg(len_reg);
+    defer if (len_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const count_reg = try self.register_manager.allocReg(null, gp);
+
+    try self.genInlineMemsetCode(dst_reg, val_reg, len_reg, count_reg);
+}
+
+fn genInlineMemsetCode(
+    self: *Self,
+    dst: Register,
+    val: Register,
+    len: Register,
+    count: Register,
+) !void {
+    // mov count, #0
+    _ = try self.addInst(.{
+        .tag = .movz,
+        .data = .{ .r_imm16_sh = .{
+            .rd = count,
+            .imm16 = 0,
+        } },
+    });
+
+    // loop:
+    // cmp count, len
+    _ = try self.addInst(.{
+        .tag = .cmp_shifted_register,
+        .data = .{ .rr_imm6_shift = .{
+            .rn = count,
+            .rm = len,
+            .imm6 = 0,
+            .shift = .lsl,
+        } },
+    });
+
+    // bge end
+    _ = try self.addInst(.{
+        .tag = .b_cond,
+        .data = .{ .inst_cond = .{
+            .inst = @intCast(u32, self.mir_instructions.len + 4),
+            .cond = .ge,
+        } },
+    });
+
+    // strb val, [src, count]
+    _ = try self.addInst(.{
+        .tag = .strb_register,
+        .data = .{ .load_store_register_register = .{
+            .rt = val,
+            .rn = dst,
+            .offset = Instruction.LoadStoreOffset.reg(count).register,
+        } },
+    });
+
+    // add count, count, #1
+    _ = try self.addInst(.{
+        .tag = .add_immediate,
+        .data = .{ .rr_imm12_sh = .{
+            .rd = count,
+            .rn = count,
+            .imm12 = 1,
+        } },
+    });
+
+    // b loop
+    _ = try self.addInst(.{
+        .tag = .b,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 4) },
+    });
+
+    // end:
+}
+
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const elem_ty = self.air.typeOfIndex(inst);
@@ -4910,7 +5008,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
                 4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
                 8 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
-                else => return self.fail("TODO implement memset", .{}),
+                else => try self.genInlineMemset(
+                    .{ .ptr_stack_offset = stack_offset },
+                    .{ .immediate = 0xaa },
+                    .{ .immediate = abi_size },
+                ),
             }
         },
         .compare_flags,
