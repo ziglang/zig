@@ -301,11 +301,10 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     };
     f.file_size += f.typedef_buf.items.len;
 
-    // Now the function bodies.
-    try f.all_buffers.ensureUnusedCapacity(gpa, f.fn_count);
-    for (decl_keys) |decl_index, i|
-        if (module.declPtr(decl_index).getFunction() != null)
-            f.appendBufAssumeCapacity(decl_values[i].code.items);
+    // Now the code.
+    try f.all_buffers.ensureUnusedCapacity(gpa, decl_values.len);
+    for (decl_values) |decl|
+        f.appendBufAssumeCapacity(decl.code.items);
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -322,7 +321,6 @@ const Flush = struct {
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
-    fn_count: usize = 0,
 
     const Typedefs = std.HashMapUnmanaged(
         Type,
@@ -435,10 +433,6 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
     try self.flushTypedefs(f, decl_block.typedefs);
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
     f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
-    if (decl.getFunction()) |_|
-        f.fn_count += 1
-    else
-        f.appendBufAssumeCapacity(decl_block.code.items);
 }
 
 pub fn flushEmitH(module: *Module) !void {

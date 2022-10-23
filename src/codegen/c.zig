@@ -2027,10 +2027,10 @@ pub fn genDecl(o: *Object) !void {
         .val = o.dg.decl.val,
     };
     if (tv.val.tag() == .extern_fn) {
-        const writer = o.writer();
-        try writer.writeAll("ZIG_EXTERN_C ");
-        try o.dg.renderFunctionSignature(writer, .Forward);
-        try writer.writeAll(";\n");
+        const fwd_decl_writer = o.dg.fwd_decl.writer();
+        try fwd_decl_writer.writeAll("ZIG_EXTERN_C ");
+        try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
+        try fwd_decl_writer.writeAll(";\n");
     } else if (tv.val.castTag(.variable)) |var_payload| {
         const variable: *Module.Var = var_payload.data;
         const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
@@ -2055,7 +2055,6 @@ pub fn genDecl(o: *Object) !void {
             return;
         }
 
-        try o.indent_writer.insertNewline();
         const w = o.writer();
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
@@ -2065,15 +2064,18 @@ pub fn genDecl(o: *Object) !void {
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
+        const decl_c_value: CValue = .{ .decl = o.dg.decl_index };
+
+        const fwd_decl_writer = o.dg.fwd_decl.writer();
+        try fwd_decl_writer.writeAll("static ");
+        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
+        try fwd_decl_writer.writeAll(";\n");
+
         const writer = o.writer();
         try writer.writeAll("static ");
-
         // TODO ask the Decl if it is const
         // https://github.com/ziglang/zig/issues/7582
-
-        const decl_c_value: CValue = .{ .decl = o.dg.decl_index };
         try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
-
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, tv.ty, tv.val, .Initializer);
         try writer.writeAll(";\n");
