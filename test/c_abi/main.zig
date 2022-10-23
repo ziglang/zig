@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
 const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
-    !builtin.cpu.arch.isMIPS();
+    !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
 extern fn run_c_tests() void;
 
@@ -112,6 +112,9 @@ test "C ABI floats" {
 }
 
 test "C ABI long double" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
     c_long_double(12.34);
 }
 
@@ -167,7 +170,8 @@ extern fn c_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble;
 extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
 extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 
-const complex_abi_compatible = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isMIPS();
+const complex_abi_compatible = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isMIPS() and
+    !builtin.cpu.arch.isARM() and !builtin.cpu.arch.isPPC() and !builtin.cpu.arch.isRISCV();
 
 test "C ABI complex float" {
     if (!complex_abi_compatible) return error.SkipZigTest;
@@ -177,8 +181,8 @@ test "C ABI complex float" {
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultf(a, b);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_float 1");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_float 2");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 test "C ABI complex float by component" {
@@ -188,8 +192,8 @@ test "C ABI complex float by component" {
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
 
     const z2 = c_cmultf_comp(a.real, a.imag, b.real, b.imag);
-    expect(z2.real == 1.5) catch @panic("test failure: zig_complex_float 3");
-    expect(z2.imag == 13.5) catch @panic("test failure: zig_complex_float 4");
+    try expect(z2.real == 1.5);
+    try expect(z2.imag == 13.5);
 }
 
 test "C ABI complex double" {
@@ -199,8 +203,8 @@ test "C ABI complex double" {
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultd(a, b);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 1");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 2");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 test "C ABI complex double by component" {
@@ -210,8 +214,8 @@ test "C ABI complex double by component" {
     const b = ComplexDouble{ .real = 11.3, .imag = -1.5 };
 
     const z = c_cmultd_comp(a.real, a.imag, b.real, b.imag);
-    expect(z.real == 1.5) catch @panic("test failure: zig_complex_double 3");
-    expect(z.imag == 13.5) catch @panic("test failure: zig_complex_double 4");
+    try expect(z.real == 1.5);
+    try expect(z.imag == 13.5);
 }
 
 export fn zig_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat {
@@ -261,7 +265,7 @@ extern fn c_big_struct(BigStruct) void;
 
 test "C ABI big struct" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var s = BigStruct{
         .a = 1,
@@ -287,7 +291,7 @@ const BigUnion = extern union {
 extern fn c_big_union(BigUnion) void;
 
 test "C ABI big union" {
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var x = BigUnion{
         .a = BigStruct{
@@ -320,9 +324,9 @@ extern fn c_ret_med_struct_mixed() MedStructMixed;
 
 test "C ABI medium struct of ints and floats" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = MedStructMixed{
         .a = 1234,
@@ -331,9 +335,9 @@ test "C ABI medium struct of ints and floats" {
     };
     c_med_struct_mixed(s);
     var s2 = c_ret_med_struct_mixed();
-    expect(s2.a == 1234) catch @panic("test failure");
-    expect(s2.b == 100.0) catch @panic("test failure");
-    expect(s2.c == 1337.0) catch @panic("test failure");
+    try expect(s2.a == 1234);
+    try expect(s2.b == 100.0);
+    try expect(s2.c == 1337.0);
 }
 
 export fn zig_med_struct_mixed(x: MedStructMixed) void {
@@ -353,9 +357,9 @@ extern fn c_ret_small_struct_ints() SmallStructInts;
 
 test "C ABI small struct of ints" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SmallStructInts{
         .a = 1,
@@ -365,10 +369,10 @@ test "C ABI small struct of ints" {
     };
     c_small_struct_ints(s);
     var s2 = c_ret_small_struct_ints();
-    expect(s2.a == 1) catch @panic("test failure");
-    expect(s2.b == 2) catch @panic("test failure");
-    expect(s2.c == 3) catch @panic("test failure");
-    expect(s2.d == 4) catch @panic("test failure");
+    try expect(s2.a == 1);
+    try expect(s2.b == 2);
+    try expect(s2.c == 3);
+    try expect(s2.d == 4);
 }
 
 export fn zig_small_struct_ints(x: SmallStructInts) void {
@@ -435,9 +439,9 @@ extern fn c_split_struct_ints(SplitStructInt) void;
 
 test "C ABI split struct of ints" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SplitStructInt{
         .a = 1234,
@@ -463,9 +467,9 @@ extern fn c_ret_split_struct_mixed() SplitStructMixed;
 
 test "C ABI split struct of ints and floats" {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var s = SplitStructMixed{
         .a = 1234,
@@ -474,9 +478,9 @@ test "C ABI split struct of ints and floats" {
     };
     c_split_struct_mixed(s);
     var s2 = c_ret_split_struct_mixed();
-    expect(s2.a == 1234) catch @panic("test failure");
-    expect(s2.b == 100) catch @panic("test failure");
-    expect(s2.c == 1337.0) catch @panic("test failure");
+    try expect(s2.a == 1234);
+    try expect(s2.b == 100);
+    try expect(s2.c == 1337.0);
 }
 
 export fn zig_split_struct_mixed(x: SplitStructMixed) void {
@@ -492,7 +496,7 @@ extern fn c_multiple_struct_floats(FloatRect, FloatRect) void;
 
 test "C ABI sret and byval together" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var s = BigStruct{
         .a = 1,
@@ -543,9 +547,9 @@ const Vector5 = extern struct {
 extern fn c_big_struct_floats(Vector5) void;
 
 test "C ABI structs of floats as parameter" {
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var v3 = Vector3{
         .x = 3.0,
@@ -584,7 +588,8 @@ export fn zig_multiple_struct_ints(x: Rect, y: Rect) void {
 }
 
 test "C ABI structs of ints as multiple parameters" {
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     var r1 = Rect{
         .left = 1,
@@ -621,7 +626,7 @@ export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
 
 test "C ABI structs of floats as multiple parameters" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var r1 = FloatRect{
         .left = 1,
@@ -725,15 +730,15 @@ extern fn c_ret_struct_with_array() StructWithArray;
 
 test "Struct with array as padding." {
     if (builtin.cpu.arch == .i386) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isARM()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
 
     var x = c_ret_struct_with_array();
-    try std.testing.expect(x.a == 4);
-    try std.testing.expect(x.b == 155);
+    try expect(x.a == 4);
+    try expect(x.b == 155);
 }
 
 const FloatArrayStruct = extern struct {
@@ -752,7 +757,7 @@ extern fn c_ret_float_array_struct() FloatArrayStruct;
 
 test "Float array like struct" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     c_float_array_struct(.{
         .origin = .{
@@ -766,8 +771,63 @@ test "Float array like struct" {
     });
 
     var x = c_ret_float_array_struct();
-    try std.testing.expect(x.origin.x == 1);
-    try std.testing.expect(x.origin.y == 2);
-    try std.testing.expect(x.size.width == 3);
-    try std.testing.expect(x.size.height == 4);
+    try expect(x.origin.x == 1);
+    try expect(x.origin.y == 2);
+    try expect(x.size.width == 3);
+    try expect(x.size.height == 4);
+}
+
+const SmallVec = @Vector(2, u32);
+
+extern fn c_small_vec(SmallVec) void;
+extern fn c_ret_small_vec() SmallVec;
+
+test "small simd vector" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    c_small_vec(.{ 1, 2 });
+
+    var x = c_ret_small_vec();
+    try expect(x[0] == 3);
+    try expect(x[1] == 4);
+}
+
+const BigVec = @Vector(8, usize);
+
+extern fn c_big_vec(BigVec) void;
+extern fn c_ret_big_vec() BigVec;
+
+test "big simd vector" {
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
+
+    var x = c_ret_big_vec();
+    try expect(x[0] == 9);
+    try expect(x[1] == 10);
+    try expect(x[2] == 11);
+    try expect(x[3] == 12);
+    try expect(x[4] == 13);
+    try expect(x[5] == 14);
+    try expect(x[6] == 15);
+    try expect(x[7] == 16);
+}
+
+const Vector2 = extern struct { x: f32, y: f32 };
+
+extern fn c_ptr_size_float_struct(Vector2) void;
+extern fn c_ret_ptr_size_float_struct() Vector2;
+
+test "C ABI pointer sized float struct" {
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    c_ptr_size_float_struct(.{ .x = 1, .y = 2 });
+
+    var x = c_ret_ptr_size_float_struct();
+    try expect(x.x == 3);
+    try expect(x.y == 4);
 }

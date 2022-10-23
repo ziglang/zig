@@ -1268,3 +1268,82 @@ fn printInvocation(args: []const []const u8) void {
     }
     std.debug.print("\n", .{});
 }
+
+const c_abi_targets = [_]CrossTarget{
+    .{},
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .i386,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .mips,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc64le,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+};
+
+pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool) *build.Step {
+    const step = b.step("test-c-abi", "Run the C ABI tests");
+
+    for (c_abi_targets) |c_abi_target| {
+        if (skip_non_native and !c_abi_target.isNative())
+            continue;
+
+        const test_step = b.addTest("test/c_abi/main.zig");
+        test_step.setTarget(c_abi_target);
+        if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
+            // TODO NativeTargetInfo insists on dynamically linking musl
+            // for some reason?
+            test_step.target_info.dynamic_linker.max_byte = null;
+        }
+        test_step.linkLibC();
+        test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+
+        const triple_prefix = c_abi_target.zigTriple(b.allocator) catch unreachable;
+        test_step.setNamePrefix(b.fmt("{s}-{s} ", .{
+            "test-c-abi",
+            triple_prefix,
+        }));
+
+        test_step.use_stage1 = false;
+
+        step.dependOn(&test_step.step);
+    }
+    return step;
+}

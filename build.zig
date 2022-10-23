@@ -508,6 +508,7 @@ pub fn build(b: *Builder) !void {
         b.enable_wasmtime,
         b.enable_wine,
     ));
+    test_step.dependOn(tests.addCAbiTests(b, skip_non_native));
     test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));

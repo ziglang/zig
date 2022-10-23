@@ -1,8 +1,8 @@
-#include <inttypes.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
 #include <complex.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
 void zig_panic();
 
@@ -11,6 +11,14 @@ static void assert_or_panic(bool ok) {
         zig_panic();
     }
 }
+
+#if defined __powerpc__ && !defined _ARCH_PPC64
+#  define ZIG_PPC32
+#endif
+
+#if defined __riscv && defined _ILP32
+#  define ZIG_RISCV32
+#endif
 
 #ifdef __i386__
 #  define ZIG_NO_I128
@@ -24,11 +32,31 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_I128
 #endif
 
+#ifdef ZIG_PPC32
+#  define ZIG_NO_I128
+#endif
+
+#ifdef ZIG_RISCV32
+#  define ZIG_NO_I128
+#endif
+
 #ifdef __i386__
 #  define ZIG_NO_COMPLEX
 #endif
 
 #ifdef __mips__
+#  define ZIG_NO_COMPLEX
+#endif
+
+#ifdef __arm__
+#  define ZIG_NO_COMPLEX
+#endif
+
+#ifdef __powerpc__
+#  define ZIG_NO_COMPLEX
+#endif
+
+#ifdef __riscv
 #  define ZIG_NO_COMPLEX
 #endif
 
@@ -206,7 +234,7 @@ void run_c_tests(void) {
     zig_longdouble(12.34l);
     zig_five_floats(1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
 
-    zig_ptr((void*)0xdeadbeefL);
+    zig_ptr((void *)0xdeadbeefL);
 
     zig_bool(true);
 
@@ -249,14 +277,15 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined ZIG_PPC32
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -281,28 +310,30 @@ void run_c_tests(void) {
         zig_small_packed_struct(s);
     }
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
     }
 #endif
 
-#if !defined __arm__ && !defined __riscv
+#if !defined __arm__ && !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && !defined __riscv
+#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+    !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined ZIG_PPC32
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -314,7 +345,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#ifndef __riscv
+#if !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct Rect r1 = {1, 21, 16, 4};
         struct Rect r2 = {178, 189, 21, 15};
@@ -322,7 +353,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined __riscv
+#if !defined __mips__ && !defined ZIG_PPC32
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};
@@ -335,9 +366,7 @@ void run_c_tests(void) {
 
         assert_or_panic(zig_ret_u8() == 0xff);
         assert_or_panic(zig_ret_u16() == 0xffff);
-#ifndef __riscv
         assert_or_panic(zig_ret_u32() == 0xffffffff);
-#endif
         assert_or_panic(zig_ret_u64() == 0xffffffffffffffff);
 
         assert_or_panic(zig_ret_i8() == -1);
@@ -404,7 +433,7 @@ void c_long_double(long double x) {
 }
 
 void c_ptr(void *x) {
-    assert_or_panic(x == (void*)0xdeadbeefL);
+    assert_or_panic(x == (void *)0xdeadbeefL);
 }
 
 void c_bool(bool x) {
@@ -672,7 +701,7 @@ void c_struct_with_array(StructWithArray x) {
 }
 
 StructWithArray c_ret_struct_with_array() {
-    return (StructWithArray) { 4, {}, 155 };
+    return (StructWithArray){4, {}, 155};
 }
 
 typedef struct {
@@ -700,4 +729,44 @@ FloatArrayStruct c_ret_float_array_struct() {
     x.size.width = 3;
     x.size.height = 4;
     return x;
+}
+
+typedef uint32_t SmallVec __attribute__((vector_size(2 * sizeof(uint32_t))));
+
+void c_small_vec(SmallVec vec) {
+    assert_or_panic(vec[0] == 1);
+    assert_or_panic(vec[1] == 2);
+}
+
+SmallVec c_ret_small_vec(void) {
+    return (SmallVec){3, 4};
+}
+
+typedef size_t BigVec __attribute__((vector_size(8 * sizeof(size_t))));
+
+void c_big_vec(BigVec vec) {
+    assert_or_panic(vec[0] == 1);
+    assert_or_panic(vec[1] == 2);
+    assert_or_panic(vec[2] == 3);
+    assert_or_panic(vec[3] == 4);
+    assert_or_panic(vec[4] == 5);
+    assert_or_panic(vec[5] == 6);
+    assert_or_panic(vec[6] == 7);
+    assert_or_panic(vec[7] == 8);
+}
+
+BigVec c_ret_big_vec(void) {
+    return (BigVec){9, 10, 11, 12, 13, 14, 15, 16};
+}
+
+typedef struct {
+    float x, y;
+} Vector2;
+
+void c_ptr_size_float_struct(Vector2 vec) {
+    assert_or_panic(vec.x == 1);
+    assert_or_panic(vec.y == 2);
+}
+Vector2 c_ret_ptr_size_float_struct(void) {
+    return (Vector2){3, 4};
 }

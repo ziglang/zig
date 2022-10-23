@@ -60,9 +60,11 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
     }
 }
 
+pub const Context = enum { ret, arg };
+
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, target: Target) [8]Class {
+pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
@@ -134,6 +136,22 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
         },
         .Vector => {
             const elem_ty = ty.childType();
+            if (ctx == .arg) {
+                const bit_size = ty.bitSize(target);
+                if (bit_size > 128) return memory_class;
+                if (bit_size > 80) return .{
+                    .integer, .integer, .none, .none,
+                    .none,    .none,    .none, .none,
+                };
+                if (bit_size > 64) return .{
+                    .x87,  .none, .none, .none,
+                    .none, .none, .none, .none,
+                };
+                return .{
+                    .integer, .none, .none, .none,
+                    .none,    .none, .none, .none,
+                };
+            }
             const bits = elem_ty.bitSize(target) * ty.arrayLen();
             if (bits <= 64) return .{
                 .sse,  .none, .none, .none,
@@ -201,7 +219,7 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                     }
                 }
                 const field_size = field.ty.abiSize(target);
-                const field_class_array = classifySystemV(field.ty, target);
+                const field_class_array = classifySystemV(field.ty, target, .arg);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -315,7 +333,7 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                     }
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field.ty, target);
+                const field_class = classifySystemV(field.ty, target, .arg);
                 for (result) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
