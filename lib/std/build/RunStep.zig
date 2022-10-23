@@ -84,9 +84,11 @@ pub fn addArg(self: *RunStep, arg: []const u8) void {
     self.argv.append(Arg{ .bytes = self.builder.dupe(arg) }) catch unreachable;
 }
 
+/// Ignores empty arguments.
 pub fn addArgs(self: *RunStep, args: []const []const u8) void {
     for (args) |arg| {
-        self.addArg(arg);
+        if (arg.len != 0)
+            self.addArg(arg);
     }
 }
 

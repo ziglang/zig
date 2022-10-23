@@ -347,7 +347,7 @@ pub const Builder = struct {
 
     /// Initializes a RunStep with argv, which must at least have the path to the
     /// executable. More command line arguments can be added with `addArg`,
-    /// `addArgs`, and `addArtifactArg`.
+    /// `addArgs`, and `addArtifactArg`. Ignores empty arguments.
     /// Be careful using this function, as it introduces a system dependency.
     /// To run an executable built with zig build, see `LibExeObjStep.run`.
     pub fn addSystemCommand(self: *Builder, argv: []const []const u8) *RunStep {
