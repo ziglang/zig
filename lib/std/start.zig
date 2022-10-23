@@ -265,23 +265,37 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 
 fn _start() callconv(.Naked) noreturn {
     switch (builtin.zig_backend) {
-        .stage2_c => switch (native_arch) {
-            .x86_64 => {
-                @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
-                @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
-                asm volatile (
-                    \\ xor %%rbp, %%rbp
-                    \\ mov %%rsp, argc_argv_ptr
+        .stage2_c => {
+            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
+            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
+            switch (native_arch) {
+                .x86_64 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movq %%rsp, argc_argv_ptr
+                    \\ andq $-16, %%rsp
                     \\ call _posixCallMainAndExit
-                );
-                unreachable;
-            },
-            else => @compileError("unsupported arch"),
+                ),
+                .i386 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movl %%esp, argc_argv_ptr
+                    \\ andl $-16, %%esp
+                    \\ jmp _posixCallMainAndExit
+                ),
+                .aarch64, .aarch64_be, .arm, .armeb, .thumb => asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    \\ str sp, argc_argv_ptr
+                    \\ and sp, #-16
+                    \\ b _posixCallMainAndExit
+                ),
+                else => @compileError("unsupported arch"),
+            }
+            unreachable;
         },
         else => switch (native_arch) {
             .x86_64 => {
                 argc_argv_ptr = asm volatile (
-                    \\ xor %%rbp, %%rbp
+                    \\ xor %%ebp, %%ebp
                     : [argc] "={rsp}" (-> [*]usize),
                 );
             },
