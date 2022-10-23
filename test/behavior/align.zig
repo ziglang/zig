@@ -393,8 +393,6 @@ test "function callconv expression depends on generic parameter" {
 }
 
 test "runtime-known array index has best alignment possible" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
     comptime assert(@TypeOf(&array[0]) == *align(4) u8);
