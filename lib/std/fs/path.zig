@@ -1257,14 +1257,14 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// Files that end with `.`, or that start with `.` and have no other `.` in their name,
 /// are considered to have no extension.
 /// Examples:
-/// - `"main.zig"`     ⇒ `".zig"`
-/// - `"src/main.zig"` ⇒ `".zig"`
-/// - `".gitignore"`   ⇒ `""`
-/// - `".image.png"`   ⇒ `".png"`
-/// - `"keep."`        ⇒ `"."`
-/// - `"src.keep.me"`  ⇒ `".me"`
+/// - `"main.zig"`      ⇒ `".zig"`
+/// - `"src/main.zig"`  ⇒ `".zig"`
+/// - `".gitignore"`    ⇒ `""`
+/// - `".image.png"`    ⇒ `".png"`
+/// - `"keep."`         ⇒ `"."`
+/// - `"src.keep.me"`   ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
-/// - `"/src/keep.me/"`  ⇒ `".me"`
+/// - `"/src/keep.me/"` ⇒ `".me"`
 /// The returned slice is guaranteed to have its pointer within the start and end
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
@@ -1275,7 +1275,7 @@ pub fn extension(path: []const u8) []const u8 {
 }
 
 fn testExtension(path: []const u8, expected: []const u8) !void {
-    try std.testing.expectEqualStrings(expected, extension(path));
+    try testing.expectEqualStrings(expected, extension(path));
 }
 
 test "extension" {
