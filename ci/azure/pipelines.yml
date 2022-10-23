@@ -91,22 +91,15 @@ jobs:
       $Env:AWS_EC2_METADATA_DISABLED = "true"
       $Env:AWS_REGION = "us-west-2"
 
-      # Produce the experimental std lib documentation.
-      mkdir "$ZIGINSTALLDIR\doc\std" -force
-      & "$ZIGINSTALLDIR\bin\zig.exe" test "$ZIGLIBDIR\std\std.zig" `
-        --zig-lib-dir "$ZIGLIBDIR" `
-        -femit-docs="$ZIGINSTALLDIR\doc\std" `
-        -fno-emit-bin
+      mv LICENSE stage3-release/
+      mv zig-cache/langref.html stage3-release/
+      mv stage3-release/bin/zig.exe stage3-release/
+      rmdir stage3-release/bin
 
-      mv LICENSE "$ZIGINSTALLDIR"
-      mv zig-cache/langref.html "$ZIGINSTALLDIR"
-      mv "$ZIGINSTALLDIR\bin\zig.exe" "$ZIGINSTALLDIR\doc\"
-      rmdir "$ZIGINSTALLDIR/bin"
-
-      # Remove the unnecessary zig dir in $ZIGINSTALLDIR\lib\zig\std\std.zig
-      mv "$ZIGINSTALLDIR\lib\zig" "$ZIGINSTALLDIR\lib2"
-      rmdir "$ZIGINSTALLDIR\lib"
-      mv "$ZIGINSTALLDIR\lib2" "$ZIGINSTALLDIR\lib"
+      # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+      mv stage3-release/lib/zig stage3-release/lib2
+      rmdir stage3-release/lib
+      mv stage3-release/lib2 stage3-release/lib
 
       Set-Variable -Name VERSION -Value $(./stage3-release/zig.exe version)
       Set-Variable -Name DIRNAME -Value "zig-windows-x86_64-$VERSION"
