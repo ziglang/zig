@@ -63,7 +63,6 @@ pub fn genSubprogramLookupByName(
 
             while (try attr_it.next()) |attr| switch (attr.name) {
                 dwarf.AT.name => if (attr.getString(self, compile_unit.cuh)) |str| {
-                    log.warn("subprogram: {s}", .{str});
                     name = str;
                 },
                 dwarf.AT.low_pc => {
@@ -389,8 +388,11 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
     const reader = creader.reader();
 
     switch (form) {
-        dwarf.FORM.strp => return if (cuh.is_64bit) @sizeOf(u64) else @sizeOf(u32),
-        dwarf.FORM.sec_offset => return if (cuh.is_64bit) @sizeOf(u64) else @sizeOf(u32),
+        dwarf.FORM.strp,
+        dwarf.FORM.sec_offset,
+        dwarf.FORM.ref_addr,
+        => return if (cuh.is_64bit) @sizeOf(u64) else @sizeOf(u32),
+
         dwarf.FORM.addr => return cuh.address_size,
         dwarf.FORM.exprloc => {
             const expr_len = try leb.readULEB128(u64, reader);
@@ -402,29 +404,53 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         },
         dwarf.FORM.flag_present => return 0,
 
-        dwarf.FORM.data1 => return @sizeOf(u8),
-        dwarf.FORM.data2 => return @sizeOf(u16),
-        dwarf.FORM.data4 => return @sizeOf(u32),
-        dwarf.FORM.data8 => return @sizeOf(u64),
-        dwarf.FORM.udata => {
+        dwarf.FORM.data1,
+        dwarf.FORM.ref1,
+        dwarf.FORM.block1,
+        dwarf.FORM.flag,
+        => return @sizeOf(u8),
+
+        dwarf.FORM.data2,
+        dwarf.FORM.ref2,
+        dwarf.FORM.block2,
+        => return @sizeOf(u16),
+
+        dwarf.FORM.data4,
+        dwarf.FORM.ref4,
+        dwarf.FORM.block4,
+        => return @sizeOf(u32),
+
+        dwarf.FORM.data8,
+        dwarf.FORM.ref8,
+        dwarf.FORM.ref_sig8,
+        => return @sizeOf(u64),
+
+        dwarf.FORM.udata,
+        dwarf.FORM.ref_udata,
+        dwarf.FORM.block,
+        => {
             _ = try leb.readULEB128(u64, reader);
             return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
+
         dwarf.FORM.sdata => {
             _ = try leb.readILEB128(i64, reader);
             return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
 
-        dwarf.FORM.ref1 => return @sizeOf(u8),
-        dwarf.FORM.ref2 => return @sizeOf(u16),
-        dwarf.FORM.ref4 => return @sizeOf(u32),
-        dwarf.FORM.ref8 => return @sizeOf(u64),
-        dwarf.FORM.ref_udata => {
-            _ = try leb.readULEB128(u64, reader);
-            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
+        dwarf.FORM.string => {
+            var count: usize = 0;
+            while (true) : (count += 1) {
+                const byte = try reader.readByte();
+                if (byte == 0x0) break;
+            }
+            return count;
         },
 
-        else => return error.ToDo,
+        else => {
+            log.err("unhandled DW_FORM_* value with identifier {x}", .{form});
+            return error.UnhandledDwFormValue;
+        },
     }
 }
 
