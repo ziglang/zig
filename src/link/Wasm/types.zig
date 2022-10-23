@@ -183,7 +183,27 @@ pub const Feature = struct {
     /// Type of the feature, must be unique in the sequence of features.
     tag: Tag,
 
-    pub const Tag = std.Target.wasm.Feature;
+    /// Unlike `std.Target.wasm.Feature` this also contains linker-features such as shared-mem
+    pub const Tag = enum {
+        atomics,
+        bulk_memory,
+        exception_handling,
+        extended_const,
+        multivalue,
+        mutable_globals,
+        nontrapping_fptoint,
+        reference_types,
+        relaxed_simd,
+        sign_ext,
+        simd128,
+        tail_call,
+        shared_mem,
+
+        /// From a given cpu feature, returns its linker feature
+        pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
+            return @intToEnum(Tag, @enumToInt(feature));
+        }
+    };
 
     pub const Prefix = enum(u8) {
         used = '+',
@@ -205,6 +225,7 @@ pub const Feature = struct {
             .sign_ext => "sign-ext",
             .simd128 => "simd128",
             .tail_call => "tail-call",
+            .shared_mem => "shared-mem",
         };
     }
 
@@ -228,4 +249,5 @@ pub const known_features = std.ComptimeStringMap(Feature.Tag, .{
     .{ "sign-ext", .sign_ext },
     .{ "simd128", .simd128 },
     .{ "tail-call", .tail_call },
+    .{ "shared-mem", .shared_mem },
 });

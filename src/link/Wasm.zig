@@ -654,15 +654,15 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
 fn validateFeatures(
     wasm: *const Wasm,
     arena: Allocator,
-    to_emit: *[@typeInfo(std.Target.wasm.Feature).Enum.fields.len]bool,
+    to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
     emit_features_count: *u32,
 ) !void {
     const cpu_features = wasm.base.options.target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
-    var allowed = std.AutoHashMap(std.Target.wasm.Feature, void).init(arena);
-    var used = std.AutoArrayHashMap(std.Target.wasm.Feature, []const u8).init(arena);
-    var disallowed = std.AutoHashMap(std.Target.wasm.Feature, []const u8).init(arena);
-    var required = std.AutoHashMap(std.Target.wasm.Feature, []const u8).init(arena);
+    var allowed = std.AutoHashMap(types.Feature.Tag, void).init(arena);
+    var used = std.AutoArrayHashMap(types.Feature.Tag, []const u8).init(arena);
+    var disallowed = std.AutoHashMap(types.Feature.Tag, []const u8).init(arena);
+    var required = std.AutoHashMap(types.Feature.Tag, []const u8).init(arena);
 
     // when false, we fail linking. We only verify this after a loop to catch all invalid features.
     var valid_feature_set = true;
@@ -674,7 +674,7 @@ fn validateFeatures(
         // std.builtin.Type.EnumField
         inline for (@typeInfo(std.Target.wasm.Feature).Enum.fields) |feature_field| {
             if (cpu_features.isEnabled(feature_field.value)) {
-                allowed.putAssumeCapacityNoClobber(@intToEnum(std.Target.wasm.Feature, feature_field.value), {});
+                allowed.putAssumeCapacityNoClobber(@intToEnum(types.Feature.Tag, feature_field.value), {});
             }
         }
     }
@@ -730,7 +730,7 @@ fn validateFeatures(
 
     // For each linked object, validate the required and disallowed features
     for (wasm.objects.items) |object| {
-        var object_used_features = std.AutoHashMap(std.Target.wasm.Feature, void).init(arena);
+        var object_used_features = std.AutoHashMap(types.Feature.Tag, void).init(arena);
         try object_used_features.ensureTotalCapacity(@intCast(u32, object.features.len));
         for (object.features) |feature| {
             if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
@@ -764,7 +764,7 @@ fn validateFeatures(
     if (allowed.count() > 0) {
         emit_features_count.* = allowed.count();
         for (to_emit) |*feature_enabled, feature_index| {
-            feature_enabled.* = allowed.contains(@intToEnum(std.Target.wasm.Feature, feature_index));
+            feature_enabled.* = allowed.contains(@intToEnum(types.Feature.Tag, feature_index));
         }
     }
 }
@@ -2277,7 +2277,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     var emit_features_count: u32 = 0;
-    var enabled_features: [@typeInfo(std.Target.wasm.Feature).Enum.fields.len]bool = undefined;
+    var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(arena, &enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
     try wasm.checkUndefinedSymbols();
