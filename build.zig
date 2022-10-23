@@ -48,6 +48,8 @@ pub fn build(b: *Builder) !void {
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
+    const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
+
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -123,7 +125,7 @@ pub fn build(b: *Builder) !void {
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse false;
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse false;
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
-    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
@@ -166,6 +168,10 @@ pub fn build(b: *Builder) !void {
         test_cases.want_lto = false;
     }
 
+    if (only_c) {
+        exe.ofmt = .c;
+    }
+
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 
@@ -176,6 +182,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
+    exe_options.addOption(bool, "only_c", only_c);
 
     if (link_libc) {
         exe.linkLibC();
@@ -408,6 +415,7 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
+    test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
