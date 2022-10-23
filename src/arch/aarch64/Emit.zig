@@ -131,6 +131,7 @@ pub fn emitMir(
             .subs_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
             .cmp_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
 
+            .csel => try emit.mirConditionalSelect(inst),
             .cset => try emit.mirConditionalSelect(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
@@ -804,6 +805,14 @@ fn mirAddSubtractExtendedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
+        .csel => {
+            const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
+            const rd = rrr_cond.rd;
+            const rn = rrr_cond.rn;
+            const rm = rrr_cond.rm;
+            const cond = rrr_cond.cond;
+            try emit.writeInstruction(Instruction.csel(rd, rn, rm, cond));
+        },
         .cset => {
             const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
             const zr: Register = switch (r_cond.rd.size()) {

@@ -539,8 +539,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_add         => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub         => try self.airPtrArithmetic(inst, .ptr_sub),
 
-            .min             => try self.airMin(inst),
-            .max             => try self.airMax(inst),
+            .min             => try self.airMinMax(inst),
+            .max             => try self.airMinMax(inst),
 
             .add_sat         => try self.airAddSat(inst),
             .sub_sat         => try self.airSubSat(inst),
@@ -1234,15 +1234,102 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airMin(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement min for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+fn minMax(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    lhs_bind: ReadArg.Bind,
+    rhs_bind: ReadArg.Bind,
+    lhs_ty: Type,
+    rhs_ty: Type,
+    maybe_inst: ?Air.Inst.Index,
+) !MCValue {
+    switch (lhs_ty.zigTypeTag()) {
+        .Float => return self.fail("TODO ARM min/max on floats", .{}),
+        .Vector => return self.fail("TODO ARM min/max on vectors", .{}),
+        .Int => {
+            const mod = self.bin_file.options.module.?;
+            assert(lhs_ty.eql(rhs_ty, mod));
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 64) {
+                var lhs_reg: Register = undefined;
+                var rhs_reg: Register = undefined;
+                var dest_reg: Register = undefined;
+
+                const read_args = [_]ReadArg{
+                    .{ .ty = lhs_ty, .bind = lhs_bind, .class = gp, .reg = &lhs_reg },
+                    .{ .ty = rhs_ty, .bind = rhs_bind, .class = gp, .reg = &rhs_reg },
+                };
+                const write_args = [_]WriteArg{
+                    .{ .ty = lhs_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+                };
+                try self.allocRegs(
+                    &read_args,
+                    &write_args,
+                    if (maybe_inst) |inst| .{
+                        .corresponding_inst = inst,
+                        .operand_mapping = &.{ 0, 1 },
+                    } else null,
+                );
+
+                // lhs == reg should have been checked by airMinMax
+                assert(lhs_reg != rhs_reg); // see note above
+
+                _ = try self.addInst(.{
+                    .tag = .cmp_shifted_register,
+                    .data = .{ .rr_imm6_shift = .{
+                        .rn = lhs_reg,
+                        .rm = rhs_reg,
+                        .imm6 = 0,
+                        .shift = .lsl,
+                    } },
+                });
+
+                const cond_choose_lhs: Condition = switch (tag) {
+                    .max => switch (int_info.signedness) {
+                        .signed => Condition.gt,
+                        .unsigned => Condition.hi,
+                    },
+                    .min => switch (int_info.signedness) {
+                        .signed => Condition.lt,
+                        .unsigned => Condition.cc,
+                    },
+                    else => unreachable,
+                };
+
+                _ = try self.addInst(.{
+                    .tag = .csel,
+                    .data = .{ .rrr_cond = .{
+                        .rd = dest_reg,
+                        .rn = lhs_reg,
+                        .rm = rhs_reg,
+                        .cond = cond_choose_lhs,
+                    } },
+                });
+
+                return MCValue{ .register = dest_reg };
+            } else {
+                return self.fail("TODO ARM min/max on integers > u32/i32", .{});
+            }
+        },
+        else => unreachable,
+    }
 }
 
-fn airMax(self: *Self, inst: Air.Inst.Index) !void {
+fn airMinMax(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement max for {}", .{self.target.cpu.arch});
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
+        const rhs_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
+
+        const lhs = try self.resolveInst(bin_op.lhs);
+        if (bin_op.lhs == bin_op.rhs) break :result lhs;
+
+        break :result try self.minMax(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
