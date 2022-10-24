@@ -506,7 +506,7 @@ fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_in
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
-    std.os.argv = c_argv[0..@intCast(usize, c_argc)];
+    std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
     return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 

@@ -3,6 +3,7 @@
 #define __STDC_WANT_IEC_60559_TYPES_EXT__
 #include <float.h>
 #include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(__has_builtin)

@@ -951,7 +951,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,
-        \\ZIG_EXTERN_C void start(void);
+        \\zig_extern_c zig_void start(zig_void);
         \\
     );
     ctx.h("header with single param function", linux_x64,
@@ -959,7 +959,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = a;
         \\}
     ,
-        \\ZIG_EXTERN_C void start(uint8_t a0);
+        \\zig_extern_c zig_void start(zig_u8 const a0);
         \\
     );
     ctx.h("header with multiple param function", linux_x64,
@@ -967,25 +967,25 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  _ = a; _ = b; _ = c;
         \\}
     ,
-        \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
+        \\zig_extern_c zig_void start(zig_u8 const a0, zig_u8 const a1, zig_u8 const a2);
         \\
     );
     ctx.h("header with u32 param function", linux_x64,
         \\export fn start(a: u32) void{ _ = a; }
     ,
-        \\ZIG_EXTERN_C void start(uint32_t a0);
+        \\zig_extern_c zig_void start(zig_u32 const a0);
         \\
     );
     ctx.h("header with usize param function", linux_x64,
         \\export fn start(a: usize) void{ _ = a; }
     ,
-        \\ZIG_EXTERN_C void start(uintptr_t a0);
+        \\zig_extern_c zig_void start(zig_usize const a0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
         \\export fn start(a: bool) void{_ = a;}
     ,
-        \\ZIG_EXTERN_C void start(bool a0);
+        \\zig_extern_c zig_void start(zig_bool const a0);
         \\
     );
     ctx.h("header with noreturn function", linux_x64,
@@ -993,7 +993,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    unreachable;
         \\}
     ,
-        \\ZIG_EXTERN_C zig_noreturn void start(void);
+        \\zig_extern_c zig_noreturn start(zig_void);
         \\
     );
     ctx.h("header with multiple functions", linux_x64,
@@ -1001,15 +1001,15 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn b() void{}
         \\export fn c() void{}
     ,
-        \\ZIG_EXTERN_C void a(void);
-        \\ZIG_EXTERN_C void b(void);
-        \\ZIG_EXTERN_C void c(void);
+        \\zig_extern_c zig_void a(zig_void);
+        \\zig_extern_c zig_void b(zig_void);
+        \\zig_extern_c zig_void c(zig_void);
         \\
     );
     ctx.h("header with multiple includes", linux_x64,
         \\export fn start(a: u32, b: usize) void{ _ = a; _ = b; }
     ,
-        \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
+        \\zig_extern_c zig_void start(zig_u32 const a0, zig_usize const a1);
         \\
     );
 }
