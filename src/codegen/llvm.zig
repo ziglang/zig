@@ -1916,7 +1916,7 @@ pub const Object = struct {
 
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
-                    if (struct_obj.layout == .Packed) {
+                    if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
                         const info = struct_obj.backing_int_ty.intInfo(target);
                         const dwarf_encoding: c_uint = switch (info.signedness) {
                             .signed => DW.ATE.signed,
