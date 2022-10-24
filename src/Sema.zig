@@ -5031,6 +5031,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .label = &label,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
         .float_mode = parent_block.float_mode,
         .runtime_cond = parent_block.runtime_cond,
@@ -5923,7 +5924,7 @@ fn zirCall(
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     if (backend_supports_error_return_tracing and sema.mod.comp.bin_file.options.error_return_tracing and
-        !block.is_comptime and (input_is_error or pop_error_return_trace))
+        !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const call_inst: Air.Inst.Ref = if (modifier == .always_tail) undefined else b: {
             break :b try sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
@@ -6403,7 +6404,7 @@ fn analyzeCall(
             }
 
             const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
-            if (!is_comptime_call) {
+            if (!is_comptime_call and !block.is_typeof) {
                 try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
 
                 const zir_tags = sema.code.instructions.items(.tag);
@@ -6441,7 +6442,7 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (!is_comptime_call and sema.typeOf(result).zigTypeTag() != .NoReturn) {
+            if (!is_comptime_call and !block.is_typeof and sema.typeOf(result).zigTypeTag() != .NoReturn) {
                 try sema.emitDbgInline(
                     block,
                     module_fn,
@@ -10210,6 +10211,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .label = &label,
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
+        .is_typeof = block.is_typeof,
         .switch_else_err_ty = else_error_ty,
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
@@ -16401,7 +16403,7 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     if (!ok) return;
 
     // This is only relevant at runtime.
-    if (block.is_comptime) return;
+    if (block.is_comptime or block.is_typeof) return;
 
     // This is only relevant within functions.
     if (sema.func == null) return;
@@ -16421,7 +16423,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     const src = sema.src; // TODO
 
     // This is only relevant at runtime.
-    if (start_block.is_comptime) return;
+    if (start_block.is_comptime or start_block.is_typeof) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
