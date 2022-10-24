@@ -9,7 +9,14 @@ test {
     _ = tokenizer;
 }
 
-/// A type that makes implementing strings in C structs more convenient:
+/// A type that makes implementing strings in C-compatible structs more convenient.
+///
+///
+/// The following usage of the `CharArray` type shows how to create an equivalent
+/// to a `char` array of size `N` in C.
+/// You can use this to easily access such char arrays and preserve the implicit
+/// sentinel for arrays that don't use 100% of their capacity.
+///
 /// ```
 /// const User = extern struct {
 ///   name: std.c.CharArray(64) = .{},
@@ -19,15 +26,11 @@ test {
 /// std.debug.print("{s}\n", .{user.name.slice()});
 /// ```
 ///
-/// This type is equivalent to a `char` array of size `N` in C.
-/// You can use to easily access such char arrays and preserve the
-/// implicit sentinel in these arrays.
-///
 /// **NOTE:** CharArray allows for contents up to length `N`, so
 /// there will be no NUL terminator present at the end. This is sometimes
-/// legal and sometimes not, depending on your API. In these cases, it's a good
-/// practise to assert that the sentinel is present before passing the data back
-/// to C.
+/// legal and sometimes not, depending on your API. In the case where the final
+/// byte must be a NUL terminator, it's a good practise to assert that the sentinel
+/// is present before passing the data back to C.
 pub fn CharArray(comptime N: comptime_int) type {
     return std.PaddedArrayExtra(u8, N, 0, .Extern);
 }

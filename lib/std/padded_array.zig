@@ -112,7 +112,12 @@ test "PaddedArray" {
 }
 
 test "Extern PaddedArray" {
-    _ = extern struct {
-        name: PaddedArrayExtra(u8, 33, 0, .Extern),
-    };
+    _ = extern struct { name: PaddedArrayExtra(u8, 33, 0, .Extern) };
+
+    comptime {
+        std.debug.assert(@sizeOf(PaddedArrayExtra(u8, 33, 0, .Extern)) == 33);
+        std.debug.assert(@alignOf(PaddedArrayExtra(u8, 33, 0, .Extern)) == 1);
+        std.debug.assert(@sizeOf(PaddedArrayExtra(u16, 11, 99, .Extern)) == 22);
+        std.debug.assert(@alignOf(PaddedArrayExtra(u16, 11, 99, .Extern)) == 2);
+    }
 }
