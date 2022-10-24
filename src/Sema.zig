@@ -29075,6 +29075,33 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         struct_obj.backing_int_ty = try backing_int_ty.copy(decl_arena_allocator);
         try wip_captures.finalize();
     } else {
+        if (fields_bit_sum > std.math.maxInt(u16)) {
+            var sema: Sema = .{
+                .mod = mod,
+                .gpa = gpa,
+                .arena = undefined,
+                .perm_arena = decl_arena_allocator,
+                .code = zir,
+                .owner_decl = decl,
+                .owner_decl_index = decl_index,
+                .func = null,
+                .fn_ret_ty = Type.void,
+                .owner_func = null,
+            };
+            defer sema.deinit();
+
+            var block: Block = .{
+                .parent = null,
+                .sema = &sema,
+                .src_decl = decl_index,
+                .namespace = &struct_obj.namespace,
+                .wip_capture_scope = undefined,
+                .instructions = .{},
+                .inlining = null,
+                .is_comptime = true,
+            };
+            return sema.fail(&block, LazySrcLoc.nodeOffset(0), "size of packed struct '{d}' exceeds maximum bit width of 65535", .{fields_bit_sum});
+        }
         var buf: Type.Payload.Bits = .{
             .base = .{ .tag = .int_unsigned },
             .data = @intCast(u16, fields_bit_sum),
