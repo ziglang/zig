@@ -40,6 +40,7 @@ union U {
 #define CAST_OR_CALL_WITH_PARENS(type_or_fn, val) ((type_or_fn)(val))
 
 #define NESTED_COMMA_OPERATOR (1, (2, 3))
+#define NESTED_COMMA_OPERATOR_LHS (1, 2), 3
 
 #include <stdint.h>
 #if !defined(__UINTPTR_MAX__)

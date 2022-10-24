@@ -5651,13 +5651,14 @@ const ParseError = Error || error{ParseError};
 
 fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     // TODO parseCAssignExpr here
-    const node = try parseCCondExpr(c, m, scope);
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    const node = try parseCCondExpr(c, m, &block_scope.base);
     if (m.next().? != .Comma) {
         m.i -= 1;
         return node;
     }
-    var block_scope = try Scope.Block.init(c, scope, true);
-    defer block_scope.deinit();
 
     var last = node;
     while (true) {
