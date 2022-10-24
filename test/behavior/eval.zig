@@ -718,7 +718,6 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
 }
 
 test "array concatenation of function calls" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -727,7 +726,6 @@ test "array concatenation of function calls" {
 }
 
 test "array multiplication of function calls" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
