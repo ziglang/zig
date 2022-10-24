@@ -9709,7 +9709,7 @@ fn rvalue(
             const result_index = refToIndex(result) orelse
                 return gz.addUnTok(.ref, result, src_token);
             const zir_tags = gz.astgen.instructions.items(.tag);
-            if (zir_tags[result_index].isParam())
+            if (zir_tags[result_index].isParam() or astgen.isInferred(result))
                 return gz.addUnTok(.ref, result, src_token);
             const gop = try astgen.ref_table.getOrPut(astgen.gpa, result_index);
             if (!gop.found_existing) {
@@ -12195,6 +12195,13 @@ fn isInferred(astgen: *AstGen, ref: Zir.Inst.Ref) bool {
         .alloc_inferred_comptime,
         .alloc_inferred_comptime_mut,
         => true,
+
+        .extended => {
+            const zir_data = astgen.instructions.items(.data);
+            if (zir_data[inst].extended.opcode != .alloc) return false;
+            const small = @bitCast(Zir.Inst.AllocExtended.Small, zir_data[inst].extended.small);
+            return !small.has_type;
+        },
 
         else => false,
     };
