@@ -581,7 +581,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
-            .plan9 => @panic("TODO: implement updateDeclLineNumber for plan9"),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl),
             .spirv, .nvptx => {},
         }
     }

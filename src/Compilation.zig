@@ -1088,10 +1088,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     // Once they are capable this condition could be removed. When removing this condition,
     // also test the use case of `build-obj -fcompiler-rt` with the native backends
     // and make sure the compiler-rt symbols are emitted.
-    const capable_of_building_compiler_rt = build_options.have_llvm;
+    const capable_of_building_compiler_rt = build_options.have_llvm and options.target.os.tag != .plan9;
 
-    const capable_of_building_zig_libc = build_options.have_llvm;
-    const capable_of_building_ssp = build_options.have_llvm;
+    const capable_of_building_zig_libc = build_options.have_llvm and options.target.os.tag != .plan9;
+    const capable_of_building_ssp = build_options.have_llvm and options.target.os.tag != .plan9;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this

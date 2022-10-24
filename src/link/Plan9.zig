@@ -956,6 +956,13 @@ pub fn allocateDeclIndexes(self: *Plan9, decl_index: Module.Decl.Index) !void {
     _ = self;
     _ = decl_index;
 }
+/// Must be called only after a successful call to `updateDecl`.
+pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl: *const Module.Decl) !void {
+    _ = self;
+    _ = mod;
+    _ = decl;
+}
+
 pub fn getDeclVAddr(
     self: *Plan9,
     decl_index: Module.Decl.Index,
