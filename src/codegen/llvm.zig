@@ -6316,18 +6316,24 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(un_op);
         const optional_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
         const optional_llvm_ty = try self.dg.lowerType(optional_ty);
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
         if (optional_ty.optionalReprIsPayload()) {
             const loaded = if (operand_is_ptr)
                 self.builder.buildLoad(optional_llvm_ty, operand, "")
             else
                 operand;
+            if (payload_ty.isSlice()) {
+                const slice_ptr = self.builder.buildExtractValue(loaded, 0, "");
+                var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf));
+                return self.builder.buildICmp(pred, slice_ptr, ptr_ty.constNull(), "");
+            }
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
         }
 
         comptime assert(optional_layout_version == 3);
 
-        var buf: Type.Payload.ElemType = undefined;
-        const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             const loaded = if (operand_is_ptr)
                 self.builder.buildLoad(optional_llvm_ty, operand, "")

@@ -3469,20 +3469,8 @@ pub const Type = extern union {
 
                 if (!child_type.hasRuntimeBits()) return AbiSizeAdvanced{ .scalar = 1 };
 
-                switch (child_type.zigTypeTag()) {
-                    .Pointer => {
-                        const ptr_info = child_type.ptrInfo().data;
-                        const has_null = switch (ptr_info.size) {
-                            .Slice, .C => true,
-                            else => ptr_info.@"allowzero",
-                        };
-                        if (!has_null) {
-                            const ptr_size_bytes = @divExact(target.cpu.arch.ptrBitWidth(), 8);
-                            return AbiSizeAdvanced{ .scalar = ptr_size_bytes };
-                        }
-                    },
-                    .ErrorSet => return abiSizeAdvanced(Type.anyerror, target, strat),
-                    else => {},
+                if (ty.optionalReprIsPayload()) {
+                    return abiSizeAdvanced(child_type, target, strat);
                 }
 
                 const payload_size = switch (try child_type.abiSizeAdvanced(target, strat)) {
@@ -3747,28 +3735,10 @@ pub const Type = extern union {
 
             .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data,
 
-            .optional => {
-                var buf: Payload.ElemType = undefined;
-                const child_type = ty.optionalChild(&buf);
-                if (!child_type.hasRuntimeBits()) return 8;
-
-                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
-                    return target.cpu.arch.ptrBitWidth();
-
-                // Optional types are represented as a struct with the child type as the first
-                // field and a boolean as the second. Since the child type's abi alignment is
-                // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
-                // to the child type's ABI alignment.
-                const child_bit_size = try bitSizeAdvanced(child_type, target, sema_kit);
-                return child_bit_size + 1;
-            },
-
-            .error_union => {
-                const payload = ty.castTag(.error_union).?.data;
-                if (!payload.payload.hasRuntimeBits()) {
-                    return payload.error_set.bitSizeAdvanced(target, sema_kit);
-                }
-                @panic("TODO bitSize error union");
+            .optional, .error_union => {
+                // Optionals and error unions are not packed so their bitsize
+                // includes padding bits.
+                return (try abiSizeAdvanced(ty, target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
             },
 
             .atomic_order,
@@ -4045,8 +4015,8 @@ pub const Type = extern union {
                     .Pointer => {
                         const info = child_ty.ptrInfo().data;
                         switch (info.size) {
-                            .Slice, .C => return false,
-                            .Many, .One => return !info.@"allowzero",
+                            .C => return false,
+                            .Slice, .Many, .One => return !info.@"allowzero",
                         }
                     },
                     .ErrorSet => return true,
