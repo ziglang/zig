@@ -356,7 +356,7 @@ fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
     }
 }
 
-pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     assert(!self.base.options.use_lld);
 
     switch (self.base.options.effectiveOutputMode()) {
@@ -392,7 +392,7 @@ fn declCount(self: *Plan9) usize {
     return self.data_decl_table.count() + fn_decl_count;
 }
 
-pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }

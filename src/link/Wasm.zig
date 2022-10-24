@@ -501,7 +501,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             if (symbol.isUndefined()) {
                 log.err("Local symbols are not allowed to reference imports", .{});
                 log.err("  symbol '{s}' defined in '{s}'", .{ sym_name, object.name });
-                return error.undefinedLocal;
+                return error.UndefinedLocal;
             }
             try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
             continue;
@@ -2091,7 +2091,7 @@ fn resetState(wasm: *Wasm) void {
     wasm.debug_pubtypes_index = null;
 }
 
-pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (wasm.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (wasm.llvm_object) |llvm_object| {
@@ -2107,7 +2107,7 @@ pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !vo
     }
 }
 
-pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3195,7 +3195,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
                 const term = child.spawnAndWait() catch |err| {
                     log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnwasm;
+                    return error.UnableToSpawnWasm;
                 };
                 switch (term) {
                     .Exited => |code| {
@@ -3216,7 +3216,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
                 const term = child.wait() catch |err| {
                     log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnwasm;
+                    return error.UnableToSpawnWasm;
                 };
 
                 switch (term) {

@@ -677,9 +677,92 @@ pub const File = struct {
         }
     }
 
+    /// TODO audit this error set. most of these should be collapsed into one error,
+    /// and ErrorFlags should be updated to convey the meaning to the user.
+    pub const FlushError = error{
+        CacheUnavailable,
+        CurrentWorkingDirectoryUnlinked,
+        DivisionByZero,
+        DllImportLibraryNotFound,
+        EmptyStubFile,
+        ExpectedFuncType,
+        FailedToEmit,
+        FailedToResolveRelocationTarget,
+        FileSystem,
+        FilesOpenedWithWrongFlags,
+        FlushFailure,
+        FrameworkNotFound,
+        FunctionSignatureMismatch,
+        GlobalTypeMismatch,
+        InvalidCharacter,
+        InvalidEntryKind,
+        InvalidFormat,
+        InvalidIndex,
+        InvalidMagicByte,
+        InvalidWasmVersion,
+        LLDCrashed,
+        LLDReportedFailure,
+        LLD_LinkingIsTODO_ForSpirV,
+        LibCInstallationMissingCRTDir,
+        LibCInstallationNotAvailable,
+        LibraryNotFound,
+        LinkingWithoutZigSourceUnimplemented,
+        MalformedArchive,
+        MalformedDwarf,
+        MalformedSection,
+        MemoryTooBig,
+        MemoryTooSmall,
+        MismatchedCpuArchitecture,
+        MissAlignment,
+        MissingEndForBody,
+        MissingEndForExpression,
+        /// TODO: this should be removed from the error set in favor of using ErrorFlags
+        MissingMainEntrypoint,
+        MissingSymbol,
+        MissingTableSymbols,
+        ModuleNameMismatch,
+        MultipleSymbolDefinitions,
+        NoObjectsToLink,
+        NotObject,
+        NotObjectFile,
+        NotSupported,
+        OutOfMemory,
+        Overflow,
+        PermissionDenied,
+        StreamTooLong,
+        SwapFile,
+        SymbolCollision,
+        SymbolMismatchingType,
+        TODOImplementPlan9Objs,
+        TODOImplementWritingLibFiles,
+        TODOImplementWritingStaticLibFiles,
+        UnableToSpawnSelf,
+        UnableToSpawnWasm,
+        UnableToWriteArchive,
+        UndefinedLocal,
+        /// TODO: merge with UndefinedSymbolReference
+        UndefinedSymbol,
+        /// TODO: merge with UndefinedSymbol
+        UndefinedSymbolReference,
+        Underflow,
+        UnexpectedRemainder,
+        UnexpectedTable,
+        UnexpectedValue,
+        UnhandledDwFormValue,
+        UnhandledSymbolType,
+        UnknownFeature,
+        Unseekable,
+        UnsupportedCpuArchitecture,
+        UnsupportedVersion,
+    } ||
+        fs.File.WriteFileError ||
+        fs.File.OpenError ||
+        std.ChildProcess.SpawnError ||
+        fs.Dir.CopyFileError;
+
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
-    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
@@ -717,7 +800,7 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node);
@@ -880,7 +963,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 

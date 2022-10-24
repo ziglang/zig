@@ -1442,7 +1442,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
@@ -1461,7 +1461,7 @@ pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !vo
     }
 }
 
-pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
