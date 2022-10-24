@@ -176,7 +176,7 @@ pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {
     self.decl_table.swapRemoveAt(index);
 }
 
-pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
     } else {
@@ -184,7 +184,7 @@ pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !v
     }
 }
 
-pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }

@@ -3735,7 +3735,7 @@ const SymbolResolver = struct {
     unresolved: std.AutoArrayHashMap(u32, void),
 };
 
-pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 

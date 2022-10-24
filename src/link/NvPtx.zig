@@ -93,11 +93,11 @@ pub fn freeDecl(self: *NvPtx, decl_index: Module.Decl.Index) void {
     return self.llvm_object.freeDecl(decl_index);
 }
 
-pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     return self.flushModule(comp, prog_node);
 }
 
-pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (!build_options.have_llvm) return;
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");

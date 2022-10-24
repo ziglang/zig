@@ -17,7 +17,7 @@ const N_DEAD = @import("zld.zig").N_DEAD;
 
 const AtomTable = std.AutoHashMap(AtomIndex, void);
 
-pub fn gcAtoms(zld: *Zld, reverse_lookups: [][]u32) !void {
+pub fn gcAtoms(zld: *Zld, reverse_lookups: [][]u32) Allocator.Error!void {
     const gpa = zld.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -30,8 +30,8 @@ pub fn gcAtoms(zld: *Zld, reverse_lookups: [][]u32) !void {
     try alive.ensureTotalCapacity(@intCast(u32, zld.atoms.items.len));
 
     try collectRoots(zld, &roots);
-    try mark(zld, roots, &alive, reverse_lookups);
-    try prune(zld, alive);
+    mark(zld, roots, &alive, reverse_lookups);
+    prune(zld, alive);
 }
 
 fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
@@ -133,7 +133,7 @@ fn markLive(
     atom_index: AtomIndex,
     alive: *AtomTable,
     reverse_lookups: [][]u32,
-) anyerror!void {
+) void {
     if (alive.contains(atom_index)) return;
 
     const atom = zld.getAtom(atom_index);
@@ -171,7 +171,7 @@ fn markLive(
                 const other_atom = zld.getAtom(other_atom_index);
                 const other_sym = zld.getSymbol(other_atom.getSymbolWithLoc());
                 if (other_sym.n_sect == sect_id) {
-                    try markLive(zld, other_atom_index, alive, reverse_lookups);
+                    markLive(zld, other_atom_index, alive, reverse_lookups);
                 }
             }
             continue;
@@ -194,11 +194,11 @@ fn markLive(
             zld.getAtom(target_atom_index).file,
         });
 
-        try markLive(zld, target_atom_index, alive, reverse_lookups);
+        markLive(zld, target_atom_index, alive, reverse_lookups);
     }
 }
 
-fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable, reverse_lookups: [][]u32) !bool {
+fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable, reverse_lookups: [][]u32) bool {
     const atom = zld.getAtom(atom_index);
     const sym_loc = atom.getSymbolWithLoc();
 
@@ -240,10 +240,10 @@ fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable, reverse_lookup
     return false;
 }
 
-fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable, reverse_lookups: [][]u32) !void {
+fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable, reverse_lookups: [][]u32) void {
     var it = roots.keyIterator();
     while (it.next()) |root| {
-        try markLive(zld, root.*, alive, reverse_lookups);
+        markLive(zld, root.*, alive, reverse_lookups);
     }
 
     var loop: bool = true;
@@ -265,8 +265,8 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable, reverse_lookups: [][]u32
                 const source_sect = object.getSourceSection(sect_id);
 
                 if (source_sect.isDontDeadStripIfReferencesLive()) {
-                    if (try refersLive(zld, atom_index, alive.*, reverse_lookups)) {
-                        try markLive(zld, atom_index, alive, reverse_lookups);
+                    if (refersLive(zld, atom_index, alive.*, reverse_lookups)) {
+                        markLive(zld, atom_index, alive, reverse_lookups);
                         loop = true;
                     }
                 }
@@ -275,7 +275,7 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable, reverse_lookups: [][]u32
     }
 }
 
-fn prune(zld: *Zld, alive: AtomTable) !void {
+fn prune(zld: *Zld, alive: AtomTable) void {
     log.debug("pruning dead atoms", .{});
     for (zld.objects.items) |*object| {
         var i: usize = 0;
