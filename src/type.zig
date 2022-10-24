@@ -6827,7 +6827,7 @@ pub const CType = enum {
                     },
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.abi) {
-                        .gnu, .gnuilp32, .cygnus => return 128,
+                        .gnu, .gnuilp32, .cygnus => return 80,
                         else => return 64,
                     },
                 },
