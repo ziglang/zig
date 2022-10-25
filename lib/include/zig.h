@@ -257,56 +257,116 @@ typedef  int64_t zig_i64;
 
 #if FLT_MANT_DIG == 11
 typedef float zig_f16;
+#define zig_suffix_f16(x) x##f
+#define zig_builtin_f16(name) __builtin_##name##f
 #elif DBL_MANT_DIG == 11
 typedef double zig_f16;
+#define zig_suffix_f16(x) x
+#define zig_builtin_f16(name) __builtin_##name
 #elif LDBL_MANT_DIG == 11
 typedef long double zig_f16;
+#define zig_suffix_f16(x) x##l
+#define zig_builtin_f16(name) __builtin_##name##l
 #elif FLT16_MANT_DIG == 11
 typedef _Float16 zig_f16;
+#define zig_suffix_f16(x) x##f16
+#define zig_builtin_f16(name) __builtin_##name
+#elif defined(__SIZEOF_FP16__)
+typedef __fp16 zig_f16;
+#define zig_suffix_f16(x) x
+#define zig_builtin_f16(name) __builtin_##name
 #endif
 
 #if FLT_MANT_DIG == 24
 typedef float zig_f32;
+#define zig_suffix_f32(x) x##f
+#define zig_builtin_f32(name) __builtin_##name##f
 #elif DBL_MANT_DIG == 24
 typedef double zig_f32;
+#define zig_suffix_f32(x) x
+#define zig_builtin_f32(name) __builtin_##name
 #elif LDBL_MANT_DIG == 24
 typedef long double zig_f32;
+#define zig_suffix_f32(x) x##l
+#define zig_builtin_f32(name) __builtin_##name##l
 #elif FLT32_MANT_DIG == 24
 typedef _Float32 zig_f32;
+#define zig_suffix_f32(x) x##f32
+#define zig_builtin_f32(name) __builtin_##name
 #endif
 
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
+#define zig_suffix_f64(x) x##f
+#define zig_builtin_f64(name) __builtin_##name##f
 #elif DBL_MANT_DIG == 53
 typedef double zig_f64;
+#define zig_suffix_f64(x) x
+#define zig_builtin_f64(name) __builtin_##name
 #elif LDBL_MANT_DIG == 53
 typedef long double zig_f64;
+#define zig_suffix_f64(x) x##l
+#define zig_builtin_f64(name) __builtin_##name##l
 #elif FLT64_MANT_DIG == 53
 typedef _Float64 zig_f64;
+#define zig_suffix_f64(x) x##f64
+#define zig_builtin_f64(name) __builtin_##name##l
+#elif FLT32X_MANT_DIG == 53
+typedef _Float32x zig_f64;
+#define zig_suffix_f64(x) x##f32x
+#define zig_builtin_f64(name) __builtin_##name##l
 #endif
 
 #if FLT_MANT_DIG == 64
 typedef float zig_f80;
+#define zig_suffix_f80(x) x##f
+#define zig_builtin_f80(name) __builtin_##name##f
 #elif DBL_MANT_DIG == 64
 typedef double zig_f80;
+#define zig_suffix_f80(x) x
+#define zig_builtin_f80(name) __builtin_##name
 #elif LDBL_MANT_DIG == 64
 typedef long double zig_f80;
+#define zig_suffix_f80(x) x##l
+#define zig_builtin_f80(name) __builtin_##name##l
 #elif FLT80_MANT_DIG == 64
 typedef _Float80 zig_f80;
+#define zig_suffix_f80(x) x##f80
+#define zig_builtin_f80(name) __builtin_##name##l
+#elif FLT64X_MANT_DIG == 64
+typedef _Float64x zig_f80;
+#define zig_suffix_f80(x) x##f64x
+#define zig_builtin_f80(name) __builtin_##name##l
 #elif defined(__SIZEOF_FLOAT80__)
 typedef __float80 zig_f80;
+#define zig_suffix_f80(x) x##l
+#define zig_builtin_f80(name) __builtin_##name##l
 #endif
 
 #if FLT_MANT_DIG == 113
 typedef float zig_f128;
+#define zig_suffix_f128(x) x##f
+#define zig_builtin_f128(name) __builtin_##name##f
 #elif DBL_MANT_DIG == 113
 typedef double zig_f128;
+#define zig_suffix_f128(x) x
+#define zig_builtin_f128(name) __builtin_##name
 #elif LDBL_MANT_DIG == 113
 typedef long double zig_f128;
+#define zig_suffix_f128(x) x##l
+#define zig_builtin_f128(name) __builtin_##name##l
 #elif FLT128_MANT_DIG == 113
 typedef _Float128 zig_f128;
+#define zig_suffix_f128(x) x##f128
+#define zig_builtin_f128(name) __builtin_##name##l
+#elif FLT64X_MANT_DIG == 113
+typedef _Float64x zig_f128;
+#define zig_suffix_f128(x) x##f64x
+#define zig_builtin_f128(name) __builtin_##name##l
 #elif defined(__SIZEOF_FLOAT128__)
 typedef __float128 zig_f128;
+#define zig_suffix_f128(x) x##l
+#define zig_builtin_f128(name) __builtin_##name##l
 #endif
 
 zig_extern_c void *memcpy (void *zig_restrict, void const *zig_restrict, zig_usize);
@@ -1416,65 +1476,20 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 
 /* ========================== Float Point Routines ========================== */
 
-static inline zig_f32 zig_bitcast_f32_u32(zig_u32 arg) {
-    zig_f32 dest;
-    memcpy(&dest, &arg, sizeof dest);
-    return dest;
-}
-
-static inline zig_f64 zig_bitcast_f64_u64(zig_u64 arg) {
-    zig_f64 dest;
-    memcpy(&dest, &arg, sizeof dest);
-    return dest;
-}
-
-static inline float zig_div_truncf(float numerator, float denominator) {
-    return __builtin_truncf(numerator / denominator);
-}
-
-static inline double zig_div_trunc(double numerator, double denominator) {
-    return __builtin_trunc(numerator / denominator);
-}
-
-static inline long double zig_div_truncl(long double numerator, long double denominator) {
-    return __builtin_truncf(numerator / denominator);
-}
-
-#define zig_div_trunc_f16  zig_div_truncf
-#define zig_div_trunc_f32  zig_div_truncf
-#define zig_div_trunc_f64  zig_div_trunc
-#define zig_div_trunc_f80  zig_div_truncl
-#define zig_div_trunc_f128 zig_div_truncl
-
-#define zig_div_floorf(numerator, denominator) \
-    __builtin_floorf((float)(numerator) / (float)(denominator))
-
-#define zig_div_floor(numerator, denominator) \
-    __builtin_floor((double)(numerator) / (double)(denominator))
-
-#define zig_div_floorl(numerator, denominator) \
-    __builtin_floorl((long double)(numerator) / (long double)(denominator))
-
-#define zig_div_floor_f16  zig_div_floorf
-#define zig_div_floor_f32  zig_div_floorf
-#define zig_div_floor_f64  zig_div_floor
-#define zig_div_floor_f80  zig_div_floorl
-#define zig_div_floor_f128 zig_div_floorl
-
-static inline float zig_modf(float numerator, float denominator) {
-    return (numerator - (zig_div_floorf(numerator, denominator) * denominator));
-}
-
-static inline double zig_mod(double numerator, double denominator) {
-    return (numerator - (zig_div_floor(numerator, denominator) * denominator));
-}
-
-static inline long double zig_modl(long double numerator, long double denominator) {
-    return (numerator - (zig_div_floorl(numerator, denominator) * denominator));
-}
-
-#define zig_mod_f16  zig_modf
-#define zig_mod_f32  zig_modf
-#define zig_mod_f64  zig_mod
-#define zig_mod_f80  zig_modl
-#define zig_mod_f128 zig_modl
+#define zig_float_builtins(w) \
+    static inline zig_f##w zig_div_trunc_f##w(zig_f##w lhs, zig_f##w rhs) { \
+        return zig_builtin_f##w(trunc)(lhs / rhs); \
+    } \
+\
+    static inline zig_f##w zig_div_floor_f##w(zig_f##w lhs, zig_f##w rhs) { \
+        return zig_builtin_f##w(floor)(lhs / rhs); \
+    } \
+\
+    static inline zig_f##w zig_mod_f##w(zig_f##w lhs, zig_f##w rhs) { \
+        return lhs - zig_div_floor_f##w(lhs, rhs) * rhs; \
+    }
+zig_float_builtins(16)
+zig_float_builtins(32)
+zig_float_builtins(64)
+zig_float_builtins(80)
+zig_float_builtins(128)

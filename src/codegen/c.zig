@@ -367,54 +367,6 @@ pub const Function = struct {
     fn fmtIntLiteral(f: *Function, ty: Type, val: Value) !std.fmt.Formatter(formatIntLiteral) {
         return f.object.dg.fmtIntLiteral(ty, val);
     }
-
-    fn renderTypeForBuiltinFnName(f: *Function, writer: anytype, ty: Type) !void {
-        const target = f.object.dg.module.getTarget();
-        const c_bits = if (ty.isAbiInt()) c_bits: {
-            const int_info = ty.intInfo(target);
-            try writer.writeByte(signAbbrev(int_info.signedness));
-            break :c_bits toCIntBits(int_info.bits) orelse
-                return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
-        } else if (ty.isRuntimeFloat()) c_bits: {
-            try writer.writeByte('f');
-            break :c_bits ty.floatBits(target);
-        } else return f.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
-            ty.fmt(f.object.dg.module),
-        });
-        try writer.print("{d}", .{c_bits});
-    }
-
-    fn renderBuiltinInfo(f: *Function, writer: anytype, ty: Type, info: BuiltinInfo) !void {
-        const target = f.object.dg.module.getTarget();
-        switch (info) {
-            .None => {},
-            .Range => {
-                var arena = std.heap.ArenaAllocator.init(f.object.dg.gpa);
-                defer arena.deinit();
-
-                const ExpectedContents = union { u: Value.Payload.U64, i: Value.Payload.I64 };
-                var stack align(@alignOf(ExpectedContents)) =
-                    std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
-
-                const int_info = ty.intInfo(target);
-                if (int_info.signedness == .signed) {
-                    const min_val = try ty.minInt(stack.get(), target);
-                    try writer.print(", {x}", .{try f.object.dg.fmtIntLiteral(ty, min_val)});
-                }
-
-                const max_val = try ty.maxInt(stack.get(), target);
-                try writer.print(", {x}", .{try f.object.dg.fmtIntLiteral(ty, max_val)});
-            },
-            .Bits => {
-                var bits_pl = Value.Payload.U64{
-                    .base = .{ .tag = .int_u64 },
-                    .data = ty.bitSize(target),
-                };
-                const bits_val = Value.initPayload(&bits_pl.base);
-                try writer.print(", {}", .{try f.object.dg.fmtIntLiteral(Type.u8, bits_val)});
-            },
-        }
-    }
 };
 
 /// This data is available when outputting .c code for a `Module`.
@@ -657,15 +609,18 @@ pub const DeclGen = struct {
                 .Float => {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
-                    try writer.writeByte(')');
+                    try writer.writeAll(")zig_suffix_");
+                    try dg.renderTypeForBuiltinFnName(writer, ty);
+                    try writer.writeByte('(');
                     switch (ty.floatBits(target)) {
-                        16 => return writer.print("{x}f", .{@bitCast(f16, undefPattern(u16))}),
-                        32 => return writer.print("{x}f", .{@bitCast(f32, undefPattern(u32))}),
-                        64 => return writer.print("{x}", .{@bitCast(f64, undefPattern(u64))}),
-                        80 => return writer.print("{x}l", .{@bitCast(f80, undefPattern(u80))}),
-                        128 => return writer.print("{x}l", .{@bitCast(f128, undefPattern(u128))}),
+                        16 => try writer.print("{x}", .{@bitCast(f16, undefPattern(u16))}),
+                        32 => try writer.print("{x}", .{@bitCast(f32, undefPattern(u32))}),
+                        64 => try writer.print("{x}", .{@bitCast(f64, undefPattern(u64))}),
+                        80 => try writer.print("{x}", .{@bitCast(f80, undefPattern(u80))}),
+                        128 => try writer.print("{x}", .{@bitCast(f128, undefPattern(u128))}),
                         else => unreachable,
                     }
+                    return writer.writeByte(')');
                 },
                 .Pointer => switch (ty.ptrSize()) {
                     .Slice => {
@@ -821,9 +776,21 @@ pub const DeclGen = struct {
                 try dg.renderTypecast(writer, ty);
                 try writer.writeByte(')');
                 const f128_val = val.toFloat(f128);
-                if (!std.math.isFinite(f128_val)) {
-                    if (std.math.signbit(f128_val)) try writer.writeByte('-');
-                    const fn_name = if (std.math.isSignalNan(f128_val))
+                if (std.math.signbit(f128_val)) try writer.writeByte('-');
+                if (std.math.isFinite(f128_val)) {
+                    try writer.writeAll("zig_suffix_");
+                    try dg.renderTypeForBuiltinFnName(writer, ty);
+                    try writer.writeByte('(');
+                    switch (ty.floatBits(target)) {
+                        16 => try writer.print("{x}", .{@fabs(val.toFloat(f16))}),
+                        32 => try writer.print("{x}", .{@fabs(val.toFloat(f32))}),
+                        64 => try writer.print("{x}", .{@fabs(val.toFloat(f64))}),
+                        80 => try writer.print("{x}", .{@fabs(val.toFloat(f80))}),
+                        128 => try writer.print("{x}", .{@fabs(f128_val)}),
+                        else => unreachable,
+                    }
+                } else {
+                    const operation = if (std.math.isSignalNan(f128_val))
                         "nans"
                     else if (std.math.isNan(f128_val))
                         "nan"
@@ -831,27 +798,23 @@ pub const DeclGen = struct {
                         "inf"
                     else
                         unreachable;
-                    try dg.renderFloatFnName(writer, fn_name, ty);
+                    try writer.writeAll("zig_builtin_");
+                    try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
+                    try writer.writeAll(operation);
+                    try writer.writeAll(")(");
                     if (std.math.isNan(f128_val)) switch (ty.floatBits(target)) {
-                        // We only actually need to pass the significant, but it will get
+                        // We only actually need to pass the significand, but it will get
                         // properly masked anyway, so just pass the whole value.
-                        16 => try writer.print("\"0x{x}\"", .{@bitCast(u16, val.toFloat(f16))}),
-                        32 => try writer.print("\"0x{x}\"", .{@bitCast(u32, val.toFloat(f32))}),
-                        64 => try writer.print("\"0x{x}\"", .{@bitCast(u64, val.toFloat(f64))}),
-                        80 => try writer.print("\"0x{x}\"", .{@bitCast(u80, val.toFloat(f80))}),
-                        128 => try writer.print("\"0x{x}\"", .{@bitCast(u128, f128_val)}),
+                        16 => try writer.print("\"0x{x}\"", .{@bitCast(u16, @fabs(val.toFloat(f16)))}),
+                        32 => try writer.print("\"0x{x}\"", .{@bitCast(u32, @fabs(val.toFloat(f32)))}),
+                        64 => try writer.print("\"0x{x}\"", .{@bitCast(u64, @fabs(val.toFloat(f64)))}),
+                        80 => try writer.print("\"0x{x}\"", .{@bitCast(u80, @fabs(val.toFloat(f80)))}),
+                        128 => try writer.print("\"0x{x}\"", .{@bitCast(u128, @fabs(f128_val))}),
                         else => unreachable,
                     };
-                    return writer.writeByte(')');
-                } else switch (ty.floatBits(target)) {
-                    16 => return writer.print("{x}f", .{val.toFloat(f16)}),
-                    32 => return writer.print("{x}f", .{val.toFloat(f32)}),
-                    64 => return writer.print("{x}", .{val.toFloat(f64)}),
-                    80 => return writer.print("{x}l", .{val.toFloat(f80)}),
-                    128 => return writer.print("{x}l", .{f128_val}),
-                    else => unreachable,
                 }
+                return writer.writeByte(')');
             },
             .Pointer => switch (val.tag()) {
                 .null_value, .zero => {
@@ -2041,23 +2004,51 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderFloatFnName(dg: *DeclGen, writer: anytype, operation: []const u8, float_ty: Type) !void {
+    fn renderTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, ty: Type) !void {
         const target = dg.module.getTarget();
-        const float_bits = float_ty.floatBits(target);
-        const is_longdouble = float_bits == CType.longdouble.sizeInBits(target);
-        try writer.writeAll("__");
-        if (is_longdouble or float_bits != 80) {
-            try writer.writeAll("builtin_");
-        }
-        try writer.writeAll(operation);
-        if (is_longdouble) {
-            try writer.writeByte('l');
-        } else switch (float_bits) {
-            16, 32 => try writer.writeByte('f'),
-            64 => {},
-            80 => try writer.writeByte('x'),
-            128 => try writer.writeByte('q'),
-            else => unreachable,
+        const c_bits = if (ty.isAbiInt()) c_bits: {
+            const int_info = ty.intInfo(target);
+            try writer.writeByte(signAbbrev(int_info.signedness));
+            break :c_bits toCIntBits(int_info.bits) orelse
+                return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+        } else if (ty.isRuntimeFloat()) c_bits: {
+            try writer.writeByte('f');
+            break :c_bits ty.floatBits(target);
+        } else return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
+            ty.fmt(dg.module),
+        });
+        try writer.print("{d}", .{c_bits});
+    }
+
+    fn renderBuiltinInfo(dg: *DeclGen, writer: anytype, ty: Type, info: BuiltinInfo) !void {
+        const target = dg.module.getTarget();
+        switch (info) {
+            .None => {},
+            .Range => {
+                var arena = std.heap.ArenaAllocator.init(dg.gpa);
+                defer arena.deinit();
+
+                const ExpectedContents = union { u: Value.Payload.U64, i: Value.Payload.I64 };
+                var stack align(@alignOf(ExpectedContents)) =
+                    std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
+
+                const int_info = ty.intInfo(target);
+                if (int_info.signedness == .signed) {
+                    const min_val = try ty.minInt(stack.get(), target);
+                    try writer.print(", {x}", .{try dg.fmtIntLiteral(ty, min_val)});
+                }
+
+                const max_val = try ty.maxInt(stack.get(), target);
+                try writer.print(", {x}", .{try dg.fmtIntLiteral(ty, max_val)});
+            },
+            .Bits => {
+                var bits_pl = Value.Payload.U64{
+                    .base = .{ .tag = .int_u64 },
+                    .data = ty.bitSize(target),
+                };
+                const bits_val = Value.initPayload(&bits_pl.base);
+                try writer.print(", {}", .{try dg.fmtIntLiteral(Type.u8, bits_val)});
+            },
         }
     }
 
@@ -2760,15 +2751,15 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(" = (");
         try f.renderTypecast(writer, inst_ty);
         try writer.writeAll(")zig_wrap_");
-        try f.renderTypeForBuiltinFnName(writer, field_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, field_ty);
         try writer.writeAll("((");
         try f.renderTypecast(writer, field_ty);
         try writer.writeAll(")zig_shr_");
-        try f.renderTypeForBuiltinFnName(writer, host_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
         try writer.writeByte('(');
         try f.writeCValueDeref(writer, operand);
         try writer.print(", {})", .{try f.fmtIntLiteral(bit_offset_ty, bit_offset_val)});
-        try f.renderBuiltinInfo(writer, field_ty, .Bits);
+        try f.object.dg.renderBuiltinInfo(writer, field_ty, .Bits);
         try writer.writeByte(')');
     } else {
         try writer.writeAll(" = ");
@@ -2998,13 +2989,13 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
 
         try f.writeCValueDeref(writer, ptr_val);
         try writer.writeAll(" = zig_or_");
-        try f.renderTypeForBuiltinFnName(writer, host_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
         try writer.writeAll("(zig_and_");
-        try f.renderTypeForBuiltinFnName(writer, host_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
         try writer.writeByte('(');
         try f.writeCValueDeref(writer, ptr_val);
         try writer.print(", {x}), zig_shl_", .{try f.fmtIntLiteral(host_ty, mask_val)});
-        try f.renderTypeForBuiltinFnName(writer, host_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
         try writer.writeAll("((");
         try f.renderTypecast(writer, host_ty);
         try writer.writeByte(')');
@@ -3040,14 +3031,14 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     try w.writeAll(".field_1 = zig_");
     try w.writeAll(operation);
     try w.writeAll("o_");
-    try f.renderTypeForBuiltinFnName(w, scalar_ty);
+    try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
     try w.writeAll("(&");
     try f.writeCValueMember(w, local, .{ .identifier = "field_0" });
     try w.writeAll(", ");
     try f.writeCValue(w, lhs, .FunctionArgument);
     try w.writeAll(", ");
     try f.writeCValue(w, rhs, .FunctionArgument);
-    try f.renderBuiltinInfo(w, scalar_ty, info);
+    try f.object.dg.renderBuiltinInfo(w, scalar_ty, info);
     try w.writeAll(");\n");
     return local;
 }
@@ -4217,17 +4208,17 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
                 const temp_local = try f.allocLocal(field_int_ty, .Const);
                 try writer.writeAll(" = zig_wrap_");
-                try f.renderTypeForBuiltinFnName(writer, field_int_ty);
+                try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
                 try writer.writeAll("((");
                 try f.renderTypecast(writer, field_int_ty);
                 try writer.writeAll(")zig_shr_");
-                try f.renderTypeForBuiltinFnName(writer, struct_ty);
+                try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
                 try writer.writeByte('(');
                 try f.writeCValue(writer, struct_byval, .Other);
                 try writer.writeAll(", ");
                 try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                 try writer.writeByte(')');
-                try f.renderBuiltinInfo(writer, field_int_ty, .Bits);
+                try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .Bits);
                 try writer.writeAll(");\n");
                 if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
 
@@ -4567,10 +4558,10 @@ fn airUnBuiltinCall(
     try writer.writeAll(" = zig_");
     try writer.writeAll(operation);
     try writer.writeByte('_');
-    try f.renderTypeForBuiltinFnName(writer, operand_ty);
+    try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, try f.resolveInst(operand), .FunctionArgument);
-    try f.renderBuiltinInfo(writer, operand_ty, info);
+    try f.object.dg.renderBuiltinInfo(writer, operand_ty, info);
     try writer.writeAll(");\n");
     return local;
 }
@@ -4592,12 +4583,12 @@ fn airBinBuiltinCall(
     try writer.writeAll(" = zig_");
     try writer.writeAll(operation);
     try writer.writeByte('_');
-    try f.renderTypeForBuiltinFnName(writer, operand_ty);
+    try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, try f.resolveInst(bin_op.lhs), .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, try f.resolveInst(bin_op.rhs), .FunctionArgument);
-    try f.renderBuiltinInfo(writer, operand_ty, info);
+    try f.object.dg.renderBuiltinInfo(writer, operand_ty, info);
     try writer.writeAll(");\n");
     return local;
 }
@@ -4612,7 +4603,7 @@ fn airCmpBuiltinCall(f: *Function, inst: Air.Inst.Index, operator: []const u8) !
     const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
     try writer.writeAll(" = zig_cmp_");
-    try f.renderTypeForBuiltinFnName(writer, operand_ty);
+    try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, try f.resolveInst(bin_op.lhs), .FunctionArgument);
     try writer.writeAll(", ");
@@ -5027,7 +5018,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
                     if (!empty) {
                         try writer.writeAll("zig_or_");
-                        try f.renderTypeForBuiltinFnName(writer, inst_ty);
+                        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
                         try writer.writeByte('(');
                     }
                     empty = false;
@@ -5039,14 +5030,14 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
                     if (!empty) try writer.writeAll(", ");
                     try writer.writeAll("zig_shlw_");
-                    try f.renderTypeForBuiltinFnName(writer, inst_ty);
+                    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
                     try writer.writeAll("((");
                     try f.renderTypecast(writer, inst_ty);
                     try writer.writeByte(')');
                     try f.writeCValue(writer, try f.resolveInst(element), .Other);
                     try writer.writeAll(", ");
                     try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                    try f.renderBuiltinInfo(writer, inst_ty, .Bits);
+                    try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
                     try writer.writeByte(')');
                     if (!empty) try writer.writeByte(')');
 
@@ -5176,9 +5167,11 @@ fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVal
     const inst_ty = f.air.typeOfIndex(inst);
     const operand = try f.resolveInst(un_op);
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try f.object.dg.renderFloatFnName(writer, operation, inst_ty);
+    try writer.writeAll(" = zig_builtin_");
+    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
     try writer.writeByte('(');
+    try writer.writeAll(operation);
+    try writer.writeAll(")(");
     try f.writeCValue(writer, operand, .FunctionArgument);
     try writer.writeAll(");\n");
     return local;
@@ -5192,9 +5185,11 @@ fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVa
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try f.object.dg.renderFloatFnName(writer, operation, inst_ty);
+    try writer.writeAll(" = zig_builtin_");
+    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
     try writer.writeByte('(');
+    try writer.writeAll(operation);
+    try writer.writeAll(")(");
     try f.writeCValue(writer, lhs, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, rhs, .FunctionArgument);
@@ -5212,9 +5207,9 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const addend = try f.resolveInst(pl_op.operand);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try f.object.dg.renderFloatFnName(writer, "fma", inst_ty);
-    try writer.writeByte('(');
+    try writer.writeAll(" = zig_builtin_");
+    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+    try writer.writeAll("(fma)(");
     try f.writeCValue(writer, mulend1, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, mulend2, .FunctionArgument);
