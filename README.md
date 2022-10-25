@@ -27,7 +27,7 @@ The ultimate goal of the Zig project is to serve users. As a first-order
 effect, this means users of the compiler, helping programmers to write better
 software. Even more important, however, are the end-users.
 
-Zig is intended to be used to help **end-users** accomplish their goals. Zig
+Zig's intended usage is to help **end-users** accomplish their goals. Zig
 should be used to empower end-users, never to exploit them financially, or to
 limit their freedom to interact with hardware or software in any way.
 
