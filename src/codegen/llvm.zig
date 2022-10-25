@@ -5434,10 +5434,11 @@ pub const FuncGen = struct {
         const llvm_usize = try self.dg.lowerType(Type.usize);
         const len = llvm_usize.constInt(array_ty.arrayLen(), .False);
         const slice_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        if (!array_ty.hasRuntimeBitsIgnoreComptime()) {
-            return self.builder.buildInsertValue(slice_llvm_ty.getUndef(), len, 1, "");
-        }
         const operand = try self.resolveInst(ty_op.operand);
+        if (!array_ty.hasRuntimeBitsIgnoreComptime()) {
+            const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), operand, 0, "");
+            return self.builder.buildInsertValue(partial, len, 1, "");
+        }
         const indices: [2]*llvm.Value = .{
             llvm_usize.constNull(), llvm_usize.constNull(),
         };
