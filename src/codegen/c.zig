@@ -415,26 +415,6 @@ pub const Function = struct {
             },
         }
     }
-
-    fn renderFloatFnName(f: *Function, writer: anytype, operation: []const u8, float_ty: Type) !void {
-        const target = f.object.dg.module.getTarget();
-        const float_bits = float_ty.floatBits(target);
-        const is_longdouble = float_bits == CType.longdouble.sizeInBits(target);
-        try writer.writeAll("__");
-        if (is_longdouble or float_bits != 80) {
-            try writer.writeAll("builtin_");
-        }
-        try writer.writeAll(operation);
-        if (is_longdouble) {
-            try writer.writeByte('l');
-        } else switch (float_bits) {
-            16, 32 => try writer.writeByte('f'),
-            64 => {},
-            80 => try writer.writeByte('x'),
-            128 => try writer.writeByte('q'),
-            else => unreachable,
-        }
-    }
 };
 
 /// This data is available when outputting .c code for a `Module`.
@@ -674,14 +654,18 @@ pub const DeclGen = struct {
                 // bool b = 0xaa; evals to true, but memcpy(&b, 0xaa, 1); evals to false.
                 .Bool => return dg.renderValue(writer, ty, Value.@"false", location),
                 .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val)}),
-                .Float => switch (ty.tag()) {
-                    .f32 => return writer.print("zig_bitcast_f32_u32({x})", .{
-                        try dg.fmtIntLiteral(Type.u32, val),
-                    }),
-                    .f64 => return writer.print("zig_bitcast_f64_u64({x})", .{
-                        try dg.fmtIntLiteral(Type.u64, val),
-                    }),
-                    else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
+                .Float => {
+                    try writer.writeByte('(');
+                    try dg.renderTypecast(writer, ty);
+                    try writer.writeByte(')');
+                    switch (ty.floatBits(target)) {
+                        16 => return writer.print("{x}f", .{@bitCast(f16, undefPattern(u16))}),
+                        32 => return writer.print("{x}f", .{@bitCast(f32, undefPattern(u32))}),
+                        64 => return writer.print("{x}", .{@bitCast(f64, undefPattern(u64))}),
+                        80 => return writer.print("{x}l", .{@bitCast(f80, undefPattern(u80))}),
+                        128 => return writer.print("{x}l", .{@bitCast(f128, undefPattern(u128))}),
+                        else => unreachable,
+                    }
                 },
                 .Pointer => switch (ty.ptrSize()) {
                     .Slice => {
@@ -833,37 +817,41 @@ pub const DeclGen = struct {
                 else => try writer.print("{}", .{try dg.fmtIntLiteral(ty, val)}),
             },
             .Float => {
-                if (ty.floatBits(target) <= 64) {
-                    if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
-                        // just generate a bit cast (exactly like we do in airBitcast)
-                        switch (ty.tag()) {
-                            .f32 => {
-                                var bitcast_pl = Value.Payload.U64{
-                                    .base = .{ .tag = .int_u64 },
-                                    .data = @bitCast(u32, val.toFloat(f32)),
-                                };
-                                const bitcast_val = Value.initPayload(&bitcast_pl.base);
-                                return writer.print("zig_bitcast_f32_u32({x})", .{
-                                    try dg.fmtIntLiteral(Type.u32, bitcast_val),
-                                });
-                            },
-                            .f64 => {
-                                var bitcast_pl = Value.Payload.U64{
-                                    .base = .{ .tag = .int_u64 },
-                                    .data = @bitCast(u64, val.toFloat(f64)),
-                                };
-                                const bitcast_val = Value.initPayload(&bitcast_pl.base);
-                                return writer.print("zig_bitcast_f64_u64({x})", .{
-                                    try dg.fmtIntLiteral(Type.u64, bitcast_val),
-                                });
-                            },
-                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
-                        }
-                    } else {
-                        return writer.print("{x}", .{val.toFloat(f64)});
-                    }
+                try writer.writeByte('(');
+                try dg.renderTypecast(writer, ty);
+                try writer.writeByte(')');
+                const f128_val = val.toFloat(f128);
+                if (!std.math.isFinite(f128_val)) {
+                    if (std.math.signbit(f128_val)) try writer.writeByte('-');
+                    const fn_name = if (std.math.isSignalNan(f128_val))
+                        "nans"
+                    else if (std.math.isNan(f128_val))
+                        "nan"
+                    else if (std.math.isInf(f128_val))
+                        "inf"
+                    else
+                        unreachable;
+                    try dg.renderFloatFnName(writer, fn_name, ty);
+                    try writer.writeByte('(');
+                    if (std.math.isNan(f128_val)) switch (ty.floatBits(target)) {
+                        // We only actually need to pass the significant, but it will get
+                        // properly masked anyway, so just pass the whole value.
+                        16 => try writer.print("\"0x{x}\"", .{@bitCast(u16, val.toFloat(f16))}),
+                        32 => try writer.print("\"0x{x}\"", .{@bitCast(u32, val.toFloat(f32))}),
+                        64 => try writer.print("\"0x{x}\"", .{@bitCast(u64, val.toFloat(f64))}),
+                        80 => try writer.print("\"0x{x}\"", .{@bitCast(u80, val.toFloat(f80))}),
+                        128 => try writer.print("\"0x{x}\"", .{@bitCast(u128, f128_val)}),
+                        else => unreachable,
+                    };
+                    return writer.writeByte(')');
+                } else switch (ty.floatBits(target)) {
+                    16 => return writer.print("{x}f", .{val.toFloat(f16)}),
+                    32 => return writer.print("{x}f", .{val.toFloat(f32)}),
+                    64 => return writer.print("{x}", .{val.toFloat(f64)}),
+                    80 => return writer.print("{x}l", .{val.toFloat(f80)}),
+                    128 => return writer.print("{x}l", .{f128_val}),
+                    else => unreachable,
                 }
-                return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
             .Pointer => switch (val.tag()) {
                 .null_value, .zero => {
@@ -2050,6 +2038,26 @@ pub const DeclGen = struct {
             const name = try decl.getFullyQualifiedName(dg.module);
             defer gpa.free(name);
             return writer.print("{ }", .{fmtIdent(name)});
+        }
+    }
+
+    fn renderFloatFnName(dg: *DeclGen, writer: anytype, operation: []const u8, float_ty: Type) !void {
+        const target = dg.module.getTarget();
+        const float_bits = float_ty.floatBits(target);
+        const is_longdouble = float_bits == CType.longdouble.sizeInBits(target);
+        try writer.writeAll("__");
+        if (is_longdouble or float_bits != 80) {
+            try writer.writeAll("builtin_");
+        }
+        try writer.writeAll(operation);
+        if (is_longdouble) {
+            try writer.writeByte('l');
+        } else switch (float_bits) {
+            16, 32 => try writer.writeByte('f'),
+            64 => {},
+            80 => try writer.writeByte('x'),
+            128 => try writer.writeByte('q'),
+            else => unreachable,
         }
     }
 
@@ -5169,7 +5177,7 @@ fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVal
     const operand = try f.resolveInst(un_op);
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
-    try f.renderFloatFnName(writer, operation, inst_ty);
+    try f.object.dg.renderFloatFnName(writer, operation, inst_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, operand, .FunctionArgument);
     try writer.writeAll(");\n");
@@ -5185,7 +5193,7 @@ fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVa
     const rhs = try f.resolveInst(bin_op.rhs);
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
-    try f.renderFloatFnName(writer, operation, inst_ty);
+    try f.object.dg.renderFloatFnName(writer, operation, inst_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, lhs, .FunctionArgument);
     try writer.writeAll(", ");
@@ -5205,7 +5213,7 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
-    try f.renderFloatFnName(writer, "fma", inst_ty);
+    try f.object.dg.renderFloatFnName(writer, "fma", inst_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, mulend1, .FunctionArgument);
     try writer.writeAll(", ");
@@ -5342,6 +5350,10 @@ fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
     return .{ .data = str };
 }
 
+fn undefPattern(comptime T: type) T {
+    return (1 << (@bitSizeOf(T) | 1)) / 3;
+}
+
 const FormatIntLiteralContext = struct {
     ty: Type,
     val: Value,
@@ -5379,9 +5391,7 @@ fn formatIntLiteral(
     var int_buf: Value.BigIntSpace = undefined;
     const int = if (data.val.isUndefDeep()) blk: {
         undef_limbs = try allocator.alloc(Limb, BigInt.calcTwosCompLimbCount(int_info.bits));
-
-        const undef_pattern: Limb = (1 << (@bitSizeOf(Limb) | 1)) / 3;
-        std.mem.set(Limb, undef_limbs, undef_pattern);
+        std.mem.set(Limb, undef_limbs, undefPattern(Limb));
 
         var undef_int = BigInt.Mutable{
             .limbs = undef_limbs,

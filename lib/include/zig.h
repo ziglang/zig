@@ -340,7 +340,7 @@ zig_int_operators(64)
 
 #define zig_int_helpers(w) \
     static inline zig_i##w zig_shr_i##w(zig_i##w lhs, zig_u8 rhs) { \
-        zig_i##w sign_mask = lhs < zig_as_i##w(0) ? zig_as_i##w(-1) : zig_as_i##w(0); \
+        zig_i##w sign_mask = lhs < zig_as_i##w(0) ? -zig_as_i##w(1) : zig_as_i##w(0); \
         return ((lhs ^ sign_mask) >> rhs) ^ sign_mask; \
     } \
 \
@@ -1166,7 +1166,7 @@ static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
 #define zig_mod_u128 zig_rem_u128
 
 static inline zig_i128 zig_shr_i128(zig_i128 lhs, zig_u8 rhs) {
-    zig_i128 sign_mask = zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i8(0) ? zig_as_i128(-1, UINT64_MAX) : zig_as_i128(0, 0);
+    zig_i128 sign_mask = zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i8(0) ? -zig_as_i128(0, 1) : zig_as_i128(0, 0);
     return zig_xor_i128(zig_bitcast_i128(zig_shr_u128(zig_bitcast_u128(zig_xor_i128(lhs, sign_mask)), rhs)), sign_mask);
 }
 
