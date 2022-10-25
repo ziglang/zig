@@ -1828,6 +1828,22 @@ fn resolveMaybeUndefValAllowVariables(
     src: LazySrcLoc,
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
+    var make_runtime = false;
+    if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, src, inst, &make_runtime)) |val| {
+        if (make_runtime) return null;
+        return val;
+    }
+    return null;
+}
+
+/// Returns all Value tags including `variable`, `undef` and `runtime_value`.
+fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+    make_runtime: *bool,
+) CompileError!?Value {
     // First section of indexes correspond to a set number of constant values.
     var i: usize = @enumToInt(inst);
     if (i < Air.Inst.Ref.typed_value_map.len) {
@@ -1843,7 +1859,7 @@ fn resolveMaybeUndefValAllowVariables(
         .constant => {
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
-            if (val.tag() == .runtime_int) return null;
+            if (val.tag() == .runtime_value) make_runtime.* = true;
             return val;
         },
         .const_ty => {
@@ -3896,6 +3912,7 @@ fn validateUnionInit(
     var first_block_index = block.instructions.items.len;
     var block_index = block.instructions.items.len - 1;
     var init_val: ?Value = null;
+    var make_runtime = false;
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
         if (store_inst == field_ptr_air_inst) break;
@@ -3920,7 +3937,7 @@ fn validateUnionInit(
         } else {
             first_block_index = @min(first_block_index, block_index);
         }
-        init_val = try sema.resolveMaybeUndefValAllowVariables(block, init_src, bin_op.rhs);
+        init_val = try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, init_src, bin_op.rhs, &make_runtime);
         break;
     }
 
@@ -3933,10 +3950,11 @@ fn validateUnionInit(
         // instead a single `store` to the result ptr with a comptime union value.
         block.instructions.shrinkRetainingCapacity(first_block_index);
 
-        const union_val = try Value.Tag.@"union".create(sema.arena, .{
+        var union_val = try Value.Tag.@"union".create(sema.arena, .{
             .tag = tag_val,
             .val = val,
         });
+        if (make_runtime) union_val = try Value.Tag.runtime_value.create(sema.arena, union_val);
         const union_init = try sema.addConstant(union_ty, union_val);
         try sema.storePtr2(block, init_src, union_ptr, init_src, union_init, init_src, .store);
         return;
@@ -4054,6 +4072,7 @@ fn validateStructInit(
 
     var struct_is_comptime = true;
     var first_block_index = block.instructions.items.len;
+    var make_runtime = false;
 
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
@@ -4130,7 +4149,7 @@ fn validateStructInit(
                 } else {
                     first_block_index = @min(first_block_index, block_index);
                 }
-                if (try sema.resolveMaybeUndefValAllowVariables(block, field_src, bin_op.rhs)) |val| {
+                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, field_src, bin_op.rhs, &make_runtime)) |val| {
                     field_values[i] = val;
                 } else {
                     struct_is_comptime = false;
@@ -4185,7 +4204,8 @@ fn validateStructInit(
         // instead a single `store` to the struct_ptr with a comptime struct value.
 
         block.instructions.shrinkRetainingCapacity(first_block_index);
-        const struct_val = try Value.Tag.aggregate.create(sema.arena, field_values);
+        var struct_val = try Value.Tag.aggregate.create(sema.arena, field_values);
+        if (make_runtime) struct_val = try Value.Tag.runtime_value.create(sema.arena, struct_val);
         const struct_init = try sema.addConstant(struct_ty, struct_val);
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
         return;
@@ -4265,6 +4285,7 @@ fn zirValidateArrayInit(
 
     var array_is_comptime = true;
     var first_block_index = block.instructions.items.len;
+    var make_runtime = false;
 
     // Collect the comptime element values in case the array literal ends up
     // being comptime-known.
@@ -4326,7 +4347,7 @@ fn zirValidateArrayInit(
                     array_is_comptime = false;
                     continue;
                 }
-                if (try sema.resolveMaybeUndefValAllowVariables(block, elem_src, bin_op.rhs)) |val| {
+                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, elem_src, bin_op.rhs, &make_runtime)) |val| {
                     element_vals[i] = val;
                 } else {
                     array_is_comptime = false;
@@ -4352,7 +4373,7 @@ fn zirValidateArrayInit(
                     array_is_comptime = false;
                     continue;
                 }
-                if (try sema.resolveMaybeUndefValAllowVariables(block, elem_src, bin_op.rhs)) |val| {
+                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, elem_src, bin_op.rhs, &make_runtime)) |val| {
                     element_vals[i] = val;
                 } else {
                     array_is_comptime = false;
@@ -4383,7 +4404,8 @@ fn zirValidateArrayInit(
 
         block.instructions.shrinkRetainingCapacity(first_block_index);
 
-        const array_val = try Value.Tag.aggregate.create(sema.arena, element_vals);
+        var array_val = try Value.Tag.aggregate.create(sema.arena, element_vals);
+        if (make_runtime) array_val = try Value.Tag.runtime_value.create(sema.arena, array_val);
         const array_init = try sema.addConstant(array_ty, array_val);
         try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
     }
@@ -6635,20 +6657,14 @@ fn analyzeInlineCallArg(
                     .ty = param_ty,
                     .val = arg_val,
                 };
-            } else if (((try sema.resolveMaybeUndefVal(arg_block, arg_src, casted_arg)) == null) or
-                try sema.typeRequiresComptime(param_ty) or zir_tags[inst] == .param_comptime)
-            {
+            } else if (zir_tags[inst] == .param_comptime or try sema.typeRequiresComptime(param_ty)) {
                 try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
-            } else {
+            } else if (try sema.resolveMaybeUndefVal(arg_block, arg_src, casted_arg)) |val| {
                 // We have a comptime value but we need a runtime value to preserve inlining semantics,
-                const ptr_type = try Type.ptr(sema.arena, sema.mod, .{
-                    .pointee_type = param_ty,
-                    .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
-                });
-                const alloc = try arg_block.addTy(.alloc, ptr_type);
-                _ = try arg_block.addBinOp(.store, alloc, casted_arg);
-                const loaded = try arg_block.addTyOp(.load, param_ty, alloc);
-                try sema.inst_map.putNoClobber(sema.gpa, inst, loaded);
+                const wrapped = try sema.addConstant(param_ty, try Value.Tag.runtime_value.create(sema.arena, val));
+                try sema.inst_map.putNoClobber(sema.gpa, inst, wrapped);
+            } else {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
             }
 
             arg_i.* += 1;
@@ -6685,20 +6701,14 @@ fn analyzeInlineCallArg(
                     .ty = sema.typeOf(uncasted_arg),
                     .val = arg_val,
                 };
-            } else if ((try sema.resolveMaybeUndefVal(arg_block, arg_src, uncasted_arg)) == null or
-                try sema.typeRequiresComptime(param_ty) or zir_tags[inst] == .param_anytype_comptime)
-            {
+            } else if (zir_tags[inst] == .param_anytype_comptime or try sema.typeRequiresComptime(param_ty)) {
                 try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
-            } else {
+            } else if (try sema.resolveMaybeUndefVal(arg_block, arg_src, uncasted_arg)) |val| {
                 // We have a comptime value but we need a runtime value to preserve inlining semantics,
-                const ptr_type = try Type.ptr(sema.arena, sema.mod, .{
-                    .pointee_type = param_ty,
-                    .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
-                });
-                const alloc = try arg_block.addTy(.alloc, ptr_type);
-                _ = try arg_block.addBinOp(.store, alloc, uncasted_arg);
-                const loaded = try arg_block.addTyOp(.load, param_ty, alloc);
-                try sema.inst_map.putNoClobber(sema.gpa, inst, loaded);
+                const wrapped = try sema.addConstant(param_ty, try Value.Tag.runtime_value.create(sema.arena, val));
+                try sema.inst_map.putNoClobber(sema.gpa, inst, wrapped);
+            } else {
+                try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
             }
 
             arg_i.* += 1;
@@ -14826,7 +14836,7 @@ fn zirBuiltinSrc(
     // fn_name: [:0]const u8,
     field_values[1] = func_name_val;
     // line: u32
-    field_values[2] = try Value.Tag.runtime_int.create(sema.arena, extra.line + 1);
+    field_values[2] = try Value.Tag.runtime_value.create(sema.arena, try Value.Tag.int_u64.create(sema.arena, extra.line + 1));
     // column: u32,
     field_values[3] = try Value.Tag.int_u64.create(sema.arena, extra.column + 1);
 

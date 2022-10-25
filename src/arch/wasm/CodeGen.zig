@@ -2582,7 +2582,11 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
     return @intCast(WantedT, result);
 }
 
-fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
+fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
+    var val = arg_val;
+    if (val.castTag(.runtime_value)) |rt| {
+        val = rt.data;
+    }
     if (val.isUndefDeep()) return func.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
         const decl_index = decl_ref.data;
