@@ -286,7 +286,8 @@ pub fn allocAdvancedWithRetAddr(
     } else @alignOf(T);
 
     if (n == 0) {
-        return @as([*]align(a) T, undefined)[0..0];
+        const ptr = comptime std.mem.alignBackward(std.math.maxInt(usize), a);
+        return @intToPtr([*]align(a) T, ptr)[0..0];
     }
 
     const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
@@ -383,7 +384,8 @@ pub fn reallocAdvancedWithRetAddr(
     }
     if (new_n == 0) {
         self.free(old_mem);
-        return @as([*]align(new_alignment) T, undefined)[0..0];
+        const ptr = comptime std.mem.alignBackward(std.math.maxInt(usize), new_alignment);
+        return @intToPtr([*]align(new_alignment) T, ptr)[0..0];
     }
 
     const old_byte_slice = mem.sliceAsBytes(old_mem);
@@ -462,7 +464,8 @@ pub fn alignedShrinkWithRetAddr(
         return old_mem;
     if (new_n == 0) {
         self.free(old_mem);
-        return @as([*]align(new_alignment) T, undefined)[0..0];
+        const ptr = comptime std.mem.alignBackward(std.math.maxInt(usize), new_alignment);
+        return @intToPtr([*]align(new_alignment) T, ptr)[0..0];
     }
 
     assert(new_n < old_mem.len);
