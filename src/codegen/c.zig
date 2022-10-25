@@ -583,12 +583,12 @@ pub const DeclGen = struct {
                             };
                             const byte_offset_val = Value.initPayload(&byte_offset_pl.base);
 
-                            var ptr_u8_pl = ptr_info;
-                            ptr_u8_pl.data.pointee_type = Type.u8;
-                            const ptr_u8_ty = Type.initPayload(&ptr_u8_pl.base);
+                            var u8_ptr_pl = ptr_info;
+                            u8_ptr_pl.data.pointee_type = Type.u8;
+                            const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
 
                             try writer.writeAll("&((");
-                            try dg.renderTypecast(writer, ptr_u8_ty);
+                            try dg.renderTypecast(writer, u8_ptr_ty);
                             try writer.writeByte(')');
                             try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
                             return writer.print(")[{}]", .{try dg.fmtIntLiteral(Type.usize, byte_offset_val)});
@@ -4050,8 +4050,39 @@ fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue
 }
 
 fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = inst;
-    return f.fail("TODO: C backend: implement airFieldParentPtr", .{});
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+
+    const struct_ptr_ty = f.air.typeOfIndex(inst);
+    const field_ptr_ty = f.air.typeOf(extra.field_ptr);
+    const field_ptr_val = try f.resolveInst(extra.field_ptr);
+
+    const target = f.object.dg.module.getTarget();
+    const struct_ty = struct_ptr_ty.childType();
+    const field_offset = struct_ty.structFieldOffset(extra.field_index, target);
+
+    var field_offset_pl = Value.Payload.I64{
+        .base = .{ .tag = .int_i64 },
+        .data = -@intCast(i64, field_offset),
+    };
+    const field_offset_val = Value.initPayload(&field_offset_pl.base);
+
+    var u8_ptr_pl = field_ptr_ty.ptrInfo();
+    u8_ptr_pl.data.pointee_type = Type.u8;
+    const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(struct_ptr_ty, .Const);
+    try writer.writeAll(" = (");
+    try f.renderTypecast(writer, struct_ptr_ty);
+    try writer.writeAll(")&((");
+    try f.renderTypecast(writer, u8_ptr_ty);
+    try writer.writeByte(')');
+    try f.writeCValue(writer, field_ptr_val, .Other);
+    try writer.print(")[{}];\n", .{try f.fmtIntLiteral(Type.isize, field_offset_val)});
+    return local;
 }
 
 fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struct_ptr: CValue, index: u32) !CValue {
@@ -4089,12 +4120,12 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
                 };
                 const byte_offset_val = Value.initPayload(&byte_offset_pl.base);
 
-                var ptr_u8_pl = field_ptr_info;
-                ptr_u8_pl.data.pointee_type = Type.u8;
-                const ptr_u8_ty = Type.initPayload(&ptr_u8_pl.base);
+                var u8_ptr_pl = field_ptr_info;
+                u8_ptr_pl.data.pointee_type = Type.u8;
+                const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
 
                 try writer.writeAll("&((");
-                try f.renderTypecast(writer, ptr_u8_ty);
+                try f.renderTypecast(writer, u8_ptr_ty);
                 try writer.writeByte(')');
                 try f.writeCValue(writer, struct_ptr, .Other);
                 try writer.print(")[{}];\n", .{try f.fmtIntLiteral(Type.usize, byte_offset_val)});
