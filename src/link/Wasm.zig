@@ -653,16 +653,17 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
 
 fn validateFeatures(
     wasm: *const Wasm,
-    arena: Allocator,
     to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
     emit_features_count: *u32,
 ) !void {
     const cpu_features = wasm.base.options.target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
-    var allowed = std.AutoHashMap(types.Feature.Tag, void).init(arena);
-    var used = std.AutoArrayHashMap(types.Feature.Tag, []const u8).init(arena);
-    var disallowed = std.AutoHashMap(types.Feature.Tag, []const u8).init(arena);
-    var required = std.AutoHashMap(types.Feature.Tag, []const u8).init(arena);
+    const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
+
+    var allowed = [_]bool{false} ** known_features_count;
+    var used = [_]u17{0} ** known_features_count;
+    var disallowed = [_]u17{0} ** known_features_count;
+    var required = [_]u17{0} ** known_features_count;
 
     // when false, we fail linking. We only verify this after a loop to catch all invalid features.
     var valid_feature_set = true;
@@ -670,41 +671,29 @@ fn validateFeatures(
     // When the user has given an explicit list of features to enable,
     // we extract them and insert each into the 'allowed' list.
     if (!infer) {
-        try allowed.ensureUnusedCapacity(std.Target.wasm.all_features.len);
-        // std.builtin.Type.EnumField
         inline for (@typeInfo(std.Target.wasm.Feature).Enum.fields) |feature_field| {
             if (cpu_features.isEnabled(feature_field.value)) {
-                allowed.putAssumeCapacityNoClobber(@intToEnum(types.Feature.Tag, feature_field.value), {});
+                allowed[feature_field.value] = true;
+                emit_features_count.* += 1;
             }
         }
     }
 
     // extract all the used, disallowed and required features from each
     // linked object file so we can test them.
-    for (wasm.objects.items) |object| {
+    for (wasm.objects.items) |object, object_index| {
         for (object.features) |feature| {
+            const value = @intCast(u16, object_index) << 1 | @as(u1, 1);
             switch (feature.prefix) {
                 .used => {
-                    const gop = try used.getOrPut(feature.tag);
-                    if (!gop.found_existing) {
-                        gop.value_ptr.* = object.name;
-                    }
+                    used[@enumToInt(feature.tag)] = value;
                 },
                 .disallowed => {
-                    const gop = try disallowed.getOrPut(feature.tag);
-                    if (!gop.found_existing) {
-                        gop.value_ptr.* = object.name;
-                    }
+                    disallowed[@enumToInt(feature.tag)] = value;
                 },
                 .required => {
-                    const gop = try required.getOrPut(feature.tag);
-                    if (!gop.found_existing) {
-                        gop.value_ptr.* = object.name;
-                    }
-                    const used_gop = try used.getOrPut(feature.tag);
-                    if (!used_gop.found_existing) {
-                        used_gop.value_ptr.* = object.name;
-                    }
+                    required[@enumToInt(feature.tag)] = value;
+                    used[@enumToInt(feature.tag)] = value;
                 },
             }
         }
@@ -713,13 +702,14 @@ fn validateFeatures(
     // when we infer the features, we allow each feature found in the 'used' set
     // and insert it into the 'allowed' set. When features are not inferred,
     // we validate that a used feature is allowed.
-    if (infer) try allowed.ensureUnusedCapacity(@intCast(u32, used.count()));
-    for (used.keys()) |used_feature, used_index| {
+    for (used) |used_set, used_index| {
+        const is_enabled = @truncate(u1, used_set) != 0;
         if (infer) {
-            allowed.putAssumeCapacityNoClobber(used_feature, {});
-        } else if (!allowed.contains(used_feature)) {
-            log.err("feature '{s}' not allowed, but used by linked object", .{@tagName(used_feature)});
-            log.err("  defined in '{s}'", .{used.values()[used_index]});
+            allowed[used_index] = is_enabled;
+            emit_features_count.* += @boolToInt(is_enabled);
+        } else if (is_enabled and !allowed[used_index]) {
+            log.err("feature '{s}' not allowed, but used by linked object", .{(@intToEnum(types.Feature.Tag, used_index)).toString()});
+            log.err("  defined in '{s}'", .{wasm.objects.items[used_set >> 1].name});
             valid_feature_set = false;
         }
     }
@@ -730,27 +720,27 @@ fn validateFeatures(
 
     // For each linked object, validate the required and disallowed features
     for (wasm.objects.items) |object| {
-        var object_used_features = std.AutoHashMap(types.Feature.Tag, void).init(arena);
-        try object_used_features.ensureTotalCapacity(@intCast(u32, object.features.len));
+        var object_used_features = [_]bool{false} ** known_features_count;
         for (object.features) |feature| {
             if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
             // from here a feature is always used
-            if (disallowed.get(feature.tag)) |disallowed_object_name| {
-                log.err("feature '{s}' is disallowed, but used by linked object", .{@tagName(feature.tag)});
-                log.err("  disallowed by '{s}'", .{disallowed_object_name});
+            const disallowed_feature = disallowed[@enumToInt(feature.tag)];
+            if (@truncate(u1, disallowed_feature) != 0) {
+                log.err("feature '{s}' is disallowed, but used by linked object", .{feature.tag.toString()});
+                log.err("  disallowed by '{s}'", .{wasm.objects.items[disallowed_feature >> 1].name});
                 log.err("  used in '{s}'", .{object.name});
                 valid_feature_set = false;
             }
 
-            object_used_features.putAssumeCapacity(feature.tag, {});
+            object_used_features[@enumToInt(feature.tag)] = true;
         }
 
         // validate the linked object file has each required feature
-        var required_it = required.iterator();
-        while (required_it.next()) |required_feature| {
-            if (!object_used_features.contains(required_feature.key_ptr.*)) {
-                log.err("feature '{s}' is required but not used in linked object", .{@tagName(required_feature.key_ptr.*)});
-                log.err("  required by '{s}'", .{required_feature.value_ptr.*});
+        for (required) |required_feature, feature_index| {
+            const is_required = @truncate(u1, required_feature) != 0;
+            if (is_required and !object_used_features[feature_index]) {
+                log.err("feature '{s}' is required but not used in linked object", .{(@intToEnum(types.Feature.Tag, feature_index)).toString()});
+                log.err("  required by '{s}'", .{wasm.objects.items[required_feature >> 1].name});
                 log.err("  missing in '{s}'", .{object.name});
                 valid_feature_set = false;
             }
@@ -761,12 +751,7 @@ fn validateFeatures(
         return error.InvalidFeatureSet;
     }
 
-    if (allowed.count() > 0) {
-        emit_features_count.* = allowed.count();
-        for (to_emit) |*feature_enabled, feature_index| {
-            feature_enabled.* = allowed.contains(@intToEnum(types.Feature.Tag, feature_index));
-        }
-    }
+    to_emit.* = allowed;
 }
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
@@ -2278,7 +2263,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     var emit_features_count: u32 = 0;
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
-    try wasm.validateFeatures(arena, &enabled_features, &emit_features_count);
+    try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
     try wasm.checkUndefinedSymbols();
 
@@ -2832,7 +2817,7 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
         if (enabled) {
             const feature: types.Feature = .{ .prefix = .used, .tag = @intToEnum(types.Feature.Tag, feature_index) };
             try leb.writeULEB128(writer, @enumToInt(feature.prefix));
-            const string = feature.toString();
+            const string = feature.tag.toString();
             try leb.writeULEB128(writer, @intCast(u32, string.len));
             try writer.writeAll(string);
         }

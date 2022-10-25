@@ -203,6 +203,24 @@ pub const Feature = struct {
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
             return @intToEnum(Tag, @enumToInt(feature));
         }
+
+        pub fn toString(tag: Tag) []const u8 {
+            return switch (tag) {
+                .atomics => "atomics",
+                .bulk_memory => "bulk-memory",
+                .exception_handling => "exception-handling",
+                .extended_const => "extended-const",
+                .multivalue => "multivalue",
+                .mutable_globals => "mutable-globals",
+                .nontrapping_fptoint => "nontrapping-fptoint",
+                .reference_types => "reference-types",
+                .relaxed_simd => "relaxed-simd",
+                .sign_ext => "sign-ext",
+                .simd128 => "simd128",
+                .tail_call => "tail-call",
+                .shared_mem => "shared-mem",
+            };
+        }
     };
 
     pub const Prefix = enum(u8) {
@@ -211,28 +229,10 @@ pub const Feature = struct {
         required = '=',
     };
 
-    pub fn toString(feature: Feature) []const u8 {
-        return switch (feature.tag) {
-            .atomics => "atomics",
-            .bulk_memory => "bulk-memory",
-            .exception_handling => "exception-handling",
-            .extended_const => "extended-const",
-            .multivalue => "multivalue",
-            .mutable_globals => "mutable-globals",
-            .nontrapping_fptoint => "nontrapping-fptoint",
-            .reference_types => "reference-types",
-            .relaxed_simd => "relaxed-simd",
-            .sign_ext => "sign-ext",
-            .simd128 => "simd128",
-            .tail_call => "tail-call",
-            .shared_mem => "shared-mem",
-        };
-    }
-
     pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
         _ = opt;
         _ = fmt;
-        try writer.print("{c} {s}", .{ feature.prefix, feature.toString() });
+        try writer.print("{c} {s}", .{ feature.prefix, feature.tag.toString() });
     }
 };
 
