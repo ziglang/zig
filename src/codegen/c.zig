@@ -798,7 +798,7 @@ pub const DeclGen = struct {
                         "inf"
                     else
                         unreachable;
-                    try writer.writeAll("zig_builtin_");
+                    try writer.writeAll("zig_builtin_constant_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     try writer.writeAll(operation);
@@ -2006,18 +2006,16 @@ pub const DeclGen = struct {
 
     fn renderTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, ty: Type) !void {
         const target = dg.module.getTarget();
-        const c_bits = if (ty.isAbiInt()) c_bits: {
+        if (ty.isAbiInt()) {
             const int_info = ty.intInfo(target);
-            try writer.writeByte(signAbbrev(int_info.signedness));
-            break :c_bits toCIntBits(int_info.bits) orelse
+            const c_bits = toCIntBits(int_info.bits) orelse
                 return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
-        } else if (ty.isRuntimeFloat()) c_bits: {
-            try writer.writeByte('f');
-            break :c_bits ty.floatBits(target);
+            try writer.print("{c}{d}", .{ signAbbrev(int_info.signedness), c_bits });
+        } else if (ty.isRuntimeFloat()) {
+            try ty.print(writer, dg.module);
         } else return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
             ty.fmt(dg.module),
         });
-        try writer.print("{d}", .{c_bits});
     }
 
     fn renderBuiltinInfo(dg: *DeclGen, writer: anytype, ty: Type, info: BuiltinInfo) !void {
@@ -3077,7 +3075,8 @@ fn airBinOp(
 
     const operand_ty = f.air.typeOf(bin_op.lhs);
     const target = f.object.dg.module.getTarget();
-    if (operand_ty.bitSize(target) > 64) return try airBinBuiltinCall(f, inst, operation, info);
+    if (operand_ty.isInt() and operand_ty.bitSize(target) > 64)
+        return try airBinBuiltinCall(f, inst, operation, info);
 
     const inst_ty = f.air.typeOfIndex(inst);
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -3104,7 +3103,8 @@ fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: []const u8) !CValue {
 
     const operand_ty = f.air.typeOf(bin_op.lhs);
     const target = f.object.dg.module.getTarget();
-    if (operand_ty.bitSize(target) > 64) return try airCmpBuiltinCall(f, inst, operator);
+    if (operand_ty.isInt() and operand_ty.bitSize(target) > 64)
+        return try airCmpBuiltinCall(f, inst, operator);
 
     const inst_ty = f.air.typeOfIndex(inst);
     const lhs = try f.resolveInst(bin_op.lhs);
