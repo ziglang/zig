@@ -3187,7 +3187,11 @@ pub const DeclGen = struct {
         return llvm_elem_ty;
     }
 
-    fn lowerValue(dg: *DeclGen, tv: TypedValue) Error!*llvm.Value {
+    fn lowerValue(dg: *DeclGen, arg_tv: TypedValue) Error!*llvm.Value {
+        var tv = arg_tv;
+        if (tv.val.castTag(.runtime_value)) |rt| {
+            tv.val = rt.data;
+        }
         if (tv.val.isUndef()) {
             const llvm_type = try dg.lowerType(tv.ty);
             return llvm_type.getUndef();

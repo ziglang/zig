@@ -149,13 +149,18 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    typed_value: TypedValue,
+    arg_tv: TypedValue,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
+
+    var typed_value = arg_tv;
+    if (arg_tv.val.castTag(.runtime_value)) |rt| {
+        typed_value.val = rt.data;
+    }
 
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();

@@ -555,9 +555,13 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         writer: anytype,
         ty: Type,
-        val: Value,
+        arg_val: Value,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        var val = arg_val;
+        if (val.castTag(.runtime_value)) |rt| {
+            val = rt.data;
+        }
         const target = dg.module.getTarget();
         if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
