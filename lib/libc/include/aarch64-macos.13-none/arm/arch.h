@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Apple Inc. All rights reserved.
+ * Copyright (c) 2007 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -25,36 +25,47 @@
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
+#ifndef _ARM_ARCH_H
+#define _ARM_ARCH_H
 
-#ifndef _SYS_STDIO_H_
-#define _SYS_STDIO_H_
+#if defined (__arm__) || defined (__arm64__)
 
-#include <sys/cdefs.h>
-
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-#define RENAME_SECLUDE                  0x00000001
-#define RENAME_SWAP                     0x00000002
-#define RENAME_EXCL                     0x00000004
-#define RENAME_RESERVED1                0x00000008
-#define RENAME_NOFOLLOW_ANY             0x00000010
+/* Collect the __ARM_ARCH_*__ compiler flags into something easier to use. */
+#if defined (__ARM_ARCH_7A__) || defined (__ARM_ARCH_7S__) || defined (__ARM_ARCH_7F__) || defined (__ARM_ARCH_7K__)
+#define _ARM_ARCH_7
 #endif
 
-#if __DARWIN_C_LEVEL >= 200809L
-#include <Availability.h>
+#if defined (_ARM_ARCH_7) || defined (__ARM_ARCH_6K__) || defined (__ARM_ARCH_6ZK__)
+#define _ARM_ARCH_6K
+#endif
 
-__BEGIN_DECLS
+#if defined (_ARM_ARCH_7) || defined (__ARM_ARCH_6Z__) || defined (__ARM_ARCH_6ZK__)
+#define _ARM_ARCH_6Z
+#endif
 
-int     renameat(int, const char *, int, const char *) __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0);
+#if defined (__ARM_ARCH_6__) || defined (__ARM_ARCH_6J__) || \
+        defined (_ARM_ARCH_6Z) || defined (_ARM_ARCH_6K)
+#define _ARM_ARCH_6
+#endif
 
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#if defined (_ARM_ARCH_6) || defined (__ARM_ARCH_5E__) || \
+        defined (__ARM_ARCH_5TE__) || defined (__ARM_ARCH_5TEJ__)
+#define _ARM_ARCH_5E
+#endif
 
-int renamex_np(const char *, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-int renameatx_np(int, const char *, int, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
+#if defined (_ARM_ARCH_5E) || defined (__ARM_ARCH_5__) || \
+        defined (__ARM_ARCH_5T__)
+#define _ARM_ARCH_5
+#endif
 
-#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+#if defined (_ARM_ARCH_5) || defined (__ARM_ARCH_4T__)
+#define _ARM_ARCH_4T
+#endif
 
-__END_DECLS
+#if defined (_ARM_ARCH_4T) || defined (__ARM_ARCH_4__)
+#define _ARM_ARCH_4
+#endif
 
-#endif /* __DARWIN_C_LEVEL >= 200809L */
+#endif /* defined (__arm__) || defined (__arm64__) */
 
-#endif /* _SYS_STDIO_H_ */
+#endif

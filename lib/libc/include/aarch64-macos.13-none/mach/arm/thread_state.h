@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2007 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -25,36 +25,18 @@
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
+/*
+ * @OSF_COPYRIGHT@
+ */
 
-#ifndef _SYS_STDIO_H_
-#define _SYS_STDIO_H_
+#ifndef _MACH_ARM_THREAD_STATE_H_
+#define _MACH_ARM_THREAD_STATE_H_
 
-#include <sys/cdefs.h>
+#if defined (__arm__) || defined (__arm64__)
 
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-#define RENAME_SECLUDE                  0x00000001
-#define RENAME_SWAP                     0x00000002
-#define RENAME_EXCL                     0x00000004
-#define RENAME_RESERVED1                0x00000008
-#define RENAME_NOFOLLOW_ANY             0x00000010
-#endif
+/* Size of maximum exported thread state in words */
+#define ARM_THREAD_STATE_MAX    (1296)    /* Size of biggest state possible */
 
-#if __DARWIN_C_LEVEL >= 200809L
-#include <Availability.h>
+#endif /* defined (__arm__) || defined (__arm64__) */
 
-__BEGIN_DECLS
-
-int     renameat(int, const char *, int, const char *) __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0);
-
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-
-int renamex_np(const char *, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-int renameatx_np(int, const char *, int, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-
-#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
-
-__END_DECLS
-
-#endif /* __DARWIN_C_LEVEL >= 200809L */
-
-#endif /* _SYS_STDIO_H_ */
+#endif  /* _MACH_ARM_THREAD_STATE_H_ */

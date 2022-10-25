@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Apple Inc. All rights reserved.
+ * Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -25,36 +25,28 @@
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
+/*
+ * Copyright (C) Apple Computer 1998
+ * ALL Rights Reserved
+ */
+/*
+ * This file represents the interfaces that used to come
+ * from creating the user headers from the mach.defs file.
+ * Because mach.defs was decomposed, this file now just
+ * wraps up all the new interface headers generated from
+ * each of the new .defs resulting from that decomposition.
+ */
+#ifndef _MACH_INTERFACE_H_
+#define _MACH_INTERFACE_H_
 
-#ifndef _SYS_STDIO_H_
-#define _SYS_STDIO_H_
+#include <mach/clock_priv.h>
+#include <mach/host_priv.h>
+#include <mach/host_security.h>
+#include <mach/processor.h>
+#include <mach/processor_set.h>
+#include <mach/semaphore.h>
+#include <mach/task.h>
+#include <mach/thread_act.h>
+#include <mach/vm_map.h>
 
-#include <sys/cdefs.h>
-
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-#define RENAME_SECLUDE                  0x00000001
-#define RENAME_SWAP                     0x00000002
-#define RENAME_EXCL                     0x00000004
-#define RENAME_RESERVED1                0x00000008
-#define RENAME_NOFOLLOW_ANY             0x00000010
-#endif
-
-#if __DARWIN_C_LEVEL >= 200809L
-#include <Availability.h>
-
-__BEGIN_DECLS
-
-int     renameat(int, const char *, int, const char *) __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0);
-
-#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-
-int renamex_np(const char *, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-int renameatx_np(int, const char *, int, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-
-#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
-
-__END_DECLS
-
-#endif /* __DARWIN_C_LEVEL >= 200809L */
-
-#endif /* _SYS_STDIO_H_ */
+#endif /* _MACH_INTERFACE_H_ */
