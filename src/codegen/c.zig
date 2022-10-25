@@ -2078,7 +2078,6 @@ pub fn genGlobalAsm(mod: *Module, code: *std.ArrayList(u8)) !void {
 }
 
 pub fn genErrDecls(o: *Object) !void {
-    if (o.dg.module.global_error_set.size == 0) return;
     const writer = o.writer();
 
     try writer.writeAll("enum {\n");
@@ -2373,7 +2372,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cmp_neq => try airEquality(f, inst, "!((", "!="),
 
             .cmp_vector => return f.fail("TODO: C backend: implement cmp_vector", .{}),
-            .cmp_lt_errors_len => return f.fail("TODO: C backend: implement cmp_lt_errors_len", .{}),
+            .cmp_lt_errors_len => try airCmpLtErrorsLen(f, inst),
 
             // bool_and and bool_or are non-short-circuit operations
             .bool_and, .bit_and => try airBinOp(f, inst, "&",  "and", .None),
@@ -3173,6 +3172,21 @@ fn airEquality(
     try f.writeCValue(writer, rhs, .Other);
     try writer.writeAll(";\n");
 
+    return local;
+}
+
+fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, operand, .Other);
+    try writer.print(" < sizeof({ }) / sizeof(*{0 });\n", .{fmtIdent("zig_errorName")});
     return local;
 }
 
