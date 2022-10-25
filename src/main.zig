@@ -503,6 +503,7 @@ const usage_build_generic =
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
     \\  --test-evented-io              Runs the test in evented I/O mode
     \\  --test-no-exec                 Compiles test binary without running it
+    \\  --test-runner [path]           Specify a custom test runner
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report                Print timing diagnostics
@@ -726,6 +727,7 @@ fn buildOutputType(
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
+    var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
     var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
@@ -1043,6 +1045,8 @@ fn buildOutputType(
                         test_filter = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-name-prefix")) {
                         test_name_prefix = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--test-runner")) {
+                        test_runner_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
                         try test_exec_args.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
@@ -2943,6 +2947,7 @@ fn buildOutputType(
         .test_evented_io = test_evented_io,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
+        .test_runner_path = test_runner_path,
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
         .wasi_exec_model = wasi_exec_model,
