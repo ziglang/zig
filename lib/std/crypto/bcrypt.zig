@@ -1,4 +1,5 @@
 const std = @import("std");
+const base64 = std.base64;
 const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
@@ -533,71 +534,10 @@ const crypt_format = struct {
     pub const prefix = "$2";
 
     // bcrypt has its own variant of base64, with its own alphabet and no padding
-    const Codec = struct {
-        const alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-        fn encode(b64: []u8, bin: []const u8) void {
-            var i: usize = 0;
-            var j: usize = 0;
-            while (i < bin.len) {
-                var c1 = bin[i];
-                i += 1;
-                b64[j] = alphabet[c1 >> 2];
-                j += 1;
-                c1 = (c1 & 3) << 4;
-                if (i >= bin.len) {
-                    b64[j] = alphabet[c1];
-                    j += 1;
-                    break;
-                }
-                var c2 = bin[i];
-                i += 1;
-                c1 |= (c2 >> 4) & 0x0f;
-                b64[j] = alphabet[c1];
-                j += 1;
-                c1 = (c2 & 0x0f) << 2;
-                if (i >= bin.len) {
-                    b64[j] = alphabet[c1];
-                    j += 1;
-                    break;
-                }
-                c2 = bin[i];
-                i += 1;
-                c1 |= (c2 >> 6) & 3;
-                b64[j] = alphabet[c1];
-                b64[j + 1] = alphabet[c2 & 0x3f];
-                j += 2;
-            }
-            debug.assert(j == b64.len);
-        }
-
-        fn decode(bin: []u8, b64: []const u8) EncodingError!void {
-            var i: usize = 0;
-            var j: usize = 0;
-            while (j < bin.len) {
-                const c1 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i]) orelse
-                    return EncodingError.InvalidEncoding);
-                const c2 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 1]) orelse
-                    return EncodingError.InvalidEncoding);
-                bin[j] = (c1 << 2) | ((c2 & 0x30) >> 4);
-                j += 1;
-                if (j >= bin.len) {
-                    break;
-                }
-                const c3 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 2]) orelse
-                    return EncodingError.InvalidEncoding);
-                bin[j] = ((c2 & 0x0f) << 4) | ((c3 & 0x3c) >> 2);
-                j += 1;
-                if (j >= bin.len) {
-                    break;
-                }
-                const c4 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 3]) orelse
-                    return EncodingError.InvalidEncoding);
-                bin[j] = ((c3 & 0x03) << 6) | c4;
-                j += 1;
-                i += 4;
-            }
-        }
+    const bcrypt_alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".*;
+    const Codec = struct { Encoder: base64.Base64Encoder, Decoder: base64.Base64Decoder }{
+        .Encoder = base64.Base64Encoder.init(bcrypt_alphabet, null),
+        .Decoder = base64.Base64Decoder.init(bcrypt_alphabet, null),
     };
 
     fn strHashInternal(
@@ -608,10 +548,10 @@ const crypt_format = struct {
         var dk = bcrypt(password, salt, params);
 
         var salt_str: [salt_str_length]u8 = undefined;
-        Codec.encode(salt_str[0..], salt[0..]);
+        _ = Codec.Encoder.encode(salt_str[0..], salt[0..]);
 
         var ct_str: [ct_str_length]u8 = undefined;
-        Codec.encode(ct_str[0..], dk[0..]);
+        _ = Codec.Encoder.encode(ct_str[0..], dk[0..]);
 
         var s_buf: [hash_length]u8 = undefined;
         const s = fmt.bufPrint(
@@ -709,7 +649,7 @@ const CryptFormatHasher = struct {
 
         const salt_str = str[7..][0..salt_str_length];
         var salt: [salt_length]u8 = undefined;
-        try crypt_format.Codec.decode(salt[0..], salt_str[0..]);
+        crypt_format.Codec.Decoder.decode(salt[0..], salt_str[0..]) catch return HasherError.InvalidEncoding;
 
         const wanted_s = crypt_format.strHashInternal(password, salt, .{ .rounds_log = rounds_log });
         if (!mem.eql(u8, wanted_s[0..], str[0..])) return HasherError.PasswordVerificationFailed;
@@ -764,9 +704,9 @@ test "bcrypt codec" {
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
     var salt_str: [salt_str_length]u8 = undefined;
-    crypt_format.Codec.encode(salt_str[0..], salt[0..]);
+    _ = crypt_format.Codec.Encoder.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;
-    try crypt_format.Codec.decode(salt2[0..], salt_str[0..]);
+    try crypt_format.Codec.Decoder.decode(salt2[0..], salt_str[0..]);
     try testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
 }
 
