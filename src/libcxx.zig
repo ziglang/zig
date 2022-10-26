@@ -320,7 +320,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
-        } else {
+        } else if (target.abi.isGnu()) {
             try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
