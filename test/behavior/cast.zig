@@ -1444,3 +1444,10 @@ test "coerce between pointers of compatible differently-named floats" {
     f2.* += 1;
     try expect(f1 == @as(F, 12.34) + 1);
 }
+
+test "peer type resolution of const and non-const pointer to array" {
+    const a = @intToPtr(*[1024]u8, 42);
+    const b = @intToPtr(*const [1024]u8, 42);
+    try std.testing.expect(@TypeOf(a, b) == *const [1024]u8);
+    try std.testing.expect(a == b);
+}
