@@ -88,6 +88,7 @@ set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not com
 set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB off CACHE BOOL "Prefer linking against static zlib")
+set(ZIG_STATIC_ZSTD off CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache if available")
 
 if(CCACHE_PROGRAM AND ZIG_USE_CCACHE)
@@ -97,6 +98,7 @@ endif()
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM ON)
     set(ZIG_STATIC_ZLIB ON)
+    set(ZIG_STATIC_ZSTD ON)
 endif()
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
@@ -135,6 +137,12 @@ if(ZIG_STATIC_ZLIB)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
     find_library(ZLIB NAMES libz.a libzlibstatic.a z zlib libz NAMES_PER_DIR)
     list(APPEND LLVM_LIBRARIES "${ZLIB}")
+endif()
+
+if(ZIG_STATIC_ZSTD)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lzstd")
+    find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR)
+    list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
 if(APPLE AND ZIG_STATIC)
