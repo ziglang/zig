@@ -111,7 +111,7 @@ pub const Ed25519 = struct {
         bytes: [encoded_length]u8,
 
         /// Create a public key from raw bytes.
-        pub fn fromBytes(bytes: [encoded_length]u8) !PublicKey {
+        pub fn fromBytes(bytes: [encoded_length]u8) NonCanonicalError!PublicKey {
             try Curve.rejectNonCanonical(bytes);
             return PublicKey{ .bytes = bytes };
         }
@@ -151,7 +151,7 @@ pub const Ed25519 = struct {
         a: Curve,
         expected_r: Curve,
 
-        fn init(sig: Signature, public_key: PublicKey) !Verifier {
+        fn init(sig: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
             const r = sig.r;
             const s = sig.s;
             try Curve.scalar.rejectNonCanonical(s);
@@ -214,7 +214,7 @@ pub const Ed25519 = struct {
         }
 
         /// Create a Verifier for incremental verification of a signature.
-        pub fn verifier(self: Signature, public_key: PublicKey) !Verifier {
+        pub fn verifier(self: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
             return Verifier.init(self, public_key);
         }
 
@@ -305,7 +305,7 @@ pub const Ed25519 = struct {
         /// Note that the signature is not deterministic.
         /// The noise parameter, if set, should be something unique for each message,
         /// such as a random nonce, or a counter.
-        pub fn signer(key_pair: KeyPair, noise: ?[noise_length]u8) !Signer {
+        pub fn signer(key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signer {
             if (!mem.eql(u8, &key_pair.secret_key.publicKeyBytes(), &key_pair.public_key.toBytes())) {
                 return error.KeyMismatch;
             }
@@ -414,7 +414,7 @@ pub const Ed25519 = struct {
         };
 
         /// Blind an existing key pair with a blinding seed and a context.
-        pub fn blind(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) !BlindKeyPair {
+        pub fn blind(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
             var h: [Sha512.digest_length]u8 = undefined;
             Sha512.hash(&key_pair.secret_key.seed(), &h, .{});
             Curve.scalar.clamp(h[0..32]);
@@ -442,7 +442,7 @@ pub const Ed25519 = struct {
         }
 
         /// Recover a public key from a blind version of it.
-        pub fn unblindPublicKey(blind_public_key: BlindPublicKey, blind_seed: [blind_seed_length]u8, ctx: []const u8) !PublicKey {
+        pub fn unblindPublicKey(blind_public_key: BlindPublicKey, blind_seed: [blind_seed_length]u8, ctx: []const u8) (IdentityElementError || NonCanonicalError || EncodingError || WeakPublicKeyError)!PublicKey {
             const blind_h = blindCtx(blind_seed, ctx);
             const inv_blind_factor = Scalar.fromBytes(blind_h[0..32].*).invert().toBytes();
             const pk_p = try (try Curve.fromBytes(blind_public_key.bytes)).mul(inv_blind_factor);
@@ -452,7 +452,7 @@ pub const Ed25519 = struct {
         /// Sign a message using a blind key pair, and optional random noise.
         /// Having noise creates non-standard, non-deterministic signatures,
         /// but has been proven to increase resilience against fault attacks.
-        pub fn sign(msg: []const u8, key_pair: BlindKeyPair, noise: ?[noise_length]u8) !Signature {
+        pub fn sign(msg: []const u8, key_pair: BlindKeyPair, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signature {
             const scalar = key_pair.blind_secret_key.blind_scalar;
             const prefix = key_pair.blind_secret_key.prefix;
 
