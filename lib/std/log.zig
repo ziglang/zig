@@ -29,9 +29,9 @@
 //!     args: anytype,
 //! ) void {
 //!     // Ignore all non-error logging from sources other than
-//!     // .my_project, .nice_library and .default
+//!     // .my_project, .nice_library and the default
 //!     const scope_prefix = "(" ++ switch (scope) {
-//!         .my_project, .nice_library, .default => @tagName(scope),
+//!         .my_project, .nice_library, std.log.default_log_scope => @tagName(scope),
 //!         else => if (@enumToInt(level) <= @enumToInt(std.log.Level.err))
 //!             @tagName(scope)
 //!         else
@@ -125,22 +125,28 @@ fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const effective_log_level = blk: {
-        inline for (scope_levels) |scope_level| {
-            if (scope_level.scope == scope) break :blk scope_level.level;
-        }
-        break :blk level;
-    };
+    if (comptime !logEnabled(message_level, scope)) return;
 
-    if (@enumToInt(message_level) <= @enumToInt(effective_log_level)) {
-        if (@hasDecl(root, "log")) {
-            if (@typeInfo(@TypeOf(root.log)) != .Fn)
-                @compileError("Expected root.log to be a function");
-            root.log(message_level, scope, format, args);
-        } else {
-            defaultLog(message_level, scope, format, args);
-        }
+    if (@hasDecl(root, "log")) {
+        if (@typeInfo(@TypeOf(root.log)) != .Fn)
+            @compileError("Expected root.log to be a function");
+        root.log(message_level, scope, format, args);
+    } else {
+        defaultLog(message_level, scope, format, args);
     }
+}
+
+/// Determine if a specific log message level and scope combination are enabled for logging.
+pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.EnumLiteral)) bool {
+    inline for (scope_levels) |scope_level| {
+        if (scope_level.scope == scope) return @enumToInt(message_level) <= @enumToInt(scope_level.level);
+    }
+    return @enumToInt(message_level) <= @enumToInt(level);
+}
+
+/// Determine if a specific log message level using the default log scope is enabled for logging.
+pub fn defaultLogEnabled(comptime message_level: Level) bool {
+    return comptime logEnabled(message_level, default_log_scope);
 }
 
 /// The default implementation for root.log.  root.log may forward log messages
@@ -210,8 +216,10 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
     };
 }
 
+pub const default_log_scope = .default;
+
 /// The default scoped logging namespace.
-pub const default = scoped(.default);
+pub const default = scoped(default_log_scope);
 
 /// Log an error message using the default scope. This log level is intended to
 /// be used when something has gone wrong. This might be recoverable or might
