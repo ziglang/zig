@@ -33,6 +33,10 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
+    cases.addBuildFile("test/link/wasm/basic-features/build.zig", .{
+        .requires_stage2 = true,
+    });
+
     cases.addBuildFile("test/link/wasm/bss/build.zig", .{
         .build_modes = false,
         .requires_stage2 = true,
@@ -42,6 +46,10 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
         .requires_stage2 = true,
         .use_emulation = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/infer-features/build.zig", .{
+        .requires_stage2 = true,
     });
 
     cases.addBuildFile("test/link/wasm/producers/build.zig", .{
