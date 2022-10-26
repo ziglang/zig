@@ -130,7 +130,7 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            const sig = try Signature.sign(&msg, key_pair, null);
+            const sig = try key_pair.sign(&msg, null);
             mem.doNotOptimizeAway(&sig);
         }
     }
@@ -147,14 +147,14 @@ const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .na
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
     const key_pair = try Signature.KeyPair.create(null);
-    const sig = try Signature.sign(&msg, key_pair, null);
+    const sig = try key_pair.sign(&msg, null);
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            try Signature.verify(sig, &msg, key_pair.public_key);
+            try sig.verify(&msg, key_pair.public_key);
             mem.doNotOptimizeAway(&sig);
         }
     }
@@ -171,7 +171,7 @@ const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed2551
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
     const key_pair = try Signature.KeyPair.create(null);
-    const sig = try Signature.sign(&msg, key_pair, null);
+    const sig = try key_pair.sign(&msg, null);
 
     var batch: [64]Signature.BatchElement = undefined;
     for (batch) |*element| {
@@ -301,9 +301,13 @@ const CryptoPwhash = struct {
     params: *const anyopaque,
     name: []const u8,
 };
-const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 12 };
+const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8 };
 const pwhashes = [_]CryptoPwhash{
-    .{ .ty = crypto.pwhash.bcrypt, .params = &bcrypt_params, .name = "bcrypt" },
+    .{
+        .ty = crypto.pwhash.bcrypt,
+        .params = &bcrypt_params,
+        .name = "bcrypt",
+    },
     .{
         .ty = crypto.pwhash.scrypt,
         .params = &crypto.pwhash.scrypt.Params.interactive,
@@ -323,7 +327,11 @@ fn benchmarkPwhash(
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = .{ .allocator = allocator, .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
+    const opts = .{
+        .allocator = allocator,
+        .params = @ptrCast(*const ty.Params, @alignCast(std.meta.alignment(ty.Params), params)).*,
+        .encoding = .phc,
+    };
     var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
