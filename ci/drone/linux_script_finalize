@@ -14,11 +14,18 @@ fi
 
 cd build
 
-mv ../LICENSE "$INSTALL_PREFIX/"
-# https://github.com/ziglang/zig/issues/12689
-# mv ../zig-cache/langref.html "$INSTALL_PREFIX/"
+# Remove the unnecessary bin dir in $INSTALL_PREFIX/bin/zig
 mv "$INSTALL_PREFIX/bin/zig" "$INSTALL_PREFIX/"
 rmdir "$INSTALL_PREFIX/bin"
+
+# Remove the unnecessary zig dir in $INSTALL_PREFIX/lib/zig/std/std.zig
+mv "$INSTALL_PREFIX/lib/zig" "$INSTALL_PREFIX/lib2"
+rmdir "$INSTALL_PREFIX/lib"
+mv "$INSTALL_PREFIX/lib2" "$INSTALL_PREFIX/lib"
+
+mv ../LICENSE "$INSTALL_PREFIX/"
+# https://github.com/ziglang/zig/issues/12689
+# mv ../zig-cache/langref.html "$INSTALL_PREFIX/doc/"
 
 GITBRANCH="$DRONE_BRANCH"
 VERSION="$("$INSTALL_PREFIX/zig" version)"
