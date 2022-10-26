@@ -3489,6 +3489,7 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
                 const errs = mod.comp.getAllErrorsAlloc() catch break :blk;
                 for (errs.list) |err| Compilation.AllErrors.Message.renderToStdErr(err, .no_color);
             }
+            // TODO restore test case triggering this panic
             @panic("Zig compiler bug: attempted to destroy declaration with an attached error");
         }
         const decl = mod.declPtr(decl_index);
