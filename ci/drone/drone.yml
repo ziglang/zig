@@ -9,56 +9,56 @@ platform:
 
 steps:
 - name: build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/linux_script_build
 
 - name: behavior
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_behavior
 
 - name: std_Debug
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_std_Debug
 
 - name: std_ReleaseSafe
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_std_ReleaseSafe
 
 - name: std_ReleaseFast
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_std_ReleaseFast
 
 - name: std_ReleaseSmall
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_std_ReleaseSmall
 
 - name: misc
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_misc
 
 - name: cases
   depends_on:
   - build
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   commands:
   - ./ci/drone/test_linux_cases
 
@@ -72,7 +72,7 @@ steps:
   - std_ReleaseSmall
   - misc
   - cases
-  image: ziglang/static-base:llvm15-aarch64-2
+  image: ziglang/static-base:llvm15-aarch64-3
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN

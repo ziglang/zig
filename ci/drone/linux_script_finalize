@@ -12,10 +12,6 @@ if [ -n "$DRONE_PULL_REQUEST" ]; then
   exit 0
 fi
 
-apk update
-apk add py3-pip perl-utils jq curl
-pip3 install s3cmd
-
 cd build
 
 mv ../LICENSE "$INSTALL_PREFIX/"
