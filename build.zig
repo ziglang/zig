@@ -635,6 +635,7 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     }
 
     exe.linkSystemLibrary("z");
+    exe.linkSystemLibrary("zstd");
 
     // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
     exe.linkSystemLibrary("c++");
