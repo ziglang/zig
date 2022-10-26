@@ -1027,7 +1027,9 @@ pub const Object = struct {
                             dg.addArgAttr(llvm_func, llvm_arg_i, "noalias");
                         }
                     }
-                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    if (param_ty.zigTypeTag() != .Optional) {
+                        dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    }
                     if (!ptr_info.mutable) {
                         dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
                     }
@@ -3117,7 +3119,11 @@ pub const DeclGen = struct {
             .slice => {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = param_ty.slicePtrFieldType(&buf);
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const ptr_ty = if (param_ty.zigTypeTag() == .Optional)
+                    param_ty.optionalChild(&opt_buf).slicePtrFieldType(&buf)
+                else
+                    param_ty.slicePtrFieldType(&buf);
                 const ptr_llvm_ty = try dg.lowerType(ptr_ty);
                 const len_llvm_ty = try dg.lowerType(Type.usize);
 
@@ -10358,7 +10364,8 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (ty.isSlice()) {
+                var buf: Type.Payload.ElemType = undefined;
+                if (ty.isSlice() or (ty.zigTypeTag() == .Optional and ty.optionalChild(&buf).isSlice())) {
                     return .slice;
                 } else if (isByRef(ty)) {
                     return .byref;
