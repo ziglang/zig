@@ -1327,18 +1327,24 @@ test "lossyCast" {
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
-/// *t* must be in range 0.0 to 1.0. T must be a float type.
+/// *t* must be in range 0.0 to 1.0. Supports floats and vectors of floats.
 ///
 /// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
 /// This is monotonic.
 pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
-    const T = @TypeOf(a, b, t);
+    const Type = @TypeOf(a, b, t);
 
-    comptime if (!std.meta.trait.isFloat(T))
-        @compileError("T must be a float type");
+    switch (@typeInfo(Type)) {
+        .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
+        .Vector => |vector| {
+            const lower_bound = @reduce(.And, t >= @splat(vector.len, @as(vector.child, 0)));
+            const upper_bound = @reduce(.And, t <= @splat(vector.len, @as(vector.child, 1)));
+            assert(lower_bound and upper_bound);
+        },
+        else => comptime unreachable,
+    }
 
-    assert(t >= 0 and t <= 1);
-    return @mulAdd(T, b - a, t, a);
+    return @mulAdd(Type, b - a, t, a);
 }
 
 test "lerp" {
@@ -1353,6 +1359,15 @@ test "lerp" {
     try testing.expectEqual(@as(f64, 0.0), lerp(@as(f64, 1.0e16), 1.0, 1.0));
     try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
     try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
+
+    try testing.expectEqual(
+        lerp(@splat(3, @as(f32, 0)), @splat(3, @as(f32, 50)), @splat(3, @as(f32, 0.5))),
+        @Vector(3, f32){ 25, 25, 25 },
+    );
+    try testing.expectEqual(
+        lerp(@splat(3, @as(f64, 50)), @splat(3, @as(f64, 100)), @splat(3, @as(f64, 0.5))),
+        @Vector(3, f64){ 75, 75, 75 },
+    );
 }
 
 /// Returns the maximum value of integer type T.
