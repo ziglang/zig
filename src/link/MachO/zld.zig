@@ -966,10 +966,9 @@ pub const Zld = struct {
 
             const global_index = resolver.table.get(sym_name) orelse {
                 const gpa = self.gpa;
-                const name = try resolver.arena.dupe(u8, sym_name);
                 const global_index = @intCast(u32, self.globals.items.len);
                 try self.globals.append(gpa, sym_loc);
-                try resolver.table.putNoClobber(name, global_index);
+                try resolver.table.putNoClobber(sym_name, global_index);
                 if (sym.undf() and !sym.tentative()) {
                     try resolver.unresolved.putNoClobber(global_index, {});
                 }
