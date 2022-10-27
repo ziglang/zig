@@ -61,7 +61,11 @@ pub fn build(b: *Builder) !void {
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
-    const skip_install_lib_files = b.option(bool, "skip-install-lib-files", "Do not copy lib/ files to installation prefix") orelse false;
+    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
+    if (deprecated_skip_install_lib_files) {
+        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
+    }
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 

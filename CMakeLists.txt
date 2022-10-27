@@ -81,8 +81,14 @@ if("${ZIG_VERSION}" STREQUAL "")
 endif()
 message(STATUS "Configuring zig version ${ZIG_VERSION}")
 
-set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL
+set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
+
+set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Deprecated. Use ZIG_NO_LIB")
+if(ZIG_SKIP_INSTALL_LIB_FILES)
+  message(WARNING "ZIG_SKIP_INSTALL_LIB_FILES is deprecated. Use ZIG_NO_LIB instead.")
+  set(ZIG_NO_LIB ON)
+endif()
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
@@ -1004,10 +1010,10 @@ elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
 else()
   set(ZIG_RELEASE_ARG -Drelease -Dstrip)
 endif()
-if(ZIG_SKIP_INSTALL_LIB_FILES)
-  set(ZIG_SKIP_INSTALL_LIB_FILES_ARG "-Dskip-install-lib-files")
+if(ZIG_NO_LIB)
+  set(ZIG_NO_LIB_ARG "-Dno-lib")
 else()
-  set(ZIG_SKIP_INSTALL_LIB_FILES_ARG "-Dskip-install-lib-files=false")
+  set(ZIG_NO_LIB_ARG "")
 endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-fsingle-threaded")
@@ -1080,7 +1086,7 @@ set(ZIG_BUILD_ARGS
     "-Denable-stage1"
     ${ZIG_RELEASE_ARG}
     ${ZIG_STATIC_ARG}
-    ${ZIG_SKIP_INSTALL_LIB_FILES_ARG}
+    ${ZIG_NO_LIB_ARG}
     ${ZIG_SINGLE_THREADED_ARG}
     "-Dtarget=${ZIG_TARGET_TRIPLE}"
     "-Dcpu=${ZIG_TARGET_MCPU}"
