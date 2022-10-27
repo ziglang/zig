@@ -804,6 +804,63 @@ pub fn exit_group(status: i32) noreturn {
     unreachable;
 }
 
+/// flags for the `reboot' system call.
+pub const LINUX_REBOOT = struct {
+    /// First magic value required to use _reboot() system call.
+    pub const MAGIC1 = enum(u32) {
+        MAGIC1 = 0xfee1dead,
+        _,
+    };
+
+    /// Second magic value required to use _reboot() system call.
+    pub const MAGIC2 = enum(u32) {
+        MAGIC2 = 672274793,
+        MAGIC2A = 85072278,
+        MAGIC2B = 369367448,
+        MAGIC2C = 537993216,
+        _,
+    };
+
+    /// Commands accepted by the _reboot() system call.
+    pub const CMD = enum(u32) {
+        /// Restart system using default command and mode.
+        RESTART = 0x01234567,
+
+        /// Stop OS and give system control to ROM monitor, if any.
+        HALT = 0xCDEF0123,
+
+        /// Ctrl-Alt-Del sequence causes RESTART command.
+        CAD_ON = 0x89ABCDEF,
+
+        /// Ctrl-Alt-Del sequence sends SIGINT to init task.
+        CAD_OFF = 0x00000000,
+
+        /// Stop OS and remove all power from system, if possible.
+        POWER_OFF = 0x4321FEDC,
+
+        /// Restart system using given command string.
+        RESTART2 = 0xA1B2C3D4,
+
+        /// Suspend system using software suspend if compiled in.
+        SW_SUSPEND = 0xD000FCE2,
+
+        /// Restart system using a previously loaded Linux kernel
+        KEXEC = 0x45584543,
+
+        _,
+    };
+};
+
+pub fn reboot(magic: LINUX_REBOOT.MAGIC1, magic2: LINUX_REBOOT.MAGIC2, cmd: LINUX_REBOOT.CMD, arg: ?*const anyopaque) usize {
+    return std.os.linux.syscall4(
+        .reboot,
+        @enumToInt(magic),
+        @enumToInt(magic2),
+        @enumToInt(cmd),
+        @ptrToInt(arg),
+    );
+}
+
 pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
     return syscall3(.getrandom, @ptrToInt(buf), count, flags);
 }
