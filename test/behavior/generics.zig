@@ -396,3 +396,12 @@ test "slice as parameter type" {
     try expect(S.internComptimeString(source_a[1..2]) == S.internComptimeString(source_a[1..2]));
     try expect(S.internComptimeString(source_a[2..4]) != S.internComptimeString(source_a[5..7]));
 }
+
+test "null sentinel pointer passed as generic argument" {
+    const S = struct {
+        fn doTheTest(a: anytype) !void {
+            try std.testing.expect(@ptrToInt(a) == 8);
+        }
+    };
+    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+}
