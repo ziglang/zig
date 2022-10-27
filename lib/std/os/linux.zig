@@ -3265,6 +3265,21 @@ pub const sockaddr = extern struct {
         queue_id: u32,
         shared_umem_fd: u32,
     };
+
+    /// Address structure for vSockets
+    pub const vm = extern struct {
+        family: sa_family_t = AF.VSOCK,
+        reserved1: u16 = 0,
+        port: u32,
+        cid: u32,
+        flags: u8,
+
+        /// The total size of this structure should be exactly the same as that of struct sockaddr.
+        zero: [3]u8 = [_]u8{0} ** 3,
+        comptime {
+            std.debug.assert(@sizeOf(vm) == @sizeOf(sockaddr));
+        }
+    };
 };
 
 pub const mmsghdr = extern struct {
