@@ -44,9 +44,9 @@ pub const X25519 = struct {
 
         /// Create a key pair from an Ed25519 key pair
         pub fn fromEd25519(ed25519_key_pair: crypto.sign.Ed25519.KeyPair) (IdentityElementError || EncodingError)!KeyPair {
-            const seed = ed25519_key_pair.secret_key[0..32];
+            const seed = ed25519_key_pair.secret_key.seed();
             var az: [Sha512.digest_length]u8 = undefined;
-            Sha512.hash(seed, &az, .{});
+            Sha512.hash(&seed, &az, .{});
             var sk = az[0..32].*;
             Curve.scalar.clamp(&sk);
             const pk = try publicKeyFromEd25519(ed25519_key_pair.public_key);
@@ -64,8 +64,8 @@ pub const X25519 = struct {
     }
 
     /// Compute the X25519 equivalent to an Ed25519 public eky.
-    pub fn publicKeyFromEd25519(ed25519_public_key: [crypto.sign.Ed25519.public_length]u8) (IdentityElementError || EncodingError)![public_length]u8 {
-        const pk_ed = try crypto.ecc.Edwards25519.fromBytes(ed25519_public_key);
+    pub fn publicKeyFromEd25519(ed25519_public_key: crypto.sign.Ed25519.PublicKey) (IdentityElementError || EncodingError)![public_length]u8 {
+        const pk_ed = try crypto.ecc.Edwards25519.fromBytes(ed25519_public_key.bytes);
         const pk = try Curve.fromEdwards25519(pk_ed);
         return pk.toBytes();
     }
