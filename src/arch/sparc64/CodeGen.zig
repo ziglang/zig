@@ -683,7 +683,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .save_err_return_trace_index=> @panic("TODO try self.airSaveErrReturnTraceIndex(inst)"),
 
             .wrap_optional         => try self.airWrapOptional(inst),
-            .wrap_errunion_payload => @panic("TODO try self.airWrapErrUnionPayload(inst)"),
+            .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .add_optimized,
@@ -2490,6 +2490,13 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
     };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// T to E!T
+fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement wrap errunion payload for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
