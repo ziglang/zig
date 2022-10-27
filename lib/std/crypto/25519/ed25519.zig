@@ -393,7 +393,7 @@ pub const Ed25519 = struct {
     }
 
     /// Ed25519 signatures with key blinding.
-    pub const BlindKeySignatures = struct {
+    pub const key_blinding = struct {
         /// Length (in bytes) of a blinding seed.
         pub const blind_seed_length = 32;
 
@@ -401,64 +401,69 @@ pub const Ed25519 = struct {
         pub const BlindSecretKey = struct {
             prefix: [64]u8,
             blind_scalar: CompressedScalar,
-            blind_public_key: PublicKey,
+            blind_public_key: BlindPublicKey,
         };
 
         /// A blind public key.
-        pub const BlindPublicKey = PublicKey;
+        pub const BlindPublicKey = struct {
+            /// Public key equivalent, that can used for signature verification.
+            key: PublicKey,
+
+            /// Recover a public key from a blind version of it.
+            pub fn unblind(blind_public_key: BlindPublicKey, blind_seed: [blind_seed_length]u8, ctx: []const u8) (IdentityElementError || NonCanonicalError || EncodingError || WeakPublicKeyError)!PublicKey {
+                const blind_h = blindCtx(blind_seed, ctx);
+                const inv_blind_factor = Scalar.fromBytes(blind_h[0..32].*).invert().toBytes();
+                const pk_p = try (try Curve.fromBytes(blind_public_key.key.bytes)).mul(inv_blind_factor);
+                return PublicKey.fromBytes(pk_p.toBytes());
+            }
+        };
 
         /// A blind key pair.
         pub const BlindKeyPair = struct {
             blind_public_key: BlindPublicKey,
             blind_secret_key: BlindSecretKey,
+
+            /// Create an blind key pair from an existing key pair, a blinding seed and a context.
+            pub fn init(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
+                var h: [Sha512.digest_length]u8 = undefined;
+                Sha512.hash(&key_pair.secret_key.seed(), &h, .{});
+                Curve.scalar.clamp(h[0..32]);
+                const scalar = Curve.scalar.reduce(h[0..32].*);
+
+                const blind_h = blindCtx(blind_seed, ctx);
+                const blind_factor = Curve.scalar.reduce(blind_h[0..32].*);
+
+                const blind_scalar = Curve.scalar.mul(scalar, blind_factor);
+                const blind_public_key = BlindPublicKey{
+                    .key = try PublicKey.fromBytes((Curve.basePoint.mul(blind_scalar) catch return error.IdentityElement).toBytes()),
+                };
+
+                var prefix: [64]u8 = undefined;
+                mem.copy(u8, prefix[0..32], h[32..64]);
+                mem.copy(u8, prefix[32..64], blind_h[32..64]);
+
+                const blind_secret_key = BlindSecretKey{
+                    .prefix = prefix,
+                    .blind_scalar = blind_scalar,
+                    .blind_public_key = blind_public_key,
+                };
+                return BlindKeyPair{
+                    .blind_public_key = blind_public_key,
+                    .blind_secret_key = blind_secret_key,
+                };
+            }
+
+            /// Sign a message using a blind key pair, and optional random noise.
+            /// Having noise creates non-standard, non-deterministic signatures,
+            /// but has been proven to increase resilience against fault attacks.
+            pub fn sign(key_pair: BlindKeyPair, msg: []const u8, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signature {
+                const scalar = key_pair.blind_secret_key.blind_scalar;
+                const prefix = key_pair.blind_secret_key.prefix;
+
+                return (try PublicKey.fromBytes(key_pair.blind_public_key.key.bytes))
+                    .computeNonceAndSign(msg, noise, scalar, &prefix);
+            }
         };
-
-        /// Blind an existing key pair with a blinding seed and a context.
-        pub fn blind(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
-            var h: [Sha512.digest_length]u8 = undefined;
-            Sha512.hash(&key_pair.secret_key.seed(), &h, .{});
-            Curve.scalar.clamp(h[0..32]);
-            const scalar = Curve.scalar.reduce(h[0..32].*);
-
-            const blind_h = blindCtx(blind_seed, ctx);
-            const blind_factor = Curve.scalar.reduce(blind_h[0..32].*);
-
-            const blind_scalar = Curve.scalar.mul(scalar, blind_factor);
-            const blind_public_key = try PublicKey.fromBytes((Curve.basePoint.mul(blind_scalar) catch return error.IdentityElement).toBytes());
-
-            var prefix: [64]u8 = undefined;
-            mem.copy(u8, prefix[0..32], h[32..64]);
-            mem.copy(u8, prefix[32..64], blind_h[32..64]);
-
-            const blind_secret_key = .{
-                .prefix = prefix,
-                .blind_scalar = blind_scalar,
-                .blind_public_key = blind_public_key,
-            };
-            return BlindKeyPair{
-                .blind_public_key = blind_public_key,
-                .blind_secret_key = blind_secret_key,
-            };
-        }
-
-        /// Recover a public key from a blind version of it.
-        pub fn unblindPublicKey(blind_public_key: BlindPublicKey, blind_seed: [blind_seed_length]u8, ctx: []const u8) (IdentityElementError || NonCanonicalError || EncodingError || WeakPublicKeyError)!PublicKey {
-            const blind_h = blindCtx(blind_seed, ctx);
-            const inv_blind_factor = Scalar.fromBytes(blind_h[0..32].*).invert().toBytes();
-            const pk_p = try (try Curve.fromBytes(blind_public_key.bytes)).mul(inv_blind_factor);
-            return PublicKey.fromBytes(pk_p.toBytes());
-        }
-
-        /// Sign a message using a blind key pair, and optional random noise.
-        /// Having noise creates non-standard, non-deterministic signatures,
-        /// but has been proven to increase resilience against fault attacks.
-        pub fn sign(msg: []const u8, key_pair: BlindKeyPair, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signature {
-            const scalar = key_pair.blind_secret_key.blind_scalar;
-            const prefix = key_pair.blind_secret_key.prefix;
-
-            return (try PublicKey.fromBytes(key_pair.blind_public_key.bytes))
-                .computeNonceAndSign(msg, noise, scalar, &prefix);
-        }
 
         /// Compute a blind context from a blinding seed and a context.
         fn blindCtx(blind_seed: [blind_seed_length]u8, ctx: []const u8) [Sha512.digest_length]u8 {
@@ -470,7 +475,13 @@ pub const Ed25519 = struct {
             hx.final(&blind_h);
             return blind_h;
         }
+
+        pub const sign = @compileError("deprecated; use BlindKeyPair.sign instead");
+        pub const unblindPublicKey = @compileError("deprecated; use BlindPublicKey.unblind instead");
     };
+
+    pub const sign = @compileError("deprecated; use KeyPair.sign instead");
+    pub const verify = @compileError("deprecated; use PublicKey.verify instead");
 };
 
 test "ed25519 key pair creation" {
@@ -626,7 +637,7 @@ test "ed25519 test vectors" {
 }
 
 test "ed25519 with blind keys" {
-    const BlindKeySignatures = Ed25519.BlindKeySignatures;
+    const BlindKeyPair = Ed25519.key_blinding.BlindKeyPair;
 
     // Create a standard Ed25519 key pair
     const kp = try Ed25519.KeyPair.create(null);
@@ -636,15 +647,15 @@ test "ed25519 with blind keys" {
     crypto.random.bytes(&blind);
 
     // Blind the key pair
-    const blind_kp = try BlindKeySignatures.blind(kp, blind, "ctx");
+    const blind_kp = try BlindKeyPair.init(kp, blind, "ctx");
 
     // Sign a message and check that it can be verified with the blind public key
     const msg = "test";
-    const sig = try BlindKeySignatures.sign(msg, blind_kp, null);
-    try sig.verify(msg, blind_kp.blind_public_key);
+    const sig = try blind_kp.sign(msg, null);
+    try sig.verify(msg, blind_kp.blind_public_key.key);
 
     // Unblind the public key
-    const pk = try BlindKeySignatures.unblindPublicKey(blind_kp.blind_public_key, blind, "ctx");
+    const pk = try blind_kp.blind_public_key.unblind(blind, "ctx");
     try std.testing.expectEqualSlices(u8, &pk.toBytes(), &kp.public_key.toBytes());
 }
 
