@@ -6738,6 +6738,8 @@ fn analyzeGenericCallArg(
         try sema.queueFullTypeResolution(param_ty);
         runtime_args[runtime_i.*] = casted_arg;
         runtime_i.* += 1;
+    } else if (try sema.typeHasOnePossibleValue(block, arg_src, comptime_arg.ty)) |_| {
+        _ = try sema.coerce(block, comptime_arg.ty, uncasted_arg, arg_src);
     }
 }
 
