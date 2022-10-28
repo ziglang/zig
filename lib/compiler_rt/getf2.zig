@@ -7,15 +7,14 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__gekf2, .{ .name = "__gekf2", .linkage = common.linkage });
-        @export(__gtkf2, .{ .name = "__gtkf2", .linkage = common.linkage });
+        @export(__getf2, .{ .name = "__gekf2", .linkage = common.linkage });
+        @export(__gttf2, .{ .name = "__gtkf2", .linkage = common.linkage });
     } else if (common.want_sparc_abi) {
         // These exports are handled in cmptf2.zig because gt and ge on sparc
         // are based on calling _Qp_cmp.
-    } else {
-        @export(__getf2, .{ .name = "__getf2", .linkage = common.linkage });
-        @export(__gttf2, .{ .name = "__gttf2", .linkage = common.linkage });
     }
+    @export(__getf2, .{ .name = "__getf2", .linkage = common.linkage });
+    @export(__gttf2, .{ .name = "__gttf2", .linkage = common.linkage });
 }
 
 /// "These functions return a value greater than or equal to zero if neither
@@ -27,13 +26,5 @@ fn __getf2(a: f128, b: f128) callconv(.C) i32 {
 /// "These functions return a value greater than zero if neither argument is NaN,
 /// and a is strictly greater than b."
 fn __gttf2(a: f128, b: f128) callconv(.C) i32 {
-    return __getf2(a, b);
-}
-
-fn __gekf2(a: f128, b: f128) callconv(.C) i32 {
-    return __getf2(a, b);
-}
-
-fn __gtkf2(a: f128, b: f128) callconv(.C) i32 {
     return __getf2(a, b);
 }

@@ -18,8 +18,10 @@ comptime {
     @export(ceilf, .{ .name = "ceilf", .linkage = common.linkage });
     @export(ceil, .{ .name = "ceil", .linkage = common.linkage });
     @export(__ceilx, .{ .name = "__ceilx", .linkage = common.linkage });
-    const ceilq_sym_name = if (common.want_ppc_abi) "ceilf128" else "ceilq";
-    @export(ceilq, .{ .name = ceilq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(ceilq, .{ .name = "ceilf128", .linkage = common.linkage });
+    }
+    @export(ceilq, .{ .name = "ceilq", .linkage = common.linkage });
     @export(ceill, .{ .name = "ceill", .linkage = common.linkage });
 }
 

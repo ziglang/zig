@@ -18,8 +18,10 @@ comptime {
     @export(floorf, .{ .name = "floorf", .linkage = common.linkage });
     @export(floor, .{ .name = "floor", .linkage = common.linkage });
     @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage });
-    const floorq_sym_name = if (common.want_ppc_abi) "floorf128" else "floorq";
-    @export(floorq, .{ .name = floorq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(floorq, .{ .name = "floorf128", .linkage = common.linkage });
+    }
+    @export(floorq, .{ .name = "floorq", .linkage = common.linkage });
     @export(floorl, .{ .name = "floorl", .linkage = common.linkage });
 }
 

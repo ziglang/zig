@@ -16,8 +16,10 @@ comptime {
     @export(cosf, .{ .name = "cosf", .linkage = common.linkage });
     @export(cos, .{ .name = "cos", .linkage = common.linkage });
     @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage });
-    const cosq_sym_name = if (common.want_ppc_abi) "cosf128" else "cosq";
-    @export(cosq, .{ .name = cosq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(cosq, .{ .name = "cosf128", .linkage = common.linkage });
+    }
+    @export(cosq, .{ .name = "cosq", .linkage = common.linkage });
     @export(cosl, .{ .name = "cosl", .linkage = common.linkage });
 }
 

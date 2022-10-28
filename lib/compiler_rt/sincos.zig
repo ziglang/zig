@@ -14,8 +14,10 @@ comptime {
     @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage });
     @export(sincos, .{ .name = "sincos", .linkage = common.linkage });
     @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
-    const sincosq_sym_name = if (common.want_ppc_abi) "sincosf128" else "sincosq";
-    @export(sincosq, .{ .name = sincosq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(sincosq, .{ .name = "sincosf128", .linkage = common.linkage });
+    }
+    @export(sincosq, .{ .name = "sincosq", .linkage = common.linkage });
     @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
 }
 

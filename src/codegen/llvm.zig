@@ -10730,8 +10730,8 @@ fn backendSupportsF128(target: std.Target) bool {
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.tag()) {
         .f16 => backendSupportsF16(target),
-        .f80 => target.longDoubleIs(f80) and backendSupportsF80(target),
-        .f128 => target.longDoubleIs(f128) and backendSupportsF128(target),
+        .f80 => (CType.longdouble.sizeInBits(target) == 80) and backendSupportsF80(target),
+        .f128 => (CType.longdouble.sizeInBits(target) == 128) and backendSupportsF128(target),
         else => true,
     };
 }
