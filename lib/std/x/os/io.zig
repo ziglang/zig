@@ -218,4 +218,7 @@ test "reactor/linux: drive async tcp client/listener pair" {
             }, event);
         }
     }, null);
+
+    try reactor.remove(client.socket.fd);
+    try reactor.remove(listener.socket.fd);
 }
