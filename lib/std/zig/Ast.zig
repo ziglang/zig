@@ -359,6 +359,9 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .expected_var_const => {
             return stream.writeAll("expected 'var' or 'const' before variable declaration");
         },
+        .wrong_equal_var_decl => {
+            return stream.writeAll("variable initialized with '==' instead of '='");
+        },
 
         .expected_token => {
             const found_tag = token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)];
@@ -2583,6 +2586,7 @@ pub const Error = struct {
         invalid_ampersand_ampersand,
         c_style_container,
         expected_var_const,
+        wrong_equal_var_decl,
 
         zig_style_container,
         previous_field,

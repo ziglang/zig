@@ -812,7 +812,18 @@ const Parser = struct {
         const align_node = try p.parseByteAlign();
         const addrspace_node = try p.parseAddrSpace();
         const section_node = try p.parseLinkSection();
-        const init_node: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
+        const init_node: Node.Index = switch (p.token_tags[p.tok_i]) {
+            .equal_equal => blk: {
+                try p.warn(.wrong_equal_var_decl);
+                p.tok_i += 1;
+                break :blk try p.expectExpr();
+            },
+            .equal => blk: {
+                p.tok_i += 1;
+                break :blk try p.expectExpr();
+            },
+            else => 0,
+        };
         if (section_node == 0 and addrspace_node == 0) {
             if (align_node == 0) {
                 return p.addNode(.{

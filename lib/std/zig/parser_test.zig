@@ -5145,6 +5145,14 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: variable initialized with ==" {
+    try testError(
+        \\comptime {
+        \\    var z: u32 == 12 + 1;
+        \\}
+    , &.{.wrong_equal_var_decl});
+}
+
 test "zig fmt: missing const/var before local variable" {
     try testError(
         \\comptime {
