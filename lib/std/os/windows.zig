@@ -3526,11 +3526,6 @@ pub const UNW_FLAG_EHANDLER = 0x1;
 pub const UNW_FLAG_UHANDLER = 0x2;
 pub const UNW_FLAG_CHAININFO = 0x4;
 
-pub const VECTORED_EXCEPTION_HANDLER = switch (builtin.zig_backend) {
-    .stage1 => fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
-    else => *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
-};
-
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
     RootDirectory: ?HANDLE,
