@@ -181,6 +181,27 @@ const RelocContext = struct {
     base_offset: i32 = 0,
 };
 
+pub fn getRelocContext(zld: *Zld, atom_index: AtomIndex) RelocContext {
+    const atom = zld.getAtom(atom_index);
+    assert(atom.getFile() != null); // synthetic atoms do not have relocs
+
+    const object = zld.objects.items[atom.getFile().?];
+    if (object.getSourceSymbol(atom.sym_index)) |source_sym| {
+        const source_sect = object.getSourceSection(source_sym.n_sect - 1);
+        return .{
+            .base_addr = source_sect.addr,
+            .base_offset = @intCast(i32, source_sym.n_value - source_sect.addr),
+        };
+    }
+    const nbase = @intCast(u32, object.in_symtab.?.len);
+    const sect_id = @intCast(u16, atom.sym_index - nbase);
+    const source_sect = object.getSourceSection(sect_id);
+    return .{
+        .base_addr = source_sect.addr,
+        .base_offset = 0,
+    };
+}
+
 pub fn parseRelocTarget(
     zld: *Zld,
     atom_index: AtomIndex,
@@ -192,6 +213,52 @@ pub fn parseRelocTarget(
 
     if (rel.r_extern == 0) {
         const sect_id = @intCast(u8, rel.r_symbolnum - 1);
+        const ctx = getRelocContext(zld, atom_index);
+        const atom_code = getAtomCode(zld, atom_index);
+        const rel_offset = @intCast(u32, rel.r_address - ctx.base_offset);
+
+        const address_in_section = if (rel.r_pcrel == 0) blk: {
+            break :blk if (rel.r_length == 3)
+                mem.readIntLittle(i64, atom_code[rel_offset..][0..8])
+            else
+                mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
+        } else blk: {
+            const correction: u3 = switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
+                .X86_64_RELOC_SIGNED => 0,
+                .X86_64_RELOC_SIGNED_1 => 1,
+                .X86_64_RELOC_SIGNED_2 => 2,
+                .X86_64_RELOC_SIGNED_4 => 4,
+                else => unreachable,
+            };
+            const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
+            const target_address = @intCast(i64, ctx.base_addr) + rel.r_address + 4 + correction + addend;
+            break :blk target_address;
+        };
+
+        // Find containing atom
+        const Predicate = struct {
+            addr: i64,
+
+            pub fn predicate(pred: @This(), other: i64) bool {
+                return if (other == -1) true else other > pred.addr;
+            }
+        };
+
+        if (object.source_section_index_lookup[sect_id] > -1) {
+            const first_sym_index = @intCast(usize, object.source_section_index_lookup[sect_id]);
+            const target_sym_index = @import("zld.zig").lsearch(i64, object.source_address_lookup[first_sym_index..], Predicate{
+                .addr = address_in_section,
+            });
+
+            if (target_sym_index > 0) {
+                return SymbolWithLoc{
+                    .sym_index = @intCast(u32, first_sym_index + target_sym_index - 1),
+                    .file = atom.file,
+                };
+            }
+        }
+
+        // Start of section is not contained anywhere, return synthetic atom.
         const sym_index = object.getSectionAliasSymbolIndex(sect_id);
         return SymbolWithLoc{ .sym_index = sym_index, .file = atom.file };
     }
@@ -405,28 +472,12 @@ pub fn resolveRelocs(
     const atom = zld.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
-    const object = zld.objects.items[atom.getFile().?];
-    const ctx: RelocContext = blk: {
-        if (object.getSourceSymbol(atom.sym_index)) |source_sym| {
-            const source_sect = object.getSourceSection(source_sym.n_sect - 1);
-            break :blk .{
-                .base_addr = source_sect.addr,
-                .base_offset = @intCast(i32, source_sym.n_value - source_sect.addr),
-            };
-        }
-        const nbase = @intCast(u32, object.in_symtab.?.len);
-        const sect_id = @intCast(u16, atom.sym_index - nbase);
-        const source_sect = object.getSourceSection(sect_id);
-        break :blk .{
-            .base_addr = source_sect.addr,
-            .base_offset = 0,
-        };
-    };
-
     log.debug("resolving relocations in ATOM(%{d}, '{s}')", .{
         atom.sym_index,
         zld.getSymbolName(atom.getSymbolWithLoc()),
     });
+
+    const ctx = getRelocContext(zld, atom_index);
 
     return switch (arch) {
         .aarch64 => resolveRelocsArm64(zld, atom_index, atom_code, atom_relocs, reverse_lookup, ctx),
@@ -744,8 +795,11 @@ fn resolveRelocsArm64(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
-                    ptr_addend -= @intCast(i64, target_sect_base_addr);
+                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                        @intCast(i64, object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr)
+                    else
+                        object.source_address_lookup[target.sym_index];
+                    ptr_addend -= base_addr;
                 }
 
                 const result = blk: {
@@ -878,13 +932,12 @@ fn resolveRelocsX86(
                 var addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]) + correction;
 
                 if (rel.r_extern == 0) {
-                    // Note for the future self: when r_extern == 0, we should subtract correction from the
-                    // addend.
-                    const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
-                    // We need to add base_offset, i.e., offset of this atom wrt to the source
-                    // section. Otherwise, the addend will over-/under-shoot.
-                    addend += @intCast(i32, @intCast(i64, context.base_addr + rel_offset + 4) -
-                        @intCast(i64, target_sect_base_addr) + context.base_offset);
+                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                        @intCast(i64, object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr)
+                    else
+                        object.source_address_lookup[target.sym_index];
+                    addend += @intCast(i32, @intCast(i64, context.base_addr) + rel.r_address + 4 -
+                        @intCast(i64, base_addr));
                 }
 
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
@@ -902,8 +955,11 @@ fn resolveRelocsX86(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
-                    addend -= @intCast(i64, target_sect_base_addr);
+                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                        @intCast(i64, object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr)
+                    else
+                        object.source_address_lookup[target.sym_index];
+                    addend -= base_addr;
                 }
 
                 const result = blk: {
