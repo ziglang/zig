@@ -151,6 +151,8 @@ pub const Block = struct {
     runtime_index: Value.RuntimeIndex = .zero,
     inline_block: Zir.Inst.Index = 0,
 
+    comptime_reason: ?*const ComptimeReason = null,
+    // TODO is_comptime and comptime_reason should probably be merged together.
     is_comptime: bool,
     is_typeof: bool = false,
     is_coerce_result_ptr: bool = false,
@@ -172,6 +174,49 @@ pub const Block = struct {
 
     /// Value for switch_capture in an inline case
     inline_case_capture: Air.Inst.Ref = .none,
+
+    const ComptimeReason = union(enum) {
+        c_import: struct {
+            block: *Block,
+            src: LazySrcLoc,
+        },
+        comptime_ret_ty: struct {
+            block: *Block,
+            func: Air.Inst.Ref,
+            func_src: LazySrcLoc,
+            return_ty: Type,
+        },
+
+        fn explain(cr: ComptimeReason, sema: *Sema, msg: ?*Module.ErrorMsg) !void {
+            const parent = msg orelse return;
+            const prefix = "expression is evaluated at comptime because ";
+            switch (cr) {
+                .c_import => |ci| {
+                    try sema.errNote(ci.block, ci.src, parent, prefix ++ "it is inside a @cImport", .{});
+                },
+                .comptime_ret_ty => |rt| {
+                    const src_loc = if (try sema.funcDeclSrc(rt.block, rt.func_src, rt.func)) |capture| blk: {
+                        var src_loc = capture;
+                        src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
+                        break :blk src_loc;
+                    } else blk: {
+                        const src_decl = sema.mod.declPtr(rt.block.src_decl);
+                        break :blk rt.func_src.toSrcLoc(src_decl);
+                    };
+                    if (rt.return_ty.tag() == .generic_poison) {
+                        return sema.mod.errNoteNonLazy(src_loc, parent, prefix ++ "the generic function was instantiated with a comptime-only return type", .{});
+                    }
+                    try sema.mod.errNoteNonLazy(
+                        src_loc,
+                        parent,
+                        prefix ++ "the function returns a comptime-only type '{}'",
+                        .{rt.return_ty.fmt(sema.mod)},
+                    );
+                    try sema.explainWhyTypeIsComptime(rt.block, rt.func_src, parent, src_loc, rt.return_ty);
+                },
+            }
+        }
+    };
 
     const Param = struct {
         /// `noreturn` means `anytype`.
@@ -224,6 +269,7 @@ pub const Block = struct {
             .label = null,
             .inlining = parent.inlining,
             .is_comptime = parent.is_comptime,
+            .comptime_reason = parent.comptime_reason,
             .is_typeof = parent.is_typeof,
             .runtime_cond = parent.runtime_cond,
             .runtime_loop = parent.runtime_loop,
@@ -1420,7 +1466,10 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
                 const then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
                 const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition, "condition in comptime branch must be comptime-known");
+                const cond = sema.resolveInstConst(block, cond_src, extra.data.condition, "condition in comptime branch must be comptime-known") catch |err| {
+                    if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
+                    return err;
+                };
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
@@ -1438,7 +1487,10 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
                 const then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
                 const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition, "condition in comptime branch must be comptime-known");
+                const cond = sema.resolveInstConst(block, cond_src, extra.data.condition, "condition in comptime branch must be comptime-known") catch |err| {
+                    if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
+                    return err;
+                };
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
                 const old_runtime_index = block.runtime_index;
                 defer block.runtime_index = old_runtime_index;
@@ -1460,7 +1512,10 @@ fn analyzeBodyInner(
                 const err_union = try sema.resolveInst(extra.data.operand);
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
-                const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err, "try operand inside comptime block must be comptime-known");
+                const is_non_err_tv = sema.resolveInstConst(block, operand_src, is_non_err, "try operand inside comptime block must be comptime-known") catch |err| {
+                    if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
+                    return err;
+                };
                 if (is_non_err_tv.val.toBool()) {
                     const err_union_ty = sema.typeOf(err_union);
                     break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, err_union, operand_src, false);
@@ -1516,7 +1571,10 @@ fn analyzeBodyInner(
                 const err_union = try sema.analyzeLoad(block, src, operand, operand_src);
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
-                const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err, "try operand inside comptime block must be comptime-known");
+                const is_non_err_tv = sema.resolveInstConst(block, operand_src, is_non_err, "try operand inside comptime block must be comptime-known") catch |err| {
+                    if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
+                    return err;
+                };
                 if (is_non_err_tv.val.toBool()) {
                     break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
                 }
@@ -1675,8 +1733,8 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
         return;
     }
 
+    assert(!block.is_comptime);
     var err_trace_block = block.makeSubBlock();
-    err_trace_block.is_comptime = false;
     defer err_trace_block.instructions.deinit(sema.gpa);
 
     const src: LazySrcLoc = .unneeded;
@@ -4944,6 +5002,10 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     var c_import_buf = std.ArrayList(u8).init(sema.gpa);
     defer c_import_buf.deinit();
 
+    var comptime_reason = .{ .c_import = .{
+        .block = parent_block,
+        .src = src,
+    } };
     var child_block: Block = .{
         .parent = parent_block,
         .sema = sema,
@@ -4952,7 +5014,8 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = true,
+        .comptime_reason = &comptime_reason,
         .c_import_buf = &c_import_buf,
         .runtime_cond = parent_block.runtime_cond,
         .runtime_loop = parent_block.runtime_loop,
@@ -5053,6 +5116,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .label = &label,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .comptime_reason = parent_block.comptime_reason,
         .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
         .float_mode = parent_block.float_mode,
@@ -5926,6 +5990,7 @@ fn zirCall(
         defer block.is_comptime = parent_comptime;
         if (arg_index < fn_params_len and func_ty_info.comptime_params[arg_index]) {
             block.is_comptime = true;
+            // TODO set comptime_reason
         }
 
         const param_ty_inst = try sema.addType(param_ty);
@@ -6056,37 +6121,6 @@ const GenericCallAdapter = struct {
     }
 };
 
-fn addComptimeReturnTypeNote(
-    sema: *Sema,
-    block: *Block,
-    func: Air.Inst.Ref,
-    func_src: LazySrcLoc,
-    return_ty: Type,
-    parent: *Module.ErrorMsg,
-    requires_comptime: bool,
-) !void {
-    if (!requires_comptime) return;
-
-    const src_loc = if (try sema.funcDeclSrc(block, func_src, func)) |capture| blk: {
-        var src_loc = capture;
-        src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
-        break :blk src_loc;
-    } else blk: {
-        const src_decl = sema.mod.declPtr(block.src_decl);
-        break :blk func_src.toSrcLoc(src_decl);
-    };
-    if (return_ty.tag() == .generic_poison) {
-        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime-only return type", .{});
-    }
-    try sema.mod.errNoteNonLazy(
-        src_loc,
-        parent,
-        "function is being called at comptime because it returns a comptime-only type '{}'",
-        .{return_ty.fmt(sema.mod)},
-    );
-    try sema.explainWhyTypeIsComptime(block, func_src, parent, src_loc, return_ty);
-}
-
 fn analyzeCall(
     sema: *Sema,
     block: *Block,
@@ -6177,11 +6211,21 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
-    var comptime_only_ret_ty = false;
+    var comptime_reason_buf: Block.ComptimeReason = undefined;
+    var comptime_reason: ?*const Block.ComptimeReason = null;
     if (!is_comptime_call) {
         if (sema.typeRequiresComptime(func_ty_info.return_type)) |ct| {
             is_comptime_call = ct;
-            comptime_only_ret_ty = ct;
+            if (ct) {
+                // stage1 can't handle doing this directly
+                comptime_reason_buf = .{ .comptime_ret_ty = .{
+                    .block = block,
+                    .func = func,
+                    .func_src = func_src,
+                    .return_ty = func_ty_info.return_type,
+                } };
+                comptime_reason = &comptime_reason_buf;
+            }
         } else |err| switch (err) {
             error.GenericPoison => is_generic_call = true,
             else => |e| return e,
@@ -6210,7 +6254,14 @@ fn analyzeCall(
             error.ComptimeReturn => {
                 is_inline_call = true;
                 is_comptime_call = true;
-                comptime_only_ret_ty = true;
+                // stage1 can't handle doing this directly
+                comptime_reason_buf = .{ .comptime_ret_ty = .{
+                    .block = block,
+                    .func = func,
+                    .func_src = func_src,
+                    .return_ty = func_ty_info.return_type,
+                } };
+                comptime_reason = &comptime_reason_buf;
             },
             else => |e| return e,
         }
@@ -6222,9 +6273,7 @@ fn analyzeCall(
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
         const func_val = sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime-known") catch |err| {
-            if (err == error.AnalysisFail and sema.err != null) {
-                try sema.addComptimeReturnTypeNote(block, func, func_src, func_ty_info.return_type, sema.err.?, comptime_only_ret_ty);
-            }
+            if (err == error.AnalysisFail and comptime_reason != null) try comptime_reason.?.explain(sema, sema.err);
             return err;
         };
         const module_fn = switch (func_val.tag()) {
@@ -6292,6 +6341,7 @@ fn analyzeCall(
             .label = null,
             .inlining = &inlining,
             .is_comptime = is_comptime_call,
+            .comptime_reason = comptime_reason,
             .error_return_trace_index = block.error_return_trace_index,
         };
 
@@ -6344,11 +6394,6 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
-                // last 4 arguments are only used when reporting errors
-                undefined,
-                undefined,
-                undefined,
-                undefined,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
@@ -6364,10 +6409,6 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
-                        func,
-                        func_src,
-                        func_ty_info.return_type,
-                        comptime_only_ret_ty,
                     );
                     return error.AnalysisFail;
                 },
@@ -6604,10 +6645,6 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
-    func: Air.Inst.Ref,
-    func_src: LazySrcLoc,
-    ret_ty: Type,
-    comptime_only_ret_ty: bool,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6624,9 +6661,7 @@ fn analyzeInlineCallArg(
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(param_ty)) {
                 _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime-only type must be comptime-known") catch |err| {
-                    if (err == error.AnalysisFail and sema.err != null) {
-                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
-                    }
+                    if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
             }
@@ -6635,9 +6670,7 @@ fn analyzeInlineCallArg(
             if (is_comptime_call) {
                 try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
                 const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime-known") catch |err| {
-                    if (err == error.AnalysisFail and sema.err != null) {
-                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
-                    }
+                    if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
                 switch (arg_val.tag()) {
@@ -6679,9 +6712,7 @@ fn analyzeInlineCallArg(
             if (is_comptime_call) {
                 try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
                 const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime-known") catch |err| {
-                    if (err == error.AnalysisFail and sema.err != null) {
-                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
-                    }
+                    if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
                 switch (arg_val.tag()) {
@@ -10223,6 +10254,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .label = &label,
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
+        .comptime_reason = block.comptime_reason,
         .is_typeof = block.is_typeof,
         .switch_else_err_ty = else_error_ty,
         .runtime_cond = block.runtime_cond,
@@ -10333,7 +10365,13 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
-    try sema.requireRuntimeBlock(block, src, operand_src);
+    if (child_block.is_comptime) {
+        _ = sema.resolveConstValue(&child_block, operand_src, operand, "condition in comptime switch must be comptime-known") catch |err| {
+            if (err == error.AnalysisFail and child_block.comptime_reason != null) try child_block.comptime_reason.?.explain(sema, sema.err);
+            return err;
+        };
+        unreachable;
+    }
 
     const estimated_cases_extra = (scalar_cases_len + multi_cases_len) *
         @typeInfo(Air.SwitchBr.Case).Struct.fields.len + 2;
@@ -21469,6 +21507,9 @@ fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src:
             if (runtime_src) |some| {
                 try sema.errNote(block, some, msg, "operation is runtime due to this operand", .{});
             }
+            if (block.comptime_reason) |some| {
+                try some.explain(sema, msg);
+            }
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -21940,6 +21981,7 @@ fn addSafetyCheck(
     panic_id: PanicId,
 ) !void {
     const gpa = sema.gpa;
+    assert(!parent_block.is_comptime);
 
     var fail_block: Block = .{
         .parent = parent_block,
@@ -21949,7 +21991,7 @@ fn addSafetyCheck(
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = false,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -22061,6 +22103,7 @@ fn panicUnwrapError(
     unwrap_err_tag: Air.Inst.Tag,
     is_non_err_tag: Air.Inst.Tag,
 ) !void {
+    assert(!parent_block.is_comptime);
     const ok = try parent_block.addUnOp(is_non_err_tag, operand);
     const gpa = sema.gpa;
 
@@ -22072,7 +22115,7 @@ fn panicUnwrapError(
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = false,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -22104,6 +22147,7 @@ fn panicIndexOutOfBounds(
     len: Air.Inst.Ref,
     cmp_op: Air.Inst.Tag,
 ) !void {
+    assert(!parent_block.is_comptime);
     const ok = try parent_block.addBinOp(cmp_op, index, len);
     const gpa = sema.gpa;
 
@@ -22115,7 +22159,7 @@ fn panicIndexOutOfBounds(
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = false,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -22146,6 +22190,7 @@ fn panicSentinelMismatch(
     ptr: Air.Inst.Ref,
     sentinel_index: Air.Inst.Ref,
 ) !void {
+    assert(!parent_block.is_comptime);
     const expected_sentinel_val = maybe_sentinel orelse return;
     const expected_sentinel = try sema.addConstant(sentinel_ty, expected_sentinel_val);
 
@@ -22186,7 +22231,7 @@ fn panicSentinelMismatch(
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = false,
     };
 
     defer fail_block.instructions.deinit(gpa);

@@ -2621,6 +2621,7 @@ pub const Value = extern union {
 
             .zero,
             .one,
+            .null_value,
             .int_u64,
             .int_i64,
             .int_big_positive,
