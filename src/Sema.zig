@@ -16612,7 +16612,17 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const bitoffset_src: LazySrcLoc = .{ .node_offset_ptr_bitoffset = extra.data.src_node };
     const hostsize_src: LazySrcLoc = .{ .node_offset_ptr_hostsize = extra.data.src_node };
 
-    const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
+    const unresolved_elem_ty = blk: {
+        const air_inst = try sema.resolveInst(extra.data.elem_type);
+        const ty = sema.analyzeAsType(block, elem_ty_src, air_inst) catch |err| {
+            if (err == error.AnalysisFail and sema.err != null and sema.typeOf(air_inst).isSinglePointer()) {
+                try sema.errNote(block, elem_ty_src, sema.err.?, "use '.*' to dereference pointer", .{});
+            }
+            return err;
+        };
+        if (ty.tag() == .generic_poison) return error.GenericPoison;
+        break :blk ty;
+    };
     const target = sema.mod.getTarget();
 
     var extra_i = extra.end;
