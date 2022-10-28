@@ -367,7 +367,7 @@ pub const WipCaptureScope = struct {
     gpa: Allocator,
     perm_arena: Allocator,
 
-    pub fn init(gpa: Allocator, perm_arena: Allocator, parent: ?*CaptureScope) !@This() {
+    pub fn init(gpa: Allocator, perm_arena: Allocator, parent: ?*CaptureScope) Allocator.Error!WipCaptureScope {
         const scope = try perm_arena.create(CaptureScope);
         scope.* = .{ .parent = parent };
         return @This(){
@@ -4837,7 +4837,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 }
 
 /// Returns the depender's index of the dependee.
-pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) !void {
+pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) Allocator.Error!void {
     if (depender_index == dependee_index) return;
 
     const depender = mod.declPtr(depender_index);

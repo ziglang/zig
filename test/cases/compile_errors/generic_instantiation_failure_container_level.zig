@@ -18,5 +18,5 @@ pub export fn entry() void {
 // backend=llvm
 // target=native
 //
-// :9:48: error: caught unexpected error 'InvalidVersion'
+// :9:48: error: reached unreachable code
 // :12:37: note: called from here
