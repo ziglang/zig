@@ -40,6 +40,17 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 .Fn => {
                     return castInt(DestType, @ptrToInt(&target));
                 },
+                .Bool => {
+                    return @boolToInt(target);
+                },
+                else => {},
+            }
+        },
+        .Float => {
+            switch (@typeInfo(SourceType)) {
+                .Int => return @intToFloat(DestType, target),
+                .Float => return @floatCast(DestType, target),
+                .Bool => return @intToFloat(DestType, @boolToInt(target)),
                 else => {},
             }
         },
@@ -443,6 +454,121 @@ pub const Macros = struct {
 
     pub inline fn DISCARD(x: anytype) void {
         _ = x;
+    }
+};
+
+/// Integer promotion described in C11 6.3.1.1.2
+fn PromotedIntType(comptime T: type) type {
+    return switch (T) {
+        bool, u8, i8, c_short => c_int,
+        c_ushort => if (@sizeOf(c_ushort) == @sizeOf(c_int)) c_uint else c_int,
+        c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong => T,
+        else => if (T == comptime_int) {
+            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a fixed-size number type is required");
+        } else if (@typeInfo(T) == .Int) {
+            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a C ABI type is required");
+        } else {
+            @compileError("Attempted to promote invalid type `" ++ @typeName(T) ++ "`");
+        },
+    };
+}
+
+/// C11 6.3.1.1.1
+fn integerRank(comptime T: type) u8 {
+    return switch (T) {
+        bool => 0,
+        u8, i8 => 1,
+        c_short, c_ushort => 2,
+        c_int, c_uint => 3,
+        c_long, c_ulong => 4,
+        c_longlong, c_ulonglong => 5,
+        else => @compileError("integer rank not supported for `" ++ @typeName(T) ++ "`"),
+    };
+}
+
+fn ToUnsigned(comptime T: type) type {
+    return switch (T) {
+        c_int => c_uint,
+        c_long => c_ulong,
+        c_longlong => c_ulonglong,
+        else => @compileError("Cannot convert `" ++ @typeName(T) ++ "` to unsigned"),
+    };
+}
+
+/// "Usual arithmetic conversions" from C11 standard 6.3.1.8
+fn ArithmeticConversion(comptime A: type, comptime B: type) type {
+    if (A == c_longdouble or B == c_longdouble) return c_longdouble;
+    if (A == f80 or B == f80) return f80;
+    if (A == f64 or B == f64) return f64;
+    if (A == f32 or B == f32) return f32;
+
+    const A_Promoted = PromotedIntType(A);
+    const B_Promoted = PromotedIntType(B);
+    comptime {
+        std.debug.assert(integerRank(A_Promoted) >= integerRank(c_int));
+        std.debug.assert(integerRank(B_Promoted) >= integerRank(c_int));
+    }
+
+    if (A_Promoted == B_Promoted) return A_Promoted;
+
+    const a_signed = @typeInfo(A_Promoted).Int.signedness == .signed;
+    const b_signed = @typeInfo(B_Promoted).Int.signedness == .signed;
+
+    if (a_signed == b_signed) {
+        return if (integerRank(A_Promoted) > integerRank(B_Promoted)) A_Promoted else B_Promoted;
+    }
+
+    const SignedType = if (a_signed) A_Promoted else B_Promoted;
+    const UnsignedType = if (!a_signed) A_Promoted else B_Promoted;
+
+    if (integerRank(UnsignedType) >= integerRank(SignedType)) return UnsignedType;
+
+    if (std.math.maxInt(SignedType) >= std.math.maxInt(UnsignedType)) return SignedType;
+
+    return ToUnsigned(SignedType);
+}
+
+test "ArithmeticConversion" {
+    // Promotions not necessarily the same for other platforms
+    if (builtin.target.cpu.arch != .x86_64 or builtin.target.os.tag != .linux) return error.SkipZigTest;
+
+    const Test = struct {
+        /// Order of operands should not matter for arithmetic conversions
+        fn checkPromotion(comptime A: type, comptime B: type, comptime Expected: type) !void {
+            try std.testing.expect(ArithmeticConversion(A, B) == Expected);
+            try std.testing.expect(ArithmeticConversion(B, A) == Expected);
+        }
+    };
+
+    try Test.checkPromotion(c_longdouble, c_int, c_longdouble);
+    try Test.checkPromotion(c_int, f64, f64);
+    try Test.checkPromotion(f32, bool, f32);
+
+    try Test.checkPromotion(bool, c_short, c_int);
+    try Test.checkPromotion(c_int, c_int, c_int);
+    try Test.checkPromotion(c_short, c_int, c_int);
+
+    try Test.checkPromotion(c_int, c_long, c_long);
+
+    try Test.checkPromotion(c_ulonglong, c_uint, c_ulonglong);
+
+    try Test.checkPromotion(c_uint, c_int, c_uint);
+
+    try Test.checkPromotion(c_uint, c_long, c_long);
+
+    try Test.checkPromotion(c_ulong, c_longlong, c_ulonglong);
+}
+
+pub const MacroArithmetic = struct {
+    pub fn div(a: anytype, b: anytype) ArithmeticConversion(@TypeOf(a), @TypeOf(b)) {
+        const ResType = ArithmeticConversion(@TypeOf(a), @TypeOf(b));
+        const a_casted = cast(ResType, a);
+        const b_casted = cast(ResType, b);
+        switch (@typeInfo(ResType)) {
+            .Float => return a_casted / b_casted,
+            .Int => return @divTrunc(a_casted, b_casted),
+            else => unreachable,
+        }
     }
 };
 

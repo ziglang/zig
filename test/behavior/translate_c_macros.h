@@ -53,3 +53,6 @@ typedef _Bool uintptr_t;
 #define LARGE_INT 18446744073709550592
 
 #define EMBEDDED_TAB "hello	"
+
+#define DIVIDE_CONSTANT(version) (version / 1000)
+#define DIVIDE_ARGS(A, B) (A / B)
