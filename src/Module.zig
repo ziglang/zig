@@ -3367,6 +3367,8 @@ pub fn deinit(mod: *Module) void {
     for (mod.import_table.keys()) |key| {
         gpa.free(key);
     }
+    var failed_decls = mod.failed_decls;
+    mod.failed_decls = .{};
     for (mod.import_table.values()) |value| {
         value.destroy(mod);
     }
@@ -3406,10 +3408,10 @@ pub fn deinit(mod: *Module) void {
     mod.local_zir_cache.handle.close();
     mod.global_zir_cache.handle.close();
 
-    for (mod.failed_decls.values()) |value| {
+    for (failed_decls.values()) |value| {
         value.destroy(gpa);
     }
-    mod.failed_decls.deinit(gpa);
+    failed_decls.deinit(gpa);
 
     if (mod.emit_h) |emit_h| {
         for (emit_h.failed_decls.values()) |value| {
@@ -3482,6 +3484,14 @@ pub fn deinit(mod: *Module) void {
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const gpa = mod.gpa;
     {
+        if (mod.failed_decls.contains(decl_index)) {
+            blk: {
+                const errs = mod.comp.getAllErrorsAlloc() catch break :blk;
+                for (errs.list) |err| Compilation.AllErrors.Message.renderToStdErr(err, .no_color);
+            }
+            // TODO restore test case triggering this panic
+            @panic("Zig compiler bug: attempted to destroy declaration with an attached error");
+        }
         const decl = mod.declPtr(decl_index);
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         _ = mod.test_functions.swapRemove(decl_index);
