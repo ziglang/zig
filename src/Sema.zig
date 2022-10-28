@@ -6889,6 +6889,7 @@ fn instantiateGenericCall(
     const callee = if (!gop.found_existing) callee: {
         // TODO handle this OOM
         const new_module_func = gpa.create(Module.Fn) catch @panic("out of memory");
+        errdefer gpa.destroy(new_module_func);
 
         // This ensures that we can operate on the hash map before the Module.Fn
         // struct is fully initialized.
@@ -6903,6 +6904,19 @@ fn instantiateGenericCall(
         const src_decl = mod.declPtr(src_decl_index);
         // TODO handle this OOM
         const new_decl_index = mod.allocateNewDecl(namespace, fn_owner_decl.src_node, src_decl.src_scope) catch @panic("out of memory");
+        errdefer {
+            // Move the error message to the owner decl so we can continue destruction of
+            // the failed instantiation.
+            if (mod.failed_decls.fetchSwapRemove(new_decl_index)) |kv| {
+                const insertion = mod.failed_decls.getOrPutAssumeCapacity(module_fn.owner_decl);
+                if (insertion.found_existing) {
+                    insertion.value_ptr.*.destroy(gpa);
+                } else {
+                    insertion.value_ptr.* = kv.value;
+                }
+            }
+            mod.destroyDecl(new_decl_index);
+        }
         const new_decl = mod.declPtr(new_decl_index);
         // TODO better names for generic function instantiations
         // TODO handle this OOM
@@ -6924,6 +6938,7 @@ fn instantiateGenericCall(
 
         // There is a corresponding ensureUnusedCapacity above.
         namespace.anon_decls.putAssumeCapacityNoClobber(new_decl_index, {});
+        errdefer assert(namespace.anon_decls.orderedRemove(new_decl_index));
 
         // The generic function Decl is guaranteed to be the first dependency
         // of each of its instantiations.
@@ -6931,18 +6946,18 @@ fn instantiateGenericCall(
         mod.declareDeclDependency(new_decl_index, module_fn.owner_decl) catch |err| switch (err) {
             error.OutOfMemory => @panic("out of memory"), // TODO handle this OOM
         };
+        // Resolving the new function type below will possibly declare more decl dependencies
+        // and so we remove them all here in case of error.
+        errdefer {
+            for (new_decl.dependencies.keys()) |dep_index| {
+                const dep = mod.declPtr(dep_index);
+                dep.removeDependant(new_decl_index);
+            }
+        }
 
         var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-        // TODO handle this OOM
+        errdefer new_decl_arena.deinit();
         const new_decl_arena_allocator = new_decl_arena.allocator();
-        const new_decl_arena_state = new_decl_arena_allocator.create(std.heap.ArenaAllocator.State) catch @panic("out of memory");
-        // At this point, if something goes wrong, the error message for whatever went wrong
-        // needs to go into failed_decls table.
-        // This means the Decl must live so that it can be part of this table.
-        defer {
-            new_decl_arena_state.* = new_decl_arena.state;
-            new_decl.value_arena = new_decl_arena_state;
-        }
 
         // Re-run the block that creates the function, with the comptime parameters
         // pre-populated inside `inst_map`. This causes `param_comptime` and
@@ -6968,16 +6983,6 @@ fn instantiateGenericCall(
             .branch_count = sema.branch_count,
         };
         defer child_sema.deinit();
-
-        errdefer {
-            // TODO look up the compile error that happened here, if any, and attach a note to it
-            // pointing here, at the generic instantiation callsite.
-            if (sema.owner_func) |owner_func| {
-                owner_func.state = .dependency_failure;
-            } else {
-                sema.owner_decl.analysis = .dependency_failure;
-            }
-        }
 
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, new_decl.src_scope);
         defer wip_captures.deinit();
@@ -7049,7 +7054,16 @@ fn instantiateGenericCall(
         child_sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
         child_block.error_return_trace_index = error_return_trace_index;
 
-        const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst);
+        const new_func_inst = child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst) catch |err| {
+            // TODO look up the compile error that happened here and attach a note to it
+            // pointing here, at the generic instantiation callsite.
+            if (sema.owner_func) |owner_func| {
+                owner_func.state = .dependency_failure;
+            } else {
+                sema.owner_decl.analysis = .dependency_failure;
+            }
+            return err;
+        };
         const new_func_val = child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst, "") catch unreachable;
         const new_func = new_func_val.castTag(.function).?.data;
         errdefer new_func.deinit(gpa);
@@ -7136,6 +7150,7 @@ fn instantiateGenericCall(
         try mod.comp.bin_file.allocateDeclIndexes(new_decl_index);
         try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
 
+        try new_decl.finalizeNewArena(&new_decl_arena);
         break :callee new_func;
     } else gop.key_ptr.*;
 
