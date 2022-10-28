@@ -159,6 +159,9 @@ pub const Node = extern union {
         /// @shuffle(type, a, b, mask)
         shuffle,
 
+        /// @import("std").zig.c_translation.MacroArithmetic.<op>(lhs, rhs)
+        macro_arithmetic,
+
         asm_simple,
 
         negate,
@@ -370,6 +373,7 @@ pub const Node = extern union {
                 .field_access => Payload.FieldAccess,
                 .string_slice => Payload.StringSlice,
                 .shuffle => Payload.Shuffle,
+                .macro_arithmetic => Payload.MacroArithmetic,
             };
         }
 
@@ -712,6 +716,19 @@ pub const Payload = struct {
             b: Node,
             mask_vector: Node,
         },
+    };
+
+    pub const MacroArithmetic = struct {
+        base: Payload,
+        data: struct {
+            op: Operator,
+            lhs: Node,
+            rhs: Node,
+        },
+
+        pub const Operator = enum {
+            div,
+        };
     };
 };
 
@@ -1407,6 +1424,12 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 payload.b,
                 payload.mask_vector,
             });
+        },
+        .macro_arithmetic => {
+            const payload = node.castTag(.macro_arithmetic).?.data;
+            const op = @tagName(payload.op);
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "MacroArithmetic", op });
+            return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
         .alignof => {
             const payload = node.castTag(.alignof).?.data;
@@ -2349,6 +2372,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shuffle,
         .static_local_var,
         .mut_str,
+        .macro_arithmetic,
         => {
             // no grouping needed
             return renderNode(c, node);
