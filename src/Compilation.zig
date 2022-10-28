@@ -1109,6 +1109,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const root_name = try arena.dupeZ(u8, options.root_name);
 
         const use_stage1 = options.use_stage1 orelse false;
+        if (use_stage1 and !build_options.have_stage1) return error.ZigCompilerBuiltWithoutStage1;
 
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
