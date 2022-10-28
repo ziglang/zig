@@ -5145,6 +5145,32 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: missing const/var before local variable" {
+    try testError(
+        \\comptime {
+        \\    z: u32;
+        \\}
+        \\comptime {
+        \\    z: u32 align(1);
+        \\}
+        \\comptime {
+        \\    z: u32 addrspace(.generic);
+        \\}
+        \\comptime {
+        \\    z: u32 linksection("foo");
+        \\}
+        \\comptime {
+        \\    z: u32 = 1;
+        \\}
+    , &.{
+        .expected_labelable,
+        .expected_var_const,
+        .expected_var_const,
+        .expected_var_const,
+        .expected_var_const,
+    });
+}
+
 test "zig fmt: while continue expr" {
     try testCanonical(
         \\test {

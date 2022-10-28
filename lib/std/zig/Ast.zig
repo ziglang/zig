@@ -197,7 +197,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             });
         },
         .expected_labelable => {
-            return stream.print("expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'", .{
+            return stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
                 token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
@@ -355,6 +355,9 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .next_field => {
             return stream.writeAll("field after declarations here");
+        },
+        .expected_var_const => {
+            return stream.writeAll("expected 'var' or 'const' before variable declaration");
         },
 
         .expected_token => {
@@ -2579,6 +2582,7 @@ pub const Error = struct {
         mismatched_binary_op_whitespace,
         invalid_ampersand_ampersand,
         c_style_container,
+        expected_var_const,
 
         zig_style_container,
         previous_field,
