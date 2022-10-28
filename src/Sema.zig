@@ -18668,6 +18668,13 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
+    if (dest_ty.intInfo(sema.mod.getTarget()).bits == 0) {
+        if (block.wantSafety()) {
+            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, Value.zero));
+            try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
+        }
+        return sema.addConstant(dest_ty, Value.zero);
+    }
     const result = try block.addTyOp(if (block.float_mode == .Optimized) .float_to_int_optimized else .float_to_int, dest_ty, operand);
     if (block.wantSafety()) {
         const back = try block.addTyOp(.int_to_float, operand_ty, result);
