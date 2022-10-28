@@ -100,6 +100,7 @@ test "nested comma operator" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expectEqual(@as(c_int, 3), h.NESTED_COMMA_OPERATOR);
+    try expectEqual(@as(c_int, 3), h.NESTED_COMMA_OPERATOR_LHS);
 }
 
 test "cast functions" {

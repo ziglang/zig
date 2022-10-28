@@ -5053,6 +5053,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .label = &label,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
         .float_mode = parent_block.float_mode,
         .runtime_cond = parent_block.runtime_cond,
@@ -5945,7 +5946,7 @@ fn zirCall(
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     if (backend_supports_error_return_tracing and sema.mod.comp.bin_file.options.error_return_tracing and
-        !block.is_comptime and (input_is_error or pop_error_return_trace))
+        !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const call_inst: Air.Inst.Ref = if (modifier == .always_tail) undefined else b: {
             break :b try sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
@@ -6425,7 +6426,7 @@ fn analyzeCall(
             }
 
             const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
-            if (!is_comptime_call) {
+            if (!is_comptime_call and !block.is_typeof) {
                 try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
 
                 const zir_tags = sema.code.instructions.items(.tag);
@@ -6463,7 +6464,7 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (!is_comptime_call and sema.typeOf(result).zigTypeTag() != .NoReturn) {
+            if (!is_comptime_call and !block.is_typeof and sema.typeOf(result).zigTypeTag() != .NoReturn) {
                 try sema.emitDbgInline(
                     block,
                     module_fn,
@@ -6747,6 +6748,8 @@ fn analyzeGenericCallArg(
         try sema.queueFullTypeResolution(param_ty);
         runtime_args[runtime_i.*] = casted_arg;
         runtime_i.* += 1;
+    } else if (try sema.typeHasOnePossibleValue(block, arg_src, comptime_arg.ty)) |_| {
+        _ = try sema.coerce(block, comptime_arg.ty, uncasted_arg, arg_src);
     }
 }
 
@@ -10220,6 +10223,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .label = &label,
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
+        .is_typeof = block.is_typeof,
         .switch_else_err_ty = else_error_ty,
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
@@ -16411,7 +16415,7 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     if (!ok) return;
 
     // This is only relevant at runtime.
-    if (block.is_comptime) return;
+    if (block.is_comptime or block.is_typeof) return;
 
     // This is only relevant within functions.
     if (sema.func == null) return;
@@ -16431,7 +16435,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     const src = sema.src; // TODO
 
     // This is only relevant at runtime.
-    if (start_block.is_comptime) return;
+    if (start_block.is_comptime or start_block.is_typeof) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
     const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
@@ -28357,8 +28361,16 @@ fn resolvePeerTypes(
         const candidate_ty_tag = try candidate_ty.zigTypeTagOrPoison();
         const chosen_ty_tag = try chosen_ty.zigTypeTagOrPoison();
 
-        if (candidate_ty.eql(chosen_ty, sema.mod))
+        // If the candidate can coerce into our chosen type, we're done.
+        // If the chosen type can coerce into the candidate, use that.
+        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
             continue;
+        }
+        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
 
         switch (candidate_ty_tag) {
             .NoReturn, .Undefined => continue,
@@ -28758,17 +28770,6 @@ fn resolvePeerTypes(
             else => {},
         }
 
-        // If the candidate can coerce into our chosen type, we're done.
-        // If the chosen type can coerce into the candidate, use that.
-        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
-            continue;
-        }
-        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
         // At this point, we hit a compile error. We need to recover
         // the source locations.
         const chosen_src = candidate_srcs.resolve(
@@ -29092,6 +29093,33 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         struct_obj.backing_int_ty = try backing_int_ty.copy(decl_arena_allocator);
         try wip_captures.finalize();
     } else {
+        if (fields_bit_sum > std.math.maxInt(u16)) {
+            var sema: Sema = .{
+                .mod = mod,
+                .gpa = gpa,
+                .arena = undefined,
+                .perm_arena = decl_arena_allocator,
+                .code = zir,
+                .owner_decl = decl,
+                .owner_decl_index = decl_index,
+                .func = null,
+                .fn_ret_ty = Type.void,
+                .owner_func = null,
+            };
+            defer sema.deinit();
+
+            var block: Block = .{
+                .parent = null,
+                .sema = &sema,
+                .src_decl = decl_index,
+                .namespace = &struct_obj.namespace,
+                .wip_capture_scope = undefined,
+                .instructions = .{},
+                .inlining = null,
+                .is_comptime = true,
+            };
+            return sema.fail(&block, LazySrcLoc.nodeOffset(0), "size of packed struct '{d}' exceeds maximum bit width of 65535", .{fields_bit_sum});
+        }
         var buf: Type.Payload.Bits = .{
             .base = .{ .tag = .int_unsigned },
             .data = @intCast(u16, fields_bit_sum),

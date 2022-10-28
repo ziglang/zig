@@ -1170,6 +1170,7 @@ test "implicitly cast from [N]T to ?[]const T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
     comptime try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
@@ -1256,6 +1257,7 @@ test "*const [N]null u8 to ?[]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1394,6 +1396,8 @@ test "cast i8 fn call peers to i32 result" {
 test "cast compatible optional types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     var a: ?[:0]const u8 = null;
     var b: ?[]const u8 = a;
@@ -1439,4 +1443,11 @@ test "coerce between pointers of compatible differently-named floats" {
     var f2: *c_longdouble = &f1;
     f2.* += 1;
     try expect(f1 == @as(F, 12.34) + 1);
+}
+
+test "peer type resolution of const and non-const pointer to array" {
+    const a = @intToPtr(*[1024]u8, 42);
+    const b = @intToPtr(*const [1024]u8, 42);
+    try std.testing.expect(@TypeOf(a, b) == *const [1024]u8);
+    try std.testing.expect(a == b);
 }

@@ -730,7 +730,11 @@ pub const DeclGen = struct {
                 }
 
                 if (ty.optionalReprIsPayload()) {
-                    return dg.renderValue(writer, payload_ty, val, location);
+                    if (val.castTag(.opt_payload)) |payload| {
+                        return dg.renderValue(writer, payload_ty, payload.data, location);
+                    } else {
+                        return dg.renderValue(writer, payload_ty, val, location);
+                    }
                 }
 
                 try writer.writeByte('(');
@@ -3267,11 +3271,9 @@ fn airIsNull(
     try f.writeCValue(writer, operand);
 
     const ty = f.air.typeOf(un_op);
+    const opt_ty = if (deref_suffix[0] != 0) ty.childType() else ty;
     var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_ty = if (deref_suffix[0] != 0)
-        ty.childType().optionalChild(&opt_buf)
-    else
-        ty.optionalChild(&opt_buf);
+    const payload_ty = opt_ty.optionalChild(&opt_buf);
 
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
         try writer.print("){s} {s} true;\n", .{ deref_suffix, operator });
@@ -3280,6 +3282,8 @@ fn airIsNull(
         try writer.print("){s} {s} NULL;\n", .{ deref_suffix, operator });
     } else if (payload_ty.zigTypeTag() == .ErrorSet) {
         try writer.print("){s} {s} 0;\n", .{ deref_suffix, operator });
+    } else if (payload_ty.isSlice() and opt_ty.optionalReprIsPayload()) {
+        try writer.print("){s}.ptr {s} NULL;\n", .{ deref_suffix, operator });
     } else {
         try writer.print("){s}.is_null {s} true;\n", .{ deref_suffix, operator });
     }
