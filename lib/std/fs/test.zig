@@ -726,7 +726,7 @@ fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !vo
     try iterable_dir.dir.deleteTree(maxed_filename);
 }
 
-test "filename limits" {
+test "max file name component lengths" {
     var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
 
@@ -737,7 +737,8 @@ test "filename limits" {
         try testFilenameLimits(tmp.iterable_dir, &maxed_windows_filename);
     } else if (builtin.os.tag == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
-        // work on any host, we need to use a length that will work for all platforms.
+        // work on any host, we need to use a length that will work for all platforms
+        // (i.e. the minimum MAX_NAME_BYTES of all supported platforms).
         const maxed_wasi_filename = [_]u8{'1'} ** 255;
         try testFilenameLimits(tmp.iterable_dir, &maxed_wasi_filename);
     } else {

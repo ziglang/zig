@@ -2981,6 +2981,18 @@ pub const PATH_MAX_WIDE = 32767;
 /// > lpMaximumComponentLength parameter of the GetVolumeInformation function
 /// > (this value is commonly 255 characters)
 /// from https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+///
+/// > The value that is stored in the variable that *lpMaximumComponentLength points to is
+/// > used to indicate that a specified file system supports long names. For example, for
+/// > a FAT file system that supports long names, the function stores the value 255, rather
+/// > than the previous 8.3 indicator. Long names can also be supported on systems that use
+/// > the NTFS file system.
+/// from https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationw
+///
+/// The assumption being made here is that while lpMaximumComponentLength may vary, it will never
+/// be larger than 255.
+///
+/// TODO: More verification of this assumption.
 pub const NAME_MAX = 255;
 
 pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;

@@ -372,7 +372,9 @@ pub const KERN = struct {};
 pub const IOV_MAX = 1024;
 
 pub const PATH_MAX = 1024;
-pub const NAME_MAX = 256;
+/// NOTE: Contains room for the terminating null character (despite the POSIX
+/// definition saying that NAME_MAX does not include the terminating null).
+pub const NAME_MAX = 256; // limits.h
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
