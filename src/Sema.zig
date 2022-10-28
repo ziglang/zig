@@ -23928,9 +23928,20 @@ fn coerceExtra(
             // cast from ?*T and ?[*]T to ?*anyopaque
             // but don't do it if the source type is a double pointer
             if (dest_ty.isPtrLikeOptional() and dest_ty.elemType2().tag() == .anyopaque and
-                inst_ty.isPtrLikeOptional() and inst_ty.elemType2().zigTypeTag() != .Pointer)
-            {
+                inst_ty.isPtrAtRuntime())
+            anyopaque_check: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :optional;
+                const elem_ty = inst_ty.elemType2(); 
+                if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
+                    in_memory_result = .{ .double_ptr_to_anyopaque = .{
+                        .actual = inst_ty,
+                        .wanted = dest_ty,
+                    } };
+                    break :optional;
+                }
+                // Let the logic below handle wrapping the optional now that
+                // it has been checked to correctly coerce.
+                if (!inst_ty.isPtrLikeOptional()) break: anyopaque_check;
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24053,9 +24064,16 @@ fn coerceExtra(
 
             // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
-                inst_ty.childType().zigTypeTag() != .Pointer and sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-            {
+            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer) {
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
+                const elem_ty = inst_ty.elemType2(); 
+                if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
+                    in_memory_result = .{ .double_ptr_to_anyopaque = .{
+                        .actual = inst_ty,
+                        .wanted = dest_ty,
+                    } };
+                    break :pointer;
+                }
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24537,6 +24555,7 @@ const InMemoryCoercionResult = union(enum) {
     ptr_allowzero: Pair,
     ptr_bit_range: BitRange,
     ptr_alignment: IntPair,
+    double_ptr_to_anyopaque: Pair,
 
     const Pair = struct {
         actual: Type,
@@ -24826,6 +24845,12 @@ const InMemoryCoercionResult = union(enum) {
             .ptr_alignment => |pair| {
                 try sema.errNote(block, src, msg, "pointer alignment '{}' cannot cast into pointer alignment '{}'", .{
                     pair.actual, pair.wanted,
+                });
+                break;
+            },
+            .double_ptr_to_anyopaque => |pair| {
+                try sema.errNote(block, src, msg, "cannot implicitly cast double pointer '{}' to anyopaque pointer '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
                 });
                 break;
             },
