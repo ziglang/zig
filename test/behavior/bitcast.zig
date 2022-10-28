@@ -375,12 +375,19 @@ test "comptime @bitCast packed struct to int and back" {
     }
 }
 
-test "comptime bitcast with fields following a float" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO: https://github.com/ziglang/zig/issues/13214
+test "comptime bitcast with fields following f80" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
-    const FloatT = extern struct { f: f80, x: u128 };
-    var x: FloatT = .{ .f = 0.5, .x = 123 };
-    try expect(@bitCast(u256, x) == comptime @bitCast(u256, @as(FloatT, .{ .f = 0.5, .x = 123 })));
+    const FloatT = extern struct { f: f80, x: u128 align(16) };
+    const x: FloatT = .{ .f = 0.5, .x = 123 };
+    var x_as_uint: u256 = comptime @bitCast(u256, x);
+
+    try expect(x.f == @bitCast(FloatT, x_as_uint).f);
+    try expect(x.x == @bitCast(FloatT, x_as_uint).x);
 }
 
 test "bitcast vector to integer and back" {
