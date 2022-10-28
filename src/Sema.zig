@@ -9663,6 +9663,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
     const operand = try sema.resolveInst(extra.data.operand);
+    // AstGen guarantees that the instruction immediately following
+    // switch_cond(_ref) is a dbg_stmt
+    const cond_dbg_node_index = Zir.refToIndex(extra.data.operand).? + 1;
 
     var header_extra_index: usize = extra.end;
 
@@ -10359,6 +10362,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (backend_supports_is_named_enum and block.wantSafety() and operand_ty.zigTypeTag() == .Enum and
             (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
+            try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
             try sema.addSafetyCheck(block, ok, .corrupt_switch);
         }
@@ -10828,6 +10832,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (backend_supports_is_named_enum and special.body.len != 0 and block.wantSafety() and
             operand_ty.zigTypeTag() == .Enum and (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
+            try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
             try sema.addSafetyCheck(&case_block, ok, .corrupt_switch);
         }
@@ -10851,6 +10856,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
             if (case_block.wantSafety()) {
+                try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
                 _ = try sema.safetyPanic(&case_block, src, .corrupt_switch);
             } else {
                 _ = try case_block.addNoOp(.unreach);
@@ -23931,7 +23937,7 @@ fn coerceExtra(
                 inst_ty.isPtrAtRuntime())
             anyopaque_check: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :optional;
-                const elem_ty = inst_ty.elemType2(); 
+                const elem_ty = inst_ty.elemType2();
                 if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
                     in_memory_result = .{ .double_ptr_to_anyopaque = .{
                         .actual = inst_ty,
@@ -23941,7 +23947,7 @@ fn coerceExtra(
                 }
                 // Let the logic below handle wrapping the optional now that
                 // it has been checked to correctly coerce.
-                if (!inst_ty.isPtrLikeOptional()) break: anyopaque_check;
+                if (!inst_ty.isPtrLikeOptional()) break :anyopaque_check;
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24066,7 +24072,7 @@ fn coerceExtra(
             // but don't do it if the source type is a double pointer
             if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer) {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
-                const elem_ty = inst_ty.elemType2(); 
+                const elem_ty = inst_ty.elemType2();
                 if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
                     in_memory_result = .{ .double_ptr_to_anyopaque = .{
                         .actual = inst_ty,
