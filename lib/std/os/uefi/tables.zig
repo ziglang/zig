@@ -4,6 +4,6 @@ pub usingnamespace @import("tables/configuration_table.zig");
 pub usingnamespace @import("tables/system_table.zig");
 pub usingnamespace @import("tables/table_header.zig");
 
-comptime {
+test {
     @import("std").testing.refAllDeclsRecursive(@This());
 }

@@ -44,7 +44,7 @@ pub const hii = @import("protocols/hii.zig");
 pub usingnamespace @import("protocols/hii_database_protocol.zig");
 pub usingnamespace @import("protocols/hii_popup_protocol.zig");
 
-comptime {
+test {
     @setEvalBranchQuota(2000);
     @import("std").testing.refAllDeclsRecursive(@This());
 }
