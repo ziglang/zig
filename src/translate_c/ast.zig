@@ -827,7 +827,7 @@ const Context = struct {
     }
 
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        if (@import("../AstGen.zig").isPrimitive(bytes))
+        if (std.zig.primitives.isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
         return c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(bytes)});
     }

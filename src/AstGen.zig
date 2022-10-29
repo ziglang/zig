@@ -10,6 +10,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
 
+const isPrimitive = std.zig.primitives.isPrimitive;
+
 const Zir = @import("Zir.zig");
 const refToIndex = Zir.refToIndex;
 const indexToRef = Zir.indexToRef;
@@ -4237,33 +4239,7 @@ fn testDecl(
 
             // if not @"" syntax, just use raw token slice
             if (ident_name_raw[0] != '@') {
-                if (primitives.get(ident_name_raw)) |_| return astgen.failTok(test_name_token, "cannot test a primitive", .{});
-
-                if (ident_name_raw.len >= 2) integer: {
-                    const first_c = ident_name_raw[0];
-                    if (first_c == 'i' or first_c == 'u') {
-                        _ = switch (first_c == 'i') {
-                            true => .signed,
-                            false => .unsigned,
-                        };
-                        if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
-                            return astgen.failTok(
-                                test_name_token,
-                                "primitive integer type '{s}' has leading zero",
-                                .{ident_name_raw},
-                            );
-                        }
-                        _ = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
-                            error.Overflow => return astgen.failTok(
-                                test_name_token,
-                                "primitive integer type '{s}' exceeds maximum bit width of 65535",
-                                .{ident_name_raw},
-                            ),
-                            error.InvalidCharacter => break :integer,
-                        };
-                        return astgen.failTok(test_name_token, "cannot test a primitive", .{});
-                    }
-                }
+                if (isPrimitive(ident_name_raw)) return astgen.failTok(test_name_token, "cannot test a primitive", .{});
             }
 
             // Local variables, including function parameters.
@@ -7108,7 +7084,7 @@ fn identifier(
 
     // if not @"" syntax, just use raw token slice
     if (ident_name_raw[0] != '@') {
-        if (primitives.get(ident_name_raw)) |zir_const_ref| {
+        if (primitive_instrs.get(ident_name_raw)) |zir_const_ref| {
             return rvalue(gz, ri, zir_const_ref, ident);
         }
 
@@ -8751,7 +8727,7 @@ fn calleeExpr(
     }
 }
 
-const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
+const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
     .{ "anyopaque", .anyopaque_type },
@@ -8794,6 +8770,21 @@ const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "usize", .usize_type },
     .{ "void", .void_type },
 });
+
+comptime {
+    // These checks ensure that std.zig.primitives stays in synce with the primitive->Zir map.
+    const primitives = std.zig.primitives;
+    for (primitive_instrs.kvs) |kv| {
+        if (!primitives.isPrimitive(kv.key)) {
+            @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(kv.value) ++ "'");
+        }
+    }
+    for (primitives.names.kvs) |kv| {
+        if (primitive_instrs.get(kv.key) == null) {
+            @compileError("std.zig.primitives entry '" ++ kv.key ++ "' does not have a corresponding Zir instr");
+        }
+    }
+}
 
 fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_res_ty: bool) bool {
     const node_tags = tree.nodes.items(.tag);
@@ -9458,7 +9449,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .identifier => {
                 const main_tokens = tree.nodes.items(.main_token);
                 const ident_bytes = tree.tokenSlice(main_tokens[node]);
-                if (primitives.get(ident_bytes)) |primitive| switch (primitive) {
+                if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
                     .anyopaque_type,
@@ -9702,7 +9693,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .identifier => {
                 const main_tokens = tree.nodes.items(.main_token);
                 const ident_bytes = tree.tokenSlice(main_tokens[node]);
-                if (primitives.get(ident_bytes)) |primitive| switch (primitive) {
+                if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
                     .anyopaque_type,
@@ -12043,19 +12034,6 @@ const GenZir = struct {
 /// when another string is added.
 fn nullTerminatedString(astgen: AstGen, index: usize) [*:0]const u8 {
     return @ptrCast([*:0]const u8, astgen.string_bytes.items.ptr) + index;
-}
-
-pub fn isPrimitive(name: []const u8) bool {
-    if (primitives.get(name) != null) return true;
-    if (name.len < 2) return false;
-    const first_c = name[0];
-    if (first_c != 'i' and first_c != 'u') return false;
-    if (parseBitCount(name[1..])) |_| {
-        return true;
-    } else |err| switch (err) {
-        error.Overflow => return true,
-        error.InvalidCharacter => return false,
-    }
 }
 
 /// Local variables shadowing detection, including function parameters.

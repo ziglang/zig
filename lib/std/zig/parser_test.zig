@@ -5198,6 +5198,382 @@ test "zig fmt: while continue expr" {
     });
 }
 
+test "zig fmt: canonicalize symbols (simple)" {
+    try testTransform(
+        \\const val_normal: Normal = .{};
+        \\const @"val_unesc_me": @"UnescMe" = .{};
+        \\const @"val_esc!": @"Esc!" = .{};
+        \\
+        \\fn fnNormal() void {}
+        \\fn @"fnUnescMe"() void {}
+        \\fn @"fnEsc!"() void {}
+        \\
+        \\extern fn protoNormal() void;
+        \\extern fn @"protoUnescMe"() void;
+        \\extern fn @"protoEsc!"() void;
+        \\
+        \\fn fnWithArgs(normal: Normal, @"unesc_me": @"UnescMe", @"esc!": @"Esc!") void {
+        \\    _ = normal;
+        \\    _ = @"unesc_me";
+        \\    _ = @"esc!";
+        \\}
+        \\
+        \\const Normal = struct {};
+        \\const @"UnescMe" = struct {
+        \\    @"x": @"X",
+        \\    const X = union(@"EnumUnesc") {
+        \\        normal,
+        \\        @"unesc_me",
+        \\        @"esc!",
+        \\    };
+        \\    const @"EnumUnesc" = enum {
+        \\        normal,
+        \\        @"unesc_me",
+        \\        @"esc!",
+        \\    };
+        \\};
+        \\const @"Esc!" = struct {
+        \\    normal: bool = false,
+        \\    @"unesc_me": bool = false,
+        \\    @"esc!": bool = false,
+        \\};
+        \\
+        \\pub fn main() void {
+        \\    _ = val_normal;
+        \\    _ = @"val_normal";
+        \\    _ = val_unesc_me;
+        \\    _ = @"val_unesc_me";
+        \\    _ = @"val_esc!";
+        \\
+        \\    fnNormal();
+        \\    @"fnNormal"();
+        \\    fnUnescMe();
+        \\    @"fnUnescMe"();
+        \\    @"fnEsc!"();
+        \\
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, @"Normal"{}, @"UnescMe"{}, @"Esc!"{});
+        \\    fnWithArgs(1, @"Normal"{}, @"Normal"{}, @"Esc!"{});
+        \\
+        \\    const local_val1: @"Normal" = .{};
+        \\    const @"local_val2": UnescMe = .{
+        \\        .@"x" = .@"unesc_me",
+        \\    };
+        \\    fnWithArgs(@"local_val1", @"local_val2", .{ .@"normal" = true, .@"unesc_me" = true, .@"esc!" = true });
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\
+        \\    var x: u8 = 'x';
+        \\    switch (@"x") {
+        \\        @"x" => {},
+        \\    }
+        \\
+        \\    _ = @import("std"); // Don't mess with @builtins
+        \\    // @"comment"
+        \\}
+        \\
+    ,
+        \\const val_normal: Normal = .{};
+        \\const val_unesc_me: UnescMe = .{};
+        \\const @"val_esc!": @"Esc!" = .{};
+        \\
+        \\fn fnNormal() void {}
+        \\fn fnUnescMe() void {}
+        \\fn @"fnEsc!"() void {}
+        \\
+        \\extern fn protoNormal() void;
+        \\extern fn protoUnescMe() void;
+        \\extern fn @"protoEsc!"() void;
+        \\
+        \\fn fnWithArgs(normal: Normal, unesc_me: UnescMe, @"esc!": @"Esc!") void {
+        \\    _ = normal;
+        \\    _ = unesc_me;
+        \\    _ = @"esc!";
+        \\}
+        \\
+        \\const Normal = struct {};
+        \\const UnescMe = struct {
+        \\    x: X,
+        \\    const X = union(EnumUnesc) {
+        \\        normal,
+        \\        unesc_me,
+        \\        @"esc!",
+        \\    };
+        \\    const EnumUnesc = enum {
+        \\        normal,
+        \\        unesc_me,
+        \\        @"esc!",
+        \\    };
+        \\};
+        \\const @"Esc!" = struct {
+        \\    normal: bool = false,
+        \\    unesc_me: bool = false,
+        \\    @"esc!": bool = false,
+        \\};
+        \\
+        \\pub fn main() void {
+        \\    _ = val_normal;
+        \\    _ = val_normal;
+        \\    _ = val_unesc_me;
+        \\    _ = val_unesc_me;
+        \\    _ = @"val_esc!";
+        \\
+        \\    fnNormal();
+        \\    fnNormal();
+        \\    fnUnescMe();
+        \\    fnUnescMe();
+        \\    @"fnEsc!"();
+        \\
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, Normal{}, Normal{}, @"Esc!"{});
+        \\
+        \\    const local_val1: Normal = .{};
+        \\    const local_val2: UnescMe = .{
+        \\        .x = .unesc_me,
+        \\    };
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\
+        \\    var x: u8 = 'x';
+        \\    switch (x) {
+        \\        x => {},
+        \\    }
+        \\
+        \\    _ = @import("std"); // Don't mess with @builtins
+        \\    // @"comment"
+        \\}
+        \\
+    );
+}
+
+// Contextually unescape when shadowing primitive types and values.
+test "zig fmt: canonicalize symbols (primitive types)" {
+    try testTransform(
+        \\const @"anyopaque" = struct {
+        \\    @"u8": @"type" = true,
+        \\    @"_": @"false" = @"true",
+        \\    const @"type" = bool;
+        \\    const @"false" = bool;
+        \\    const @"true" = false;
+        \\};
+        \\
+        \\const U = union(@"null") {
+        \\    @"type",
+        \\    const @"null" = enum {
+        \\        @"type",
+        \\    };
+        \\};
+        \\
+        \\test {
+        \\    const E = enum { @"anyopaque" };
+        \\    _ = U{ .@"type" = {} };
+        \\    _ = U.@"type";
+        \\    _ = E.@"anyopaque";
+        \\}
+        \\
+        \\fn @"i10"(@"void": @"anyopaque", @"type": @"anyopaque".@"type") error{@"null"}!void {
+        \\    var @"f32" = @"void";
+        \\    @"f32".@"u8" = false;
+        \\    _ = @"type";
+        \\    _ = type;
+        \\    if (@"f32".@"u8") {
+        \\        return @"i10"(.{ .@"u8" = true, .@"_" = false }, false);
+        \\    } else {
+        \\        return error.@"null";
+        \\    }
+        \\}
+        \\
+        \\test @"i10" {
+        \\    try @"i10"(.{}, true);
+        \\    _ = @"void": while (null) |@"u3"| {
+        \\        break :@"void" @"u3";
+        \\    };
+        \\    _ = @"void": {
+        \\        break :@"void";
+        \\    };
+        \\    for ("hi") |@"u3", @"i4"| {
+        \\        _ = @"u3";
+        \\        _ = @"i4";
+        \\    }
+        \\    if (false) {} else |@"bool"| {
+        \\        _ = @"bool";
+        \\    }
+        \\}
+        \\
+    ,
+        \\const @"anyopaque" = struct {
+        \\    u8: @"type" = true,
+        \\    _: @"false" = @"true",
+        \\    const @"type" = bool;
+        \\    const @"false" = bool;
+        \\    const @"true" = false;
+        \\};
+        \\
+        \\const U = union(@"null") {
+        \\    type,
+        \\    const @"null" = enum {
+        \\        type,
+        \\    };
+        \\};
+        \\
+        \\test {
+        \\    const E = enum { anyopaque };
+        \\    _ = U{ .type = {} };
+        \\    _ = U.type;
+        \\    _ = E.anyopaque;
+        \\}
+        \\
+        \\fn @"i10"(@"void": @"anyopaque", @"type": @"anyopaque".type) error{null}!void {
+        \\    var @"f32" = @"void";
+        \\    @"f32".u8 = false;
+        \\    _ = @"type";
+        \\    _ = type;
+        \\    if (@"f32".u8) {
+        \\        return @"i10"(.{ .u8 = true, ._ = false }, false);
+        \\    } else {
+        \\        return error.null;
+        \\    }
+        \\}
+        \\
+        \\test @"i10" {
+        \\    try @"i10"(.{}, true);
+        \\    _ = void: while (null) |@"u3"| {
+        \\        break :void @"u3";
+        \\    };
+        \\    _ = void: {
+        \\        break :void;
+        \\    };
+        \\    for ("hi") |@"u3", @"i4"| {
+        \\        _ = @"u3";
+        \\        _ = @"i4";
+        \\    }
+        \\    if (false) {} else |@"bool"| {
+        \\        _ = @"bool";
+        \\    }
+        \\}
+        \\
+    );
+}
+
+// Never unescape names spelled like keywords.
+test "zig fmt: canonicalize symbols (keywords)" {
+    try testCanonical(
+        \\const @"enum" = struct {
+        \\    @"error": @"struct" = true,
+        \\    const @"struct" = bool;
+        \\};
+        \\
+        \\fn @"usingnamespace"(@"union": @"enum") error{@"try"}!void {
+        \\    var @"struct" = @"union";
+        \\    @"struct".@"error" = false;
+        \\    if (@"struct".@"error") {
+        \\        return @"usingnamespace"(.{ .@"error" = false });
+        \\    } else {
+        \\        return error.@"try";
+        \\    }
+        \\}
+        \\
+        \\test @"usingnamespace" {
+        \\    try @"usingnamespace"(.{});
+        \\    _ = @"return": {
+        \\        break :@"return" 4;
+        \\    };
+        \\}
+        \\
+    );
+}
+
+// Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
+test "zig fmt: canonicalize symbols (character escapes)" {
+    try testTransform(
+        \\const @"\x46\x6f\x6f\x64" = struct {
+        \\    @"\x62\x61\x72\x6E": @"\x43\x72\x61\x62" = false,
+        \\    @"\u{67}\u{6C}o\u{70}\xFF": @"Cra\x62" = false,
+        \\    @"\x65\x72\x72\x6F\x72": Crab = true,
+        \\    @"\x74\x72\x79": Crab = true,
+        \\    @"\u{74}\u{79}\u{70}\u{65}": @"any\u{6F}\u{70}\u{61}\u{71}\u{75}\u{65}",
+        \\
+        \\    const @"\x43\x72\x61\x62" = bool;
+        \\    const @"\x61\x6E\x79\x6F\x70\x61que" = void;
+        \\};
+        \\
+        \\test "unicode" {
+        \\    const @"cąbbäge ⚡" = 2;
+        \\    _ = @"cąbbäge ⚡";
+        \\    const @"\u{01f422} friend\u{f6}" = 4;
+        \\    _ = @"🐢 friendö";
+        \\}
+        \\
+    ,
+        \\const Food = struct {
+        \\    barn: Crab = false,
+        \\    @"glop\xFF": Crab = false,
+        \\    @"error": Crab = true,
+        \\    @"try": Crab = true,
+        \\    type: @"anyopaque",
+        \\
+        \\    const Crab = bool;
+        \\    const @"anyopaque" = void;
+        \\};
+        \\
+        \\test "unicode" {
+        \\    const @"cąbbäge ⚡" = 2;
+        \\    _ = @"cąbbäge ⚡";
+        \\    const @"\u{01f422} friend\u{f6}" = 4;
+        \\    _ = @"🐢 friendö";
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: canonicalize symbols (asm)" {
+    try testTransform(
+        \\test "asm" {
+        \\    const @"null" = usize;
+        \\    const @"try": usize = 808;
+        \\    const arg: usize = 2;
+        \\    _ = asm volatile ("syscall"
+        \\        : [@"void"] "={rax}" (-> @"null"),
+        \\        : [@"error"] "{rax}" (@"try"),
+        \\          [@"arg1"] "{rdi}" (arg),
+        \\          [arg2] "{rsi}" (arg),
+        \\          [arg3] "{rdx}" (arg),
+        \\        : "rcx", "r11"
+        \\    );
+        \\
+        \\    const @"false": usize = 10;
+        \\    const @"true" = "explode";
+        \\    _ = asm volatile (@"true"
+        \\        : [one] "={rax}" (@"false"),
+        \\        : [two] "{rax}" (@"false"),
+        \\    );
+        \\}
+        \\
+    ,
+        \\test "asm" {
+        \\    const @"null" = usize;
+        \\    const @"try": usize = 808;
+        \\    const arg: usize = 2;
+        \\    _ = asm volatile ("syscall"
+        \\        : [void] "={rax}" (-> @"null"),
+        \\        : [@"error"] "{rax}" (@"try"),
+        \\          [arg1] "{rdi}" (arg),
+        \\          [arg2] "{rsi}" (arg),
+        \\          [arg3] "{rdx}" (arg),
+        \\        : "rcx", "r11"
+        \\    );
+        \\
+        \\    const @"false": usize = 10;
+        \\    const @"true" = "explode";
+        \\    _ = asm volatile (@"true"
+        \\        : [one] "={rax}" (false),
+        \\        : [two] "{rax}" (@"false"),
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: error for missing sentinel value in sentinel slice" {
     try testError(
         \\const foo = foo[0..:];
