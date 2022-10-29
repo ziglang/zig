@@ -18,8 +18,10 @@ comptime {
     @export(truncf, .{ .name = "truncf", .linkage = common.linkage });
     @export(trunc, .{ .name = "trunc", .linkage = common.linkage });
     @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage });
-    const truncq_sym_name = if (common.want_ppc_abi) "truncf128" else "truncq";
-    @export(truncq, .{ .name = truncq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(truncq, .{ .name = "truncf128", .linkage = common.linkage });
+    }
+    @export(truncq, .{ .name = "truncq", .linkage = common.linkage });
     @export(truncl, .{ .name = "truncl", .linkage = common.linkage });
 }
 

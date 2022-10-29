@@ -11,8 +11,10 @@ comptime {
     @export(sqrtf, .{ .name = "sqrtf", .linkage = common.linkage });
     @export(sqrt, .{ .name = "sqrt", .linkage = common.linkage });
     @export(__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage });
-    const sqrtq_sym_name = if (common.want_ppc_abi) "sqrtf128" else "sqrtq";
-    @export(sqrtq, .{ .name = sqrtq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage });
+    }
+    @export(sqrtq, .{ .name = "sqrtq", .linkage = common.linkage });
     @export(sqrtl, .{ .name = "sqrtl", .linkage = common.linkage });
 }
 

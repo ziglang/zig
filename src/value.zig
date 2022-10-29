@@ -111,10 +111,12 @@ pub const Value = extern union {
         int_i64,
         int_big_positive,
         int_big_negative,
-        runtime_int,
         function,
         extern_fn,
         variable,
+        /// A wrapper for values which are comptime-known but should
+        /// semantically be runtime-known.
+        runtime_value,
         /// Represents a pointer to a Decl.
         /// When machine codegen backend sees this, it must set the Decl's `alive` field to true.
         decl_ref,
@@ -282,6 +284,7 @@ pub const Value = extern union {
                 .eu_payload,
                 .opt_payload,
                 .empty_array_sentinel,
+                .runtime_value,
                 => Payload.SubValue,
 
                 .eu_payload_ptr,
@@ -305,7 +308,6 @@ pub const Value = extern union {
                 .int_type => Payload.IntType,
                 .int_u64 => Payload.U64,
                 .int_i64 => Payload.I64,
-                .runtime_int => Payload.U64,
                 .function => Payload.Function,
                 .variable => Payload.Variable,
                 .decl_ref_mut => Payload.DeclRefMut,
@@ -485,7 +487,6 @@ pub const Value = extern union {
             },
             .int_type => return self.copyPayloadShallow(arena, Payload.IntType),
             .int_u64 => return self.copyPayloadShallow(arena, Payload.U64),
-            .runtime_int => return self.copyPayloadShallow(arena, Payload.U64),
             .int_i64 => return self.copyPayloadShallow(arena, Payload.I64),
             .int_big_positive, .int_big_negative => {
                 const old_payload = self.cast(Payload.BigInt).?;
@@ -567,6 +568,7 @@ pub const Value = extern union {
             .eu_payload,
             .opt_payload,
             .empty_array_sentinel,
+            .runtime_value,
             => {
                 const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try arena.create(Payload.SubValue);
@@ -765,7 +767,7 @@ pub const Value = extern union {
             .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
-            .runtime_int => return out_stream.writeAll("[runtime value]"),
+            .runtime_value => return out_stream.writeAll("[runtime value]"),
             .function => return out_stream.print("(function decl={d})", .{val.castTag(.function).?.data.owner_decl}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
@@ -1081,8 +1083,6 @@ pub const Value = extern union {
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
             .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
 
-            .runtime_int => return BigIntMutable.init(&space.limbs, val.castTag(.runtime_int).?.data).toConst(),
-
             .undef => unreachable,
 
             .lazy_align => {
@@ -1137,8 +1137,6 @@ pub const Value = extern union {
             .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
             .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
-
-            .runtime_int => return val.castTag(.runtime_int).?.data,
 
             .undef => unreachable,
 
@@ -1208,8 +1206,13 @@ pub const Value = extern union {
         };
     }
 
+    /// Write a Value's contents to `buffer`.
+    ///
+    /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
+    /// the end of the value in memory.
     pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) void {
         const target = mod.getTarget();
+        const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
             const size = @intCast(usize, ty.abiSize(target));
             std.mem.set(u8, buffer[0..size], 0xaa);
@@ -1220,31 +1223,41 @@ pub const Value = extern union {
             .Bool => {
                 buffer[0] = @boolToInt(val.toBool());
             },
-            .Int => {
-                var bigint_buffer: BigIntSpace = undefined;
-                const bigint = val.toBigInt(&bigint_buffer, target);
-                const bits = ty.intInfo(target).bits;
-                const abi_size = @intCast(usize, ty.abiSize(target));
-                bigint.writeTwosComplement(buffer, bits, abi_size, target.cpu.arch.endian());
-            },
-            .Enum => {
+            .Int, .Enum => {
+                const int_info = ty.intInfo(target);
+                const bits = int_info.bits;
+                const byte_count = (bits + 7) / 8;
+
                 var enum_buffer: Payload.U64 = undefined;
                 const int_val = val.enumToInt(ty, &enum_buffer);
-                var bigint_buffer: BigIntSpace = undefined;
-                const bigint = int_val.toBigInt(&bigint_buffer, target);
-                const bits = ty.intInfo(target).bits;
-                const abi_size = @intCast(usize, ty.abiSize(target));
-                bigint.writeTwosComplement(buffer, bits, abi_size, target.cpu.arch.endian());
+
+                if (byte_count <= @sizeOf(u64)) {
+                    const int: u64 = switch (int_val.tag()) {
+                        .zero => 0,
+                        .one => 1,
+                        .int_u64 => int_val.castTag(.int_u64).?.data,
+                        .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
+                        else => unreachable,
+                    };
+                    for (buffer[0..byte_count]) |_, i| switch (endian) {
+                        .Little => buffer[i] = @truncate(u8, (int >> @intCast(u6, (8 * i)))),
+                        .Big => buffer[byte_count - i - 1] = @truncate(u8, (int >> @intCast(u6, (8 * i)))),
+                    };
+                } else {
+                    var bigint_buffer: BigIntSpace = undefined;
+                    const bigint = int_val.toBigInt(&bigint_buffer, target);
+                    bigint.writeTwosComplement(buffer[0..byte_count], endian);
+                }
             },
             .Float => switch (ty.floatBits(target)) {
-                16 => return floatWriteToMemory(f16, val.toFloat(f16), target, buffer),
-                32 => return floatWriteToMemory(f32, val.toFloat(f32), target, buffer),
-                64 => return floatWriteToMemory(f64, val.toFloat(f64), target, buffer),
-                80 => return floatWriteToMemory(f80, val.toFloat(f80), target, buffer),
-                128 => return floatWriteToMemory(f128, val.toFloat(f128), target, buffer),
+                16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(u16, val.toFloat(f16)), endian),
+                32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(u32, val.toFloat(f32)), endian),
+                64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(u64, val.toFloat(f64)), endian),
+                80 => std.mem.writeInt(u80, buffer[0..10], @bitCast(u80, val.toFloat(f80)), endian),
+                128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(u128, val.toFloat(f128)), endian),
                 else => unreachable,
             },
-            .Array, .Vector => {
+            .Array => {
                 const len = ty.arrayLen();
                 const elem_ty = ty.childType();
                 const elem_size = @intCast(usize, elem_ty.abiSize(target));
@@ -1253,9 +1266,15 @@ pub const Value = extern union {
                 var buf_off: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
                     const elem_val = val.elemValueBuffer(mod, elem_i, &elem_value_buf);
-                    writeToMemory(elem_val, elem_ty, mod, buffer[buf_off..]);
+                    elem_val.writeToMemory(elem_ty, mod, buffer[buf_off..]);
                     buf_off += elem_size;
                 }
+            },
+            .Vector => {
+                // We use byte_count instead of abi_size here, so that any padding bytes
+                // follow the data bytes, on both big- and little-endian systems.
+                const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
             .Struct => switch (ty.containerLayout()) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -1268,122 +1287,113 @@ pub const Value = extern union {
                     }
                 },
                 .Packed => {
-                    // TODO allocate enough heap space instead of using this buffer
-                    // on the stack.
-                    var buf: [16]std.math.big.Limb = undefined;
-                    const host_int = packedStructToInt(val, ty, target, &buf);
-                    const abi_size = @intCast(usize, ty.abiSize(target));
-                    const bit_size = @intCast(usize, ty.bitSize(target));
-                    host_int.writeTwosComplement(buffer, bit_size, abi_size, target.cpu.arch.endian());
+                    const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                    writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
             .ErrorSet => {
                 // TODO revisit this when we have the concept of the error tag type
                 const Int = u16;
                 const int = mod.global_error_set.get(val.castTag(.@"error").?.data.name).?;
-                std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), target.cpu.arch.endian());
+                std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
     }
 
-    fn packedStructToInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
-        var bigint = BigIntMutable.init(buf, 0);
-        const fields = ty.structFields().values();
-        const field_vals = val.castTag(.aggregate).?.data;
-        var bits: u16 = 0;
-        // TODO allocate enough heap space instead of using this buffer
-        // on the stack.
-        var field_buf: [16]std.math.big.Limb = undefined;
-        var field_space: BigIntSpace = undefined;
-        var field_buf2: [16]std.math.big.Limb = undefined;
-        for (fields) |field, i| {
-            const field_val = field_vals[i];
-            const field_bigint_const = switch (field.ty.zigTypeTag()) {
-                .Void => continue,
-                .Float => floatToBigInt(field_val, field.ty, target, &field_buf),
-                .Int, .Bool => intOrBoolToBigInt(field_val, field.ty, target, &field_buf, &field_space),
-                .Struct => switch (field.ty.containerLayout()) {
-                    .Auto, .Extern => unreachable, // Sema should have error'd before this.
-                    .Packed => packedStructToInt(field_val, field.ty, target, &field_buf),
-                },
-                .Vector => vectorToBigInt(field_val, field.ty, target, &field_buf),
-                .Enum => enumToBigInt(field_val, field.ty, target, &field_space),
-                .Union => unreachable, // TODO: packed structs support packed unions
-                else => unreachable,
-            };
-            var field_bigint = BigIntMutable.init(&field_buf2, 0);
-            field_bigint.shiftLeft(field_bigint_const, bits);
-            bits += @intCast(u16, field.ty.bitSize(target));
-            bigint.bitOr(bigint.toConst(), field_bigint.toConst());
-        }
-        return bigint.toConst();
-    }
-
-    fn intOrBoolToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb, space: *BigIntSpace) BigIntConst {
-        const big_int_const = val.toBigInt(space, target);
-        if (big_int_const.positive) return big_int_const;
-
-        var big_int = BigIntMutable.init(buf, 0);
-        big_int.bitNotWrap(big_int_const.negate(), .unsigned, @intCast(u32, ty.bitSize(target)));
-        big_int.addScalar(big_int.toConst(), 1);
-        return big_int.toConst();
-    }
-
-    fn vectorToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
+    /// Write a Value's contents to `buffer`.
+    ///
+    /// Both the start and the end of the provided buffer must be tight, since
+    /// big-endian packed memory layouts start at the end of the buffer.
+    pub fn writeToPackedMemory(val: Value, ty: Type, mod: *Module, buffer: []u8, bit_offset: usize) void {
+        const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
-        var vec_bitint = BigIntMutable.init(buf, 0);
-        const vec_len = @intCast(usize, ty.arrayLen());
-        const elem_ty = ty.childType();
-        const elem_size = @intCast(usize, elem_ty.bitSize(target));
-
-        var elem_buf: [16]std.math.big.Limb = undefined;
-        var elem_space: BigIntSpace = undefined;
-        var elem_buf2: [16]std.math.big.Limb = undefined;
-
-        var elem_i: usize = 0;
-        while (elem_i < vec_len) : (elem_i += 1) {
-            const elem_i_target = if (endian == .Big) vec_len - elem_i - 1 else elem_i;
-            const elem_val = val.indexVectorlike(elem_i_target);
-            const elem_bigint_const = switch (elem_ty.zigTypeTag()) {
-                .Int, .Bool => intOrBoolToBigInt(elem_val, elem_ty, target, &elem_buf, &elem_space),
-                .Float => floatToBigInt(elem_val, elem_ty, target, &elem_buf),
-                .Pointer => unreachable, // TODO
-                else => unreachable, // Sema should not let this happen
-            };
-            var elem_bitint = BigIntMutable.init(&elem_buf2, 0);
-            elem_bitint.shiftLeft(elem_bigint_const, elem_size * elem_i);
-            vec_bitint.bitOr(vec_bitint.toConst(), elem_bitint.toConst());
+        if (val.isUndef()) {
+            const bit_size = @intCast(usize, ty.bitSize(target));
+            std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
+            return;
         }
-        return vec_bitint.toConst();
+        switch (ty.zigTypeTag()) {
+            .Void => {},
+            .Bool => {
+                const byte_index = switch (endian) {
+                    .Little => bit_offset / 8,
+                    .Big => buffer.len - bit_offset / 8 - 1,
+                };
+                if (val.toBool()) {
+                    buffer[byte_index] |= (@as(u8, 1) << @intCast(u3, bit_offset % 8));
+                } else {
+                    buffer[byte_index] &= ~(@as(u8, 1) << @intCast(u3, bit_offset % 8));
+                }
+            },
+            .Int, .Enum => {
+                const bits = ty.intInfo(target).bits;
+                const abi_size = @intCast(usize, ty.abiSize(target));
+
+                var enum_buffer: Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &enum_buffer);
+
+                if (abi_size <= @sizeOf(u64)) {
+                    const int: u64 = switch (int_val.tag()) {
+                        .zero => 0,
+                        .one => 1,
+                        .int_u64 => int_val.castTag(.int_u64).?.data,
+                        .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
+                        else => unreachable,
+                    };
+                    std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian);
+                } else {
+                    var bigint_buffer: BigIntSpace = undefined;
+                    const bigint = int_val.toBigInt(&bigint_buffer, target);
+                    bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian);
+                }
+            },
+            .Float => switch (ty.floatBits(target)) {
+                16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(u16, val.toFloat(f16)), endian),
+                32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(u32, val.toFloat(f32)), endian),
+                64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(u64, val.toFloat(f64)), endian),
+                80 => std.mem.writePackedInt(u80, buffer, bit_offset, @bitCast(u80, val.toFloat(f80)), endian),
+                128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(u128, val.toFloat(f128)), endian),
+                else => unreachable,
+            },
+            .Vector => {
+                const elem_ty = ty.childType();
+                const elem_bit_size = @intCast(u16, elem_ty.bitSize(target));
+                const len = @intCast(usize, ty.arrayLen());
+
+                var bits: u16 = 0;
+                var elem_i: usize = 0;
+                var elem_value_buf: ElemValueBuffer = undefined;
+                while (elem_i < len) : (elem_i += 1) {
+                    // On big-endian systems, LLVM reverses the element order of vectors by default
+                    const tgt_elem_i = if (endian == .Big) len - elem_i - 1 else elem_i;
+                    const elem_val = val.elemValueBuffer(mod, tgt_elem_i, &elem_value_buf);
+                    elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
+                    bits += elem_bit_size;
+                }
+            },
+            .Struct => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => unreachable, // Handled in non-packed writeToMemory
+                .Packed => {
+                    var bits: u16 = 0;
+                    const fields = ty.structFields().values();
+                    const field_vals = val.castTag(.aggregate).?.data;
+                    for (fields) |field, i| {
+                        const field_bits = @intCast(u16, field.ty.bitSize(target));
+                        field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
+                        bits += field_bits;
+                    }
+                },
+            },
+            else => @panic("TODO implement writeToPackedMemory for more types"),
+        }
     }
 
-    fn enumToBigInt(val: Value, ty: Type, target: Target, space: *BigIntSpace) BigIntConst {
-        var enum_buf: Payload.U64 = undefined;
-        const int_val = val.enumToInt(ty, &enum_buf);
-        return int_val.toBigInt(space, target);
-    }
-
-    fn floatToBigInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
-        return switch (ty.floatBits(target)) {
-            16 => bitcastFloatToBigInt(f16, val.toFloat(f16), buf),
-            32 => bitcastFloatToBigInt(f32, val.toFloat(f32), buf),
-            64 => bitcastFloatToBigInt(f64, val.toFloat(f64), buf),
-            80 => bitcastFloatToBigInt(f80, val.toFloat(f80), buf),
-            128 => bitcastFloatToBigInt(f128, val.toFloat(f128), buf),
-            else => unreachable,
-        };
-    }
-
-    fn bitcastFloatToBigInt(comptime F: type, f: F, buf: []std.math.big.Limb) BigIntConst {
-        const Int = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = @typeInfo(F).Float.bits,
-        } });
-        const int = @bitCast(Int, f);
-        return BigIntMutable.init(buf, int).toConst();
-    }
-
+    /// Load a Value from the contents of `buffer`.
+    ///
+    /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
+    /// the end of the value in memory.
     pub fn readFromMemory(
         ty: Type,
         mod: *Module,
@@ -1391,6 +1401,7 @@ pub const Value = extern union {
         arena: Allocator,
     ) Allocator.Error!Value {
         const target = mod.getTarget();
+        const endian = target.cpu.arch.endian();
         switch (ty.zigTypeTag()) {
             .Void => return Value.@"void",
             .Bool => {
@@ -1400,27 +1411,40 @@ pub const Value = extern union {
                     return Value.@"true";
                 }
             },
-            .Int => {
-                if (buffer.len == 0) return Value.zero;
+            .Int, .Enum => {
                 const int_info = ty.intInfo(target);
-                const endian = target.cpu.arch.endian();
-                const Limb = std.math.big.Limb;
-                const limb_count = (buffer.len + @sizeOf(Limb) - 1) / @sizeOf(Limb);
-                const limbs_buffer = try arena.alloc(Limb, limb_count);
-                const abi_size = @intCast(usize, ty.abiSize(target));
-                var bigint = BigIntMutable.init(limbs_buffer, 0);
-                bigint.readTwosComplement(buffer, int_info.bits, abi_size, endian, int_info.signedness);
-                return fromBigInt(arena, bigint.toConst());
+                const bits = int_info.bits;
+                const byte_count = (bits + 7) / 8;
+                if (bits == 0 or buffer.len == 0) return Value.zero;
+
+                if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
+                    .signed => {
+                        const val = std.mem.readVarInt(i64, buffer[0..byte_count], endian);
+                        return Value.Tag.int_i64.create(arena, (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits));
+                    },
+                    .unsigned => {
+                        const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
+                        return Value.Tag.int_u64.create(arena, (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits));
+                    },
+                } else { // Slow path, we have to construct a big-int
+                    const Limb = std.math.big.Limb;
+                    const limb_count = (byte_count + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+                    const limbs_buffer = try arena.alloc(Limb, limb_count);
+
+                    var bigint = BigIntMutable.init(limbs_buffer, 0);
+                    bigint.readTwosComplement(buffer[0..byte_count], bits, endian, int_info.signedness);
+                    return fromBigInt(arena, bigint.toConst());
+                }
             },
             .Float => switch (ty.floatBits(target)) {
-                16 => return Value.Tag.float_16.create(arena, floatReadFromMemory(f16, target, buffer)),
-                32 => return Value.Tag.float_32.create(arena, floatReadFromMemory(f32, target, buffer)),
-                64 => return Value.Tag.float_64.create(arena, floatReadFromMemory(f64, target, buffer)),
-                80 => return Value.Tag.float_80.create(arena, floatReadFromMemory(f80, target, buffer)),
-                128 => return Value.Tag.float_128.create(arena, floatReadFromMemory(f128, target, buffer)),
+                16 => return Value.Tag.float_16.create(arena, @bitCast(f16, std.mem.readInt(u16, buffer[0..2], endian))),
+                32 => return Value.Tag.float_32.create(arena, @bitCast(f32, std.mem.readInt(u32, buffer[0..4], endian))),
+                64 => return Value.Tag.float_64.create(arena, @bitCast(f64, std.mem.readInt(u64, buffer[0..8], endian))),
+                80 => return Value.Tag.float_80.create(arena, @bitCast(f80, std.mem.readInt(u80, buffer[0..10], endian))),
+                128 => return Value.Tag.float_128.create(arena, @bitCast(f128, std.mem.readInt(u128, buffer[0..16], endian))),
                 else => unreachable,
             },
-            .Array, .Vector => {
+            .Array => {
                 const elem_ty = ty.childType();
                 const elem_size = elem_ty.abiSize(target);
                 const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));
@@ -1431,6 +1455,12 @@ pub const Value = extern union {
                 }
                 return Tag.aggregate.create(arena, elems);
             },
+            .Vector => {
+                // We use byte_count instead of abi_size here, so that any padding bytes
+                // follow the data bytes, on both big- and little-endian systems.
+                const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+            },
             .Struct => switch (ty.containerLayout()) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => {
@@ -1438,26 +1468,20 @@ pub const Value = extern union {
                     const field_vals = try arena.alloc(Value, fields.len);
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
-                        field_vals[i] = try readFromMemory(field.ty, mod, buffer[off..], arena);
+                        const sz = @intCast(usize, ty.structFieldType(i).abiSize(target));
+                        field_vals[i] = try readFromMemory(field.ty, mod, buffer[off..(off + sz)], arena);
                     }
                     return Tag.aggregate.create(arena, field_vals);
                 },
                 .Packed => {
-                    const endian = target.cpu.arch.endian();
-                    const Limb = std.math.big.Limb;
-                    const abi_size = @intCast(usize, ty.abiSize(target));
-                    const bit_size = @intCast(usize, ty.bitSize(target));
-                    const limb_count = (buffer.len + @sizeOf(Limb) - 1) / @sizeOf(Limb);
-                    const limbs_buffer = try arena.alloc(Limb, limb_count);
-                    var bigint = BigIntMutable.init(limbs_buffer, 0);
-                    bigint.readTwosComplement(buffer, bit_size, abi_size, endian, .unsigned);
-                    return intToPackedStruct(ty, target, bigint.toConst(), arena);
+                    const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
                 },
             },
             .ErrorSet => {
                 // TODO revisit this when we have the concept of the error tag type
                 const Int = u16;
-                const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], target.cpu.arch.endian());
+                const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], endian);
 
                 const payload = try arena.create(Value.Payload.Error);
                 payload.* = .{
@@ -1470,115 +1494,90 @@ pub const Value = extern union {
         }
     }
 
-    fn intToPackedStruct(
+    /// Load a Value from the contents of `buffer`.
+    ///
+    /// Both the start and the end of the provided buffer must be tight, since
+    /// big-endian packed memory layouts start at the end of the buffer.
+    pub fn readFromPackedMemory(
         ty: Type,
-        target: Target,
-        bigint: BigIntConst,
+        mod: *Module,
+        buffer: []const u8,
+        bit_offset: usize,
         arena: Allocator,
     ) Allocator.Error!Value {
-        const limbs_buffer = try arena.alloc(std.math.big.Limb, bigint.limbs.len);
-        var bigint_mut = bigint.toMutable(limbs_buffer);
-        const fields = ty.structFields().values();
-        const field_vals = try arena.alloc(Value, fields.len);
-        var bits: u16 = 0;
-        for (fields) |field, i| {
-            const field_bits = @intCast(u16, field.ty.bitSize(target));
-            bigint_mut.shiftRight(bigint, bits);
-            bigint_mut.truncate(bigint_mut.toConst(), .unsigned, field_bits);
-            bits += field_bits;
-            const field_bigint = bigint_mut.toConst();
+        const target = mod.getTarget();
+        const endian = target.cpu.arch.endian();
+        switch (ty.zigTypeTag()) {
+            .Void => return Value.@"void",
+            .Bool => {
+                const byte = switch (endian) {
+                    .Big => buffer[buffer.len - bit_offset / 8 - 1],
+                    .Little => buffer[bit_offset / 8],
+                };
+                if (((byte >> @intCast(u3, bit_offset % 8)) & 1) == 0) {
+                    return Value.@"false";
+                } else {
+                    return Value.@"true";
+                }
+            },
+            .Int, .Enum => {
+                if (buffer.len == 0) return Value.zero;
+                const int_info = ty.intInfo(target);
+                const abi_size = @intCast(usize, ty.abiSize(target));
 
-            field_vals[i] = switch (field.ty.zigTypeTag()) {
-                .Float => switch (field.ty.floatBits(target)) {
-                    16 => try bitCastBigIntToFloat(f16, .float_16, field_bigint, arena),
-                    32 => try bitCastBigIntToFloat(f32, .float_32, field_bigint, arena),
-                    64 => try bitCastBigIntToFloat(f64, .float_64, field_bigint, arena),
-                    80 => try bitCastBigIntToFloat(f80, .float_80, field_bigint, arena),
-                    128 => try bitCastBigIntToFloat(f128, .float_128, field_bigint, arena),
-                    else => unreachable,
-                },
-                .Bool => makeBool(!field_bigint.eqZero()),
-                .Int => try Tag.int_big_positive.create(
-                    arena,
-                    try arena.dupe(std.math.big.Limb, field_bigint.limbs),
-                ),
-                .Struct => try intToPackedStruct(field.ty, target, field_bigint, arena),
+                const bits = int_info.bits;
+                if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
+                    .signed => return Value.Tag.int_i64.create(arena, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
+                    .unsigned => return Value.Tag.int_u64.create(arena, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
+                } else { // Slow path, we have to construct a big-int
+                    const Limb = std.math.big.Limb;
+                    const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+                    const limbs_buffer = try arena.alloc(Limb, limb_count);
+
+                    var bigint = BigIntMutable.init(limbs_buffer, 0);
+                    bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
+                    return fromBigInt(arena, bigint.toConst());
+                }
+            },
+            .Float => switch (ty.floatBits(target)) {
+                16 => return Value.Tag.float_16.create(arena, @bitCast(f16, std.mem.readPackedInt(u16, buffer, bit_offset, endian))),
+                32 => return Value.Tag.float_32.create(arena, @bitCast(f32, std.mem.readPackedInt(u32, buffer, bit_offset, endian))),
+                64 => return Value.Tag.float_64.create(arena, @bitCast(f64, std.mem.readPackedInt(u64, buffer, bit_offset, endian))),
+                80 => return Value.Tag.float_80.create(arena, @bitCast(f80, std.mem.readPackedInt(u80, buffer, bit_offset, endian))),
+                128 => return Value.Tag.float_128.create(arena, @bitCast(f128, std.mem.readPackedInt(u128, buffer, bit_offset, endian))),
                 else => unreachable,
-            };
-        }
-        return Tag.aggregate.create(arena, field_vals);
-    }
-
-    fn bitCastBigIntToFloat(
-        comptime F: type,
-        comptime float_tag: Tag,
-        bigint: BigIntConst,
-        arena: Allocator,
-    ) !Value {
-        const Int = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = @typeInfo(F).Float.bits,
-        } });
-        const int = bigint.to(Int) catch |err| switch (err) {
-            error.NegativeIntoUnsigned => unreachable,
-            error.TargetTooSmall => unreachable,
-        };
-        const f = @bitCast(F, int);
-        return float_tag.create(arena, f);
-    }
-
-    fn floatWriteToMemory(comptime F: type, f: F, target: Target, buffer: []u8) void {
-        const endian = target.cpu.arch.endian();
-        if (F == f80) {
-            const repr = std.math.break_f80(f);
-            std.mem.writeInt(u64, buffer[0..8], repr.fraction, endian);
-            std.mem.writeInt(u16, buffer[8..10], repr.exp, endian);
-            std.mem.set(u8, buffer[10..], 0);
-            return;
-        }
-        const Int = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = @typeInfo(F).Float.bits,
-        } });
-        const int = @bitCast(Int, f);
-        std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], int, endian);
-    }
-
-    fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
-        const endian = target.cpu.arch.endian();
-        if (F == f80) {
-            return std.math.make_f80(.{
-                .fraction = readInt(u64, buffer[0..8], endian),
-                .exp = readInt(u16, buffer[8..10], endian),
-            });
-        }
-        const Int = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = @typeInfo(F).Float.bits,
-        } });
-        const int = readInt(Int, buffer[0..@sizeOf(Int)], endian);
-        return @bitCast(F, int);
-    }
-
-    fn readInt(comptime Int: type, buffer: *const [@sizeOf(Int)]u8, endian: std.builtin.Endian) Int {
-        var result: Int = 0;
-        switch (endian) {
-            .Big => {
-                for (buffer) |byte| {
-                    result <<= 8;
-                    result |= byte;
-                }
             },
-            .Little => {
-                var i: usize = buffer.len;
-                while (i != 0) {
-                    i -= 1;
-                    result <<= 8;
-                    result |= buffer[i];
+            .Vector => {
+                const elem_ty = ty.childType();
+                const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));
+
+                var bits: u16 = 0;
+                const elem_bit_size = @intCast(u16, elem_ty.bitSize(target));
+                for (elems) |_, i| {
+                    // On big-endian systems, LLVM reverses the element order of vectors by default
+                    const tgt_elem_i = if (endian == .Big) elems.len - i - 1 else i;
+                    elems[tgt_elem_i] = try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena);
+                    bits += elem_bit_size;
                 }
+                return Tag.aggregate.create(arena, elems);
             },
+            .Struct => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => unreachable, // Handled by non-packed readFromMemory
+                .Packed => {
+                    var bits: u16 = 0;
+                    const fields = ty.structFields().values();
+                    const field_vals = try arena.alloc(Value, fields.len);
+                    for (fields) |field, i| {
+                        const field_bits = @intCast(u16, field.ty.bitSize(target));
+                        field_vals[i] = try readFromPackedMemory(field.ty, mod, buffer, bit_offset + bits, arena);
+                        bits += field_bits;
+                    }
+                    return Tag.aggregate.create(arena, field_vals);
+                },
+            },
+            else => @panic("TODO implement readFromPackedMemory for more types"),
         }
-        return result;
     }
 
     /// Asserts that the value is a float or an integer.
@@ -2357,6 +2356,8 @@ pub const Value = extern union {
         const zig_ty_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_ty_tag);
         if (val.isUndef()) return;
+        // The value is runtime-known and shouldn't affect the hash.
+        if (val.tag() == .runtime_value) return;
 
         switch (zig_ty_tag) {
             .BoundFn => unreachable, // TODO remove this from the language
@@ -2621,6 +2622,7 @@ pub const Value = extern union {
 
             .zero,
             .one,
+            .null_value,
             .int_u64,
             .int_i64,
             .int_big_positive,
@@ -2631,9 +2633,6 @@ pub const Value = extern union {
             .lazy_align,
             .lazy_size,
             => return hashInt(ptr_val, hasher, target),
-
-            // The value is runtime-known and shouldn't affect the hash.
-            .runtime_int => {},
 
             else => unreachable,
         }

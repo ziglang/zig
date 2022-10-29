@@ -149,13 +149,18 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    typed_value: TypedValue,
+    arg_tv: TypedValue,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
+
+    var typed_value = arg_tv;
+    if (arg_tv.val.castTag(.runtime_value)) |rt| {
+        typed_value.val = rt.data;
+    }
 
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
@@ -465,7 +470,7 @@ pub fn generateSymbol(
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
                 const start = code.items.len;
                 try code.resize(start + abi_size);
-                bigint.writeTwosComplement(code.items[start..][0..abi_size], info.bits, abi_size, endian);
+                bigint.writeTwosComplement(code.items[start..][0..abi_size], endian);
                 return Result{ .appended = {} };
             }
             switch (info.signedness) {

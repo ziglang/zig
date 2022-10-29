@@ -9,7 +9,7 @@ ZIGDIR="$(pwd)"
 ARCH="x86_64"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4111+5206832a8"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4560+828735ac0"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
@@ -55,11 +55,25 @@ stage3-release/bin/zig build test docs \
   -Dskip-non-native \
   --search-prefix "$PREFIX"
 
+# Produce the experimental std lib documentation.
+mkdir -p "stage3-release/doc/std"
+stage3-release/bin/zig test "$(pwd)/../lib/std/std.zig" \
+  --zig-lib-dir "$(pwd)/../lib" \
+  -femit-docs="$(pwd)/stage3-release/doc/std" \
+  -fno-emit-bin
+
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  mv ../LICENSE stage3-release/
-  mv ../zig-cache/langref.html stage3-release/
+  # Remove the unnecessary bin dir in stage3-release/bin/zig
   mv stage3-release/bin/zig stage3-release/
   rmdir stage3-release/bin
+
+  # Remove the unnecessary zig dir in stage3-release/lib/zig/std/std.zig
+  mv stage3-release/lib/zig stage3-release/lib2
+  rmdir stage3-release/lib
+  mv stage3-release/lib2 stage3-release/lib
+
+  mv ../LICENSE stage3-release/
+  mv ../zig-cache/langref.html stage3-release/doc
 
   VERSION=$(stage3-release/zig version)
   DIRNAME="zig-macos-$ARCH-$VERSION"

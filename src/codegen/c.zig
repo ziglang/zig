@@ -468,13 +468,10 @@ pub const DeclGen = struct {
     //
     // Used for .elem_ptr, .field_ptr, .opt_payload_ptr, .eu_payload_ptr
     fn renderParentPtr(dg: *DeclGen, writer: anytype, ptr_val: Value, ptr_ty: Type) error{ OutOfMemory, AnalysisFail }!void {
-        switch (ptr_ty.ptrSize()) {
-            .Slice => {},
-            .Many, .C, .One => {
-                try writer.writeByte('(');
-                try dg.renderTypecast(writer, ptr_ty);
-                try writer.writeByte(')');
-            },
+        if (!ptr_ty.isSlice()) {
+            try writer.writeByte('(');
+            try dg.renderTypecast(writer, ptr_ty);
+            try writer.writeByte(')');
         }
         switch (ptr_val.tag()) {
             .decl_ref_mut, .decl_ref, .variable => {
@@ -541,13 +538,13 @@ pub const DeclGen = struct {
                         .name = container_ty.unionFields().keys()[index],
                         .ty = container_ty.unionFields().values()[index].ty,
                     },
-                    .Pointer => switch (container_ty.ptrSize()) {
-                        .Slice => switch (index) {
+                    .Pointer => field_info: {
+                        assert(container_ty.isSlice());
+                        break :field_info switch (index) {
                             0 => FieldInfo{ .name = "ptr", .ty = container_ty.childType() },
                             1 => FieldInfo{ .name = "len", .ty = Type.usize },
                             else => unreachable,
-                        },
-                        else => unreachable,
+                        };
                     },
                     else => unreachable,
                 };
@@ -597,9 +594,13 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         writer: anytype,
         ty: Type,
-        val: Value,
+        arg_val: Value,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        var val = arg_val;
+        if (val.castTag(.runtime_value)) |rt| {
+            val = rt.data;
+        }
         const target = dg.module.getTarget();
         if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
@@ -622,25 +623,22 @@ pub const DeclGen = struct {
                     }
                     return writer.writeByte(')');
                 },
-                .Pointer => switch (ty.ptrSize()) {
-                    .Slice => {
-                        if (location != .Initializer) {
-                            try writer.writeByte('(');
-                            try dg.renderTypecast(writer, ty);
-                            try writer.writeByte(')');
-                        }
-
-                        try writer.writeAll("{(");
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                        const ptr_ty = ty.slicePtrFieldType(&buf);
-                        try dg.renderTypecast(writer, ptr_ty);
-                        return writer.print("){x}, {0x}}}", .{try dg.fmtIntLiteral(Type.usize, val)});
-                    },
-                    .Many, .C, .One => {
-                        try writer.writeAll("((");
+                .Pointer => if (ty.isSlice()) {
+                    if (location != .Initializer) {
+                        try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
-                        return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val)});
-                    },
+                        try writer.writeByte(')');
+                    }
+
+                    try writer.writeAll("{(");
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    try dg.renderTypecast(writer, ptr_ty);
+                    return writer.print("){x}, {0x}}}", .{try dg.fmtIntLiteral(Type.usize, val)});
+                } else {
+                    try writer.writeAll("((");
+                    try dg.renderTypecast(writer, ty);
+                    return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val)});
                 },
                 .Optional => {
                     var opt_buf: Type.Payload.ElemType = undefined;
@@ -817,7 +815,15 @@ pub const DeclGen = struct {
                 return writer.writeByte(')');
             },
             .Pointer => switch (val.tag()) {
-                .null_value, .zero => {
+                .null_value, .zero => if (ty.isSlice()) {
+                    var slice_pl = Value.Payload.Slice{
+                        .base = .{ .tag = .slice },
+                        .data = .{ .ptr = val, .len = Value.undef },
+                    };
+                    const slice_val = Value.initPayload(&slice_pl.base);
+
+                    return dg.renderValue(writer, ty, slice_val, location);
+                } else {
                     try writer.writeAll("((");
                     try dg.renderTypecast(writer, ty);
                     try writer.writeAll(")NULL)");
@@ -827,14 +833,14 @@ pub const DeclGen = struct {
                     return dg.renderDeclValue(writer, ty, val, decl);
                 },
                 .slice => {
-                    const slice = val.castTag(.slice).?.data;
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-
                     if (location != .Initializer) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
                     }
+
+                    const slice = val.castTag(.slice).?.data;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
                     try writer.writeByte('{');
                     try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, .Initializer);
@@ -3923,6 +3929,7 @@ fn airIsNull(
     const optional_ty = if (is_ptr) operand_ty.childType() else operand_ty;
     var payload_buf: Type.Payload.ElemType = undefined;
     const payload_ty = optional_ty.optionalChild(&payload_buf);
+    var slice_ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime())
         TypedValue{ .ty = Type.bool, .val = Value.@"true" }
@@ -3931,7 +3938,11 @@ fn airIsNull(
         TypedValue{ .ty = operand_ty, .val = Value.@"null" }
     else if (payload_ty.zigTypeTag() == .ErrorSet)
         TypedValue{ .ty = payload_ty, .val = Value.zero }
-    else rhs: {
+    else if (payload_ty.isSlice() and optional_ty.optionalReprIsPayload()) rhs: {
+        try writer.writeAll(".ptr");
+        const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf);
+        break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.@"null" };
+    } else rhs: {
         try writer.writeAll(".is_null");
         break :rhs TypedValue{ .ty = Type.bool, .val = Value.@"true" };
     };

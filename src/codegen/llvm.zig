@@ -1027,7 +1027,9 @@ pub const Object = struct {
                             dg.addArgAttr(llvm_func, llvm_arg_i, "noalias");
                         }
                     }
-                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    if (param_ty.zigTypeTag() != .Optional) {
+                        dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    }
                     if (!ptr_info.mutable) {
                         dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
                     }
@@ -1916,7 +1918,7 @@ pub const Object = struct {
 
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
-                    if (struct_obj.layout == .Packed) {
+                    if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
                         const info = struct_obj.backing_int_ty.intInfo(target);
                         const dwarf_encoding: c_uint = switch (info.signedness) {
                             .signed => DW.ATE.signed,
@@ -3117,7 +3119,11 @@ pub const DeclGen = struct {
             .slice => {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = param_ty.slicePtrFieldType(&buf);
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const ptr_ty = if (param_ty.zigTypeTag() == .Optional)
+                    param_ty.optionalChild(&opt_buf).slicePtrFieldType(&buf)
+                else
+                    param_ty.slicePtrFieldType(&buf);
                 const ptr_llvm_ty = try dg.lowerType(ptr_ty);
                 const len_llvm_ty = try dg.lowerType(Type.usize);
 
@@ -3187,7 +3193,11 @@ pub const DeclGen = struct {
         return llvm_elem_ty;
     }
 
-    fn lowerValue(dg: *DeclGen, tv: TypedValue) Error!*llvm.Value {
+    fn lowerValue(dg: *DeclGen, arg_tv: TypedValue) Error!*llvm.Value {
+        var tv = arg_tv;
+        if (tv.val.castTag(.runtime_value)) |rt| {
+            tv.val = rt.data;
+        }
         if (tv.val.isUndef()) {
             const llvm_type = try dg.lowerType(tv.ty);
             return llvm_type.getUndef();
@@ -5434,10 +5444,11 @@ pub const FuncGen = struct {
         const llvm_usize = try self.dg.lowerType(Type.usize);
         const len = llvm_usize.constInt(array_ty.arrayLen(), .False);
         const slice_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        if (!array_ty.hasRuntimeBitsIgnoreComptime()) {
-            return self.builder.buildInsertValue(slice_llvm_ty.getUndef(), len, 1, "");
-        }
         const operand = try self.resolveInst(ty_op.operand);
+        if (!array_ty.hasRuntimeBitsIgnoreComptime()) {
+            const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), operand, 0, "");
+            return self.builder.buildInsertValue(partial, len, 1, "");
+        }
         const indices: [2]*llvm.Value = .{
             llvm_usize.constNull(), llvm_usize.constNull(),
         };
@@ -6316,18 +6327,24 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(un_op);
         const optional_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
         const optional_llvm_ty = try self.dg.lowerType(optional_ty);
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
         if (optional_ty.optionalReprIsPayload()) {
             const loaded = if (operand_is_ptr)
                 self.builder.buildLoad(optional_llvm_ty, operand, "")
             else
                 operand;
+            if (payload_ty.isSlice()) {
+                const slice_ptr = self.builder.buildExtractValue(loaded, 0, "");
+                var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf));
+                return self.builder.buildICmp(pred, slice_ptr, ptr_ty.constNull(), "");
+            }
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
         }
 
         comptime assert(optional_layout_version == 3);
 
-        var buf: Type.Payload.ElemType = undefined;
-        const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             const loaded = if (operand_is_ptr)
                 self.builder.buildLoad(optional_llvm_ty, operand, "")
@@ -10351,7 +10368,8 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (ty.isSlice()) {
+                var buf: Type.Payload.ElemType = undefined;
+                if (ty.isSlice() or (ty.zigTypeTag() == .Optional and ty.optionalChild(&buf).isSlice())) {
                     return .slice;
                 } else if (isByRef(ty)) {
                     return .byref;
@@ -10726,8 +10744,8 @@ fn backendSupportsF128(target: std.Target) bool {
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.tag()) {
         .f16 => backendSupportsF16(target),
-        .f80 => target.longDoubleIs(f80) and backendSupportsF80(target),
-        .f128 => target.longDoubleIs(f128) and backendSupportsF128(target),
+        .f80 => (CType.longdouble.sizeInBits(target) == 80) and backendSupportsF80(target),
+        .f128 => (CType.longdouble.sizeInBits(target) == 128) and backendSupportsF128(target),
         else => true,
     };
 }

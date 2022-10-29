@@ -22,8 +22,10 @@ comptime {
     @export(sinf, .{ .name = "sinf", .linkage = common.linkage });
     @export(sin, .{ .name = "sin", .linkage = common.linkage });
     @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage });
-    const sinq_sym_name = if (common.want_ppc_abi) "sinf128" else "sinq";
-    @export(sinq, .{ .name = sinq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(sinq, .{ .name = "sinf128", .linkage = common.linkage });
+    }
+    @export(sinq, .{ .name = "sinq", .linkage = common.linkage });
     @export(sinl, .{ .name = "sinl", .linkage = common.linkage });
 }
 

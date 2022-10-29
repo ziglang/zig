@@ -7,6 +7,9 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
+const ArrayList = std.ArrayList;
+const Sha256 = std.crypto.hash.sha2.Sha256;
+const fs = std.fs;
 
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
@@ -1106,6 +1109,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const root_name = try arena.dupeZ(u8, options.root_name);
 
         const use_stage1 = options.use_stage1 orelse false;
+        if (use_stage1 and !build_options.have_stage1) return error.ZigCompilerBuiltWithoutStage1;
 
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
@@ -3916,6 +3920,70 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             } else if (comp.emit_llvm_bc != null) {
                 argv.appendAssumeCapacity("-emit-llvm");
             }
+        }
+
+        // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
+        // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and
+        // pass that to zig, e.g. via 'zig build-lib @args.rsp'
+        // See @file syntax here: https://gcc.gnu.org/onlinedocs/gcc/Overall-Options.html
+        var args_length: usize = 0;
+        for (argv.items) |arg| {
+            args_length += arg.len + 1; // +1 to account for null terminator
+        }
+        if (args_length >= 30 * 1024) {
+            const allocator = comp.gpa;
+            const input_args = argv.items[2..];
+            const output_dir = comp.local_cache_directory;
+
+            var args_arena = std.heap.ArenaAllocator.init(allocator);
+            defer args_arena.deinit();
+
+            const args_to_escape = input_args;
+            var escaped_args = try ArrayList([]const u8).initCapacity(args_arena.allocator(), args_to_escape.len);
+
+            arg_blk: for (args_to_escape) |arg| {
+                for (arg) |c, arg_idx| {
+                    if (c == '\\' or c == '"') {
+                        // Slow path for arguments that need to be escaped. We'll need to allocate and copy
+                        var escaped = try ArrayList(u8).initCapacity(args_arena.allocator(), arg.len + 1);
+                        const writer = escaped.writer();
+                        writer.writeAll(arg[0..arg_idx]) catch unreachable;
+                        for (arg[arg_idx..]) |to_escape| {
+                            if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
+                            try writer.writeByte(to_escape);
+                        }
+                        escaped_args.appendAssumeCapacity(escaped.items);
+                        continue :arg_blk;
+                    }
+                }
+                escaped_args.appendAssumeCapacity(arg); // no escaping needed so just use original argument
+            }
+
+            const partially_quoted = try std.mem.join(allocator, "\" \"", escaped_args.items);
+            const args = try std.mem.concat(allocator, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
+
+            // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
+            // other zig build commands running in parallel.
+
+            var args_hash: [Sha256.digest_length]u8 = undefined;
+            Sha256.hash(args, &args_hash, .{});
+            var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
+            _ = try std.fmt.bufPrint(
+                &args_hex_hash,
+                "{s}",
+                .{std.fmt.fmtSliceHexLower(&args_hash)},
+            );
+
+            const args_dir = "args";
+            try output_dir.handle.makePath(args_dir);
+            const args_file = try fs.path.join(allocator, &[_][]const u8{
+                args_dir, args_hex_hash[0..],
+            });
+            try output_dir.handle.writeFile(args_file, args);
+            const args_file_path = try output_dir.handle.realpathAlloc(allocator, args_file);
+
+            argv.shrinkRetainingCapacity(2);
+            try argv.append(try std.mem.concat(allocator, u8, &[_][]const u8{ "@", args_file_path }));
         }
 
         if (comp.verbose_cc) {

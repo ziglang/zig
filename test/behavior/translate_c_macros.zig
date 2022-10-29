@@ -95,6 +95,7 @@ test "nested comma operator" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expectEqual(@as(c_int, 3), h.NESTED_COMMA_OPERATOR);
+    try expectEqual(@as(c_int, 3), h.NESTED_COMMA_OPERATOR_LHS);
 }
 
 test "cast functions" {
@@ -138,4 +139,37 @@ test "string and char literals that are not UTF-8 encoded. Issue #12784" {
 
     try expectEqual(@as(u8, '\xA9'), latin1.UNPRINTABLE_CHAR);
     try expectEqualStrings("\xA9\xA9\xA9", latin1.UNPRINTABLE_STRING);
+}
+
+test "Macro that uses division operator. Issue #13162" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(c_int, 42), h.DIVIDE_CONSTANT(@as(c_int, 42_000)));
+    try expectEqual(@as(c_uint, 42), h.DIVIDE_CONSTANT(@as(c_uint, 42_000)));
+
+    try expectEqual(
+        @as(f64, 42.0),
+        h.DIVIDE_ARGS(
+            @as(f64, 42.0),
+            true,
+        ),
+    );
+    try expectEqual(
+        @as(c_int, 21),
+        h.DIVIDE_ARGS(
+            @as(i8, 42),
+            @as(i8, 2),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_int, 21),
+        h.DIVIDE_ARGS(
+            @as(c_ushort, 42),
+            @as(c_ushort, 2),
+        ),
+    );
 }

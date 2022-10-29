@@ -9,19 +9,15 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__divkf3, .{ .name = "__divkf3", .linkage = common.linkage });
+        // TODO: why did this not error?
+        @export(__divtf3, .{ .name = "__divkf3", .linkage = common.linkage });
     } else if (common.want_sparc_abi) {
         @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage });
-    } else {
-        @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
     }
+    @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
 }
 
 pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
-    return div(a, b);
-}
-
-fn __divkf3(a: f128, b: f128) callconv(.C) f128 {
     return div(a, b);
 }
 

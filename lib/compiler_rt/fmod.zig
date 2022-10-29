@@ -13,8 +13,10 @@ comptime {
     @export(fmodf, .{ .name = "fmodf", .linkage = common.linkage });
     @export(fmod, .{ .name = "fmod", .linkage = common.linkage });
     @export(__fmodx, .{ .name = "__fmodx", .linkage = common.linkage });
-    const fmodq_sym_name = if (common.want_ppc_abi) "fmodf128" else "fmodq";
-    @export(fmodq, .{ .name = fmodq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(fmodq, .{ .name = "fmodf128", .linkage = common.linkage });
+    }
+    @export(fmodq, .{ .name = "fmodq", .linkage = common.linkage });
     @export(fmodl, .{ .name = "fmodl", .linkage = common.linkage });
 }
 

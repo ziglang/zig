@@ -68,7 +68,7 @@ test and debug from a git working tree.
 - `make` is typically sufficient to build zig during development iterations.
 - `make install` performs a build __and__ install.
 - `msbuild -p:Configuration=Release INSTALL.vcxproj` on Windows performs a
-build and install. To avoid install, pass cmake option `-DZIG_SKIP_INSTALL_LIB_FILES=ON`.
+build and install. To avoid install, pass cmake option `-DZIG_NO_LIB=ON`.
 
 To test changes, do the following from the build directory:
 

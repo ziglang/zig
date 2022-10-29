@@ -14,27 +14,20 @@ body:
     attributes:
       label: Zig Version
       description: "The output of `zig version`"
-      placeholder: "0.9.0-dev.1275+ac52e0056"
+      placeholder: "0.10.0-dev.4583+875e98a57"
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: Steps to Reproduce
-      description: What exactly can someone else do, in order to observe the problem that you observed?
+      label: Steps to Reproduce and Observed Behavior
+      description: What exactly can someone else do, in order to observe the problem that you observed? Include the output and all error messages.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
       label: Expected Behavior
-      description: What did you expect to happen?
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual Behavior
-      description: What happened instead? Be sure to include all error messages if any.
+      description: What did you expect to happen instead?
     validations:
       required: true

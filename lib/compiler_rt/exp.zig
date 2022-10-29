@@ -18,8 +18,10 @@ comptime {
     @export(expf, .{ .name = "expf", .linkage = common.linkage });
     @export(exp, .{ .name = "exp", .linkage = common.linkage });
     @export(__expx, .{ .name = "__expx", .linkage = common.linkage });
-    const expq_sym_name = if (common.want_ppc_abi) "expf128" else "expq";
-    @export(expq, .{ .name = expq_sym_name, .linkage = common.linkage });
+    if (common.want_ppc_abi) {
+        @export(expq, .{ .name = "expf128", .linkage = common.linkage });
+    }
+    @export(expq, .{ .name = "expq", .linkage = common.linkage });
     @export(expl, .{ .name = "expl", .linkage = common.linkage });
 }
 

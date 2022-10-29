@@ -20,7 +20,6 @@ dynamic_linker: DynamicLinker = DynamicLinker{},
 pub const DynamicLinker = Target.DynamicLinker;
 
 pub const DetectError = error{
-    OutOfMemory,
     FileSystem,
     SystemResources,
     SymLinkLoop,

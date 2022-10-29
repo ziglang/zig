@@ -19,4 +19,4 @@ pub export fn entry() void {
 //
 // :14:13: error: unable to resolve comptime value
 // :14:13: note: argument to function being called at comptime must be comptime-known
-// :9:38: note: generic function is instantiated with a comptime-only return type
+// :9:38: note: expression is evaluated at comptime because the generic function was instantiated with a comptime-only return type

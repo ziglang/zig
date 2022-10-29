@@ -16,7 +16,7 @@ jobs:
     vmImage: 'windows-2019'
   variables:
     TARGET: 'x86_64-windows-gnu'
-    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.4459+4f9345d20'
+    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.4560+828735ac0'
     ZIG_LLVM_CLANG_LLD_URL: 'https://ziglang.org/deps/${{ variables.ZIG_LLVM_CLANG_LLD_NAME }}.zip'
   steps:
   - pwsh: |
@@ -60,6 +60,7 @@ jobs:
     displayName: 'Build'
 
   - pwsh: |
+      Set-Variable -Name ZIGLIBDIR -Value "$(Get-Location)\lib"
       Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\stage3-release"
       Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$(ZIG_LLVM_CLANG_LLD_NAME)"
 
@@ -75,6 +76,14 @@ jobs:
         -Dstatic-llvm `
         -Dskip-non-native
       CheckLastExitCode
+
+      # Produce the experimental std lib documentation.
+      mkdir "$ZIGINSTALLDIR\doc\std" -force
+      & "$ZIGINSTALLDIR\bin\zig.exe" test "$ZIGLIBDIR\std\std.zig" `
+        --zig-lib-dir "$ZIGLIBDIR" `
+        -femit-docs="$ZIGINSTALLDIR\doc\std" `
+        -fno-emit-bin
+
     name: test
     displayName: 'Test'
 

@@ -4,19 +4,14 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__subkf3, .{ .name = "__subkf3", .linkage = common.linkage });
+        @export(__subtf3, .{ .name = "__subkf3", .linkage = common.linkage });
     } else if (common.want_sparc_abi) {
         @export(_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage });
-    } else {
-        @export(__subtf3, .{ .name = "__subtf3", .linkage = common.linkage });
     }
+    @export(__subtf3, .{ .name = "__subtf3", .linkage = common.linkage });
 }
 
 pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
-    return sub(a, b);
-}
-
-fn __subkf3(a: f128, b: f128) callconv(.C) f128 {
     return sub(a, b);
 }
 

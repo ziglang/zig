@@ -649,6 +649,8 @@ const WasmDumper = struct {
                     try parseDumpNames(reader, writer, data);
                 } else if (mem.eql(u8, name, "producers")) {
                     try parseDumpProducers(reader, writer, data);
+                } else if (mem.eql(u8, name, "target_features")) {
+                    try parseDumpFeatures(reader, writer, data);
                 }
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
@@ -900,6 +902,21 @@ const WasmDumper = struct {
                 , .{ value, version });
                 try writer.writeByte('\n');
             }
+        }
+    }
+
+    fn parseDumpFeatures(reader: anytype, writer: anytype, data: []const u8) !void {
+        const feature_count = try std.leb.readULEB128(u32, reader);
+        try writer.print("features {d}\n", .{feature_count});
+
+        var index: u32 = 0;
+        while (index < feature_count) : (index += 1) {
+            const prefix_byte = try std.leb.readULEB128(u8, reader);
+            const name_length = try std.leb.readULEB128(u32, reader);
+            const feature_name = data[reader.context.pos..][0..name_length];
+            reader.context.pos += name_length;
+
+            try writer.print("{c} {s}\n", .{ prefix_byte, feature_name });
         }
     }
 };

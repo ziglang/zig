@@ -1168,7 +1168,7 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
     try out.writeAll("</pre></figure>");
 }
 
-fn printShell(out: anytype, shell_content: []const u8) !void {
+fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -1176,15 +1176,41 @@ fn printShell(out: anytype, shell_content: []const u8) !void {
     while (iter.next()) |orig_line| {
         const line = mem.trimRight(u8, orig_line, " ");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
-            try out.print(start_line ++ "$ <kbd>{s}</kbd>" ++ end_line ++ "\n", .{std.mem.trimLeft(u8, line[1..], " ")});
+            try out.writeAll(start_line ++ "$ <kbd>");
+            const s = std.mem.trimLeft(u8, line[1..], " ");
+            if (escape) {
+                try writeEscaped(out, s);
+            } else {
+                try out.writeAll(s);
+            }
+            try out.writeAll("</kbd>" ++ end_line ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
-            try out.print(start_line ++ "$ <kbd>{s}" ++ end_line ++ "\n", .{std.mem.trimLeft(u8, line[1..], " ")});
+            try out.writeAll(start_line ++ "$ <kbd>");
+            const s = std.mem.trimLeft(u8, line[1..], " ");
+            if (escape) {
+                try writeEscaped(out, s);
+            } else {
+                try out.writeAll(s);
+            }
+            try out.writeAll(end_line ++ "\n");
             cmd_cont = true;
         } else if (line.len > 0 and line[line.len - 1] != '\\' and cmd_cont) {
-            try out.print(start_line ++ "{s}</kbd>" ++ end_line ++ "\n", .{line});
+            try out.writeAll(start_line);
+            if (escape) {
+                try writeEscaped(out, line);
+            } else {
+                try out.writeAll(line);
+            }
+            try out.writeAll("</kbd>" ++ end_line ++ "\n");
             cmd_cont = false;
         } else {
-            try out.print(start_line ++ "{s}" ++ end_line ++ "\n", .{line});
+            try out.writeAll(start_line);
+            if (escape) {
+                try writeEscaped(out, line);
+            } else {
+                try out.writeAll(line);
+            }
+            try out.writeAll(end_line ++ "\n");
         }
     }
 
@@ -1254,7 +1280,7 @@ fn genHtml(
             },
             .Shell => |content_tok| {
                 const raw_shell_content = tokenizer.buffer[content_tok.start..content_tok.end];
-                try printShell(out, raw_shell_content);
+                try printShell(out, raw_shell_content, true);
             },
             .SyntaxBlock => |syntax_block| {
                 try printSourceBlock(allocator, tokenizer, out, syntax_block);
@@ -1730,7 +1756,7 @@ fn genHtml(
                 }
 
                 if (!code.just_check_syntax) {
-                    try printShell(out, shell_buffer.items);
+                    try printShell(out, shell_buffer.items, false);
                 }
             },
         }
@@ -1788,7 +1814,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         std.log.emerg("{s}", .{buffer.items});
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
@@ -1806,7 +1832,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1825,7 +1851,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1846,7 +1872,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1865,7 +1891,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1888,7 +1914,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1910,7 +1936,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1927,7 +1953,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1946,7 +1972,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1961,7 +1987,7 @@ test "shell parsed" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out);
+        try printShell(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
 }

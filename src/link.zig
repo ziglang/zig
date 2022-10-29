@@ -696,6 +696,7 @@ pub const File = struct {
         GlobalTypeMismatch,
         InvalidCharacter,
         InvalidEntryKind,
+        InvalidFeatureSet,
         InvalidFormat,
         InvalidIndex,
         InvalidMagicByte,

@@ -1134,3 +1134,39 @@ test "array of vectors is copied" {
     points2[0..points.len].* = points;
     try std.testing.expectEqual(points2[6], Vec3{ -345, -311, 381 });
 }
+
+test "byte vector initialized in inline function" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        inline fn boolx4(e0: bool, e1: bool, e2: bool, e3: bool) @Vector(4, bool) {
+            return .{ e0, e1, e2, e3 };
+        }
+
+        fn all(vb: @Vector(4, bool)) bool {
+            return @reduce(.And, vb);
+        }
+    };
+
+    try expect(S.all(S.boolx4(true, true, true, true)));
+}
+
+test "byte vector initialized in inline function" {
+    // TODO https://github.com/ziglang/zig/issues/13279
+    if (true) return error.SkipZigTest;
+
+    const S = struct {
+        fn boolx4(e0: bool, e1: bool, e2: bool, e3: bool) @Vector(4, bool) {
+            return .{ e0, e1, e2, e3 };
+        }
+
+        fn all(vb: @Vector(4, bool)) bool {
+            return @reduce(.And, vb);
+        }
+    };
+
+    try expect(S.all(S.boolx4(true, true, true, true)));
+}

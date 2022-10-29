@@ -62,11 +62,25 @@ stage3/bin/zig build test docs \
   -Dskip-stage1 \
   -Dskip-non-native
 
+# Produce the experimental std lib documentation.
+mkdir -p "stage3/doc/std"
+stage3/bin/zig test "$(pwd)/../lib/std/std.zig" \
+  --zig-lib-dir "$(pwd)/../lib" \
+  -femit-docs="$(pwd)/stage3/doc/std/" \
+  -fno-emit-bin
+
 if [ -f ~/.s3cfg ]; then
-  mv ../LICENSE stage3/
-  mv ../zig-cache/langref.html stage3/
+  # Remove the unnecessary bin dir in stage3/bin/zig
   mv stage3/bin/zig stage3/
   rmdir stage3/bin
+
+  # Remove the unnecessary zig dir in stage3/lib/zig/std/std.zig
+  mv stage3/lib/zig stage3/lib2
+  rmdir stage3/lib
+  mv stage3/lib2 stage3/lib
+
+  mv ../LICENSE stage3/
+  mv ../zig-cache/langref.html stage3/doc/
 
   GITBRANCH=$(basename $GITHUB_REF)
   VERSION=$(stage3/zig version)
