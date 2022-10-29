@@ -192,94 +192,96 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 s[i] = mem.readIntBig(u32, mem.asBytes(elem));
             }
 
-            switch (builtin.cpu.arch) {
-                .aarch64 => if (!isComptime() and comptime builtin.cpu.features.isEnabled(@enumToInt(std.Target.aarch64.Feature.sha2))) {
-                    var x: v4u32 = d.s[0..4].*;
-                    var y: v4u32 = d.s[4..8].*;
-                    const s_v = @ptrCast(*[16]v4u32, &s);
+            if (!isComptime()) {
+                switch (builtin.cpu.arch) {
+                    .aarch64 => if (comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
+                        var x: v4u32 = d.s[0..4].*;
+                        var y: v4u32 = d.s[4..8].*;
+                        const s_v = @ptrCast(*[16]v4u32, &s);
 
-                    comptime var k: u8 = 0;
-                    inline while (k < 16) : (k += 1) {
-                        if (k > 3) {
-                            s_v[k] = asm (
-                                \\sha256su0.4s %[w0_3], %[w4_7]
-                                \\sha256su1.4s %[w0_3], %[w8_11], %[w12_15]
-                                : [w0_3] "=w" (-> v4u32),
-                                : [_] "0" (s_v[k - 4]),
-                                  [w4_7] "w" (s_v[k - 3]),
-                                  [w8_11] "w" (s_v[k - 2]),
-                                  [w12_15] "w" (s_v[k - 1]),
+                        comptime var k: u8 = 0;
+                        inline while (k < 16) : (k += 1) {
+                            if (k > 3) {
+                                s_v[k] = asm (
+                                    \\sha256su0.4s %[w0_3], %[w4_7]
+                                    \\sha256su1.4s %[w0_3], %[w8_11], %[w12_15]
+                                    : [w0_3] "=w" (-> v4u32),
+                                    : [_] "0" (s_v[k - 4]),
+                                      [w4_7] "w" (s_v[k - 3]),
+                                      [w8_11] "w" (s_v[k - 2]),
+                                      [w12_15] "w" (s_v[k - 1]),
+                                );
+                            }
+
+                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            asm volatile (
+                                \\mov.4s v0, %[x]
+                                \\sha256h.4s %[x], %[y], %[w]
+                                \\sha256h2.4s %[y], v0, %[w]
+                                : [x] "=w" (x),
+                                  [y] "=w" (y),
+                                : [_] "0" (x),
+                                  [_] "1" (y),
+                                  [w] "w" (w),
+                                : "v0"
                             );
                         }
 
-                        const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
-                        asm volatile (
-                            \\mov.4s v0, %[x]
-                            \\sha256h.4s %[x], %[y], %[w]
-                            \\sha256h2.4s %[y], v0, %[w]
-                            : [x] "=w" (x),
-                              [y] "=w" (y),
-                            : [_] "0" (x),
-                              [_] "1" (y),
-                              [w] "w" (w),
-                            : "v0"
-                        );
-                    }
+                        d.s[0..4].* = x +% @as(v4u32, d.s[0..4].*);
+                        d.s[4..8].* = y +% @as(v4u32, d.s[4..8].*);
+                        return;
+                    },
+                    .x86_64 => if (comptime std.Target.x86.featureSetHas(builtin.cpu.features, .sha)) {
+                        var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
+                        var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
+                        const s_v = @ptrCast(*[16]v4u32, &s);
 
-                    d.s[0..4].* = x +% @as(v4u32, d.s[0..4].*);
-                    d.s[4..8].* = y +% @as(v4u32, d.s[4..8].*);
-                    return;
-                },
-                .x86_64 => if (!isComptime() and comptime builtin.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.sha))) {
-                    var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
-                    var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
-                    const s_v = @ptrCast(*[16]v4u32, &s);
+                        comptime var k: u8 = 0;
+                        inline while (k < 16) : (k += 1) {
+                            if (k < 12) {
+                                var tmp = s_v[k];
+                                s_v[k + 4] = asm (
+                                    \\ sha256msg1 %[w4_7], %[tmp]
+                                    \\ vpalignr $0x4, %[w8_11], %[w12_15], %[result]
+                                    \\ paddd %[tmp], %[result]
+                                    \\ sha256msg2 %[w12_15], %[result]
+                                    : [tmp] "=&x" (tmp),
+                                      [result] "=&x" (-> v4u32),
+                                    : [_] "0" (tmp),
+                                      [w4_7] "x" (s_v[k + 1]),
+                                      [w8_11] "x" (s_v[k + 2]),
+                                      [w12_15] "x" (s_v[k + 3]),
+                                );
+                            }
 
-                    comptime var k: u8 = 0;
-                    inline while (k < 16) : (k += 1) {
-                        if (k < 12) {
-                            var tmp = s_v[k];
-                            s_v[k + 4] = asm (
-                                \\ sha256msg1 %[w4_7], %[tmp]
-                                \\ vpalignr $0x4, %[w8_11], %[w12_15], %[result]
-                                \\ paddd %[tmp], %[result]
-                                \\ sha256msg2 %[w12_15], %[result]
-                                : [tmp] "=&x" (tmp),
-                                  [result] "=&x" (-> v4u32),
-                                : [_] "0" (tmp),
-                                  [w4_7] "x" (s_v[k + 1]),
-                                  [w8_11] "x" (s_v[k + 2]),
-                                  [w12_15] "x" (s_v[k + 3]),
+                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            y = asm ("sha256rnds2 %[x], %[y]"
+                                : [y] "=x" (-> v4u32),
+                                : [_] "0" (y),
+                                  [x] "x" (x),
+                                  [_] "{xmm0}" (w),
+                            );
+
+                            x = asm ("sha256rnds2 %[y], %[x]"
+                                : [x] "=x" (-> v4u32),
+                                : [_] "0" (x),
+                                  [y] "x" (y),
+                                  [_] "{xmm0}" (@bitCast(v4u32, @bitCast(u128, w) >> 64)),
                             );
                         }
 
-                        const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
-                        y = asm ("sha256rnds2 %[x], %[y]"
-                            : [y] "=x" (-> v4u32),
-                            : [_] "0" (y),
-                              [x] "x" (x),
-                              [_] "{xmm0}" (w),
-                        );
-
-                        x = asm ("sha256rnds2 %[y], %[x]"
-                            : [x] "=x" (-> v4u32),
-                            : [_] "0" (x),
-                              [y] "x" (y),
-                              [_] "{xmm0}" (@bitCast(v4u32, @bitCast(u128, w) >> 64)),
-                        );
-                    }
-
-                    d.s[0] +%= x[3];
-                    d.s[1] +%= x[2];
-                    d.s[4] +%= x[1];
-                    d.s[5] +%= x[0];
-                    d.s[2] +%= y[3];
-                    d.s[3] +%= y[2];
-                    d.s[6] +%= y[1];
-                    d.s[7] +%= y[0];
-                    return;
-                },
-                else => {},
+                        d.s[0] +%= x[3];
+                        d.s[1] +%= x[2];
+                        d.s[4] +%= x[1];
+                        d.s[5] +%= x[0];
+                        d.s[2] +%= y[3];
+                        d.s[3] +%= y[2];
+                        d.s[6] +%= y[1];
+                        d.s[7] +%= y[0];
+                        return;
+                    },
+                    else => {},
+                }
             }
 
             var i: usize = 16;
