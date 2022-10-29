@@ -300,9 +300,9 @@ fn inTable(c: u8, t: tIndex) bool {
 
 /// DEPRECATED: use `isAlphanumeric`
 pub const isAlNum = isAlphanumeric;
-/// DEPRECATED: use `isAlpha`
+/// DEPRECATED: use `isAlphabetic`
 pub const isAlpha = isAlphabetic;
-/// DEPRECATED: use `isAlpha`
+/// DEPRECATED: use `isControl`
 pub const isCntrl = isControl;
 /// DEPRECATED: use `isWhitespace`.
 pub const isSpace = isWhitespace;
