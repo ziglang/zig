@@ -50,31 +50,18 @@ pub const LoadMetaDataError = error{
     OutOfMemory,
 };
 
+pub const abilists_path = "libc" ++ path.sep_str ++ "glibc" ++ path.sep_str ++ "abilists";
+pub const abilists_max_size = 800 * 1024; // Bigger than this and something is definitely borked.
+
 /// This function will emit a log error when there is a problem with the zig
 /// installation and then return `error.ZigInstallationCorrupt`.
-pub fn loadMetaData(gpa: Allocator, zig_lib_dir: fs.Dir) LoadMetaDataError!*ABI {
+pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI {
     const tracy = trace(@src());
     defer tracy.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
-
-    var glibc_dir = zig_lib_dir.openDir("libc" ++ path.sep_str ++ "glibc", .{}) catch |err| {
-        log.err("unable to open glibc dir: {s}", .{@errorName(err)});
-        return error.ZigInstallationCorrupt;
-    };
-    defer glibc_dir.close();
-
-    const max_size = 500 * 1024; // Bigger than this and something is definitely borked.
-    const contents = glibc_dir.readFileAlloc(arena, "abilists", max_size) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            log.err("unable to read libc" ++ path.sep_str ++ "glibc" ++ path.sep_str ++
-                "abilists: {s}", .{@errorName(err)});
-            return error.ZigInstallationCorrupt;
-        },
-    };
 
     var index: usize = 0;
 
@@ -662,386 +649,383 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     const target_version = target.os.version_range.linux.glibc;
 
     // Use the global cache directory.
-    var cache_parent: Cache = .{
+    var cache: Cache = .{
         .gpa = comp.gpa,
         .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
-    defer cache_parent.manifest_dir.close();
+    defer cache.manifest_dir.close();
 
-    var cache = cache_parent.obtain();
-    defer cache.deinit();
-    cache.hash.addBytes(build_options.version);
-    cache.hash.addBytes(comp.zig_lib_directory.path orelse ".");
-    cache.hash.add(target.cpu.arch);
-    cache.hash.add(target.abi);
-    cache.hash.add(target_version);
+    var man = cache.obtain();
+    defer man.deinit();
+    man.hash.addBytes(build_options.version);
+    man.hash.addBytes(comp.zig_lib_directory.path orelse ".");
+    man.hash.add(target.cpu.arch);
+    man.hash.add(target.abi);
+    man.hash.add(target_version);
 
-    const hit = try cache.hit();
-    const digest = cache.final();
+    const full_abilists_path = try comp.zig_lib_directory.join(arena, &.{abilists_path});
+    const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
+
+    if (try man.hit()) {
+        const digest = man.final();
+
+        assert(comp.glibc_so_files == null);
+        comp.glibc_so_files = BuiltSharedObjects{
+            .lock = man.toOwnedLock(),
+            .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
+        };
+        return;
+    }
+
+    const digest = man.final();
     const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
-
-    // Even if we get a hit, it doesn't guarantee that we finished the job last time.
-    // We use the presence of an "ok" file to determine if it is a true hit.
 
     var o_directory: Compilation.Directory = .{
         .handle = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
-        .path = try path.join(arena, &[_][]const u8{ comp.global_cache_directory.path.?, o_sub_path }),
+        .path = try comp.global_cache_directory.join(arena, &.{o_sub_path}),
     };
     defer o_directory.handle.close();
 
-    const ok_basename = "ok";
-    const actual_hit = if (hit) blk: {
-        o_directory.handle.access(ok_basename, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :blk false,
-            else => |e| return e,
-        };
-        break :blk true;
-    } else false;
+    const abilists_contents = man.files.items[abilists_index].contents.?;
+    const metadata = try loadMetaData(comp.gpa, abilists_contents);
+    defer metadata.destroy(comp.gpa);
 
-    if (!actual_hit) {
-        const metadata = try loadMetaData(comp.gpa, comp.zig_lib_directory.handle);
-        defer metadata.destroy(comp.gpa);
-
-        const target_targ_index = for (metadata.all_targets) |targ, i| {
-            if (targ.arch == target.cpu.arch and
-                targ.os == target.os.tag and
-                targ.abi == target.abi)
-            {
-                break i;
-            }
-        } else {
-            unreachable; // target_util.available_libcs prevents us from getting here
-        };
-
-        const target_ver_index = for (metadata.all_versions) |ver, i| {
-            switch (ver.order(target_version)) {
-                .eq => break i,
-                .lt => continue,
-                .gt => {
-                    // TODO Expose via compile error mechanism instead of log.
-                    log.warn("invalid target glibc version: {}", .{target_version});
-                    return error.InvalidTargetGLibCVersion;
-                },
-            }
-        } else blk: {
-            const latest_index = metadata.all_versions.len - 1;
-            log.warn("zig cannot build new glibc version {}; providing instead {}", .{
-                target_version, metadata.all_versions[latest_index],
-            });
-            break :blk latest_index;
-        };
-
+    const target_targ_index = for (metadata.all_targets) |targ, i| {
+        if (targ.arch == target.cpu.arch and
+            targ.os == target.os.tag and
+            targ.abi == target.abi)
         {
-            var map_contents = std.ArrayList(u8).init(arena);
-            for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
-                if (ver.patch == 0) {
-                    try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
-                } else {
-                    try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
-                }
-            }
-            try o_directory.handle.writeFile(all_map_basename, map_contents.items);
-            map_contents.deinit(); // The most recent allocation of an arena can be freed :)
+            break i;
         }
+    } else {
+        unreachable; // target_util.available_libcs prevents us from getting here
+    };
 
-        var stubs_asm = std.ArrayList(u8).init(comp.gpa);
-        defer stubs_asm.deinit();
-
-        for (libs) |lib, lib_i| {
-            stubs_asm.shrinkRetainingCapacity(0);
-            try stubs_asm.appendSlice(".text\n");
-
-            var inc_i: usize = 0;
-
-            const fn_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
-            inc_i += 2;
-
-            var sym_i: usize = 0;
-            var opt_symbol_name: ?[]const u8 = null;
-            var versions_buffer: [32]u8 = undefined;
-            var versions_len: usize = undefined;
-            while (sym_i < fn_inclusions_len) : (sym_i += 1) {
-                const sym_name = opt_symbol_name orelse n: {
-                    const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
-                    inc_i += name.len + 1;
-
-                    opt_symbol_name = name;
-                    versions_buffer = undefined;
-                    versions_len = 0;
-                    break :n name;
-                };
-                const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
-                inc_i += 4;
-
-                const lib_index = metadata.inclusions[inc_i];
-                inc_i += 1;
-                const is_terminal = (targets & (1 << 31)) != 0;
-                if (is_terminal) opt_symbol_name = null;
-
-                // Test whether the inclusion applies to our current library and target.
-                const ok_lib_and_target =
-                    (lib_index == lib_i) and
-                    ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
-
-                while (true) {
-                    const byte = metadata.inclusions[inc_i];
-                    inc_i += 1;
-                    const last = (byte & 0b1000_0000) != 0;
-                    const ver_i = @truncate(u7, byte);
-                    if (ok_lib_and_target and ver_i <= target_ver_index) {
-                        versions_buffer[versions_len] = ver_i;
-                        versions_len += 1;
-                    }
-                    if (last) break;
-                }
-
-                if (!is_terminal) continue;
-
-                // Pick the default symbol version:
-                // - If there are no versions, don't emit it
-                // - Take the greatest one <= than the target one
-                // - If none of them is <= than the
-                //   specified one don't pick any default version
-                if (versions_len == 0) continue;
-                var chosen_def_ver_index: u8 = 255;
-                {
-                    var ver_buf_i: u8 = 0;
-                    while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
-                        const ver_index = versions_buffer[ver_buf_i];
-                        if (chosen_def_ver_index == 255 or ver_index > chosen_def_ver_index) {
-                            chosen_def_ver_index = ver_index;
-                        }
-                    }
-                }
-                {
-                    var ver_buf_i: u8 = 0;
-                    while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
-                        // Example:
-                        // .globl _Exit_2_2_5
-                        // .type _Exit_2_2_5, %function;
-                        // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
-                        // _Exit_2_2_5:
-                        const ver_index = versions_buffer[ver_buf_i];
-                        const ver = metadata.all_versions[ver_index];
-                        // Default symbol version definition vs normal symbol version definition
-                        const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                        const at_sign_str: []const u8 = if (want_default) "@@" else "@";
-                        if (ver.patch == 0) {
-                            const sym_plus_ver = if (want_default)
-                                sym_name
-                            else
-                                try std.fmt.allocPrint(
-                                    arena,
-                                    "{s}_GLIBC_{d}_{d}",
-                                    .{ sym_name, ver.major, ver.minor },
-                                );
-                            try stubs_asm.writer().print(
-                                \\.globl {s}
-                                \\.type {s}, %function;
-                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                                \\{s}:
-                                \\
-                            , .{
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_name,
-                                at_sign_str,
-                                ver.major,
-                                ver.minor,
-                                sym_plus_ver,
-                            });
-                        } else {
-                            const sym_plus_ver = if (want_default)
-                                sym_name
-                            else
-                                try std.fmt.allocPrint(
-                                    arena,
-                                    "{s}_GLIBC_{d}_{d}_{d}",
-                                    .{ sym_name, ver.major, ver.minor, ver.patch },
-                                );
-                            try stubs_asm.writer().print(
-                                \\.globl {s}
-                                \\.type {s}, %function;
-                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                                \\{s}:
-                                \\
-                            , .{
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_name,
-                                at_sign_str,
-                                ver.major,
-                                ver.minor,
-                                ver.patch,
-                                sym_plus_ver,
-                            });
-                        }
-                    }
-                }
-            }
-
-            try stubs_asm.appendSlice(".data\n");
-
-            const obj_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
-            inc_i += 2;
-
-            sym_i = 0;
-            opt_symbol_name = null;
-            versions_buffer = undefined;
-            versions_len = undefined;
-            while (sym_i < obj_inclusions_len) : (sym_i += 1) {
-                const sym_name = opt_symbol_name orelse n: {
-                    const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
-                    inc_i += name.len + 1;
-
-                    opt_symbol_name = name;
-                    versions_buffer = undefined;
-                    versions_len = 0;
-                    break :n name;
-                };
-                const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
-                inc_i += 4;
-
-                const size = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
-                inc_i += 2;
-
-                const lib_index = metadata.inclusions[inc_i];
-                inc_i += 1;
-                const is_terminal = (targets & (1 << 31)) != 0;
-                if (is_terminal) opt_symbol_name = null;
-
-                // Test whether the inclusion applies to our current library and target.
-                const ok_lib_and_target =
-                    (lib_index == lib_i) and
-                    ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
-
-                while (true) {
-                    const byte = metadata.inclusions[inc_i];
-                    inc_i += 1;
-                    const last = (byte & 0b1000_0000) != 0;
-                    const ver_i = @truncate(u7, byte);
-                    if (ok_lib_and_target and ver_i <= target_ver_index) {
-                        versions_buffer[versions_len] = ver_i;
-                        versions_len += 1;
-                    }
-                    if (last) break;
-                }
-
-                if (!is_terminal) continue;
-
-                // Pick the default symbol version:
-                // - If there are no versions, don't emit it
-                // - Take the greatest one <= than the target one
-                // - If none of them is <= than the
-                //   specified one don't pick any default version
-                if (versions_len == 0) continue;
-                var chosen_def_ver_index: u8 = 255;
-                {
-                    var ver_buf_i: u8 = 0;
-                    while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
-                        const ver_index = versions_buffer[ver_buf_i];
-                        if (chosen_def_ver_index == 255 or ver_index > chosen_def_ver_index) {
-                            chosen_def_ver_index = ver_index;
-                        }
-                    }
-                }
-                {
-                    var ver_buf_i: u8 = 0;
-                    while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
-                        // Example:
-                        // .globl environ_2_2_5
-                        // .type environ_2_2_5, %object;
-                        // .size environ_2_2_5, 4;
-                        // .symver environ_2_2_5, environ@@GLIBC_2.2.5
-                        // environ_2_2_5:
-                        const ver_index = versions_buffer[ver_buf_i];
-                        const ver = metadata.all_versions[ver_index];
-                        // Default symbol version definition vs normal symbol version definition
-                        const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                        const at_sign_str: []const u8 = if (want_default) "@@" else "@";
-                        if (ver.patch == 0) {
-                            const sym_plus_ver = if (want_default)
-                                sym_name
-                            else
-                                try std.fmt.allocPrint(
-                                    arena,
-                                    "{s}_GLIBC_{d}_{d}",
-                                    .{ sym_name, ver.major, ver.minor },
-                                );
-                            try stubs_asm.writer().print(
-                                \\.globl {s}
-                                \\.type {s}, %object;
-                                \\.size {s}, {d};
-                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                                \\{s}:
-                                \\
-                            , .{
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                size,
-                                sym_plus_ver,
-                                sym_name,
-                                at_sign_str,
-                                ver.major,
-                                ver.minor,
-                                sym_plus_ver,
-                            });
-                        } else {
-                            const sym_plus_ver = if (want_default)
-                                sym_name
-                            else
-                                try std.fmt.allocPrint(
-                                    arena,
-                                    "{s}_GLIBC_{d}_{d}_{d}",
-                                    .{ sym_name, ver.major, ver.minor, ver.patch },
-                                );
-                            try stubs_asm.writer().print(
-                                \\.globl {s}
-                                \\.type {s}, %object;
-                                \\.size {s}, {d};
-                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                                \\{s}:
-                                \\
-                            , .{
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                sym_plus_ver,
-                                size,
-                                sym_plus_ver,
-                                sym_name,
-                                at_sign_str,
-                                ver.major,
-                                ver.minor,
-                                ver.patch,
-                                sym_plus_ver,
-                            });
-                        }
-                    }
-                }
-            }
-
-            var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
-            const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
-            try o_directory.handle.writeFile(asm_file_basename, stubs_asm.items);
-
-            try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib);
+    const target_ver_index = for (metadata.all_versions) |ver, i| {
+        switch (ver.order(target_version)) {
+            .eq => break i,
+            .lt => continue,
+            .gt => {
+                // TODO Expose via compile error mechanism instead of log.
+                log.warn("invalid target glibc version: {}", .{target_version});
+                return error.InvalidTargetGLibCVersion;
+            },
         }
-        // No need to write the manifest because there are no file inputs associated with this cache hash.
-        // However we do need to write the ok file now.
-        if (o_directory.handle.createFile(ok_basename, .{})) |file| {
-            file.close();
-        } else |err| {
-            log.warn("glibc shared objects: failed to mark completion: {s}", .{@errorName(err)});
+    } else blk: {
+        const latest_index = metadata.all_versions.len - 1;
+        log.warn("zig cannot build new glibc version {}; providing instead {}", .{
+            target_version, metadata.all_versions[latest_index],
+        });
+        break :blk latest_index;
+    };
+
+    {
+        var map_contents = std.ArrayList(u8).init(arena);
+        for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
+            if (ver.patch == 0) {
+                try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
+            } else {
+                try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
+            }
         }
+        try o_directory.handle.writeFile(all_map_basename, map_contents.items);
+        map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
+
+    var stubs_asm = std.ArrayList(u8).init(comp.gpa);
+    defer stubs_asm.deinit();
+
+    for (libs) |lib, lib_i| {
+        stubs_asm.shrinkRetainingCapacity(0);
+        try stubs_asm.appendSlice(".text\n");
+
+        var inc_i: usize = 0;
+
+        const fn_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+        inc_i += 2;
+
+        var sym_i: usize = 0;
+        var opt_symbol_name: ?[]const u8 = null;
+        var versions_buffer: [32]u8 = undefined;
+        var versions_len: usize = undefined;
+        while (sym_i < fn_inclusions_len) : (sym_i += 1) {
+            const sym_name = opt_symbol_name orelse n: {
+                const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
+                inc_i += name.len + 1;
+
+                opt_symbol_name = name;
+                versions_buffer = undefined;
+                versions_len = 0;
+                break :n name;
+            };
+            const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
+            inc_i += 4;
+
+            const lib_index = metadata.inclusions[inc_i];
+            inc_i += 1;
+            const is_terminal = (targets & (1 << 31)) != 0;
+            if (is_terminal) opt_symbol_name = null;
+
+            // Test whether the inclusion applies to our current library and target.
+            const ok_lib_and_target =
+                (lib_index == lib_i) and
+                ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
+
+            while (true) {
+                const byte = metadata.inclusions[inc_i];
+                inc_i += 1;
+                const last = (byte & 0b1000_0000) != 0;
+                const ver_i = @truncate(u7, byte);
+                if (ok_lib_and_target and ver_i <= target_ver_index) {
+                    versions_buffer[versions_len] = ver_i;
+                    versions_len += 1;
+                }
+                if (last) break;
+            }
+
+            if (!is_terminal) continue;
+
+            // Pick the default symbol version:
+            // - If there are no versions, don't emit it
+            // - Take the greatest one <= than the target one
+            // - If none of them is <= than the
+            //   specified one don't pick any default version
+            if (versions_len == 0) continue;
+            var chosen_def_ver_index: u8 = 255;
+            {
+                var ver_buf_i: u8 = 0;
+                while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
+                    const ver_index = versions_buffer[ver_buf_i];
+                    if (chosen_def_ver_index == 255 or ver_index > chosen_def_ver_index) {
+                        chosen_def_ver_index = ver_index;
+                    }
+                }
+            }
+            {
+                var ver_buf_i: u8 = 0;
+                while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
+                    // Example:
+                    // .globl _Exit_2_2_5
+                    // .type _Exit_2_2_5, %function;
+                    // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
+                    // _Exit_2_2_5:
+                    const ver_index = versions_buffer[ver_buf_i];
+                    const ver = metadata.all_versions[ver_index];
+                    // Default symbol version definition vs normal symbol version definition
+                    const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
+                    const at_sign_str: []const u8 = if (want_default) "@@" else "@";
+                    if (ver.patch == 0) {
+                        const sym_plus_ver = if (want_default)
+                            sym_name
+                        else
+                            try std.fmt.allocPrint(
+                                arena,
+                                "{s}_GLIBC_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor },
+                            );
+                        try stubs_asm.writer().print(
+                            \\.globl {s}
+                            \\.type {s}, %function;
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}
+                            \\{s}:
+                            \\
+                        , .{
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_name,
+                            at_sign_str,
+                            ver.major,
+                            ver.minor,
+                            sym_plus_ver,
+                        });
+                    } else {
+                        const sym_plus_ver = if (want_default)
+                            sym_name
+                        else
+                            try std.fmt.allocPrint(
+                                arena,
+                                "{s}_GLIBC_{d}_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor, ver.patch },
+                            );
+                        try stubs_asm.writer().print(
+                            \\.globl {s}
+                            \\.type {s}, %function;
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
+                            \\{s}:
+                            \\
+                        , .{
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_name,
+                            at_sign_str,
+                            ver.major,
+                            ver.minor,
+                            ver.patch,
+                            sym_plus_ver,
+                        });
+                    }
+                }
+            }
+        }
+
+        try stubs_asm.appendSlice(".data\n");
+
+        const obj_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+        inc_i += 2;
+
+        sym_i = 0;
+        opt_symbol_name = null;
+        versions_buffer = undefined;
+        versions_len = undefined;
+        while (sym_i < obj_inclusions_len) : (sym_i += 1) {
+            const sym_name = opt_symbol_name orelse n: {
+                const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
+                inc_i += name.len + 1;
+
+                opt_symbol_name = name;
+                versions_buffer = undefined;
+                versions_len = 0;
+                break :n name;
+            };
+            const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
+            inc_i += 4;
+
+            const size = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+            inc_i += 2;
+
+            const lib_index = metadata.inclusions[inc_i];
+            inc_i += 1;
+            const is_terminal = (targets & (1 << 31)) != 0;
+            if (is_terminal) opt_symbol_name = null;
+
+            // Test whether the inclusion applies to our current library and target.
+            const ok_lib_and_target =
+                (lib_index == lib_i) and
+                ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
+
+            while (true) {
+                const byte = metadata.inclusions[inc_i];
+                inc_i += 1;
+                const last = (byte & 0b1000_0000) != 0;
+                const ver_i = @truncate(u7, byte);
+                if (ok_lib_and_target and ver_i <= target_ver_index) {
+                    versions_buffer[versions_len] = ver_i;
+                    versions_len += 1;
+                }
+                if (last) break;
+            }
+
+            if (!is_terminal) continue;
+
+            // Pick the default symbol version:
+            // - If there are no versions, don't emit it
+            // - Take the greatest one <= than the target one
+            // - If none of them is <= than the
+            //   specified one don't pick any default version
+            if (versions_len == 0) continue;
+            var chosen_def_ver_index: u8 = 255;
+            {
+                var ver_buf_i: u8 = 0;
+                while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
+                    const ver_index = versions_buffer[ver_buf_i];
+                    if (chosen_def_ver_index == 255 or ver_index > chosen_def_ver_index) {
+                        chosen_def_ver_index = ver_index;
+                    }
+                }
+            }
+            {
+                var ver_buf_i: u8 = 0;
+                while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
+                    // Example:
+                    // .globl environ_2_2_5
+                    // .type environ_2_2_5, %object;
+                    // .size environ_2_2_5, 4;
+                    // .symver environ_2_2_5, environ@@GLIBC_2.2.5
+                    // environ_2_2_5:
+                    const ver_index = versions_buffer[ver_buf_i];
+                    const ver = metadata.all_versions[ver_index];
+                    // Default symbol version definition vs normal symbol version definition
+                    const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
+                    const at_sign_str: []const u8 = if (want_default) "@@" else "@";
+                    if (ver.patch == 0) {
+                        const sym_plus_ver = if (want_default)
+                            sym_name
+                        else
+                            try std.fmt.allocPrint(
+                                arena,
+                                "{s}_GLIBC_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor },
+                            );
+                        try stubs_asm.writer().print(
+                            \\.globl {s}
+                            \\.type {s}, %object;
+                            \\.size {s}, {d};
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}
+                            \\{s}:
+                            \\
+                        , .{
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            size,
+                            sym_plus_ver,
+                            sym_name,
+                            at_sign_str,
+                            ver.major,
+                            ver.minor,
+                            sym_plus_ver,
+                        });
+                    } else {
+                        const sym_plus_ver = if (want_default)
+                            sym_name
+                        else
+                            try std.fmt.allocPrint(
+                                arena,
+                                "{s}_GLIBC_{d}_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor, ver.patch },
+                            );
+                        try stubs_asm.writer().print(
+                            \\.globl {s}
+                            \\.type {s}, %object;
+                            \\.size {s}, {d};
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
+                            \\{s}:
+                            \\
+                        , .{
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            sym_plus_ver,
+                            size,
+                            sym_plus_ver,
+                            sym_name,
+                            at_sign_str,
+                            ver.major,
+                            ver.minor,
+                            ver.patch,
+                            sym_plus_ver,
+                        });
+                    }
+                }
+            }
+        }
+
+        var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
+        const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
+        try o_directory.handle.writeFile(asm_file_basename, stubs_asm.items);
+
+        try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib);
+    }
+
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest for glibc stubs: {s}", .{@errorName(err)});
+    };
 
     assert(comp.glibc_so_files == null);
     comp.glibc_so_files = BuiltSharedObjects{
-        .lock = cache.toOwnedLock(),
-        .dir_path = try path.join(comp.gpa, &[_][]const u8{ comp.global_cache_directory.path.?, o_sub_path }),
+        .lock = man.toOwnedLock(),
+        .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
     };
 }
 

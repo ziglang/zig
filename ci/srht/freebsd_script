@@ -9,7 +9,7 @@ sudo pkg install -y cmake py39-s3cmd wget curl jq samurai
 ZIGDIR="$(pwd)"
 TARGET="x86_64-freebsd-gnu"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.61+9be8396b7"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4560+828735ac0"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME
