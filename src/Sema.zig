@@ -18947,6 +18947,9 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
             return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
         }
+        if (dest_ty.zigTypeTag() == .Optional and sema.typeOf(ptr).zigTypeTag() != .Optional) {
+            return sema.addConstant(dest_ty, try Value.Tag.opt_payload.create(sema.arena, operand_val));
+        }
         return sema.addConstant(aligned_dest_ty, operand_val);
     }
 
