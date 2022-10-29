@@ -25,7 +25,17 @@ pub fn cmdTargets(
     defer zig_lib_directory.handle.close();
     defer allocator.free(zig_lib_directory.path.?);
 
-    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle);
+    const abilists_contents = zig_lib_directory.handle.readFileAlloc(
+        allocator,
+        glibc.abilists_path,
+        glibc.abilists_max_size,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
+    };
+    defer allocator.free(abilists_contents);
+
+    const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
     defer glibc_abi.destroy(allocator);
 
     var bw = io.bufferedWriter(stdout);
