@@ -1617,11 +1617,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / INTEGER
 //      / KEYWORD_comptime TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
-//      / KEYWORD_false
-//      / KEYWORD_null
 //      / KEYWORD_promise
-//      / KEYWORD_true
-//      / KEYWORD_undefined
 //      / KEYWORD_unreachable
 //      / STRINGLITERAL
 //      / SwitchExpr

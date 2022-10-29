@@ -63,7 +63,7 @@ pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
 
 /// Parse an escape sequence from `slice[offset..]`. If parsing is successful,
 /// offset is updated to reflect the characters consumed.
-fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral {
+pub fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral {
     assert(slice.len > offset.*);
     assert(slice[offset.*] == '\\');
 
@@ -274,10 +274,48 @@ pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    switch (try parseAppend(&buf, bytes)) {
+    switch (try parseWrite(buf.writer(), bytes)) {
         .success => return buf.toOwnedSlice(),
         .failure => return error.InvalidLiteral,
     }
+}
+
+/// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
+/// Asserts `bytes` has '"' at beginning and end.
+pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
+    assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
+
+    var index: usize = 1;
+    while (true) {
+        const b = bytes[index];
+
+        switch (b) {
+            '\\' => {
+                const escape_char_index = index + 1;
+                const result = parseEscapeSequence(bytes, &index);
+                switch (result) {
+                    .success => |codepoint| {
+                        if (bytes[escape_char_index] == 'u') {
+                            var buf: [3]u8 = undefined;
+                            const len = utf8Encode(codepoint, &buf) catch {
+                                return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
+                            };
+                            try writer.writeAll(buf[0..len]);
+                        } else {
+                            try writer.writeByte(@intCast(u8, codepoint));
+                        }
+                    },
+                    .failure => |err| return Result{ .failure = err },
+                }
+            },
+            '\n' => return Result{ .failure = .{ .invalid_character = index } },
+            '"' => return Result.success,
+            else => {
+                try writer.writeByte(b);
+                index += 1;
+            },
+        }
+    } else unreachable; // TODO should not need else unreachable on while(true)
 }
 
 test "parse" {

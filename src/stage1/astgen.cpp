@@ -3879,6 +3879,27 @@ static Stage1ZirInst *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode 
             }
         }
 
+        {
+            Stage1ZirInst *value = nullptr;
+            if (buf_eql_str(variable_name, "null")) {
+                value = ir_build_const_null(ag, scope, node);
+            } else if (buf_eql_str(variable_name, "true")) {
+                value = ir_build_const_bool(ag, scope, node, true);
+            } else if (buf_eql_str(variable_name, "false")) {
+                value = ir_build_const_bool(ag, scope, node, false);
+            } else if (buf_eql_str(variable_name, "undefined")) {
+                value = ir_build_const_undefined(ag, scope, node);
+            }
+
+            if (value != nullptr) {
+                if (lval == LValPtr || lval == LValAssign) {
+                    return ir_build_ref_src(ag, scope, node, value);
+                } else {
+                    return ir_expr_wrap(ag, scope, value, result_loc);
+                }
+            }
+        }
+
         ZigType *primitive_type;
         if ((err = get_primitive_type(ag->codegen, variable_name, &primitive_type))) {
             if (err == ErrorOverflow) {
