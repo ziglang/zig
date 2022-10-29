@@ -176,16 +176,12 @@
 
 #if __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn void
-#define zig_threadlocal thread_local
-#elif __GNUC__
-#define zig_noreturn __attribute__ ((noreturn)) void
-#define zig_threadlocal __thread
+#elif zig_has_attribute(noreturn)
+#define zig_noreturn __attribute__((noreturn)) void
 #elif _MSC_VER
 #define zig_noreturn __declspec(noreturn) void
-#define zig_threadlocal __declspec(thread)
 #else
 #define zig_noreturn void
-#define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
 #define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
