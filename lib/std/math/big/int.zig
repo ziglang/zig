@@ -1762,16 +1762,32 @@ pub const Mutable = struct {
     }
 
     /// Read the value of `x` from `buffer`
-    /// Asserts that `buffer`, `abi_size`, and `bit_count` are large enough to store the value.
+    /// Asserts that `buffer` is large enough to contain a value of bit-size `bit_count`.
     ///
     /// The contents of `buffer` are interpreted as if they were the contents of
-    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian`
+    /// @ptrCast(*[buffer.len]const u8, &x). Byte ordering is determined by `endian`
     /// and any required padding bits are expected on the MSB end.
     pub fn readTwosComplement(
         x: *Mutable,
         buffer: []const u8,
         bit_count: usize,
-        abi_size: usize,
+        endian: Endian,
+        signedness: Signedness,
+    ) void {
+        return readPackedTwosComplement(x, buffer, 0, bit_count, endian, signedness);
+    }
+
+    /// Read the value of `x` from a packed memory `buffer`.
+    /// Asserts that `buffer` is large enough to contain a value of bit-size `bit_count`
+    /// at offset `bit_offset`.
+    ///
+    /// This is equivalent to loading the value of an integer with `bit_count` bits as
+    /// if it were a field in packed memory at the provided bit offset.
+    pub fn readPackedTwosComplement(
+        x: *Mutable,
+        bytes: []const u8,
+        bit_offset: usize,
+        bit_count: usize,
         endian: Endian,
         signedness: Signedness,
     ) void {
@@ -1782,75 +1798,54 @@ pub const Mutable = struct {
             return;
         }
 
-        // byte_count is our total read size: it cannot exceed abi_size,
-        // but may be less as long as it includes the required bits
-        const limb_count = calcTwosCompLimbCount(bit_count);
-        const byte_count = std.math.min(abi_size, @sizeOf(Limb) * limb_count);
-        assert(8 * byte_count >= bit_count);
-
         // Check whether the input is negative
         var positive = true;
         if (signedness == .signed) {
+            const total_bits = bit_offset + bit_count;
             var last_byte = switch (endian) {
-                .Little => ((bit_count + 7) / 8) - 1,
-                .Big => abi_size - ((bit_count + 7) / 8),
+                .Little => ((total_bits + 7) / 8) - 1,
+                .Big => bytes.len - ((total_bits + 7) / 8),
             };
 
-            const sign_bit = @as(u8, 1) << @intCast(u3, (bit_count - 1) % 8);
-            positive = ((buffer[last_byte] & sign_bit) == 0);
+            const sign_bit = @as(u8, 1) << @intCast(u3, (total_bits - 1) % 8);
+            positive = ((bytes[last_byte] & sign_bit) == 0);
         }
 
         // Copy all complete limbs
-        var carry: u1 = if (positive) 0 else 1;
+        var carry: u1 = 1;
         var limb_index: usize = 0;
+        var bit_index: usize = 0;
         while (limb_index < bit_count / @bitSizeOf(Limb)) : (limb_index += 1) {
-            var buf_index = switch (endian) {
-                .Little => @sizeOf(Limb) * limb_index,
-                .Big => abi_size - (limb_index + 1) * @sizeOf(Limb),
-            };
-
-            const limb_buf = @ptrCast(*const [@sizeOf(Limb)]u8, buffer[buf_index..]);
-            var limb = mem.readInt(Limb, limb_buf, endian);
+            // Read one Limb of bits
+            var limb = mem.readPackedInt(Limb, bytes, bit_index + bit_offset, endian);
+            bit_index += @bitSizeOf(Limb);
 
             // 2's complement (bitwise not, then add carry bit)
             if (!positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
             x.limbs[limb_index] = limb;
         }
 
-        // Copy the remaining N bytes (N <= @sizeOf(Limb))
-        var bytes_read = limb_index * @sizeOf(Limb);
-        if (bytes_read != byte_count) {
-            var limb: Limb = 0;
-
-            while (bytes_read != byte_count) {
-                const read_size = std.math.floorPowerOfTwo(usize, byte_count - bytes_read);
-                var int_buffer = switch (endian) {
-                    .Little => buffer[bytes_read..],
-                    .Big => buffer[(abi_size - bytes_read - read_size)..],
-                };
-                limb |= @intCast(Limb, switch (read_size) {
-                    1 => mem.readInt(u8, int_buffer[0..1], endian),
-                    2 => mem.readInt(u16, int_buffer[0..2], endian),
-                    4 => mem.readInt(u32, int_buffer[0..4], endian),
-                    8 => mem.readInt(u64, int_buffer[0..8], endian),
-                    16 => mem.readInt(u128, int_buffer[0..16], endian),
-                    else => unreachable,
-                }) << @intCast(Log2Limb, 8 * (bytes_read % @sizeOf(Limb)));
-                bytes_read += read_size;
-            }
+        // Copy the remaining bits
+        if (bit_count != bit_index) {
+            // Read all remaining bits
+            var limb = switch (signedness) {
+                .unsigned => mem.readVarPackedInt(Limb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
+                .signed => b: {
+                    const SLimb = std.meta.Int(.signed, @bitSizeOf(Limb));
+                    const limb = mem.readVarPackedInt(SLimb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
+                    break :b @bitCast(Limb, limb);
+                },
+            };
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
+            if (!positive) assert(!@addWithOverflow(Limb, ~limb, carry, &limb));
+            x.limbs[limb_index] = limb;
 
-            // Mask off any unused bits
-            const valid_bits = @intCast(Log2Limb, bit_count % @bitSizeOf(Limb));
-            const mask = (@as(Limb, 1) << valid_bits) -% 1; // 0b0..01..1 with (valid_bits_in_limb) trailing ones
-            limb &= mask;
-
-            x.limbs[limb_count - 1] = limb;
+            limb_index += 1;
         }
+
         x.positive = positive;
-        x.len = limb_count;
+        x.len = limb_index;
         x.normalize(x.len);
     }
 
@@ -2212,66 +2207,48 @@ pub const Const = struct {
     }
 
     /// Write the value of `x` into `buffer`
-    /// Asserts that `buffer`, `abi_size`, and `bit_count` are large enough to store the value.
+    /// Asserts that `buffer` is large enough to store the value.
     ///
     /// `buffer` is filled so that its contents match what would be observed via
-    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian`,
+    /// @ptrCast(*[buffer.len]const u8, &x). Byte ordering is determined by `endian`,
     /// and any required padding bits are added on the MSB end.
-    pub fn writeTwosComplement(x: Const, buffer: []u8, bit_count: usize, abi_size: usize, endian: Endian) void {
+    pub fn writeTwosComplement(x: Const, buffer: []u8, endian: Endian) void {
+        return writePackedTwosComplement(x, buffer, 0, 8 * buffer.len, endian);
+    }
 
-        // byte_count is our total write size
-        const byte_count = abi_size;
-        assert(8 * byte_count >= bit_count);
-        assert(buffer.len >= byte_count);
+    /// Write the value of `x` to a packed memory `buffer`.
+    /// Asserts that `buffer` is large enough to contain a value of bit-size `bit_count`
+    /// at offset `bit_offset`.
+    ///
+    /// This is equivalent to storing the value of an integer with `bit_count` bits as
+    /// if it were a field in packed memory at the provided bit offset.
+    pub fn writePackedTwosComplement(x: Const, bytes: []u8, bit_offset: usize, bit_count: usize, endian: Endian) void {
         assert(x.fitsInTwosComp(if (x.positive) .unsigned else .signed, bit_count));
 
         // Copy all complete limbs
-        var carry: u1 = if (x.positive) 0 else 1;
+        var carry: u1 = 1;
         var limb_index: usize = 0;
-        while (limb_index < byte_count / @sizeOf(Limb)) : (limb_index += 1) {
-            var buf_index = switch (endian) {
-                .Little => @sizeOf(Limb) * limb_index,
-                .Big => abi_size - (limb_index + 1) * @sizeOf(Limb),
-            };
-
+        var bit_index: usize = 0;
+        while (limb_index < bit_count / @bitSizeOf(Limb)) : (limb_index += 1) {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
+
             // 2's complement (bitwise not, then add carry bit)
             if (!x.positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
 
-            var limb_buf = @ptrCast(*[@sizeOf(Limb)]u8, buffer[buf_index..]);
-            mem.writeInt(Limb, limb_buf, limb, endian);
+            // Write one Limb of bits
+            mem.writePackedInt(Limb, bytes, bit_index + bit_offset, limb, endian);
+            bit_index += @bitSizeOf(Limb);
         }
 
-        // Copy the remaining N bytes (N < @sizeOf(Limb))
-        var bytes_written = limb_index * @sizeOf(Limb);
-        if (bytes_written != byte_count) {
+        // Copy the remaining bits
+        if (bit_count != bit_index) {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
+
             // 2's complement (bitwise not, then add carry bit)
             if (!x.positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
 
-            while (bytes_written != byte_count) {
-                const write_size = std.math.floorPowerOfTwo(usize, byte_count - bytes_written);
-                var int_buffer = switch (endian) {
-                    .Little => buffer[bytes_written..],
-                    .Big => buffer[(abi_size - bytes_written - write_size)..],
-                };
-
-                if (write_size == 1) {
-                    mem.writeInt(u8, int_buffer[0..1], @truncate(u8, limb), endian);
-                } else if (@sizeOf(Limb) >= 2 and write_size == 2) {
-                    mem.writeInt(u16, int_buffer[0..2], @truncate(u16, limb), endian);
-                } else if (@sizeOf(Limb) >= 4 and write_size == 4) {
-                    mem.writeInt(u32, int_buffer[0..4], @truncate(u32, limb), endian);
-                } else if (@sizeOf(Limb) >= 8 and write_size == 8) {
-                    mem.writeInt(u64, int_buffer[0..8], @truncate(u64, limb), endian);
-                } else if (@sizeOf(Limb) >= 16 and write_size == 16) {
-                    mem.writeInt(u128, int_buffer[0..16], @truncate(u128, limb), endian);
-                } else if (@sizeOf(Limb) >= 32) {
-                    @compileError("@sizeOf(Limb) exceeded supported range");
-                } else unreachable;
-                limb >>= @intCast(Log2Limb, 8 * write_size);
-                bytes_written += write_size;
-            }
+            // Write all remaining bits
+            mem.writeVarPackedInt(bytes, bit_index + bit_offset, bit_count - bit_index, limb, endian);
         }
     }
 

@@ -470,7 +470,7 @@ pub fn generateSymbol(
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
                 const start = code.items.len;
                 try code.resize(start + abi_size);
-                bigint.writeTwosComplement(code.items[start..][0..abi_size], info.bits, abi_size, endian);
+                bigint.writeTwosComplement(code.items[start..][0..abi_size], endian);
                 return Result{ .appended = {} };
             }
             switch (info.signedness) {
