@@ -35,7 +35,7 @@ pub const Ipv6Address = extern struct {
     address: [16]u8,
 };
 
-/// GUIDs must be align(8)
+/// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
     time_low: u32,
     time_mid: u16,
@@ -149,4 +149,9 @@ test "GUID formatting" {
     defer std.testing.allocator.free(str);
 
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
+}
+
+test {
+    _ = tables;
+    _ = protocols;
 }

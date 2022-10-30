@@ -219,33 +219,32 @@ pub const MemoryType = enum(u32) {
     _,
 };
 
+pub const MemoryDescriptorAttribute = packed struct(u64) {
+    uc: bool,
+    wc: bool,
+    wt: bool,
+    wb: bool,
+    uce: bool,
+    _pad1: u7 = 0,
+    wp: bool,
+    rp: bool,
+    xp: bool,
+    nv: bool,
+    more_reliable: bool,
+    ro: bool,
+    sp: bool,
+    cpu_crypto: bool,
+    _pad2: u43 = 0,
+    memory_runtime: bool,
+};
+
 pub const MemoryDescriptor = extern struct {
     type: MemoryType,
     padding: u32,
     physical_start: u64,
     virtual_start: u64,
     number_of_pages: usize,
-    attribute: packed struct {
-        uc: bool,
-        wc: bool,
-        wt: bool,
-        wb: bool,
-        uce: bool,
-        _pad1: u3,
-        _pad2: u4,
-        wp: bool,
-        rp: bool,
-        xp: bool,
-        nv: bool,
-        more_reliable: bool,
-        ro: bool,
-        sp: bool,
-        cpu_crypto: bool,
-        _pad3: u4,
-        _pad4: u32,
-        _pad5: u7,
-        memory_runtime: bool,
-    },
+    attribute: MemoryDescriptorAttribute,
 };
 
 pub const LocateSearchType = enum(u32) {
@@ -254,14 +253,14 @@ pub const LocateSearchType = enum(u32) {
     ByProtocol,
 };
 
-pub const OpenProtocolAttributes = packed struct {
+pub const OpenProtocolAttributes = packed struct(u32) {
     by_handle_protocol: bool = false,
     get_protocol: bool = false,
     test_protocol: bool = false,
     by_child_controller: bool = false,
     by_driver: bool = false,
     exclusive: bool = false,
-    _pad: u26 = 0,
+    reserved: u26 = 0,
 };
 
 pub const ProtocolInformationEntry = extern struct {

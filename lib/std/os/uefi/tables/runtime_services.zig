@@ -78,7 +78,7 @@ pub const CapsuleHeader = extern struct {
 
 pub const UefiCapsuleBlockDescriptor = extern struct {
     length: u64,
-    address: union {
+    address: extern union {
         dataBlock: EfiPhysicalAddress,
         continuationPointer: EfiPhysicalAddress,
     },
