@@ -23,7 +23,6 @@ comptime {
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
     if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_c or
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
         builtin.zig_backend == .stage2_aarch64 or
@@ -265,75 +264,104 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    switch (native_arch) {
-        .x86_64 => {
-            argc_argv_ptr = asm volatile (
-                \\ xor %%rbp, %%rbp
-                : [argc] "={rsp}" (-> [*]usize),
-            );
+    switch (builtin.zig_backend) {
+        .stage2_c => {
+            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
+            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
+            switch (native_arch) {
+                .x86_64 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movq %%rsp, argc_argv_ptr
+                    \\ andq $-16, %%rsp
+                    \\ call _posixCallMainAndExit
+                ),
+                .i386 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movl %%esp, argc_argv_ptr
+                    \\ andl $-16, %%esp
+                    \\ jmp _posixCallMainAndExit
+                ),
+                .aarch64, .aarch64_be, .arm, .armeb, .thumb => asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    \\ str sp, argc_argv_ptr
+                    \\ and sp, #-16
+                    \\ b _posixCallMainAndExit
+                ),
+                else => @compileError("unsupported arch"),
+            }
+            unreachable;
         },
-        .i386 => {
-            argc_argv_ptr = asm volatile (
-                \\ xor %%ebp, %%ebp
-                : [argc] "={esp}" (-> [*]usize),
-            );
+        else => switch (native_arch) {
+            .x86_64 => {
+                argc_argv_ptr = asm volatile (
+                    \\ xor %%ebp, %%ebp
+                    : [argc] "={rsp}" (-> [*]usize),
+                );
+            },
+            .i386 => {
+                argc_argv_ptr = asm volatile (
+                    \\ xor %%ebp, %%ebp
+                    : [argc] "={esp}" (-> [*]usize),
+                );
+            },
+            .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
+                argc_argv_ptr = asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .riscv64 => {
+                argc_argv_ptr = asm volatile (
+                    \\ li s0, 0
+                    \\ li ra, 0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .mips, .mipsel => {
+                // The lr is already zeroed on entry, as specified by the ABI.
+                argc_argv_ptr = asm volatile (
+                    \\ move $fp, $0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .powerpc => {
+                // Setup the initial stack frame and clear the back chain pointer.
+                argc_argv_ptr = asm volatile (
+                    \\ mr 4, 1
+                    \\ li 0, 0
+                    \\ stwu 1,-16(1)
+                    \\ stw 0, 0(1)
+                    \\ mtlr 0
+                    : [argc] "={r4}" (-> [*]usize),
+                    :
+                    : "r0"
+                );
+            },
+            .powerpc64le => {
+                // Setup the initial stack frame and clear the back chain pointer.
+                // TODO: Support powerpc64 (big endian) on ELFv2.
+                argc_argv_ptr = asm volatile (
+                    \\ mr 4, 1
+                    \\ li 0, 0
+                    \\ stdu 0, -32(1)
+                    \\ mtlr 0
+                    : [argc] "={r4}" (-> [*]usize),
+                    :
+                    : "r0"
+                );
+            },
+            .sparc64 => {
+                // argc is stored after a register window (16 registers) plus stack bias
+                argc_argv_ptr = asm (
+                    \\ mov %%g0, %%i6
+                    \\ add %%o6, 2175, %[argc]
+                    : [argc] "=r" (-> [*]usize),
+                );
+            },
+            else => @compileError("unsupported arch"),
         },
-        .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
-            argc_argv_ptr = asm volatile (
-                \\ mov fp, #0
-                \\ mov lr, #0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .riscv64 => {
-            argc_argv_ptr = asm volatile (
-                \\ li s0, 0
-                \\ li ra, 0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .mips, .mipsel => {
-            // The lr is already zeroed on entry, as specified by the ABI.
-            argc_argv_ptr = asm volatile (
-                \\ move $fp, $0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .powerpc => {
-            // Setup the initial stack frame and clear the back chain pointer.
-            argc_argv_ptr = asm volatile (
-                \\ mr 4, 1
-                \\ li 0, 0
-                \\ stwu 1,-16(1)
-                \\ stw 0, 0(1)
-                \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize),
-                :
-                : "r0"
-            );
-        },
-        .powerpc64le => {
-            // Setup the initial stack frame and clear the back chain pointer.
-            // TODO: Support powerpc64 (big endian) on ELFv2.
-            argc_argv_ptr = asm volatile (
-                \\ mr 4, 1
-                \\ li 0, 0
-                \\ stdu 0, -32(1)
-                \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize),
-                :
-                : "r0"
-            );
-        },
-        .sparc64 => {
-            // argc is stored after a register window (16 registers) plus stack bias
-            argc_argv_ptr = asm (
-                \\ mov %%g0, %%i6
-                \\ add %%o6, 2175, %[argc]
-                : [argc] "=r" (-> [*]usize),
-            );
-        },
-        else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
@@ -363,7 +391,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
-fn posixCallMainAndExit() noreturn {
+fn posixCallMainAndExit() callconv(.C) noreturn {
     @setAlignStack(16);
 
     const argc = argc_argv_ptr[0];
@@ -462,7 +490,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
+fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -474,11 +502,11 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
         expandStackSize(phdrs);
     }
 
-    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
+    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
-fn mainWithoutEnv(c_argc: i32, c_argv: [*][*:0]u8) callconv(.C) usize {
-    std.os.argv = c_argv[0..@intCast(usize, c_argc)];
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
+    std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
     return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 

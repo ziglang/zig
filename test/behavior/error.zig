@@ -258,7 +258,6 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
 }
 
 test "comptime err to int of error set with only 1 possible value" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -471,7 +470,6 @@ test "function pointer with return type that is error union with payload which i
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -556,7 +554,6 @@ test "error union comptime caching" {
 }
 
 test "@errorName" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -570,7 +567,6 @@ fn gimmeItBroke() anyerror {
 }
 
 test "@errorName sentinel length matches slice length" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -842,4 +838,20 @@ fn non_errorable() void {
 
 test "catch within a function that calls no errorable functions" {
     non_errorable();
+}
+
+test "error from comptime string" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const name = "Weird error name!";
+    const S = struct {
+        fn foo() !void {
+            return @field(anyerror, name);
+        }
+    };
+    if (S.foo()) unreachable else |err| {
+        try expect(mem.eql(u8, name, @errorName(err)));
+    }
 }

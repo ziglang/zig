@@ -355,19 +355,12 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
-    // wasm doesn't support align attributes on functions
-    if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
-
     try testFunction();
     comptime try testFunction();
 }
 
 fn testFunction() !void {
-    const fn_info = @typeInfo(@TypeOf(foo));
+    const fn_info = @typeInfo(@TypeOf(typeInfoFoo));
     try expect(fn_info == .Fn);
     try expect(fn_info.Fn.alignment > 0);
     try expect(fn_info.Fn.calling_convention == .C);
@@ -375,16 +368,14 @@ fn testFunction() !void {
     try expect(fn_info.Fn.args.len == 2);
     try expect(fn_info.Fn.is_var_args);
     try expect(fn_info.Fn.return_type.? == usize);
-    const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
+    const fn_aligned_info = @typeInfo(@TypeOf(typeInfoFooAligned));
     try expect(fn_aligned_info.Fn.alignment == 4);
 }
 
-extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
-extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
+extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.C) usize;
+extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "type info: generic function types" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     if (builtin.zig_backend != .stage1) {
         // stage1 marks all args/return types as null if the function
         // is generic at all. stage2 is more specific.

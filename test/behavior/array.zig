@@ -6,8 +6,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "array to slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     const a_slice: []align(1) const u32 = @as(*const [1]u32, &a)[0..];
@@ -160,7 +158,6 @@ test "nested arrays of strings" {
 
 test "nested arrays of integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const array_of_numbers = [_][2]u8{
         [2]u8{ 1, 2 },
@@ -479,7 +476,6 @@ test "sentinel element count towards the ABI size calculation" {
 
 test "zero-sized array with recursive type definition" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const U = struct {
         fn foo(comptime T: type, comptime n: usize) type {
@@ -501,7 +497,6 @@ test "zero-sized array with recursive type definition" {
 test "type coercion of anon struct literal to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -532,7 +527,6 @@ test "type coercion of anon struct literal to array" {
 }
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

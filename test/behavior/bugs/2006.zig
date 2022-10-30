@@ -6,7 +6,6 @@ const S = struct {
     p: *S,
 };
 test "bug 2006" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     var a: S = undefined;
     a = S{ .p = undefined };
     try expect(@sizeOf(S) != 0);

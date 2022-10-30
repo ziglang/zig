@@ -8,7 +8,6 @@ test "issue12891" {
 }
 test "nan" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const f = comptime std.math.nan(f64);
     var i: usize = 0;

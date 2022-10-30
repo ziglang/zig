@@ -124,19 +124,37 @@ const CloneFn = std.meta.FnPtr(fn (arg: usize) callconv(.C) u8);
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub fn restore() callconv(.Naked) void {
-    return asm volatile ("int $0x80"
-        :
-        : [number] "{eax}" (@enumToInt(SYS.sigreturn)),
-        : "memory"
-    );
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => return asm volatile (
+            \\ movl %[number], %%eax
+            \\ int $0x80
+            :
+            : [number] "i" (@enumToInt(SYS.sigreturn)),
+            : "memory"
+        ),
+        else => return asm volatile ("int $0x80"
+            :
+            : [number] "{eax}" (@enumToInt(SYS.sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
 pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("int $0x80"
-        :
-        : [number] "{eax}" (@enumToInt(SYS.rt_sigreturn)),
-        : "memory"
-    );
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => return asm volatile (
+            \\ movl %[number], %%eax
+            \\ int $0x80
+            :
+            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+        else => return asm volatile ("int $0x80"
+            :
+            : [number] "{eax}" (@enumToInt(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
 pub const O = struct {

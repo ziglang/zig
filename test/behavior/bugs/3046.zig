@@ -15,7 +15,6 @@ var some_struct: SomeStruct = undefined;
 test "fixed" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     some_struct = SomeStruct{
         .field = couldFail() catch @as(i32, 0),

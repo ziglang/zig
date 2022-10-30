@@ -3103,13 +3103,16 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                         .decl_index = decl_index,
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
-                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
-                            .mod = module,
-                        }),
+                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
                         .typedefs_arena = typedefs_arena.allocator(),
                     };
-                    defer dg.fwd_decl.deinit();
-                    defer dg.typedefs.deinit();
+                    defer {
+                        for (dg.typedefs.values()) |typedef| {
+                            module.gpa.free(typedef.rendered);
+                        }
+                        dg.typedefs.deinit();
+                        dg.fwd_decl.deinit();
+                    }
 
                     c_codegen.genHeader(&dg) catch |err| switch (err) {
                         error.AnalysisFail => {

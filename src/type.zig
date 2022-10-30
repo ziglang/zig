@@ -5282,7 +5282,7 @@ pub const Type = extern union {
     // Works for vectors and vectors of integers.
     pub fn minInt(ty: Type, arena: Allocator, target: Target) !Value {
         const scalar = try minIntScalar(ty.scalarType(), arena, target);
-        if (ty.zigTypeTag() == .Vector) {
+        if (ty.zigTypeTag() == .Vector and scalar.tag() != .the_only_possible_value) {
             return Value.Tag.repeated.create(arena, scalar);
         } else {
             return scalar;
@@ -5294,12 +5294,16 @@ pub const Type = extern union {
         assert(ty.zigTypeTag() == .Int);
         const info = ty.intInfo(target);
 
+        if (info.bits == 0) {
+            return Value.initTag(.the_only_possible_value);
+        }
+
         if (info.signedness == .unsigned) {
             return Value.zero;
         }
 
-        if (info.bits <= 6) {
-            const n: i64 = -(@as(i64, 1) << @truncate(u6, info.bits - 1));
+        if (std.math.cast(u6, info.bits - 1)) |shift| {
+            const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
             return Value.Tag.int_i64.create(arena, n);
         }
 
@@ -5319,13 +5323,23 @@ pub const Type = extern union {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
-        if (info.bits <= 6) switch (info.signedness) {
+        if (info.bits == 0) {
+            return Value.initTag(.the_only_possible_value);
+        }
+
+        switch (info.bits - @boolToInt(info.signedness == .signed)) {
+            0 => return Value.zero,
+            1 => return Value.one,
+            else => {},
+        }
+
+        if (std.math.cast(u6, info.bits - 1)) |shift| switch (info.signedness) {
             .signed => {
-                const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
+                const n = @as(i64, std.math.maxInt(i64)) >> (63 - shift);
                 return Value.Tag.int_i64.create(arena, n);
             },
             .unsigned => {
-                const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
+                const n = @as(u64, std.math.maxInt(u64)) >> (63 - shift);
                 return Value.Tag.int_u64.create(arena, n);
             },
         };

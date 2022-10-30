@@ -791,6 +791,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.arena),
+            .link_libc = true,
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }

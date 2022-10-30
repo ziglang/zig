@@ -97,7 +97,6 @@ test "discard the result of a function that returns a struct" {
 }
 
 test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -146,7 +145,6 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "extern struct with stdcallcc fn pointer" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -274,7 +272,6 @@ test "void parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
@@ -286,7 +283,6 @@ fn voidFun(a: i32, b: void, c: i32, d: void) !void {
 }
 
 test "call function with empty string" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     acceptsString("");
@@ -305,7 +301,6 @@ test "function pointers" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const fns = [_]*const @TypeOf(fn1){
         &fn1,
@@ -399,8 +394,6 @@ test "ability to give comptime types and non comptime types to same parameter" {
 }
 
 test "function with inferred error set but returning no error" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn foo() !void {}
     };
@@ -410,7 +403,6 @@ test "function with inferred error set but returning no error" {
 }
 
 test "import passed byref to function in return type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {

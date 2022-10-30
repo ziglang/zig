@@ -333,7 +333,6 @@ test "call result of if else expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, f2(true), "a"));
     try expect(mem.eql(u8, f2(false), "b"));
@@ -364,8 +363,6 @@ fn testMemcpyMemset() !void {
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     var x: i32 = 1234;
     _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
 }
@@ -386,8 +383,6 @@ fn testTakeAddressOfParameter(f: f32) !void {
 }
 
 test "pointer to void return type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     try testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() anyerror!void {
@@ -593,7 +588,6 @@ test "equality compare fn ptrs" {
 
 test "self reference through fn ptr field" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
         const A = struct {
@@ -881,7 +875,6 @@ test "labeled block implicitly ends in a break" {
 }
 
 test "catch in block has correct result location" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {

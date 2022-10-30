@@ -200,7 +200,6 @@ test "Type.ErrorUnion" {
 
 test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -248,7 +247,6 @@ fn add(a: i32, b: i32) i32 {
 
 test "Type.ErrorSet" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testing.expect(@Type(.{ .ErrorSet = null }) == anyerror);
 
@@ -351,7 +349,6 @@ test "Type.Struct" {
 }
 
 test "Type.Enum" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -396,7 +393,6 @@ test "Type.Enum" {
 
 test "Type.Union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -462,7 +458,6 @@ test "Type.Union" {
 }
 
 test "Type.Union from Type.Enum" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const Tag = @Type(.{
@@ -490,7 +485,6 @@ test "Type.Union from Type.Enum" {
 }
 
 test "Type.Union from regular enum" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const E = enum { working_as_expected };
@@ -509,7 +503,6 @@ test "Type.Union from regular enum" {
 
 test "Type.Fn" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     if (true) {
         // https://github.com/ziglang/zig/issues/12360

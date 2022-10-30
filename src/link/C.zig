@@ -108,10 +108,8 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
     fwd_decl.shrinkRetainingCapacity(0);
-    {
-        for (typedefs.values()) |value| {
-            module.gpa.free(value.rendered);
-        }
+    for (typedefs.values()) |typedef| {
+        module.gpa.free(typedef.rendered);
     }
     typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
@@ -139,14 +137,14 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
 
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
     defer {
-        function.value_map.deinit();
         function.blocks.deinit(module.gpa);
+        function.value_map.deinit();
         function.object.code.deinit();
-        function.object.dg.fwd_decl.deinit();
-        for (function.object.dg.typedefs.values()) |value| {
-            module.gpa.free(value.rendered);
+        for (function.object.dg.typedefs.values()) |typedef| {
+            module.gpa.free(typedef.rendered);
         }
         function.object.dg.typedefs.deinit();
+        function.object.dg.fwd_decl.deinit();
     }
 
     codegen.genFunc(&function) catch |err| switch (err) {
@@ -179,10 +177,8 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
     fwd_decl.shrinkRetainingCapacity(0);
-    {
-        for (typedefs.values()) |value| {
-            module.gpa.free(value.rendered);
-        }
+    for (typedefs.values()) |value| {
+        module.gpa.free(value.rendered);
     }
     typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
@@ -206,11 +202,11 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         object.code.deinit();
-        object.dg.fwd_decl.deinit();
-        for (object.dg.typedefs.values()) |value| {
-            module.gpa.free(value.rendered);
+        for (object.dg.typedefs.values()) |typedef| {
+            module.gpa.free(typedef.rendered);
         }
         object.dg.typedefs.deinit();
+        object.dg.fwd_decl.deinit();
     }
 
     codegen.genDecl(&object) catch |err| switch (err) {
@@ -260,29 +256,25 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    // Covers zig.h and err_typedef_item.
+    // Covers zig.h, typedef, and asm.
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
 
-    if (zig_h.len != 0) {
-        f.all_buffers.appendAssumeCapacity(.{
-            .iov_base = zig_h,
-            .iov_len = zig_h.len,
-        });
-        f.file_size += zig_h.len;
-    }
+    f.appendBufAssumeCapacity(zig_h);
 
-    const err_typedef_writer = f.err_typedef_buf.writer(gpa);
-    const err_typedef_index = f.all_buffers.items.len;
+    const typedef_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    render_errors: {
-        if (module.global_error_set.size == 0) break :render_errors;
-        var it = module.global_error_set.iterator();
-        while (it.next()) |entry| {
-            try err_typedef_writer.print("#define zig_error_{s} {d}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-        }
-        try err_typedef_writer.writeByte('\n');
+    {
+        var asm_buf = f.asm_buf.toManaged(module.gpa);
+        defer asm_buf.deinit();
+
+        try codegen.genGlobalAsm(module, &asm_buf);
+
+        f.asm_buf = asm_buf.moveToUnmanaged();
+        f.appendBufAssumeCapacity(f.asm_buf.items);
     }
+
+    try self.flushErrDecls(&f);
 
     // Typedefs, forward decls, and non-functions first.
     // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
@@ -300,38 +292,19 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 
     while (f.remaining_decls.popOrNull()) |kv| {
         const decl_index = kv.key;
-        try flushDecl(self, &f, decl_index);
+        try self.flushDecl(&f, decl_index);
     }
 
-    if (f.err_typedef_buf.items.len == 0) {
-        f.all_buffers.items[err_typedef_index] = .{
-            .iov_base = "",
-            .iov_len = 0,
-        };
-    } else {
-        f.all_buffers.items[err_typedef_index] = .{
-            .iov_base = f.err_typedef_buf.items.ptr,
-            .iov_len = f.err_typedef_buf.items.len,
-        };
-        f.file_size += f.err_typedef_buf.items.len;
-    }
+    f.all_buffers.items[typedef_index] = .{
+        .iov_base = if (f.typedef_buf.items.len > 0) f.typedef_buf.items.ptr else "",
+        .iov_len = f.typedef_buf.items.len,
+    };
+    f.file_size += f.typedef_buf.items.len;
 
-    // Now the function bodies.
-    try f.all_buffers.ensureUnusedCapacity(gpa, f.fn_count);
-    for (decl_keys) |decl_index, i| {
-        const decl = module.declPtr(decl_index);
-        if (decl.getFunction() != null) {
-            const decl_block = &decl_values[i];
-            const buf = decl_block.code.items;
-            if (buf.len != 0) {
-                f.all_buffers.appendAssumeCapacity(.{
-                    .iov_base = buf.ptr,
-                    .iov_len = buf.len,
-                });
-                f.file_size += buf.len;
-            }
-        }
-    }
+    // Now the code.
+    try f.all_buffers.ensureUnusedCapacity(gpa, decl_values.len);
+    for (decl_values) |decl|
+        f.appendBufAssumeCapacity(decl.code.items);
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -339,14 +312,15 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 }
 
 const Flush = struct {
+    err_decls: DeclBlock = .{},
     remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
     typedefs: Typedefs = .{},
-    err_typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    asm_buf: std.ArrayListUnmanaged(u8) = .{},
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
-    fn_count: usize = 0,
 
     const Typedefs = std.HashMapUnmanaged(
         Type,
@@ -355,17 +329,90 @@ const Flush = struct {
         std.hash_map.default_max_load_percentage,
     );
 
+    fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
+        if (buf.len == 0) return;
+        f.all_buffers.appendAssumeCapacity(.{ .iov_base = buf.ptr, .iov_len = buf.len });
+        f.file_size += buf.len;
+    }
+
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
-        f.err_typedef_buf.deinit(gpa);
+        f.typedef_buf.deinit(gpa);
         f.typedefs.deinit(gpa);
         f.remaining_decls.deinit(gpa);
+        f.err_decls.deinit(gpa);
     }
 };
 
 const FlushDeclError = error{
     OutOfMemory,
 };
+
+fn flushTypedefs(self: *C, f: *Flush, typedefs: codegen.TypedefMap.Unmanaged) FlushDeclError!void {
+    if (typedefs.count() == 0) return;
+    const gpa = self.base.allocator;
+    const module = self.base.options.module.?;
+
+    try f.typedefs.ensureUnusedCapacityContext(gpa, @intCast(u32, typedefs.count()), .{
+        .mod = module,
+    });
+    var it = typedefs.iterator();
+    while (it.next()) |new| {
+        const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
+            .mod = module,
+        });
+        if (!gop.found_existing) {
+            try f.typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+        }
+    }
+}
+
+fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
+    const module = self.base.options.module.?;
+
+    const fwd_decl = &f.err_decls.fwd_decl;
+    const typedefs = &f.err_decls.typedefs;
+    const code = &f.err_decls.code;
+
+    var object = codegen.Object{
+        .dg = .{
+            .gpa = module.gpa,
+            .module = module,
+            .error_msg = null,
+            .decl_index = undefined,
+            .decl = undefined,
+            .fwd_decl = fwd_decl.toManaged(module.gpa),
+            .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
+            .typedefs_arena = self.arena.allocator(),
+        },
+        .code = code.toManaged(module.gpa),
+        .indent_writer = undefined, // set later so we can get a pointer to object.code
+    };
+    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    defer {
+        object.code.deinit();
+        for (object.dg.typedefs.values()) |typedef| {
+            module.gpa.free(typedef.rendered);
+        }
+        object.dg.typedefs.deinit();
+        object.dg.fwd_decl.deinit();
+    }
+
+    codegen.genErrDecls(&object) catch |err| switch (err) {
+        error.AnalysisFail => unreachable,
+        else => |e| return e,
+    };
+
+    fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
+    typedefs.* = object.dg.typedefs.unmanaged;
+    object.dg.typedefs.unmanaged = .{};
+    code.* = object.code.moveToUnmanaged();
+
+    try self.flushTypedefs(f, typedefs.*);
+    try f.all_buffers.ensureUnusedCapacity(self.base.allocator, 1);
+    f.appendBufAssumeCapacity(fwd_decl.items);
+    f.appendBufAssumeCapacity(code.items);
+}
 
 /// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
 fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!void {
@@ -383,43 +430,9 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
     const decl_block = self.decl_table.getPtr(decl_index).?;
     const gpa = self.base.allocator;
 
-    if (decl_block.typedefs.count() != 0) {
-        try f.typedefs.ensureUnusedCapacityContext(gpa, @intCast(u32, decl_block.typedefs.count()), .{
-            .mod = module,
-        });
-        var it = decl_block.typedefs.iterator();
-        while (it.next()) |new| {
-            const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
-                .mod = module,
-            });
-            if (!gop.found_existing) {
-                try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
-            }
-        }
-    }
-
-    if (decl_block.fwd_decl.items.len != 0) {
-        const buf = decl_block.fwd_decl.items;
-        if (buf.len != 0) {
-            try f.all_buffers.append(gpa, .{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            f.file_size += buf.len;
-        }
-    }
-    if (decl.getFunction() != null) {
-        f.fn_count += 1;
-    } else if (decl_block.code.items.len != 0) {
-        const buf = decl_block.code.items;
-        if (buf.len != 0) {
-            try f.all_buffers.append(gpa, .{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            f.file_size += buf.len;
-        }
-    }
+    try self.flushTypedefs(f, decl_block.typedefs);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
+    f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }
 
 pub fn flushEmitH(module: *Module) !void {
