@@ -48,6 +48,30 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
         @compileError("PATH_MAX not implemented for " ++ @tagName(builtin.os.tag)),
 };
 
+/// This represents the maximum size of a UTF-8 encoded file name component that
+/// the platform's common file systems support. File name components returned by file system
+/// operations are likely to fit into a UTF-8 encoded array of this length, but
+/// (depending on the platform) this assumption may not hold for every configuration.
+/// The byte count does not include a null sentinel byte.
+pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
+    .linux, .macos, .ios, .freebsd, .dragonfly => os.NAME_MAX,
+    // Haiku's NAME_MAX includes the null terminator, so subtract one.
+    .haiku => os.NAME_MAX - 1,
+    .netbsd, .openbsd, .solaris => os.MAXNAMLEN,
+    // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
+    // If it would require 4 UTF-8 bytes, then there would be a surrogate
+    // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
+    .windows => os.windows.NAME_MAX * 3,
+    // For WASI, the MAX_NAME will depend on the host OS, so it needs to be
+    // as large as the largest MAX_NAME_BYTES (Windows) in order to work on any host OS.
+    // TODO determine if this is a reasonable approach
+    .wasi => os.windows.NAME_MAX * 3,
+    else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
+        root.os.NAME_MAX
+    else
+        @compileError("NAME_MAX not implemented for " ++ @tagName(builtin.os.tag)),
+};
+
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
@@ -680,7 +704,7 @@ pub const IterableDir = struct {
             index: usize,
             end_index: usize,
             first_iter: bool,
-            name_data: [256]u8,
+            name_data: [MAX_NAME_BYTES]u8,
 
             const Self = @This();
 
