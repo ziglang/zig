@@ -4523,7 +4523,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             error.AnalysisFail => {},
         }
 
-        if (mod.comp.whole_cache_manifest) |man| {
+        if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
             const source = file.getSource(gpa) catch |err| {
                 try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
                 return error.AnalysisFail;
@@ -4541,7 +4541,9 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             };
             errdefer gpa.free(resolved_path);
 
-            try man.addFilePostContents(resolved_path, source.bytes, source.stat);
+            mod.comp.whole_cache_manifest_mutex.lock();
+            defer mod.comp.whole_cache_manifest_mutex.unlock();
+            try whole_cache_manifest.addFilePostContents(resolved_path, source.bytes, source.stat);
         }
     } else {
         new_decl.analysis = .file_failure;
@@ -5036,10 +5038,12 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
     });
 
-    if (mod.comp.whole_cache_manifest) |man| {
+    if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
         const copied_resolved_path = try gpa.dupe(u8, resolved_path);
         errdefer gpa.free(copied_resolved_path);
-        try man.addFilePostContents(copied_resolved_path, bytes, stat);
+        mod.comp.whole_cache_manifest_mutex.lock();
+        defer mod.comp.whole_cache_manifest_mutex.unlock();
+        try whole_cache_manifest.addFilePostContents(copied_resolved_path, bytes, stat);
     }
 
     keep_resolved_path = true; // It's now owned by embed_table.
