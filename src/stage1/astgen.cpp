@@ -1304,7 +1304,7 @@ static Stage1ZirInst *ir_build_call_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &call_instruction->base;
 }
 
-static Stage1ZirInst *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_node, bool merge_comptime,
         size_t incoming_count, Stage1ZirBasicBlock **incoming_blocks, Stage1ZirInst **incoming_values,
         ResultLocPeerParent *peer_parent)
 {
@@ -1316,6 +1316,7 @@ static Stage1ZirInst *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *sour
     phi_instruction->incoming_blocks = incoming_blocks;
     phi_instruction->incoming_values = incoming_values;
     phi_instruction->peer_parent = peer_parent;
+    phi_instruction->merge_comptime = merge_comptime;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
         ir_ref_bb(incoming_blocks[i]);
@@ -3393,7 +3394,7 @@ static Stage1ZirInst *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNod
             scope_block->peer_parent->peers.last()->next_bb = scope_block->end_block;
         }
         ir_set_cursor_at_end_and_append_block(ag, scope_block->end_block);
-        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
         return ir_expr_wrap(ag, parent_scope, phi, result_loc);
     } else {
@@ -3423,7 +3424,7 @@ static Stage1ZirInst *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNod
     if (block_node->data.block.name != nullptr) {
         ir_build_br(ag, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime);
         ir_set_cursor_at_end_and_append_block(ag, scope_block->end_block);
-        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
         result = ir_expr_wrap(ag, parent_scope, phi, result_loc);
     } else {
@@ -3527,6 +3528,7 @@ static Stage1ZirInst *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *no
     // block for when val1 == true (don't even evaluate the second part)
     Stage1ZirBasicBlock *true_block = ir_create_basic_block(ag, scope, "BoolOrTrue");
 
+    Stage1ZirInst *val1_true = ir_build_const_bool(ag, scope, node, true);
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, false_block);
@@ -3540,13 +3542,14 @@ static Stage1ZirInst *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *no
     ir_set_cursor_at_end_and_append_block(ag, true_block);
 
     Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
-    incoming_values[0] = val1;
+    incoming_values[0] = val1_true;
     incoming_values[1] = val2;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, nullptr);
+    const bool merge_comptime = true;
+    return ir_build_phi(ag, scope, node, merge_comptime, 2, incoming_blocks, incoming_values, nullptr);
 }
 
 static Stage1ZirInst *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node) {
@@ -3569,6 +3572,7 @@ static Stage1ZirInst *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *n
     // block for when val1 == false (don't even evaluate the second part)
     Stage1ZirBasicBlock *false_block = ir_create_basic_block(ag, scope, "BoolAndFalse");
 
+    Stage1ZirInst *val1_false = ir_build_const_bool(ag, scope, node, false);
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, true_block);
@@ -3582,13 +3586,14 @@ static Stage1ZirInst *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *n
     ir_set_cursor_at_end_and_append_block(ag, false_block);
 
     Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
-    incoming_values[0] = val1;
+    incoming_values[0] = val1_false;
     incoming_values[1] = val2;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, nullptr);
+    const bool merge_comptime = true;
+    return ir_build_phi(ag, scope, node, merge_comptime, 2, incoming_blocks, incoming_values, nullptr);
 }
 
 static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, Stage1ZirInst *cond_br_inst,
@@ -3678,7 +3683,7 @@ static Stage1ZirInst *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNo
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
-    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, false, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
@@ -5589,7 +5594,7 @@ static Stage1ZirInst *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNod
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
@@ -6224,7 +6229,7 @@ static Stage1ZirInst *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode 
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     } else if (var_symbol != nullptr) {
@@ -6334,7 +6339,7 @@ static Stage1ZirInst *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode 
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     } else {
@@ -6430,7 +6435,7 @@ static Stage1ZirInst *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode 
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     }
@@ -6582,7 +6587,7 @@ static Stage1ZirInst *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, Ast
         peer_parent->peers.last()->next_bb = end_block;
     }
 
-    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, incoming_blocks.length,
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, false, incoming_blocks.length,
             incoming_blocks.items, incoming_values.items, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
@@ -6910,7 +6915,7 @@ static Stage1ZirInst *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, As
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
@@ -7008,7 +7013,7 @@ static Stage1ZirInst *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, false, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
@@ -7344,7 +7349,7 @@ static Stage1ZirInst *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode
     if (incoming_blocks.length == 0) {
         result_instruction = ir_build_const_void(ag, scope, node);
     } else {
-        result_instruction = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        result_instruction = ir_build_phi(ag, scope, node, false, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
     }
     return ir_lval_wrap(ag, scope, result_instruction, lval, result_loc);
@@ -7671,7 +7676,7 @@ static Stage1ZirInst *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNod
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
-    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, false, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
