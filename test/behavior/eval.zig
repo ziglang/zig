@@ -1438,3 +1438,53 @@ test "continue nested inline for loop in named block expr" {
     }
     try expect(a == 2);
 }
+
+test "x and false is comptime-known false" {
+    const T = struct {
+        var x: u32 = 0;
+
+        fn foo() bool {
+            x += 1; // Observable side-effect
+            return true;
+        }
+    };
+
+    if (T.foo() and T.foo() and false and T.foo()) {
+        @compileError("Condition should be comptime-known false");
+    }
+    try expect(T.x == 2);
+
+    T.x = 0;
+    if (T.foo() and T.foo() and b: {
+        _ = T.foo();
+        break :b false;
+    } and T.foo()) {
+        @compileError("Condition should be comptime-known false");
+    }
+    try expect(T.x == 3);
+}
+
+test "x or true is comptime-known true" {
+    const T = struct {
+        var x: u32 = 0;
+
+        fn foo() bool {
+            x += 1; // Observable side-effect
+            return false;
+        }
+    };
+
+    if (!(T.foo() or T.foo() or true or T.foo())) {
+        @compileError("Condition should be comptime-known false");
+    }
+    try expect(T.x == 2);
+
+    T.x = 0;
+    if (!(T.foo() or T.foo() or b: {
+        _ = T.foo();
+        break :b true;
+    } or T.foo())) {
+        @compileError("Condition should be comptime-known false");
+    }
+    try expect(T.x == 3);
+}

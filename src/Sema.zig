@@ -15932,12 +15932,10 @@ fn zirBoolBr(
     const gpa = sema.gpa;
 
     if (try sema.resolveDefinedValue(parent_block, lhs_src, lhs)) |lhs_val| {
-        if (lhs_val.toBool() == is_bool_or) {
-            if (is_bool_or) {
-                return Air.Inst.Ref.bool_true;
-            } else {
-                return Air.Inst.Ref.bool_false;
-            }
+        if (is_bool_or and lhs_val.toBool()) {
+            return Air.Inst.Ref.bool_true;
+        } else if (!is_bool_or and !lhs_val.toBool()) {
+            return Air.Inst.Ref.bool_false;
         }
         // comptime-known left-hand side. No need for a block here; the result
         // is simply the rhs expression. Here we rely on there only being 1
@@ -15977,7 +15975,18 @@ fn zirBoolBr(
         _ = try rhs_block.addBr(block_inst, rhs_result);
     }
 
-    return finishCondBr(sema, parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
+    const result = finishCondBr(sema, parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
+    if (!sema.typeOf(rhs_result).isNoReturn()) {
+        if (try sema.resolveDefinedValue(rhs_block, sema.src, rhs_result)) |rhs_val| {
+            if (is_bool_or and rhs_val.toBool()) {
+                return Air.Inst.Ref.bool_true;
+            } else if (!is_bool_or and !rhs_val.toBool()) {
+                return Air.Inst.Ref.bool_false;
+            }
+        }
+    }
+
+    return result;
 }
 
 fn finishCondBr(
