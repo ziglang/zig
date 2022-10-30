@@ -24,8 +24,7 @@ rmdir "$INSTALL_PREFIX/lib"
 mv "$INSTALL_PREFIX/lib2" "$INSTALL_PREFIX/lib"
 
 mv ../LICENSE "$INSTALL_PREFIX/"
-# https://github.com/ziglang/zig/issues/12689
-# mv ../zig-cache/langref.html "$INSTALL_PREFIX/doc/"
+mv ../zig-cache/langref.html "$INSTALL_PREFIX/doc/"
 
 GITBRANCH="$DRONE_BRANCH"
 VERSION="$("$INSTALL_PREFIX/zig" version)"
