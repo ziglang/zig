@@ -950,6 +950,12 @@ fn walkInstruction(
                 need_type,
             );
         },
+        .ret_type => {
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .type = @enumToInt(Ref.type_type) },
+            };
+        },
         .ret_node => {
             const un_node = data[inst_index].un_node;
             return self.walkRef(file, parent_scope, parent_src, un_node.operand, false);
@@ -3987,7 +3993,7 @@ fn getGenericReturnType(
     body_end: usize,
 ) !DocData.Expr {
     // TODO: compute the correct line offset
-    const wr = try self.walkInstruction(file, scope, parent_src, body_end, false);
+    const wr = try self.walkInstruction(file, scope, parent_src, body_end - 3, false);
     return wr.expr;
 }
 
