@@ -971,6 +971,14 @@ test "large allocations" {
     allocator.free(ptr2);
 }
 
+test "very large allocation" {
+    var gpa = GeneralPurposeAllocator(test_config){};
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
+    const allocator = gpa.allocator();
+
+    try std.testing.expectError(error.OutOfMemory, allocator.alloc(u8, math.maxInt(usize)));
+}
+
 test "realloc" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");

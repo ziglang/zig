@@ -3551,12 +3551,14 @@ test "sliceAsBytes preserves pointer attributes" {
 
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
+/// Asserts that rounding up the address does not cause integer overflow.
 pub fn alignForward(addr: usize, alignment: usize) usize {
     return alignForwardGeneric(usize, addr, alignment);
 }
 
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
+/// Asserts that rounding up the address does not cause integer overflow.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
