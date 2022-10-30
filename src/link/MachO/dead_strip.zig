@@ -162,21 +162,6 @@ fn markLive(
         };
         const target_sym = zld.getSymbol(target);
 
-        if (rel.r_extern == 0) {
-            // We are pessimistic and mark all atoms within the target section as live.
-            // TODO: this can be improved by marking only the relevant atoms.
-            const sect_id = target_sym.n_sect;
-            const object = zld.objects.items[target.getFile().?];
-            for (object.atoms.items) |other_atom_index| {
-                const other_atom = zld.getAtom(other_atom_index);
-                const other_sym = zld.getSymbol(other_atom.getSymbolWithLoc());
-                if (other_sym.n_sect == sect_id) {
-                    markLive(zld, other_atom_index, alive, reverse_lookups);
-                }
-            }
-            continue;
-        }
-
         if (target_sym.undf()) continue;
         if (target.getFile() == null) {
             const target_sym_name = zld.getSymbolName(target);
