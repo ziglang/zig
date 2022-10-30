@@ -69,6 +69,13 @@ steps:
   commands:
   - ./ci/drone/test_linux_standalone
 
+- name: docs
+  depends_on:
+  - build
+  image: ziglang/static-base:llvm15-aarch64-3
+  commands:
+  - ./ci/drone/test_linux_docs
+
 - name: finalize
   depends_on:
   - build

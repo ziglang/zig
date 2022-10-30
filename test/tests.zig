@@ -678,6 +678,10 @@ pub fn addPkgTests(
                 // https://github.com/ziglang/zig/issues/12415
                 continue;
             }
+            if (backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+                // https://github.com/ziglang/zig/issues/13357
+                continue;
+            }
         }
 
         const libc_prefix = if (test_target.target.getOs().requiresLibC())

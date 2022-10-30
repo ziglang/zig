@@ -12,7 +12,8 @@ $ZIG build test-std \
   -Dskip-release-safe \
   -Dskip-release-fast \
   -Dskip-release-small \
-  -Dskip-non-native
+  -Dskip-non-native \
+  -Dskip-single-threaded
 
 # Produce the experimental std lib documentation.
 mkdir -p "$INSTALL_PREFIX/doc/std"
