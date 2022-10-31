@@ -761,14 +761,12 @@ fn printLineInfo(
     }
 }
 
-// TODO use this
 pub const OpenSelfDebugInfoError = error{
     MissingDebugInfo,
-    OutOfMemory,
     UnsupportedOperatingSystem,
 };
 
-pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
+pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugInfo {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
@@ -785,7 +783,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
             .windows,
             .solaris,
             => return DebugInfo.init(allocator),
-            else => return error.UnsupportedDebugInfo,
+            else => return error.UnsupportedOperatingSystem,
         }
     }
 }
