@@ -1016,8 +1016,27 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const stack_offset = try self.allocMemPtr(inst);
-    return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+    const result: MCValue = switch (self.ret_mcv) {
+        .none, .register => .{ .ptr_stack_offset = try self.allocMemPtr(inst) },
+        .stack_offset => blk: {
+            // self.ret_mcv is an address to where this function
+            // should store its result into
+            const ret_ty = self.fn_type.fnReturnType();
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = ret_ty,
+            };
+            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+
+            // addr_reg will contain the address of where to store the
+            // result into
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, self.ret_mcv);
+            break :blk .{ .register = addr_reg };
+        },
+        else => unreachable, // invalid return result
+    };
+
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -3631,6 +3650,7 @@ fn genStrRegister(self: *Self, value_reg: Register, addr_reg: Register, ty: Type
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
+    log.debug("store: storing {} to {}", .{ value, ptr });
     const abi_size = value_ty.abiSize(self.target.*);
 
     switch (ptr) {
@@ -3655,6 +3675,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .dead => unreachable,
                 .undef => unreachable,
                 .register => |value_reg| {
+                    log.debug("store: register {} to {}", .{ value_reg, addr_reg });
                     try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
                 else => {
@@ -3673,8 +3694,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             self.register_manager.unlockReg(reg);
                         };
 
-                        const src_reg = addr_reg;
-                        const dst_reg = regs[0];
+                        const src_reg = regs[0];
+                        const dst_reg = addr_reg;
                         const len_reg = regs[1];
                         const count_reg = regs[2];
                         const tmp_reg = regs[3];
@@ -3684,7 +3705,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 // sub src_reg, fp, #off
                                 try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
-                            .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
                             .stack_argument_offset => |off| {
                                 _ = try self.addInst(.{
                                     .tag = .ldr_ptr_stack_argument,
@@ -3692,6 +3712,24 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                         .rt = src_reg,
                                         .offset = off,
                                     } },
+                                });
+                            },
+                            .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .linker_load => |load_struct| {
+                                const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
+                                    .got => .load_memory_ptr_got,
+                                    .direct => .load_memory_ptr_direct,
+                                };
+                                const mod = self.bin_file.options.module.?;
+                                _ = try self.addInst(.{
+                                    .tag = tag,
+                                    .data = .{
+                                        .payload = try self.addExtra(Mir.LoadMemoryPie{
+                                            .register = @enumToInt(src_reg),
+                                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                                            .sym_index = load_struct.sym_index,
+                                        }),
+                                    },
                                 });
                             },
                             else => return self.fail("TODO store {} to register", .{value}),
@@ -4428,7 +4466,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
             if (else_value == .dead)
                 continue;
             // The instruction is only overridden in the else branch.
-            var i: usize = self.branch_stack.items.len - 2;
+            var i: usize = self.branch_stack.items.len - 1;
             while (true) {
                 i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
                 if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
@@ -4455,7 +4493,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         if (then_value == .dead)
             continue;
         const parent_mcv = blk: {
-            var i: usize = self.branch_stack.items.len - 2;
+            var i: usize = self.branch_stack.items.len - 1;
             while (true) {
                 i -= 1;
                 if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
