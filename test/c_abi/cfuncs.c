@@ -661,6 +661,21 @@ void c_multiple_struct_floats(FloatRect x, FloatRect y) {
     assert_or_panic(y.bottom == 15);
 }
 
+struct  C_C_D  {
+  char v1;
+  char v2;
+  double v3;
+};
+
+int c_C_C_D(struct C_C_D lv){
+  int err = 0;
+  if (lv.v1 != 88) err = 1;
+  if (lv.v2 != 39) err = 2;
+  if (lv.v3 != -2.125) err = 3;
+  return err;
+}
+
+
 bool c_ret_bool() {
     return 1;
 }

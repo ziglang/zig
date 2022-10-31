@@ -643,6 +643,13 @@ test "C ABI structs of floats as multiple parameters" {
     c_multiple_struct_floats(r1, r2);
 }
 
+const C_C_D = extern struct { v1: u8, v2: u8, v3: f64 };
+extern fn c_C_C_D(lv: C_C_D) c_int;
+
+test "C_C_D" {
+    try expect(c_C_C_D(.{ .v1 = 88, .v2 = 39, .v3 = -2.125 }) == 0);
+}
+
 export fn zig_ret_bool() bool {
     return true;
 }
