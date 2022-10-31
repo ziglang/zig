@@ -5001,7 +5001,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     var c_import_buf = std.ArrayList(u8).init(sema.gpa);
     defer c_import_buf.deinit();
 
-    var comptime_reason = .{ .c_import = .{
+    var comptime_reason: Block.ComptimeReason = .{ .c_import = .{
         .block = parent_block,
         .src = src,
     } };
