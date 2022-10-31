@@ -116,6 +116,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
         /// This operation is O(N).
+        /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, n: usize, item: T) Allocator.Error!void {
             try self.ensureUnusedCapacity(1);
             self.items.len += 1;
@@ -126,6 +127,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
+        /// Invalidates pointers if additional memory is needed.
         pub fn insertSlice(self: *Self, i: usize, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(items.len);
             self.items.len += items.len;
@@ -163,6 +165,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn append(self: *Self, item: T) Allocator.Error!void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
@@ -205,6 +208,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(items.len);
             self.appendSliceAssumeCapacity(items);
@@ -223,6 +227,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append an unaligned slice of items to the list. Allocates more
         /// memory as necessary. Only call this function if calling
         /// `appendSlice` instead would be a compile error.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, items: []align(1) const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(items.len);
             self.appendUnalignedSliceAssumeCapacity(items);
@@ -257,6 +262,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// Invalidates pointers if additional memory is needed.
         fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
             try self.appendSlice(m);
             return m.len;
@@ -264,6 +270,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendNTimes(self: *Self, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(self.items.len + n);
@@ -281,6 +288,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items if any.
+        /// Invalidates pointers if additional memory is needed.
         pub fn resize(self: *Self, new_len: usize) Allocator.Error!void {
             try self.ensureTotalCapacity(new_len);
             self.items.len = new_len;
@@ -527,6 +535,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Insert `item` at index `n`. Moves `list[n .. list.len]`
         /// to higher indices to make room.
         /// This operation is O(N).
+        /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, allocator: Allocator, n: usize, item: T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, 1);
             self.items.len += 1;
@@ -538,6 +547,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Insert slice `items` at index `i`. Moves `list[i .. list.len]` to
         /// higher indicices make room.
         /// This operation is O(N).
+        /// Invalidates pointers if additional memory is needed.
         pub fn insertSlice(self: *Self, allocator: Allocator, i: usize, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
             self.items.len += items.len;
@@ -557,6 +567,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn append(self: *Self, allocator: Allocator, item: T) Allocator.Error!void {
             const new_item_ptr = try self.addOne(allocator);
             new_item_ptr.* = item;
@@ -598,6 +609,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, allocator: Allocator, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
             self.appendSliceAssumeCapacity(items);
@@ -616,6 +628,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary. Only call this function if a call to `appendSlice` instead would
         /// be a compile error.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, allocator: Allocator, items: []align(1) const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
             self.appendUnalignedSliceAssumeCapacity(items);
@@ -654,6 +667,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// Invalidates pointers if additional memory is needed.
         fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
             try context.self.appendSlice(context.allocator, m);
             return m.len;
@@ -661,6 +675,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
+        /// Invalidates pointers if additional memory is needed.
         pub fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(allocator, self.items.len + n);
@@ -679,6 +694,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items, if any.
+        /// Invalidates pointers if additional memory is needed.
         pub fn resize(self: *Self, allocator: Allocator, new_len: usize) Allocator.Error!void {
             try self.ensureTotalCapacity(allocator, new_len);
             self.items.len = new_len;
