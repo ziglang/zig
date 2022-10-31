@@ -134,7 +134,7 @@ pub const Ghash = struct {
         return (@as(u256, r_hi) << 128) ^ (@as(u256, r_mid) << 64) ^ r_lo;
     }
 
-    // Reduce a 256-bit polynomial modulo the irreducible polynomial x^128 + x^127 + x^126 + x^121 + 1.
+    // Reduce a 256-bit representative of a polynomial modulo the irreducible polynomial x^128 + x^127 + x^126 + x^121 + 1.
     // This is done *without reversing the bits*, using Shay Gueron's black magic demysticated here:
     // https://blog.quarkslab.com/reversing-a-finite-field-multiplication-optimization.html
     inline fn gcm_reduce(x: u256) u128 {
