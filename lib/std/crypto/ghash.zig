@@ -168,29 +168,29 @@ pub const Ghash = struct {
             // 8-blocks aggregated reduction
             while (i + 128 <= msg.len) : (i += 128) {
                 const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                var z0 = acc ^ b0;
-                var z0h = clmul128(z0, st.hx[7]);
+                const z0 = acc ^ b0;
+                const z0h = clmul128(z0, st.hx[7]);
 
                 const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                var b1h = clmul128(b1, st.hx[6]);
+                const b1h = clmul128(b1, st.hx[6]);
 
                 const b2 = mem.readIntBig(u128, msg[i..][32..48]);
-                var b2h = clmul128(b2, st.hx[5]);
+                const b2h = clmul128(b2, st.hx[5]);
 
                 const b3 = mem.readIntBig(u128, msg[i..][48..64]);
-                var b3h = clmul128(b3, st.hx[4]);
+                const b3h = clmul128(b3, st.hx[4]);
 
                 const b4 = mem.readIntBig(u128, msg[i..][64..80]);
-                var b4h = clmul128(b4, st.hx[3]);
+                const b4h = clmul128(b4, st.hx[3]);
 
                 const b5 = mem.readIntBig(u128, msg[i..][80..96]);
-                var b5h = clmul128(b5, st.hx[2]);
+                const b5h = clmul128(b5, st.hx[2]);
 
                 const b6 = mem.readIntBig(u128, msg[i..][96..112]);
-                var b6h = clmul128(b6, st.hx[1]);
+                const b6h = clmul128(b6, st.hx[1]);
 
                 const b7 = mem.readIntBig(u128, msg[i..][112..128]);
-                var b7h = clmul128(b7, st.hx[0]);
+                const b7h = clmul128(b7, st.hx[0]);
 
                 const u = z0h ^ b1h ^ b2h ^ b3h ^ b4h ^ b5h ^ b6h ^ b7h;
                 acc = gcm_reduce(u);
@@ -200,20 +200,20 @@ pub const Ghash = struct {
             while (i + 64 <= msg.len) : (i += 64) {
                 // (acc + b0) * H^4 unreduced
                 const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                var z0 = acc ^ b0;
-                var z0h = clmul128(z0, st.hx[3]);
+                const z0 = acc ^ b0;
+                const z0h = clmul128(z0, st.hx[3]);
 
                 // b1 * H^3 unreduced
                 const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                var b1h = clmul128(b1, st.hx[2]);
+                const b1h = clmul128(b1, st.hx[2]);
 
                 // b2 * H^2 unreduced
                 const b2 = mem.readIntBig(u128, msg[i..][32..48]);
-                var b2h = clmul128(b2, st.hx[1]);
+                const b2h = clmul128(b2, st.hx[1]);
 
                 // b3 * H unreduced
                 const b3 = mem.readIntBig(u128, msg[i..][48..64]);
-                var b3h = clmul128(b3, st.hx[0]);
+                const b3h = clmul128(b3, st.hx[0]);
 
                 // (((acc + b0) * H^4) + B1 * H^3 + B2 * H^2 + B3 * H) (mod P)
                 const u = z0h ^ b1h ^ b2h ^ b3h;
@@ -224,12 +224,12 @@ pub const Ghash = struct {
             while (i + 32 <= msg.len) : (i += 32) {
                 // (acc + b0) * H^2 unreduced
                 const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                var z0 = acc ^ b0;
-                var z0h = clmul128(z0, st.hx[1]);
+                const z0 = acc ^ b0;
+                const z0h = clmul128(z0, st.hx[1]);
 
                 // b1 * H unreduced
                 const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                var b1h = clmul128(b1, st.hx[0]);
+                const b1h = clmul128(b1, st.hx[0]);
 
                 // (((acc + b0) * H^2) + B1 * H) (mod P)
                 const u = z0h ^ b1h;
@@ -241,8 +241,8 @@ pub const Ghash = struct {
         while (i + 16 <= msg.len) : (i += 16) {
             // (acc + b0) * H unreduced
             const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-            var z0 = acc ^ b0;
-            var z0h = clmul128(z0, st.hx[0]);
+            const z0 = acc ^ b0;
+            const z0h = clmul128(z0, st.hx[0]);
 
             // (acc + b0) * H (mod P)
             acc = gcm_reduce(z0h);
