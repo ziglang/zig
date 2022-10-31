@@ -71,8 +71,8 @@ preallocated_new_func: ?*Module.Fn = null,
 /// TODO: after upgrading to use InternPool change the key here to be an
 /// InternPool value index.
 types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
-/// These are lazily created runtime blocks from inline_block instructions.
-/// They are created when an inline_break passes through a runtime condition, because
+/// These are lazily created runtime blocks from block_inline instructions.
+/// They are created when an break_inline passes through a runtime condition, because
 /// Sema must convert comptime control flow to runtime control flow, which means
 /// breaking from a block.
 post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
@@ -147,7 +147,7 @@ pub const Block = struct {
     /// for the one that will be the same for all Block instances.
     src_decl: Decl.Index,
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
-    /// Stores to to comptime variables are only allowed when var.runtime_index <= runtime_index.
+    /// Stores to comptime variables are only allowed when var.runtime_index <= runtime_index.
     runtime_index: Value.RuntimeIndex = .zero,
     inline_block: Zir.Inst.Index = 0,
 
@@ -1391,9 +1391,8 @@ fn analyzeBodyInner(
                     // If this block contains a function prototype, we need to reset the
                     // current list of parameters and restore it later.
                     // Note: this probably needs to be resolved in a more general manner.
-                    if (tags[inline_body[inline_body.len - 1]] == .repeat_inline) {
-                        child_block.inline_block = inline_body[0];
-                    } else child_block.inline_block = block.inline_block;
+                    child_block.inline_block =
+                        if (tags[inline_body[inline_body.len - 1]] == .repeat_inline) inline_body[0] else inst;
 
                     var label: Block.Label = .{
                         .zir_block = inst,

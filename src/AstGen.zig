@@ -5910,8 +5910,8 @@ fn whileExpr(
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(astgen.gpa);
 
-    var continue_scope = parent_gz.makeSubBlock(&loop_scope.base);
-    defer continue_scope.unstack();
+    var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
+    defer cond_scope.unstack();
 
     const payload_is_ref = if (while_full.payload_token) |payload_token|
         token_tags[payload_token] == .asterisk
@@ -5925,22 +5925,22 @@ fn whileExpr(
     } = c: {
         if (while_full.error_token) |_| {
             const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
-            const err_union = try expr(&continue_scope, &continue_scope.base, cond_ri, while_full.ast.cond_expr);
+            const err_union = try expr(&cond_scope, &cond_scope.base, cond_ri, while_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try continue_scope.addUnNode(tag, err_union, while_full.ast.then_expr),
+                .bool_bit = try cond_scope.addUnNode(tag, err_union, while_full.ast.then_expr),
             };
         } else if (while_full.payload_token) |_| {
             const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
-            const optional = try expr(&continue_scope, &continue_scope.base, cond_ri, while_full.ast.cond_expr);
+            const optional = try expr(&cond_scope, &cond_scope.base, cond_ri, while_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try continue_scope.addUnNode(tag, optional, while_full.ast.then_expr),
+                .bool_bit = try cond_scope.addUnNode(tag, optional, while_full.ast.then_expr),
             };
         } else {
-            const cond = try expr(&continue_scope, &continue_scope.base, bool_ri, while_full.ast.cond_expr);
+            const cond = try expr(&cond_scope, &cond_scope.base, bool_ri, while_full.ast.cond_expr);
             break :c .{
                 .inst = cond,
                 .bool_bit = cond,
@@ -5949,16 +5949,16 @@ fn whileExpr(
     };
 
     const condbr_tag: Zir.Inst.Tag = if (is_inline) .condbr_inline else .condbr;
-    const condbr = try continue_scope.addCondBr(condbr_tag, node);
+    const condbr = try cond_scope.addCondBr(condbr_tag, node);
     const block_tag: Zir.Inst.Tag = if (is_inline) .block_inline else .block;
     const cond_block = try loop_scope.makeBlockInst(block_tag, node);
-    try continue_scope.setBlockBody(cond_block);
-    // continue_scope unstacked now, can add new instructions to loop_scope
+    try cond_scope.setBlockBody(cond_block);
+    // cond_scope unstacked now, can add new instructions to loop_scope
     try loop_scope.instructions.append(astgen.gpa, cond_block);
 
     // make scope now but don't stack on parent_gz until loop_scope
     // gets unstacked after cont_expr is emitted and added below
-    var then_scope = parent_gz.makeSubBlock(&continue_scope.base);
+    var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
     then_scope.instructions_top = GenZir.unstacked_top;
     defer then_scope.unstack();
 
@@ -6026,24 +6026,17 @@ fn whileExpr(
         }
     };
 
-    // This code could be improved to avoid emitting the continue expr when there
-    // are no jumps to it. This happens when the last statement of a while body is noreturn
-    // and there are no `continue` statements.
-    // Tracking issue: https://github.com/ziglang/zig/issues/9185
-    try then_scope.addDbgBlockBegin();
-    if (dbg_var_name) |some| {
-        try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
-    }
-    if (while_full.ast.cont_expr != 0) {
-        _ = try unusedResultExpr(&loop_scope, then_sub_scope, while_full.ast.cont_expr);
-    }
-    try then_scope.addDbgBlockEnd();
+    var continue_scope = parent_gz.makeSubBlock(then_sub_scope);
+    continue_scope.instructions_top = GenZir.unstacked_top;
+    defer continue_scope.unstack();
+    const continue_block = try then_scope.makeBlockInst(block_tag, node);
+
     const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
     _ = try loop_scope.addNode(repeat_tag, node);
 
     try loop_scope.setBlockBody(loop_block);
     loop_scope.break_block = loop_block;
-    loop_scope.continue_block = cond_block;
+    loop_scope.continue_block = continue_block;
     if (while_full.label_token) |label_token| {
         loop_scope.label = @as(?GenZir.Label, GenZir.Label{
             .token = label_token,
@@ -6054,18 +6047,30 @@ fn whileExpr(
     // done adding instructions to loop_scope, can now stack then_scope
     then_scope.instructions_top = then_scope.instructions.items.len;
 
-    if (payload_inst != 0) try then_scope.instructions.append(astgen.gpa, payload_inst);
     try then_scope.addDbgBlockBegin();
-    if (dbg_var_name) |some| {
-        try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+    if (payload_inst != 0) try then_scope.instructions.append(astgen.gpa, payload_inst);
+    if (dbg_var_name) |name| try then_scope.addDbgVar(.dbg_var_val, name, dbg_var_inst);
+    try then_scope.instructions.append(astgen.gpa, continue_block);
+    // This code could be improved to avoid emitting the continue expr when there
+    // are no jumps to it. This happens when the last statement of a while body is noreturn
+    // and there are no `continue` statements.
+    // Tracking issue: https://github.com/ziglang/zig/issues/9185
+    if (while_full.ast.cont_expr != 0) {
+        _ = try unusedResultExpr(&then_scope, then_sub_scope, while_full.ast.cont_expr);
     }
-    const then_result = try expr(&then_scope, then_sub_scope, .{ .rl = .none }, while_full.ast.then_expr);
-    _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
-
-    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     try then_scope.addDbgBlockEnd();
 
-    var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
+    continue_scope.instructions_top = continue_scope.instructions.items.len;
+    _ = try unusedResultExpr(&continue_scope, &continue_scope.base, while_full.ast.then_expr);
+    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+    const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
+    if (!continue_scope.endsWithNoReturn()) {
+        const break_inst = try continue_scope.makeBreak(break_tag, continue_block, .void_value);
+        try then_scope.instructions.append(astgen.gpa, break_inst);
+    }
+    try continue_scope.setBlockBody(continue_block);
+
+    var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer else_scope.unstack();
 
     const else_node = while_full.ast.else_expr;
@@ -6128,7 +6133,6 @@ fn whileExpr(
             try astgen.appendErrorTok(some.token, "unused while loop label", .{});
         }
     }
-    const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     const result = try finishThenElseBlock(
         parent_gz,
         ri,
@@ -6138,7 +6142,7 @@ fn whileExpr(
         &else_scope,
         condbr,
         cond.bool_bit,
-        then_result,
+        .void_value,
         else_info.result,
         loop_block,
         cond_block,
