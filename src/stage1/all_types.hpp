@@ -2922,6 +2922,7 @@ struct Stage1ZirInstPhi {
     Stage1ZirInst base;
 
     size_t incoming_count;
+    bool merge_comptime;
     Stage1ZirBasicBlock **incoming_blocks;
     Stage1ZirInst **incoming_values;
     ResultLocPeerParent *peer_parent;

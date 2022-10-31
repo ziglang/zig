@@ -1318,11 +1318,36 @@ static Stage1AirInstCall *ir_build_call_gen(IrAnalyze *ira, Scope *scope, AstNod
     return call_instruction;
 }
 
-static Stage1AirInst *ir_build_phi_gen(IrAnalyze *ira, Scope *scope, AstNode *source_node, size_t incoming_count,
-        Stage1AirBasicBlock **incoming_blocks, Stage1AirInst **incoming_values, ZigType *result_type)
+static Stage1AirInst *ir_build_phi_gen(IrAnalyze *ira, Scope *scope, AstNode *source_node, bool merge_comptime,
+        size_t incoming_count, Stage1AirBasicBlock **incoming_blocks, Stage1AirInst **incoming_values, ZigType *result_type)
 {
     assert(incoming_count != 0);
     assert(incoming_count != SIZE_MAX);
+
+    if (merge_comptime && instr_is_comptime(incoming_values[incoming_count - 1])) {
+        // We need to check whether all the merged values are comptime-known and equal.
+        // If so, we elide the runtime phi and replace it with any of the identical comptime-known values.
+        ZigValue *comptime_value = ir_resolve_const(ira, incoming_values[incoming_count - 1], UndefOk);
+        if (comptime_value == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        for (size_t i = incoming_count - 1; i > 0;) {
+            i -= 1;
+            if (!instr_is_comptime(incoming_values[i])) {
+                comptime_value = nullptr;
+                break;
+            }
+            ZigValue *value = ir_resolve_const(ira, incoming_values[i], UndefOk);
+            if (value == nullptr)
+                return ira->codegen->invalid_inst_gen;
+            if (!const_values_equal(ira->codegen, comptime_value, value)) {
+                comptime_value = nullptr;
+                break;
+            }
+        }
+        if (comptime_value != nullptr)
+            return incoming_values[0];
+    }
 
     Stage1AirInstPhi *phi_instruction = ir_build_inst_gen<Stage1AirInstPhi>(&ira->new_irb,
             scope, source_node);
@@ -9592,7 +9617,8 @@ static Stage1AirInst *ir_evaluate_cmp_optional_non_optional(IrAnalyze *ira, Scop
     incoming_values[0] = null_result;
     incoming_values[1] = non_null_cmp_result;
 
-    return ir_build_phi_gen(ira, scope, source_node, incoming_count, incoming_blocks, incoming_values, result_type);
+    const bool merge_comptime = false;
+    return ir_build_phi_gen(ira, scope, source_node, merge_comptime, incoming_count, incoming_blocks, incoming_values, result_type);
 }
 
 static Stage1AirInst *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, Scope *scope, AstNode *source_node,
@@ -14757,8 +14783,8 @@ static Stage1AirInst *ir_analyze_instruction_phi(IrAnalyze *ira, Stage1ZirInstPh
     ir_set_cursor_at_end_gen(&ira->new_irb, cur_bb);
 
     Stage1AirInst *result = ir_build_phi_gen(ira, phi_instruction->base.scope,
-            phi_instruction->base.source_node, new_incoming_blocks.length,
-            new_incoming_blocks.items, new_incoming_values.items, resolved_type);
+            phi_instruction->base.source_node, phi_instruction->merge_comptime,
+            new_incoming_blocks.length, new_incoming_blocks.items, new_incoming_values.items, resolved_type);
 
     if (all_stack_ptrs) {
         assert(result->value->special == ConstValSpecialRuntime);
