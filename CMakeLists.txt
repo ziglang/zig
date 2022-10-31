@@ -46,7 +46,7 @@ set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
 if("${ZIG_VERSION}" STREQUAL "")
-    set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+    set(RESOLVED_ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
     find_program(GIT_EXE NAMES git NAMES_PER_DIR)
     if(GIT_EXE)
         execute_process(
@@ -56,11 +56,12 @@ if("${ZIG_VERSION}" STREQUAL "")
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET)
         if(EXIT_STATUS EQUAL "0")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/.git/HEAD)
             if(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$")
                 # Tagged release version.
                 set(GIT_TAG ${CMAKE_MATCH_1})
-                if(NOT GIT_TAG VERSION_EQUAL ZIG_VERSION)
-                    message(SEND_ERROR "Zig version (${ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
+                if(NOT GIT_TAG VERSION_EQUAL RESOLVED_ZIG_VERSION)
+                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
                 endif()
             elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-g(.+)$")
                 # Untagged pre-release. The Zig version is updated to include the number of commits
@@ -69,17 +70,19 @@ if("${ZIG_VERSION}" STREQUAL "")
                 set(GIT_TAG ${CMAKE_MATCH_1})
                 set(GIT_COMMITS_AFTER_TAG ${CMAKE_MATCH_2})
                 set(GIT_COMMIT ${CMAKE_MATCH_3})
-                if(NOT ZIG_VERSION VERSION_GREATER GIT_TAG)
-                    message(SEND_ERROR "Zig version (${ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
+                if(NOT RESOLVED_ZIG_VERSION VERSION_GREATER GIT_TAG)
+                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
                 endif()
-                set(ZIG_VERSION "${ZIG_VERSION}-dev.${GIT_COMMITS_AFTER_TAG}+${GIT_COMMIT}")
+                set(RESOLVED_ZIG_VERSION "${RESOLVED_ZIG_VERSION}-dev.${GIT_COMMITS_AFTER_TAG}+${GIT_COMMIT}")
             else()
                 message(WARNING "Failed to parse version from output of `git describe`.")
             endif()
         endif()
     endif()
+else()
+    set(RESOLVED_ZIG_VERSION "${ZIG_VERSION}")
 endif()
-message(STATUS "Configuring zig version ${ZIG_VERSION}")
+message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
@@ -1090,7 +1093,7 @@ set(ZIG_BUILD_ARGS
     ${ZIG_SINGLE_THREADED_ARG}
     "-Dtarget=${ZIG_TARGET_TRIPLE}"
     "-Dcpu=${ZIG_TARGET_MCPU}"
-    "-Dversion-string=${ZIG_VERSION}"
+    "-Dversion-string=${RESOLVED_ZIG_VERSION}"
 )
 
 add_custom_target(stage3 ALL
