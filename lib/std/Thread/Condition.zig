@@ -13,7 +13,7 @@
 //!     defer m.unlock();
 //!
 //!     while (!predicate) {
-//!         c.wait(&mutex);
+//!         c.wait(&m);
 //!     }
 //! }
 //!
