@@ -2236,12 +2236,6 @@ pub fn genDecl(o: *Object) !void {
         const variable: *Module.Var = var_payload.data;
         const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
         const fwd_decl_writer = o.dg.fwd_decl.writer();
-        if (is_global) {
-            try fwd_decl_writer.writeAll("zig_extern_c ");
-        }
-        if (variable.is_threadlocal) {
-            try fwd_decl_writer.writeAll("zig_threadlocal ");
-        }
 
         const decl_c_value: CValue = if (is_global) .{
             .bytes = mem.span(o.dg.decl.name),
@@ -2249,6 +2243,8 @@ pub fn genDecl(o: *Object) !void {
             .decl = o.dg.decl_index,
         };
 
+        if (is_global) try fwd_decl_writer.writeAll("zig_extern_c ");
+        if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
 
@@ -2257,6 +2253,7 @@ pub fn genDecl(o: *Object) !void {
         }
 
         const w = o.writer();
+        if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
         if (variable.init.tag() != .unreachable_value) {
