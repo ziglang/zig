@@ -544,7 +544,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
         : [leaf_id] "{eax}" (leaf_id),
           [subid] "{ecx}" (subid),
           [leaf_ptr] "r" (&cpuid_leaf),
-        : "eax", "ebx", "ecx", "edx"
+        : "ebx", "edx" // "eax" and "ecx" are already inputs
     );
 
     return cpuid_leaf;
@@ -557,6 +557,6 @@ fn getXCR0() u32 {
         \\ xgetbv
         : [ret] "={eax}" (-> u32),
         :
-        : "eax", "edx", "ecx"
+        : "edx", "ecx" // "eax" is already an output
     );
 }
