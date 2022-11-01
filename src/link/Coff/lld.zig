@@ -30,25 +30,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.have_stage1 and self.base.options.use_stage1;
-        if (use_stage1) {
-            const obj_basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = self.base.options.root_name,
-                .target = self.base.options.target,
-                .output_mode = .Obj,
-            });
-            switch (self.base.options.cache_mode) {
-                .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                    arena,
-                    &[_][]const u8{obj_basename},
-                ),
-                .whole => break :blk try fs.path.join(arena, &.{
-                    fs.path.dirname(full_out_path).?, obj_basename,
-                }),
-            }
-        }
-
+    const module_obj_path: ?[]const u8 = if (self.base.options.module != null) blk: {
         try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {

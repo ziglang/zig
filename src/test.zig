@@ -1548,7 +1548,6 @@ pub const TestContext = struct {
             .dynamic_linker = target_info.dynamic_linker.get(),
             .link_libc = case.link_libc,
             .use_llvm = use_llvm,
-            .use_stage1 = null, // We already handled stage1 tests
             .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
