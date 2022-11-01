@@ -3030,6 +3030,11 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll("((");
         try f.renderTypecast(writer, host_ty);
         try writer.writeByte(')');
+        if (src_ty.isPtrAtRuntime()) {
+            try writer.writeByte('(');
+            try f.renderTypecast(writer, Type.usize);
+            try writer.writeByte(')');
+        }
         try f.writeCValue(writer, src_val, .Other);
         try writer.print(", {}))", .{try f.fmtIntLiteral(bit_offset_ty, bit_offset_val)});
     } else {
@@ -5121,6 +5126,14 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     try writer.writeAll("((");
                     try f.renderTypecast(writer, inst_ty);
                     try writer.writeByte(')');
+                    if (field_ty.isPtrAtRuntime()) {
+                        try writer.writeByte('(');
+                        try f.renderTypecast(writer, switch (int_info.signedness) {
+                            .unsigned => Type.usize,
+                            .signed => Type.isize,
+                        });
+                        try writer.writeByte(')');
+                    }
                     try f.writeCValue(writer, try f.resolveInst(element), .Other);
                     try writer.writeAll(", ");
                     try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
