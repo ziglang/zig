@@ -198,11 +198,41 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
 
 pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.C) void {
     switch (@typeInfo(c_longdouble).Float.bits) {
-        16 => return __sincosh(x, r_sin, r_cos),
-        32 => return sincosf(x, r_sin, r_cos),
-        64 => return sincos(x, r_sin, r_cos),
-        80 => return __sincosx(x, r_sin, r_cos),
-        128 => return sincosq(x, r_sin, r_cos),
+        16 => {
+            var t_sin: f16 = undefined;
+            var t_cos: f16 = undefined;
+            __sincosh(x, &t_sin, &t_cos);
+            r_sin.* = t_sin;
+            r_cos.* = t_cos;
+        },
+        32 => {
+            var t_sin: f32 = undefined;
+            var t_cos: f32 = undefined;
+            sincosf(x, &t_sin, &t_cos);
+            r_sin.* = t_sin;
+            r_cos.* = t_cos;
+        },
+        64 => {
+            var t_sin: f64 = undefined;
+            var t_cos: f64 = undefined;
+            sincos(x, &t_sin, &t_cos);
+            r_sin.* = t_sin;
+            r_cos.* = t_cos;
+        },
+        80 => {
+            var t_sin: f80 = undefined;
+            var t_cos: f80 = undefined;
+            __sincosx(x, &t_sin, &t_cos);
+            r_sin.* = t_sin;
+            r_cos.* = t_cos;
+        },
+        128 => {
+            var t_sin: f128 = undefined;
+            var t_cos: f128 = undefined;
+            sincosq(x, &t_sin, &t_cos);
+            r_sin.* = t_sin;
+            r_cos.* = t_cos;
+        },
         else => @compileError("unreachable"),
     }
 }
