@@ -4223,9 +4223,11 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst))
         return CValue.none;
 
+    const inst_ty = f.air.typeOfIndex(inst);
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime()) return CValue.none;
+
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.StructField, ty_pl.payload).data;
-    const inst_ty = f.air.typeOfIndex(inst);
     const target = f.object.dg.module.getTarget();
     const struct_byval = try f.resolveInst(extra.struct_operand);
     const struct_ty = f.air.typeOf(extra.struct_operand);
