@@ -3193,7 +3193,7 @@ fn airEquality(
 
     try writer.writeAll(" = ");
 
-    if (operand_ty.tag() == .optional) {
+    if (operand_ty.zigTypeTag() == .Optional and !operand_ty.isPtrLikeOptional()) {
         // (A && B)  || (C && (A == B))
         // A = lhs.is_null  ;  B = rhs.is_null  ;  C = rhs.payload == lhs.payload
 
@@ -3984,9 +3984,9 @@ fn airIsNull(
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime())
         TypedValue{ .ty = Type.bool, .val = Value.@"true" }
-    else if (operand_ty.isPtrLikeOptional())
+    else if (optional_ty.isPtrLikeOptional())
         // operand is a regular pointer, test `operand !=/== NULL`
-        TypedValue{ .ty = operand_ty, .val = Value.@"null" }
+        TypedValue{ .ty = optional_ty, .val = Value.@"null" }
     else if (payload_ty.zigTypeTag() == .ErrorSet)
         TypedValue{ .ty = payload_ty, .val = Value.zero }
     else if (payload_ty.isSlice() and optional_ty.optionalReprIsPayload()) rhs: {
