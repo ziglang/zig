@@ -1034,8 +1034,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         target_dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
+                        sysroot = args_iter.nextOrFatal();
                         try clang_argv.append("-isysroot");
-                        try clang_argv.append(args_iter.nextOrFatal());
+                        try clang_argv.append(sysroot.?);
                     } else if (mem.eql(u8, arg, "--libc")) {
                         libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
