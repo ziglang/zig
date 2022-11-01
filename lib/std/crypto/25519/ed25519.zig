@@ -269,6 +269,10 @@ pub const Ed25519 = struct {
         }
 
         /// Create a KeyPair from a secret key.
+        /// Note that with EdDSA, storing the seed, and recovering the key pair
+        /// from it is recommended over storing the entire secret key.
+        /// The seed of an exiting key pair can be obtained with
+        /// `key_pair.secret_key.seed()`.
         pub fn fromSecretKey(secret_key: SecretKey) (NonCanonicalError || EncodingError || IdentityElementError)!KeyPair {
             // It is critical for EdDSA to use the correct public key.
             // In order to enforce this, a SecretKey implicitly includes a copy of the public key.
