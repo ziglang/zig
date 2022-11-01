@@ -91,7 +91,7 @@ pub const control_code = struct {
 /// Returns whether the character is alphanumeric: A-Z, a-z, or 0-9.
 pub fn isAlphanumeric(c: u8) bool {
     return switch (c) {
-        'A'...'Z', 'a'...'z', '0'...'9' => true,
+        '0'...'9', 'A'...'Z', 'a'...'z' => true,
         else => false,
     };
 }
@@ -167,7 +167,7 @@ pub fn isUpper(c: u8) bool {
 /// Returns whether the character is a hexadecimal digit: A-F, a-f, or 0-9.
 pub fn isHex(c: u8) bool {
     return switch (c) {
-        'A'...'F', 'a'...'f', '0'...'9' => true,
+        '0'...'9', 'A'...'F', 'a'...'f' => true,
         else => false,
     };
 }
