@@ -281,7 +281,15 @@ fn _start() callconv(.Naked) noreturn {
                     \\ andl $-16, %%esp
                     \\ jmp _posixCallMainAndExit
                 ),
-                .aarch64, .aarch64_be, .arm, .armeb, .thumb => asm volatile (
+                .aarch64, .aarch64_be => asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    \\ mov x0, sp
+                    \\ adrp x1, argc_argv_ptr
+                    \\ str x0, [x1, :lo12:argc_argv_ptr]
+                    \\ b _posixCallMainAndExit
+                ),
+                .arm, .armeb, .thumb => asm volatile (
                     \\ mov fp, #0
                     \\ mov lr, #0
                     \\ str sp, argc_argv_ptr

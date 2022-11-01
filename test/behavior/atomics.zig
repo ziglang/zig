@@ -220,8 +220,8 @@ test "atomicrmw with floats" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm or
+        builtin.zig_backend == .stage2_c) and builtin.cpu.arch == .aarch64)
     {
         // https://github.com/ziglang/zig/issues/10627
         return error.SkipZigTest;
@@ -247,6 +247,10 @@ test "atomicrmw with ints" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+        return error.SkipZigTest;
+    }
 
     try testAtomicRmwInt();
     comptime try testAtomicRmwInt();
@@ -281,6 +285,10 @@ test "atomics with different types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+        return error.SkipZigTest;
+    }
 
     try testAtomicsWithType(bool, true, false);
 
