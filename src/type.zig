@@ -2919,7 +2919,10 @@ pub const Type = extern union {
                     return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, target) };
                 },
             },
-            .f128 => return AbiAlignmentAdvanced{ .scalar = 16 },
+            .f128 => switch (CType.longdouble.sizeInBits(target)) {
+                128 => return AbiAlignmentAdvanced{ .scalar = CType.longdouble.alignment(target) },
+                else => return AbiAlignmentAdvanced{ .scalar = 16 },
+            },
 
             // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
