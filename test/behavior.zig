@@ -210,6 +210,7 @@ test {
         builtin.zig_backend != .stage2_wasm and
         builtin.zig_backend != .stage2_c)
     {
+        _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/export.zig");
     }

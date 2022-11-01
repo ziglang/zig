@@ -4164,6 +4164,7 @@ fn validateStructInit(
             // We expect to see something like this in the current block AIR:
             //   %a = field_ptr(...)
             //   store(%a, %b)
+            // With an optional bitcast between the store and the field_ptr.
             // If %b is a comptime operand, this field is comptime.
             //
             // However, in the case of a comptime-known pointer to a struct, the
@@ -4374,75 +4375,65 @@ fn zirValidateArrayInit(
 
         const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
         const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
-        // Find the block index of the elem_ptr so that we can look at the next
-        // instruction after it within the same block.
+
+        // We expect to see something like this in the current block AIR:
+        //   %a = elem_ptr(...)
+        //   store(%a, %b)
+        // With an optional bitcast between the store and the elem_ptr.
+        // If %b is a comptime operand, this element is comptime.
+        //
+        // However, in the case of a comptime-known pointer to an array, the
+        // the elem_ptr instruction is missing, so we have to pattern-match
+        // based only on the store instructions.
+        // `first_block_index` needs to point to the `elem_ptr` if it exists;
+        // the `store` otherwise.
+        //
+        // It's also possible for there to be no store instruction, in the case
+        // of nested `coerce_result_ptr` instructions. If we see the `elem_ptr`
+        // but we have not found a `store`, treat as a runtime-known element.
+        //
+        // This is nearly identical to similar logic in `validateStructInit`.
+
         // Possible performance enhancement: save the `block_index` between iterations
         // of the for loop.
         var block_index = block.instructions.items.len - 1;
-        while (block.instructions.items[block_index] != elem_ptr_air_inst) {
-            if (block_index == 0) {
+        while (block_index > 0) : (block_index -= 1) {
+            const store_inst = block.instructions.items[block_index];
+            if (store_inst == elem_ptr_air_inst) {
                 array_is_comptime = false;
                 continue :outer;
             }
-            block_index -= 1;
-        }
-        first_block_index = @min(first_block_index, block_index);
-
-        // If the next instructon is a store with a comptime operand, this element
-        // is comptime.
-        const next_air_inst = block.instructions.items[block_index + 1];
-        switch (air_tags[next_air_inst]) {
-            .store => {
-                const bin_op = air_datas[next_air_inst].bin_op;
-                var lhs = bin_op.lhs;
-                if (Air.refToIndex(lhs)) |lhs_index| {
-                    if (air_tags[lhs_index] == .bitcast) {
-                        lhs = air_datas[lhs_index].ty_op.operand;
-                        block_index -= 1;
-                    }
+            if (air_tags[store_inst] != .store) continue;
+            const bin_op = air_datas[store_inst].bin_op;
+            var lhs = bin_op.lhs;
+            {
+                const lhs_index = Air.refToIndex(lhs) orelse continue;
+                if (air_tags[lhs_index] == .bitcast) {
+                    lhs = air_datas[lhs_index].ty_op.operand;
+                    block_index -= 1;
                 }
-                if (lhs != elem_ptr_air_ref) {
-                    array_is_comptime = false;
-                    continue;
-                }
-                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, elem_src, bin_op.rhs, &make_runtime)) |val| {
-                    element_vals[i] = val;
-                } else {
-                    array_is_comptime = false;
-                }
-                continue;
-            },
-            .bitcast => {
-                // %a = bitcast(*arr_ty, %array_base)
-                // %b = ptr_elem_ptr(%a, %index)
-                // %c = bitcast(*elem_ty, %b)
-                // %d = store(%c, %val)
-                if (air_datas[next_air_inst].ty_op.operand != elem_ptr_air_ref) {
-                    array_is_comptime = false;
-                    continue;
-                }
-                const store_inst = block.instructions.items[block_index + 2];
-                if (air_tags[store_inst] != .store) {
-                    array_is_comptime = false;
-                    continue;
-                }
-                const bin_op = air_datas[store_inst].bin_op;
-                if (bin_op.lhs != Air.indexToRef(next_air_inst)) {
-                    array_is_comptime = false;
-                    continue;
-                }
-                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, elem_src, bin_op.rhs, &make_runtime)) |val| {
-                    element_vals[i] = val;
-                } else {
-                    array_is_comptime = false;
-                }
-                continue;
-            },
-            else => {
+            }
+            if (lhs != elem_ptr_air_ref) continue;
+            while (block_index > 0) : (block_index -= 1) {
+                const block_inst = block.instructions.items[block_index - 1];
+                if (air_tags[block_inst] != .dbg_stmt) break;
+            }
+            if (block_index > 0 and
+                elem_ptr_air_inst == block.instructions.items[block_index - 1])
+            {
+                first_block_index = @min(first_block_index, block_index - 1);
+            } else {
+                first_block_index = @min(first_block_index, block_index);
+            }
+            if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(block, elem_src, bin_op.rhs, &make_runtime)) |val| {
+                element_vals[i] = val;
+            } else {
                 array_is_comptime = false;
-                continue;
-            },
+            }
+            continue :outer;
         }
+        array_is_comptime = false;
+        continue :outer;
     }
 
     if (array_is_comptime) {
