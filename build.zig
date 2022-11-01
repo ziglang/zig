@@ -17,7 +17,7 @@ pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const test_step = b.step("test", "Run all the tests");
     const mode = b.standardReleaseOptions();
-    const target = b.standardTargetOptions(.{});
+    var target = b.standardTargetOptions(.{});
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
@@ -141,6 +141,10 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
+    if (only_c) {
+        target.ofmt = .c;
+    }
+
     const main_file: ?[]const u8 = mf: {
         if (!have_stage1) break :mf "src/main.zig";
         if (use_zig0) break :mf null;
@@ -170,10 +174,6 @@ pub fn build(b: *Builder) !void {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
         test_cases.want_lto = false;
-    }
-
-    if (only_c) {
-        exe.ofmt = .c;
     }
 
     const exe_options = b.addOptions();
