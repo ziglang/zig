@@ -2597,19 +2597,36 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: [
 }
 
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
+    const inst_ty = f.air.typeOfIndex(inst);
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const ptr_ty = f.air.typeOf(bin_op.lhs);
-    if (!ptr_ty.isVolatilePtr() and f.liveness.isUnused(inst)) return CValue.none;
+    if ((!ptr_ty.isVolatilePtr() and f.liveness.isUnused(inst)) or
+        !inst_ty.hasRuntimeBitsIgnoreComptime()) return CValue.none;
 
     const ptr = try f.resolveInst(bin_op.lhs);
     const index = try f.resolveInst(bin_op.rhs);
+
+    const target = f.object.dg.module.getTarget();
+    const is_array = lowersToArray(inst_ty, target);
+
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
     const writer = f.object.writer();
-    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
-    try writer.writeAll(" = ");
+    if (is_array) {
+        try writer.writeAll(";\n");
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    } else try writer.writeAll(" = ");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeByte('[');
     try f.writeCValue(writer, index, .Other);
-    try writer.writeAll("];\n");
+    try writer.writeByte(']');
+    if (is_array) {
+        try writer.writeAll(", sizeof(");
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll("))");
+    }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -2639,19 +2656,36 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airSliceElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
+    const inst_ty = f.air.typeOfIndex(inst);
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const slice_ty = f.air.typeOf(bin_op.lhs);
-    if (!slice_ty.isVolatilePtr() and f.liveness.isUnused(inst)) return CValue.none;
+    if ((!slice_ty.isVolatilePtr() and f.liveness.isUnused(inst)) or
+        !inst_ty.hasRuntimeBitsIgnoreComptime()) return CValue.none;
 
     const slice = try f.resolveInst(bin_op.lhs);
     const index = try f.resolveInst(bin_op.rhs);
+
+    const target = f.object.dg.module.getTarget();
+    const is_array = lowersToArray(inst_ty, target);
+
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
     const writer = f.object.writer();
-    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
-    try writer.writeAll(" = ");
+    if (is_array) {
+        try writer.writeAll(";\n");
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    } else try writer.writeAll(" = ");
     try f.writeCValue(writer, slice, .Other);
     try writer.writeAll(".ptr[");
     try f.writeCValue(writer, index, .Other);
-    try writer.writeAll("];\n");
+    try writer.writeByte(']');
+    if (is_array) {
+        try writer.writeAll(", sizeof(");
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll("))");
+    }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -2674,18 +2708,34 @@ fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airArrayElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst)) return CValue.none;
+    const inst_ty = f.air.typeOfIndex(inst);
+    if (f.liveness.isUnused(inst) or !inst_ty.hasRuntimeBitsIgnoreComptime()) return CValue.none;
 
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const array = try f.resolveInst(bin_op.lhs);
     const index = try f.resolveInst(bin_op.rhs);
+
+    const target = f.object.dg.module.getTarget();
+    const is_array = lowersToArray(inst_ty, target);
+
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
     const writer = f.object.writer();
-    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
-    try writer.writeAll(" = ");
+    if (is_array) {
+        try writer.writeAll(";\n");
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    } else try writer.writeAll(" = ");
     try f.writeCValue(writer, array, .Other);
     try writer.writeByte('[');
     try f.writeCValue(writer, index, .Other);
-    try writer.writeAll("];\n");
+    try writer.writeByte(']');
+    if (is_array) {
+        try writer.writeAll(", sizeof(");
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll("))");
+    }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -3592,13 +3642,26 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
     // If result is .none then the value of the block is unused.
     if (result != .none) {
         const operand = try f.resolveInst(branch.operand);
-        try f.writeCValue(writer, result, .Other);
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, operand, .Other);
+
+        const operand_ty = f.air.typeOf(branch.operand);
+        const target = f.object.dg.module.getTarget();
+        if (lowersToArray(operand_ty, target)) {
+            try writer.writeAll("memcpy(");
+            try f.writeCValue(writer, result, .FunctionArgument);
+            try writer.writeAll(", ");
+            try f.writeCValue(writer, operand, .FunctionArgument);
+            try writer.writeAll(", sizeof(");
+            try f.renderTypecast(writer, operand_ty);
+            try writer.writeAll("))");
+        } else {
+            try f.writeCValue(writer, result, .Other);
+            try writer.writeAll(" = ");
+            try f.writeCValue(writer, operand, .Other);
+        }
         try writer.writeAll(";\n");
     }
 
-    try f.object.writer().print("goto zig_block_{d};\n", .{block.block_id});
+    try writer.print("goto zig_block_{d};\n", .{block.block_id});
     return CValue.none;
 }
 
@@ -4009,26 +4072,34 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
     const opt_ty = f.air.typeOf(ty_op.operand);
 
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
 
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-        return CValue.none;
-    }
-
-    if (opt_ty.optionalReprIsPayload()) {
-        return operand;
-    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return CValue.none;
+    if (opt_ty.optionalReprIsPayload()) return operand;
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = (");
-    try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll(").payload;\n");
+    const target = f.object.dg.module.getTarget();
+    const is_array = lowersToArray(inst_ty, target);
+
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+    const writer = f.object.writer();
+    if (is_array) {
+        try writer.writeAll(";\n");
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    } else try writer.writeAll(" = ");
+    try f.writeCValueMember(writer, operand, .{ .identifier = "payload" });
+    if (is_array) {
+        try writer.writeAll(", sizeof(");
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll("))");
+    }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -4387,25 +4458,33 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValu
 }
 
 fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const writer = f.object.writer();
-    const operand = try f.resolveInst(ty_op.operand);
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.optionalReprIsPayload()) {
-        return operand;
-    }
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const payload = try f.resolveInst(ty_op.operand);
+    if (inst_ty.optionalReprIsPayload()) return payload;
 
-    // .wrap_optional is used to convert non-optionals into optionals so it can never be null.
-    const local = try f.allocLocal(inst_ty, .Const);
+    const payload_ty = f.air.typeOf(ty_op.operand);
+    const target = f.object.dg.module.getTarget();
+    const is_array = lowersToArray(payload_ty, target);
+
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+    const writer = f.object.writer();
     try writer.writeAll(" = { .payload = ");
-    try f.writeCValue(writer, operand, .Initializer);
+    try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else payload, .Initializer);
     try writer.writeAll(", .is_null = ");
     try f.object.dg.renderValue(writer, Type.bool, Value.@"false", .Initializer);
     try writer.writeAll(" };\n");
+    if (is_array) {
+        try writer.writeAll("memcpy(");
+        try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
+        try writer.writeAll(", ");
+        try f.writeCValue(writer, payload, .FunctionArgument);
+        try writer.writeAll(", sizeof(");
+        try f.renderTypecast(writer, payload_ty);
+        try writer.writeAll("));\n");
+    }
     return local;
 }
 
@@ -4477,35 +4556,33 @@ fn airSaveErrReturnTraceIndex(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const writer = f.object.writer();
-    const operand = try f.resolveInst(ty_op.operand);
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const payload_ty = inst_ty.errorUnionPayload();
     const error_ty = inst_ty.errorUnionSet();
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const payload_ty = inst_ty.errorUnionPayload();
+    const payload = try f.resolveInst(ty_op.operand);
+
     const target = f.object.dg.module.getTarget();
     const is_array = lowersToArray(payload_ty, target);
+
     const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+    const writer = f.object.writer();
     try writer.writeAll(" = { .payload = ");
-    try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else operand, .Initializer);
+    try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else payload, .Initializer);
     try writer.writeAll(", .error = ");
     try f.object.dg.renderValue(writer, error_ty, Value.zero, .Initializer);
     try writer.writeAll(" };\n");
-
     if (is_array) {
         try writer.writeAll("memcpy(");
-        try f.writeCValue(writer, local, .Other);
-        try writer.writeAll(".payload, ");
-        try f.writeCValue(writer, operand, .FunctionArgument);
+        try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
+        try writer.writeAll(", ");
+        try f.writeCValue(writer, payload, .FunctionArgument);
         try writer.writeAll(", sizeof(");
         try f.renderTypecast(writer, payload_ty);
         try writer.writeAll("));\n");
     }
-
     return local;
 }
 
