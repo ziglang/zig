@@ -9150,7 +9150,7 @@ pub const FuncGen = struct {
         // necessarily match the format that we need, depending on which tag is active. We
         // must construct the correct unnamed struct type here and bitcast, in order to
         // then set the fields appropriately.
-        const result_ptr = self.buildAlloca(union_llvm_ty, null);
+        const result_ptr = self.buildAlloca(union_llvm_ty, layout.abi_align);
         const llvm_payload = try self.resolveInst(extra.init);
         assert(union_obj.haveFieldTypes());
         const field = union_obj.fields.values()[extra.field_index];
