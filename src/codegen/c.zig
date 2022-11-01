@@ -4926,12 +4926,23 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
 fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
+    const dest_ty = f.air.typeOf(pl_op.operand);
     const dest_ptr = try f.resolveInst(pl_op.operand);
     const value = try f.resolveInst(extra.lhs);
     const len = try f.resolveInst(extra.rhs);
     const writer = f.object.writer();
 
     try writer.writeAll("memset(");
+    if (dest_ty.isVolatilePtr()) {
+        // This is wrong, but good enough for now.
+        var remove_volatile_pl = dest_ty.ptrInfo();
+        remove_volatile_pl.data.@"volatile" = false;
+        const remove_volatile_ty = Type.initPayload(&remove_volatile_pl.base);
+
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, remove_volatile_ty);
+        try writer.writeByte(')');
+    }
     try f.writeCValue(writer, dest_ptr, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, value, .FunctionArgument);
