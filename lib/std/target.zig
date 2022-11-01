@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Version = std.builtin.Version;
 
@@ -719,7 +720,11 @@ pub const Target = struct {
 
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                    if (builtin.zig_backend == .stage2_c) {
+                        for (set.ints) |*int, i| int.* |= other_set.ints[i];
+                    } else {
+                        set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                    }
                 }
 
                 /// Removes the specified feature but not its dependents.
@@ -731,7 +736,11 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                    if (builtin.zig_backend == .stage2_c) {
+                        for (set.ints) |*int, i| int.* &= ~other_set.ints[i];
+                    } else {
+                        set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                    }
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
