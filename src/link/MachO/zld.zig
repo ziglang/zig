@@ -3746,24 +3746,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (options.module) |module| blk: {
-        if (options.use_stage1) {
-            const obj_basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = options.root_name,
-                .target = target,
-                .output_mode = .Obj,
-            });
-            switch (options.cache_mode) {
-                .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                    arena,
-                    &[_][]const u8{obj_basename},
-                ),
-                .whole => break :blk try fs.path.join(arena, &.{
-                    fs.path.dirname(full_out_path).?, obj_basename,
-                }),
-            }
-        }
-
+    const module_obj_path: ?[]const u8 = if (options.module != null) blk: {
         try macho_file.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {

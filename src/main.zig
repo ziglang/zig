@@ -394,8 +394,6 @@ const usage_build_generic =
     \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
-    \\  -fstage1                  Force using bootstrap compiler as the codegen backend
-    \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
     \\  -fno-reference-trace      Disable reference trace
     \\  -fsingle-threaded         Code assumes there is only one thread
@@ -719,7 +717,6 @@ fn buildOutputType(
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
-    var use_stage1: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
@@ -1158,10 +1155,6 @@ fn buildOutputType(
                         use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-Clang")) {
                         use_clang = false;
-                    } else if (mem.eql(u8, arg, "-fstage1")) {
-                        use_stage1 = true;
-                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
-                        use_stage1 = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -2909,7 +2902,6 @@ fn buildOutputType(
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
-        .use_stage1 = use_stage1,
         .hash_style = hash_style,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
@@ -3024,8 +3016,7 @@ fn buildOutputType(
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
-        const stage1_mode = use_stage1 orelse false;
-        return cmdTranslateC(comp, arena, have_enable_cache, stage1_mode);
+        return cmdTranslateC(comp, arena, have_enable_cache);
     }
 
     const hook: AfterUpdateHook = blk: {
@@ -3444,7 +3435,7 @@ fn freePkgTree(gpa: Allocator, pkg: *Package, free_parent: bool) void {
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage1_mode: bool) !void {
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -3457,7 +3448,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
     defer if (enable_cache) man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(stage1_mode);
     man.hashCSource(c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
@@ -3509,7 +3499,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
             new_argv.ptr + new_argv.len,
             &clang_errors,
             c_headers_dir_path_z,
-            stage1_mode,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
@@ -3755,8 +3744,6 @@ pub const usage_build =
     \\   Build a project from build.zig.
     \\
     \\Options:
-    \\   -fstage1                      Force using bootstrap compiler as the codegen backend
-    \\   -fno-stage1                   Prevent using bootstrap compiler as the codegen backend
     \\   -freference-trace[=num]       How many lines of reference trace should be shown per compile error
     \\   -fno-reference-trace          Disable reference trace
     \\   --build-file [file]           Override path to build.zig
@@ -3770,7 +3757,6 @@ pub const usage_build =
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var prominent_compile_errors: bool = false;
-    var use_stage1: ?bool = null;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -3827,12 +3813,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         continue;
                     } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                         prominent_compile_errors = true;
-                    } else if (mem.eql(u8, arg, "-fstage1")) {
-                        use_stage1 = true;
-                        try child_argv.append(arg);
-                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
-                        use_stage1 = false;
-                        try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         try child_argv.append(arg);
                         reference_trace = 256;
@@ -3979,7 +3959,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
-            .use_stage1 = use_stage1,
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,

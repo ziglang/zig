@@ -2121,8 +2121,6 @@ fn failWithUseOfAsync(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "async has not been implemented in the self-hosted compiler yet", .{});
         errdefer msg.destroy(sema.gpa);
-
-        try sema.errNote(block, src, msg, "to use async enable the stage1 compiler with either '-fstage1' or by setting '.use_stage1 = true` in your 'build.zig' script", .{});
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);

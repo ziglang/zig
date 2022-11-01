@@ -1084,7 +1084,6 @@ set(ZIG_BUILD_ARGS
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     "-Denable-llvm"
-    "-Denable-stage1"
     ${ZIG_RELEASE_ARG}
     ${ZIG_STATIC_ARG}
     ${ZIG_NO_LIB_ARG}

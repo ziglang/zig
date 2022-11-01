@@ -46,7 +46,6 @@ pub const Builder = struct {
     prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
     reference_trace: ?u32 = null,
-    use_stage1: ?bool = null,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
@@ -1621,7 +1620,6 @@ pub const LibExeObjStep = struct {
     stack_size: ?u64 = null,
 
     want_lto: ?bool = null,
-    use_stage1: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
 
@@ -2465,20 +2463,6 @@ pub const LibExeObjStep = struct {
 
         if (builder.reference_trace) |some| {
             try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-freference-trace={d}", .{some}));
-        }
-
-        if (self.use_stage1) |stage1| {
-            if (stage1) {
-                try zig_args.append("-fstage1");
-            } else {
-                try zig_args.append("-fno-stage1");
-            }
-        } else if (builder.use_stage1) |stage1| {
-            if (stage1) {
-                try zig_args.append("-fstage1");
-            } else {
-                try zig_args.append("-fno-stage1");
-            }
         }
 
         if (self.use_llvm) |use_llvm| {

@@ -69,9 +69,8 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
-    const have_stage1 = b.option(bool, "enable-stage1", "Include the stage1 compiler behind a feature flag") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
-    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (have_stage1 or static_llvm);
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse static_llvm;
     const llvm_has_m68k = b.option(
         bool,
         "llvm-has-m68k",
@@ -133,7 +132,6 @@ pub fn build(b: *Builder) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
-    const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
@@ -146,11 +144,7 @@ pub fn build(b: *Builder) !void {
         target.ofmt = .c;
     }
 
-    const main_file: ?[]const u8 = mf: {
-        if (!have_stage1) break :mf "src/main.zig";
-        if (use_zig0) break :mf null;
-        break :mf "src/stage1.zig";
-    };
+    const main_file: ?[]const u8 = "src/main.zig";
 
     const exe = b.addExecutable("zig", main_file);
 
@@ -264,92 +258,6 @@ pub fn build(b: *Builder) !void {
             }
         };
 
-        if (have_stage1) {
-            const softfloat = b.addStaticLibrary("softfloat", null);
-            softfloat.setBuildMode(.ReleaseFast);
-            softfloat.setTarget(target);
-            softfloat.addIncludePath("deps/SoftFloat-3e-prebuilt");
-            softfloat.addIncludePath("deps/SoftFloat-3e/source/8086");
-            softfloat.addIncludePath("deps/SoftFloat-3e/source/include");
-            softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
-            softfloat.single_threaded = single_threaded;
-
-            const zig0 = b.addExecutable("zig0", null);
-            zig0.addCSourceFiles(&.{"src/stage1/zig0.cpp"}, &exe_cflags);
-            zig0.addIncludePath("zig-cache/tmp"); // for config.h
-            zig0.defineCMacro("ZIG_VERSION_MAJOR", b.fmt("{d}", .{zig_version.major}));
-            zig0.defineCMacro("ZIG_VERSION_MINOR", b.fmt("{d}", .{zig_version.minor}));
-            zig0.defineCMacro("ZIG_VERSION_PATCH", b.fmt("{d}", .{zig_version.patch}));
-            zig0.defineCMacro("ZIG_VERSION_STRING", b.fmt("\"{s}\"", .{version}));
-
-            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_cases }) |artifact| {
-                artifact.addIncludePath("src");
-                artifact.addIncludePath("deps/SoftFloat-3e/source/include");
-                artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
-
-                artifact.defineCMacro("ZIG_LINK_MODE", "Static");
-
-                artifact.addCSourceFiles(&stage1_sources, &exe_cflags);
-                artifact.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-
-                artifact.linkLibrary(softfloat);
-                artifact.linkLibCpp();
-            }
-
-            try addStaticLlvmOptionsToExe(zig0);
-
-            const zig1_obj_ext = target.getObjectFormat().fileExt(target.getCpuArch());
-            const zig1_obj_path = b.pathJoin(&.{ "zig-cache", "tmp", b.fmt("zig1{s}", .{zig1_obj_ext}) });
-            const zig1_compiler_rt_path = b.pathJoin(&.{ b.pathFromRoot("lib"), "std", "special", "compiler_rt.zig" });
-
-            const zig1_obj = zig0.run();
-            zig1_obj.addArgs(&.{
-                "src/stage1.zig",
-                "-target",
-                try target.zigTriple(b.allocator),
-                "-mcpu=baseline",
-                "--name",
-                "zig1",
-                "--zig-lib-dir",
-                b.pathFromRoot("lib"),
-                b.fmt("-femit-bin={s}", .{b.pathFromRoot(zig1_obj_path)}),
-                "-fcompiler-rt",
-                "-lc",
-            });
-            {
-                zig1_obj.addArgs(&.{ "--pkg-begin", "build_options" });
-                zig1_obj.addFileSourceArg(exe_options.getSource());
-                zig1_obj.addArgs(&.{ "--pkg-end", "--pkg-begin", "compiler_rt", zig1_compiler_rt_path, "--pkg-end" });
-            }
-            switch (mode) {
-                .Debug => {},
-                .ReleaseFast => {
-                    zig1_obj.addArg("-OReleaseFast");
-                    zig1_obj.addArg("-fstrip");
-                },
-                .ReleaseSafe => {
-                    zig1_obj.addArg("-OReleaseSafe");
-                    zig1_obj.addArg("-fstrip");
-                },
-                .ReleaseSmall => {
-                    zig1_obj.addArg("-OReleaseSmall");
-                    zig1_obj.addArg("-fstrip");
-                },
-            }
-            if (single_threaded orelse false) {
-                zig1_obj.addArg("-fsingle-threaded");
-            }
-
-            if (use_zig0) {
-                exe.step.dependOn(&zig1_obj.step);
-                exe.addObjectFile(zig1_obj_path);
-            }
-
-            // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
-            // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
-            // is pointless.
-            exe.addPackagePath("compiler_rt", "src/empty.zig");
-        }
         if (cmake_cfg) |cfg| {
             // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
             // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
@@ -379,7 +287,6 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
-    exe_options.addOption(bool, "have_stage1", have_stage1);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -414,7 +321,6 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
     test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
-    test_cases_options.addOption(bool, "have_stage1", have_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -1010,31 +916,6 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/ui64_to_extF80M.c",
 };
 
-const stage1_sources = [_][]const u8{
-    "src/stage1/analyze.cpp",
-    "src/stage1/astgen.cpp",
-    "src/stage1/bigfloat.cpp",
-    "src/stage1/bigint.cpp",
-    "src/stage1/buffer.cpp",
-    "src/stage1/codegen.cpp",
-    "src/stage1/errmsg.cpp",
-    "src/stage1/error.cpp",
-    "src/stage1/heap.cpp",
-    "src/stage1/ir.cpp",
-    "src/stage1/ir_print.cpp",
-    "src/stage1/mem.cpp",
-    "src/stage1/os.cpp",
-    "src/stage1/parser.cpp",
-    "src/stage1/range_set.cpp",
-    "src/stage1/stage1.cpp",
-    "src/stage1/target.cpp",
-    "src/stage1/tokenizer.cpp",
-    "src/stage1/util.cpp",
-    "src/stage1/softfloat_ext.cpp",
-};
-const optimized_c_sources = [_][]const u8{
-    "src/stage1/parse_f128.c",
-};
 const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
