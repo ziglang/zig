@@ -1297,7 +1297,8 @@ pub const DeclGen = struct {
         var fqn_buf = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer fqn_buf.deinit();
 
-        const owner_decl = dg.module.declPtr(child_ty.getOwnerDecl());
+        const owner_decl_index = child_ty.getOwnerDecl();
+        const owner_decl = dg.module.declPtr(owner_decl_index);
         try owner_decl.renderFullyQualifiedName(dg.module, fqn_buf.writer());
 
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
@@ -1309,7 +1310,11 @@ pub const DeclGen = struct {
             else => unreachable,
         };
         const name_begin = buffer.items.len + "typedef ".len + tag.len;
-        try buffer.writer().print("typedef {s}zig_S_{} ", .{ tag, fmtIdent(fqn_buf.items) });
+        try buffer.writer().print("typedef {s}zig_S_{}__{d} ", .{
+            tag,
+            fmtIdent(fqn_buf.items),
+            @enumToInt(owner_decl_index),
+        });
         const name_end = buffer.items.len - " ".len;
         try buffer.ensureUnusedCapacity((name_end - name_begin) + ";\n".len);
         buffer.appendSliceAssumeCapacity(buffer.items[name_begin..name_end]);
