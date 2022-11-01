@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const crypto = std.crypto;
 const debug = std.debug;
@@ -268,18 +269,17 @@ pub const Ed25519 = struct {
         }
 
         /// Create a KeyPair from a secret key.
-        pub fn fromSecretKey(secret_key: SecretKey) IdentityElementError!KeyPair {
-            const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
-
+        pub fn fromSecretKey(secret_key: SecretKey) (NonCanonicalError || EncodingError || IdentityElementError)!KeyPair {
             // It is critical for EdDSA to use the correct public key.
             // In order to enforce this, a SecretKey implicitly includes a copy of the public key.
             // In Debug mode, we can still afford checking that the public key is correct for extra safety.
-            if (std.builtin.mode == .Debug) {
-                const recomputed_kp = try create(secret_key[0..seed_length].*);
-                debug.assert(recomputed_kp.public_key.p.toBytes() == pk_p.toBytes());
+            if (builtin.mode == .Debug) {
+                const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
+                const recomputed_kp = try create(secret_key.seed());
+                debug.assert(mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes()));
             }
             return KeyPair{
-                .public_key = PublicKey{ .p = pk_p },
+                .public_key = try PublicKey.fromBytes(secret_key.publicKeyBytes()),
                 .secret_key = secret_key,
             };
         }
@@ -673,4 +673,11 @@ test "ed25519 signatures with streaming" {
     verifier.update("mess");
     verifier.update("age");
     try verifier.verify();
+}
+
+test "ed25519 key pair from secret key" {
+    const kp = try Ed25519.KeyPair.create(null);
+    const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
+    try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());
+    try std.testing.expectEqualSlices(u8, &kp.public_key.toBytes(), &kp2.public_key.toBytes());
 }
