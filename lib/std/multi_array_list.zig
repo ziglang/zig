@@ -436,9 +436,15 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
-            const capacity_vector = @splat(sizes.bytes.len, capacity);
-            return @reduce(.Add, capacity_vector * sizes_vector);
+            if (builtin.zig_backend == .stage2_c) {
+                var bytes: usize = 0;
+                for (sizes.bytes) |size| bytes += size * capacity;
+                return bytes;
+            } else {
+                const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
+                const capacity_vector = @splat(sizes.bytes.len, capacity);
+                return @reduce(.Add, capacity_vector * sizes_vector);
+            }
         }
 
         fn allocatedBytes(self: Self) []align(@alignOf(S)) u8 {

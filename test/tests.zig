@@ -52,6 +52,9 @@ const test_targets = blk: {
         },
 
         .{
+            .target = .{
+                .ofmt = .c,
+            },
             .link_libc = true,
             .backend = .stage2_c,
         },
@@ -720,7 +723,6 @@ pub fn addPkgTests(
             .stage2_c => {
                 these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
-                these_tests.ofmt = .c;
             },
             else => {
                 these_tests.use_stage1 = false;

@@ -19,7 +19,7 @@
 #endif
 
 #if __STDC_VERSION__ >= 201112L
-#define zig_threadlocal thread_local
+#define zig_threadlocal _Thread_local
 #elif defined(__GNUC__)
 #define zig_threadlocal __thread
 #elif _MSC_VER
