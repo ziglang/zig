@@ -571,7 +571,7 @@ pub const MacroArithmetic = struct {
         }
     }
 
-    pub fn mod(a: anytype, b: anytype) ArithmeticConversion(@TypeOf(a), @TypeOf(b)) {
+    pub fn rem(a: anytype, b: anytype) ArithmeticConversion(@TypeOf(a), @TypeOf(b)) {
         const ResType = ArithmeticConversion(@TypeOf(a), @TypeOf(b));
         const a_casted = cast(ResType, a);
         const b_casted = cast(ResType, b);
