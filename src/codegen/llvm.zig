@@ -1279,8 +1279,18 @@ pub const Object = struct {
         const llvm_global = self.decl_map.get(decl_index) orelse return;
         const decl = module.declPtr(decl_index);
         if (decl.isExtern()) {
-            llvm_global.setValueName(decl.name);
-            if (self.getLlvmGlobal(decl.name)) |other_global| {
+            const is_wasm_fn = module.getTarget().isWasm() and try decl.isFunction();
+            const mangle_name = is_wasm_fn and
+                decl.getExternFn().?.lib_name != null and
+                !std.mem.eql(u8, std.mem.sliceTo(decl.getExternFn().?.lib_name.?, 0), "c");
+            const decl_name = if (mangle_name) name: {
+                const tmp = try std.fmt.allocPrintZ(module.gpa, "{s}|{s}", .{ decl.name, decl.getExternFn().?.lib_name.? });
+                break :name tmp.ptr;
+            } else decl.name;
+            defer if (mangle_name) module.gpa.free(std.mem.sliceTo(decl_name, 0));
+
+            llvm_global.setValueName(decl_name);
+            if (self.getLlvmGlobal(decl_name)) |other_global| {
                 if (other_global != llvm_global) {
                     log.debug("updateDeclExports isExtern()=true setValueName({s}) conflict", .{decl.name});
                     try self.extern_collisions.put(module.gpa, decl_index, {});

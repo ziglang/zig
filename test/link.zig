@@ -48,6 +48,11 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .use_emulation = true,
     });
 
+    cases.addBuildFile("test/link/wasm/extern-mangle/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
     cases.addBuildFile("test/link/wasm/infer-features/build.zig", .{
         .requires_stage2 = true,
     });
