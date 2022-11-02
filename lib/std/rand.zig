@@ -61,14 +61,41 @@ pub const Random = struct {
     }
 
     /// Returns a random value from an enum, evenly distributed.
-    pub fn enumValue(r: Random, comptime EnumType: type) EnumType {
+    ///
+    /// Note that this will not yield consistent results across all targets
+    /// due to dependence on the representation of `usize` as an index.
+    /// See `enumValueWithIndex` for further commentary.
+    pub inline fn enumValue(r: Random, comptime EnumType: type) EnumType {
+        return r.enumValueWithIndex(EnumType, usize);
+    }
+
+    /// Returns a random value from an enum, evenly distributed.
+    ///
+    /// An index into an array of all named values is generated using the
+    /// specified `Index` type to determine the return value.
+    /// This allows for results to be independent of `usize` representation.
+    ///
+    /// Prefer `enumValue` if this isn't important.
+    ///
+    /// See `uintLessThan`, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: type) EnumType {
         comptime assert(@typeInfo(EnumType) == .Enum);
 
         // We won't use int -> enum casting because enum elements can have
         //  arbitrary values.  Instead we'll randomly pick one of the type's values.
-        const values = std.enums.values(EnumType);
-        const index = r.uintLessThan(usize, values.len);
-        return values[index];
+        const values = comptime std.enums.values(EnumType);
+        comptime assert(values.len > 0); // can't return anything
+        comptime assert(maxInt(Index) >= values.len - 1); // can't access all values
+        comptime if (values.len == 1) return values[0];
+
+        const index = if (comptime values.len - 1 == maxInt(Index))
+            r.int(Index)
+        else
+            r.uintLessThan(Index, values.len);
+
+        const MinInt = MinArrayIndex(Index);
+        return values[@intCast(MinInt, index)];
     }
 
     /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
@@ -344,8 +371,7 @@ pub const Random = struct {
     /// See `intRangeLessThan`, which this function uses,
     /// for commentary on the runtime of this function.
     pub fn shuffleWithIndex(r: Random, comptime T: type, buf: []T, comptime Index: type) void {
-        comptime std.debug.assert(@typeInfo(Index).Int.signedness == .unsigned);
-        const MinInt = std.meta.Int(.unsigned, @min(@typeInfo(Index).Int.bits, @typeInfo(usize).Int.bits));
+        const MinInt = MinArrayIndex(Index);
         if (buf.len < 2) {
             return;
         }
@@ -393,6 +419,13 @@ pub const Random = struct {
         }
 
         unreachable;
+    }
+
+    /// Returns the smallest of `Index` and `usize`.
+    fn MinArrayIndex(comptime Index: type) type {
+        const index_info = @typeInfo(Index).Int;
+        assert(index_info.signedness == .unsigned);
+        return if (index_info.bits >= @typeInfo(usize).Int.bits) usize else Index;
     }
 };
 
