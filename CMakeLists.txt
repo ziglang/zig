@@ -472,6 +472,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/truncxfhf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/truncxfsf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/udivmod.zig"
+    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/udivmodei4.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/udivmodti4.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/udivti3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/umodti3.zig"
