@@ -4940,8 +4940,7 @@ pub const FuncGen = struct {
         const frame_alloca = fg.builder.buildArrayAlloca(llvm_i8, frame_size, "");
         frame_alloca.setAlignment(target.ptrBitWidth() / 4);
         const frame_llvm_ty = try o.lowerAsyncFrameHeader(fn_info.return_type.toType());
-        const llvm_ptr_ty = fg.context.pointerType(0);
-        const frame_ptr = fg.builder.buildBitCast(frame_alloca, llvm_ptr_ty, "");
+        const frame_ptr = fg.builder.buildBitCast(frame_alloca, o.context.pointerType(0), "");
         const l = asyncFrameLayout();
         const fn_ptr_ptr = fg.builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.fn_ptr, "");
         _ = fg.builder.buildStore(callee, fn_ptr_ptr);
@@ -4954,7 +4953,7 @@ pub const FuncGen = struct {
         const awaiter_ptr = fg.builder.buildStructGEP(frame_llvm_ty, frame_ptr, l.awaiter, "");
         _ = fg.builder.buildStore(zero, awaiter_ptr);
 
-        var llvm_args = std.ArrayList(*llvm.Value).init(fg.gpa);
+        var llvm_args = std.ArrayList(*llvm.Value).init(o.gpa);
         defer llvm_args.deinit();
 
         try addCallArgs(fg, args, &llvm_args, fn_info);

@@ -876,12 +876,6 @@ pub const Inst = struct {
         /// Implements the `@bitReverse` builtin. Uses the `un_node` union field.
         bit_reverse,
 
-        /// Implements the `@bitOffsetOf` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        bit_offset_of,
-        /// Implements the `@offsetOf` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        offset_of,
         /// Implements the `@splat` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         splat,
@@ -1200,8 +1194,6 @@ pub const Inst = struct {
                 .rem,
                 .shl_exact,
                 .shr_exact,
-                .bit_offset_of,
-                .offset_of,
                 .splat,
                 .reduce,
                 .shuffle,
@@ -1484,8 +1476,6 @@ pub const Inst = struct {
                 .rem,
                 .shl_exact,
                 .shr_exact,
-                .bit_offset_of,
-                .offset_of,
                 .splat,
                 .reduce,
                 .shuffle,
@@ -1759,8 +1749,6 @@ pub const Inst = struct {
                 .shr = .pl_node,
                 .shr_exact = .pl_node,
 
-                .bit_offset_of = .pl_node,
-                .offset_of = .pl_node,
                 .splat = .pl_node,
                 .reduce = .pl_node,
                 .shuffle = .pl_node,
@@ -2009,6 +1997,12 @@ pub const Inst = struct {
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
         value_placeholder,
+        /// Implements the `@bitOffsetOf` builtin.
+        /// `operand` is payload index to `BinNode`.
+        bit_offset_of,
+        /// Implements the `@offsetOf` builtin.
+        /// `operand` is payload index to `BinNode`.
+        offset_of,
 
         pub const InstData = struct {
             opcode: Extended,

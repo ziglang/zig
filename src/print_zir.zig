@@ -335,8 +335,6 @@ const Writer = struct {
             .div_trunc,
             .mod,
             .rem,
-            .bit_offset_of,
-            .offset_of,
             .splat,
             .reduce,
             .bitcast,
@@ -526,6 +524,8 @@ const Writer = struct {
             .wasm_memory_grow,
             .prefetch,
             .c_va_arg,
+            .bit_offset_of,
+            .offset_of,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);

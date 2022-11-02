@@ -1542,8 +1542,6 @@ fn walkInstruction(
         .bitcast,
         .vector_type,
         // @check
-        .bit_offset_of,
-        .offset_of,
         .splat,
         .reduce,
         .min,

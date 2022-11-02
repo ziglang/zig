@@ -1046,8 +1046,6 @@ fn analyzeBodyInner(
             .has_field                    => try sema.zirHasField(block, inst),
             .byte_swap                    => try sema.zirByteSwap(block, inst),
             .bit_reverse                  => try sema.zirBitReverse(block, inst),
-            .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
-            .offset_of                    => try sema.zirOffsetOf(block, inst),
             .splat                        => try sema.zirSplat(block, inst),
             .reduce                       => try sema.zirReduce(block, inst),
             .shuffle                      => try sema.zirShuffle(block, inst),
@@ -1179,6 +1177,8 @@ fn analyzeBodyInner(
                     .work_group_size       => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id         => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime           => try sema.zirInComptime(        block),
+                    .bit_offset_of         => try sema.zirBitOffsetOf(       block, extended),
+                    .offset_of             => try sema.zirOffsetOf(          block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -21743,24 +21743,24 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 }
 
-fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const offset = try sema.bitOffsetOf(block, inst);
+fn zirBitOffsetOf(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const offset = try sema.bitOffsetOf(block, extended);
     return sema.addIntUnsigned(Type.comptime_int, offset);
 }
 
-fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const offset = try sema.bitOffsetOf(block, inst);
+fn zirOffsetOf(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const offset = try sema.bitOffsetOf(block, extended);
     // TODO reminder to make this a compile error for packed structs
     return sema.addIntUnsigned(Type.comptime_int, offset / 8);
 }
 
-fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u64 {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+fn bitOffsetOf(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!u64 {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+
+    const src: LazySrcLoc = .{ .node_offset_bin_op = extra.node };
     sema.src = src;
-    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = extra.node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = extra.node };
 
     const ty = try sema.resolveType(block, lhs_src, extra.lhs);
     const field_name = try sema.resolveConstStringIntern(block, rhs_src, extra.rhs, "name of field must be comptime-known");
@@ -33840,9 +33840,9 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
     }
 }
 
-// In case of querying the ABI alignment of this struct, we will ask
-// for hasRuntimeBits() of each field, so we need "requires comptime"
-// to be known already before this function returns.
+/// In case of querying the ABI alignment of this struct, we will ask
+/// for hasRuntimeBits() of each field, so we need "requires comptime"
+/// to be known already before this function returns.
 pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     const mod = sema.mod;
 
