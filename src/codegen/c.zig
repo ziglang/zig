@@ -32,6 +32,8 @@ pub const CValue = union(enum) {
     constant: Air.Inst.Ref,
     /// Index into the parameters
     arg: usize,
+    /// Index into a tuple's fields
+    field: usize,
     /// By-value
     decl: Decl.Index,
     decl_ref: Decl.Index,
@@ -1382,26 +1384,17 @@ pub const DeclGen = struct {
         try buffer.appendSlice("typedef struct {\n");
         {
             const fields = t.tupleFields();
-            var empty = true;
+            var field_id: usize = 0;
             for (fields.types) |field_ty, i| {
-                if (!field_ty.hasRuntimeBits()) continue;
-                const val = fields.values[i];
-                if (val.tag() != .unreachable_value) continue;
-
-                var field_name_buf: []const u8 = &.{};
-                defer dg.typedefs.allocator.free(field_name_buf);
-                const field_name = if (t.isTuple()) field_name: {
-                    field_name_buf = try std.fmt.allocPrint(dg.typedefs.allocator, "field_{d}", .{i});
-                    break :field_name field_name_buf;
-                } else t.structFieldName(i);
+                if (!field_ty.hasRuntimeBits() or fields.values[i].tag() != .unreachable_value) continue;
 
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .identifier = field_name }, .Mut, 0, .Complete);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .field = field_id }, .Mut, 0, .Complete);
                 try buffer.appendSlice(";\n");
 
-                empty = false;
+                field_id += 1;
             }
-            if (empty) try buffer.appendSlice(" char empty_tuple;\n");
+            if (field_id == 0) try buffer.appendSlice(" char empty_tuple;\n");
         }
         const name_begin = buffer.items.len + "} ".len;
         try buffer.writer().print("}} zig_T_{};\n", .{typeToCIdentifier(t, dg.module)});
@@ -1755,12 +1748,38 @@ pub const DeclGen = struct {
             },
             .Struct, .Union => |tag| if (tag == .Struct and t.containerLayout() == .Packed)
                 try dg.renderType(w, t.castTag(.@"struct").?.data.backing_int_ty, kind)
-            else if (kind == .Complete or t.isTupleOrAnonStruct()) {
+            else if (t.isTupleOrAnonStruct()) {
+                const ExpectedContents = struct { types: [8]Type, values: [8]Value };
+                var stack align(@alignOf(ExpectedContents)) =
+                    std.heap.stackFallback(@sizeOf(ExpectedContents), dg.gpa);
+                const allocator = stack.get();
+
+                var tuple_storage = std.MultiArrayList(struct { type: Type, value: Value }){};
+                defer tuple_storage.deinit(allocator);
+                try tuple_storage.ensureTotalCapacity(allocator, t.structFieldCount());
+
+                const fields = t.tupleFields();
+                for (fields.values) |value, index|
+                    if (value.tag() == .unreachable_value)
+                        tuple_storage.appendAssumeCapacity(.{
+                            .type = fields.types[index],
+                            .value = value,
+                        });
+
+                const tuple_slice = tuple_storage.slice();
+                var tuple_pl = Type.Payload.Tuple{ .data = .{
+                    .types = tuple_slice.items(.type),
+                    .values = tuple_slice.items(.value),
+                } };
+                const tuple_ty = Type.initPayload(&tuple_pl.base);
+
+                const name = dg.getTypedefName(tuple_ty) orelse
+                    try dg.renderTupleTypedef(tuple_ty);
+
+                try w.writeAll(name);
+            } else if (kind == .Complete) {
                 const name = dg.getTypedefName(t) orelse switch (tag) {
-                    .Struct => if (t.isTupleOrAnonStruct())
-                        try dg.renderTupleTypedef(t)
-                    else
-                        try dg.renderStructTypedef(t),
+                    .Struct => try dg.renderStructTypedef(t),
                     .Union => try dg.renderUnionTypedef(t),
                     else => unreachable,
                 };
@@ -1980,6 +1999,7 @@ pub const DeclGen = struct {
             .local_ref => |i| return w.print("&t{d}", .{i}),
             .constant => unreachable,
             .arg => |i| return w.print("a{d}", .{i}),
+            .field => |i| return w.print("f{d}", .{i}),
             .decl => |decl| return dg.renderDeclName(w, decl),
             .decl_ref => |decl| {
                 try w.writeByte('&');
@@ -1998,6 +2018,7 @@ pub const DeclGen = struct {
             .local_ref => |i| return w.print("t{d}", .{i}),
             .constant => unreachable,
             .arg => |i| return w.print("(*a{d})", .{i}),
+            .field => |i| return w.print("f{d}", .{i}),
             .decl => |decl| {
                 try w.writeAll("(*");
                 try dg.renderDeclName(w, decl);
@@ -2022,7 +2043,7 @@ pub const DeclGen = struct {
 
     fn writeCValueDerefMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .none, .constant, .undef => unreachable,
+            .none, .constant, .field, .undef => unreachable,
             .local, .arg, .decl, .identifier, .bytes => {
                 try dg.writeCValue(writer, c_value);
                 try writer.writeAll("->");
@@ -2868,7 +2889,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
             const array_local = try f.allocLocal(lowered_ret_ty, .Mut);
             try writer.writeAll(";\n");
             try writer.writeAll("memcpy(");
-            try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
+            try f.writeCValueMember(writer, array_local, .{ .field = 0 });
             try writer.writeAll(", ");
             if (deref)
                 try f.writeCValueDeref(writer, operand)
@@ -3114,13 +3135,13 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     const local = try f.allocLocal(inst_ty, .Mut);
     try w.writeAll(";\n");
 
-    try f.writeCValue(w, local, .Other);
-    try w.writeAll(".field_1 = zig_");
+    try f.writeCValueMember(w, local, .{ .field = 1 });
+    try w.writeAll(" = zig_");
     try w.writeAll(operation);
     try w.writeAll("o_");
     try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
     try w.writeAll("(&");
-    try f.writeCValueMember(w, local, .{ .identifier = "field_0" });
+    try f.writeCValueMember(w, local, .{ .field = 0 });
     try w.writeAll(", ");
     try f.writeCValue(w, lhs, .FunctionArgument);
     try w.writeAll(", ");
@@ -3480,7 +3501,7 @@ fn airCall(
     try writer.writeAll("memcpy(");
     try f.writeCValue(writer, array_local, .FunctionArgument);
     try writer.writeAll(", ");
-    try f.writeCValueMember(writer, result_local, .{ .identifier = "array" });
+    try f.writeCValueMember(writer, result_local, .{ .field = 0 });
     try writer.writeAll(", sizeof(");
     try f.renderTypecast(writer, ret_ty);
     try writer.writeAll("));\n");
@@ -4232,16 +4253,14 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     try f.renderTypecast(writer, field_ptr_ty);
     try writer.writeByte(')');
 
-    const extra_name: ?[]const u8 = switch (struct_ty.tag()) {
-        .union_tagged, .union_safety_tagged => "payload",
-        else => null,
+    const extra_name: CValue = switch (struct_ty.tag()) {
+        .union_tagged, .union_safety_tagged => .{ .identifier = "payload" },
+        else => .none,
     };
 
-    var field_name_buf: []const u8 = &.{};
-    defer f.object.dg.gpa.free(field_name_buf);
-    const field_name: ?[]const u8 = switch (struct_ty.tag()) {
+    const field_name: CValue = switch (struct_ty.tag()) {
         .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => struct_ty.structFieldName(index),
+            .Auto, .Extern => CValue{ .identifier = struct_ty.structFieldName(index) },
             .Packed => if (field_ptr_info.data.host_size == 0) {
                 const target = f.object.dg.module.getTarget();
 
@@ -4262,29 +4281,35 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
                 try f.writeCValue(writer, struct_ptr, .Other);
                 try writer.print(")[{}];\n", .{try f.fmtIntLiteral(Type.usize, byte_offset_val)});
                 return local;
-            } else null,
+            } else @as(CValue, CValue.none), // this @as is needed because of a stage1 bug
         },
-        .@"union", .union_safety_tagged, .union_tagged => struct_ty.unionFields().keys()[index],
-        .tuple, .anon_struct => |tag| field_name: {
+        .@"union", .union_safety_tagged, .union_tagged => .{
+            .identifier = struct_ty.unionFields().keys()[index],
+        },
+        .tuple, .anon_struct => field_name: {
             const tuple = struct_ty.tupleFields();
             if (tuple.values[index].tag() != .unreachable_value) return CValue.none;
 
-            if (tag == .anon_struct) break :field_name struct_ty.structFieldName(index);
-
-            field_name_buf = try std.fmt.allocPrint(f.object.dg.gpa, "field_{d}", .{index});
-            break :field_name field_name_buf;
+            var id: usize = 0;
+            for (tuple.values[0..index]) |value|
+                id += @boolToInt(value.tag() == .unreachable_value);
+            break :field_name .{ .field = id };
         },
         else => unreachable,
     };
 
     if (field_ty.hasRuntimeBitsIgnoreComptime()) {
         try writer.writeByte('&');
-        if (extra_name orelse field_name) |name|
-            try f.writeCValueDerefMember(writer, struct_ptr, .{ .identifier = name })
+        if (extra_name != .none) {
+            try f.writeCValueDerefMember(writer, struct_ptr, extra_name);
+            if (field_name != .none) {
+                try writer.writeByte('.');
+                try f.writeCValue(writer, field_name, .Other);
+            }
+        } else if (field_name != .none)
+            try f.writeCValueDerefMember(writer, struct_ptr, field_name)
         else
             try f.writeCValueDeref(writer, struct_ptr);
-        if (extra_name) |_| if (field_name) |name|
-            try writer.print(".{ }", .{fmtIdent(name)});
     } else try f.writeCValue(writer, struct_ptr, .Other);
     try writer.writeAll(";\n");
     return local;
@@ -4307,11 +4332,14 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     // Ensure complete type definition is visible before accessing fields.
     try f.renderType(std.io.null_writer, struct_ty);
 
-    var field_name_buf: []const u8 = "";
-    defer f.object.dg.gpa.free(field_name_buf);
-    const field_name = switch (struct_ty.tag()) {
+    const extra_name: CValue = switch (struct_ty.tag()) {
+        .union_tagged, .union_safety_tagged => .{ .identifier = "payload" },
+        else => .none,
+    };
+
+    const field_name: CValue = switch (struct_ty.tag()) {
         .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => struct_ty.structFieldName(extra.field_index),
+            .Auto, .Extern => .{ .identifier = struct_ty.structFieldName(extra.field_index) },
             .Packed => {
                 const struct_obj = struct_ty.castTag(.@"struct").?.data;
                 const int_info = struct_ty.intInfo(target);
@@ -4369,19 +4397,20 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 return local;
             },
         },
-        .@"union", .union_safety_tagged, .union_tagged => struct_ty.unionFields().keys()[extra.field_index],
-        .tuple, .anon_struct => |tag| blk: {
+        .@"union", .union_safety_tagged, .union_tagged => .{
+            .identifier = struct_ty.unionFields().keys()[extra.field_index],
+        },
+        .tuple, .anon_struct => blk: {
             const tuple = struct_ty.tupleFields();
             if (tuple.values[extra.field_index].tag() != .unreachable_value) return CValue.none;
 
-            if (tag == .anon_struct) break :blk struct_ty.structFieldName(extra.field_index);
-
-            field_name_buf = try std.fmt.allocPrint(f.object.dg.gpa, "field_{d}", .{extra.field_index});
-            break :blk field_name_buf;
+            var id: usize = 0;
+            for (tuple.values[0..extra.field_index]) |value|
+                id += @boolToInt(value.tag() == .unreachable_value);
+            break :blk .{ .field = id };
         },
         else => unreachable,
     };
-    const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
 
     const is_array = lowersToArray(inst_ty, target);
     const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
@@ -4390,15 +4419,18 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll("memcpy(");
         try f.writeCValue(writer, local, .FunctionArgument);
         try writer.writeAll(", ");
-        try f.writeCValue(writer, struct_byval, .Other);
-        try writer.print(".{s}{ }, sizeof(", .{ payload, fmtIdent(field_name) });
+    } else try writer.writeAll(" = ");
+    if (extra_name != .none) {
+        try f.writeCValueMember(writer, struct_byval, extra_name);
+        try writer.writeByte('.');
+        try f.writeCValue(writer, field_name, .Other);
+    } else try f.writeCValueMember(writer, struct_byval, field_name);
+    if (is_array) {
+        try writer.writeAll(", sizeof(");
         try f.renderTypecast(writer, inst_ty);
-        try writer.writeAll("));\n");
-    } else {
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, struct_byval, .Other);
-        try writer.print(".{s}{ };\n", .{ payload, fmtIdent(field_name) });
+        try writer.writeAll("))");
     }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -5180,27 +5212,28 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 if (empty) try writer.print("{}", .{try f.fmtIntLiteral(Type.u8, Value.zero)});
                 try writer.writeAll("};\n");
 
+                var field_id: usize = 0;
                 for (elements) |element, index| {
                     if (inst_ty.structFieldValueComptime(index)) |_| continue;
 
                     const element_ty = f.air.typeOf(element);
                     if (element_ty.zigTypeTag() != .Array) continue;
 
-                    var field_name_buf: []u8 = &.{};
-                    defer f.object.dg.gpa.free(field_name_buf);
-                    const field_name = if (inst_ty.isTuple()) field_name: {
-                        field_name_buf = try std.fmt.allocPrint(f.object.dg.gpa, "field_{d}", .{index});
-                        break :field_name field_name_buf;
-                    } else inst_ty.structFieldName(index);
+                    const field_name = if (inst_ty.isTupleOrAnonStruct())
+                        CValue{ .field = field_id }
+                    else
+                        CValue{ .identifier = inst_ty.structFieldName(index) };
 
                     try writer.writeAll(";\n");
                     try writer.writeAll("memcpy(");
-                    try f.writeCValue(writer, local, .Other);
-                    try writer.print(".{ }, ", .{fmtIdent(field_name)});
+                    try f.writeCValueMember(writer, local, field_name);
+                    try writer.writeAll(", ");
                     try f.writeCValue(writer, try f.resolveInst(element), .FunctionArgument);
                     try writer.writeAll(", sizeof(");
                     try f.renderTypecast(writer, element_ty);
                     try writer.writeAll("));\n");
+
+                    field_id += 1;
                 }
             },
             .Packed => {
@@ -5746,10 +5779,9 @@ fn isByRef(ty: Type) bool {
 }
 
 const LowerFnRetTyBuffer = struct {
-    const names = [1][]const u8{"array"};
     types: [1]Type,
     values: [1]Value,
-    payload: Type.Payload.AnonStruct,
+    payload: Type.Payload.Tuple,
 };
 fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, target: std.Target) Type {
     if (ret_ty.zigTypeTag() == .NoReturn) return Type.initTag(.noreturn);
@@ -5758,7 +5790,6 @@ fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, target: std.Target) T
         buffer.types = [1]Type{ret_ty};
         buffer.values = [1]Value{Value.initTag(.unreachable_value)};
         buffer.payload = .{ .data = .{
-            .names = &LowerFnRetTyBuffer.names,
             .types = &buffer.types,
             .values = &buffer.values,
         } };
