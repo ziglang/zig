@@ -79,7 +79,6 @@ const BuiltinInfo = enum {
     Bits,
 };
 
-/// TODO make this not cut off at 128 bytes
 fn formatTypeAsCIdentifier(
     data: FormatTypeAsCIdentContext,
     comptime fmt: []const u8,
@@ -3666,14 +3665,15 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    const inst_ty = f.air.typeOfIndex(inst);
+    // No IgnoreComptime until Sema stops giving us garbage Air.
+    // https://github.com/ziglang/zig/issues/13410
+    if (f.liveness.isUnused(inst) or !inst_ty.hasRuntimeBits()) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
 
     const writer = f.object.writer();
-    const inst_ty = f.air.typeOfIndex(inst);
     if (inst_ty.isPtrAtRuntime() and
         f.air.typeOf(ty_op.operand).isPtrAtRuntime())
     {
