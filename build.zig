@@ -552,6 +552,7 @@ fn addCmakeCfgOptionsToExe(
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
+    addCMakeSystemLibraryList(exe, cfg.llvm_system_libraries);
 
     if (use_zig_libcxx) {
         exe.linkLibCpp();
@@ -679,6 +680,23 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
     }
 }
 
+fn addCMakeSystemLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
+    var it = mem.tokenize(u8, list, ";");
+    while (it.next()) |lib| {
+        var start_offset: usize = 0;
+        var end_offset: usize = 0;
+        if (mem.startsWith(u8, lib, "-l")) {
+            start_offset = "-l".len;
+        }
+
+        if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib")) {
+            end_offset = ".lib".len;
+        }
+
+        exe.linkSystemLibrary(lib[start_offset..lib.len - end_offset]);
+    }
+}
+
 const CMakeConfig = struct {
     llvm_linkage: std.build.LibExeObjStep.Linkage,
     cmake_binary_dir: []const u8,
@@ -692,6 +710,7 @@ const CMakeConfig = struct {
     llvm_lib_dir: []const u8,
     llvm_include_dir: []const u8,
     llvm_libraries: []const u8,
+    llvm_system_libraries: []const u8,
     dia_guids_lib: []const u8,
 };
 
@@ -757,6 +776,7 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .llvm_lib_dir = undefined,
         .llvm_include_dir = undefined,
         .llvm_libraries = undefined,
+        .llvm_system_libraries = undefined,
         .dia_guids_lib = undefined,
     };
 
@@ -796,6 +816,10 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_LLVM_LIBRARIES ",
             .field = "llvm_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_LLVM_SYSTEM_LIBRARIES ",
+            .field = "llvm_system_libraries",
         },
         .{
             .prefix = "#define ZIG_DIA_GUIDS_LIB ",
