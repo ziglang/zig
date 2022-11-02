@@ -200,7 +200,10 @@ const CompressGeneric = struct {
     }
 };
 
-const compress = if (builtin.cpu.arch == .x86_64) CompressVectorized.compress else CompressGeneric.compress;
+const compress = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c)
+    CompressVectorized.compress
+else
+    CompressGeneric.compress;
 
 fn first8Words(words: [16]u32) [8]u32 {
     return @ptrCast(*const [8]u32, &words).*;

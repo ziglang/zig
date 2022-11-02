@@ -1622,7 +1622,6 @@ pub const LibExeObjStep = struct {
     use_stage1: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    ofmt: ?std.Target.ObjectFormat = null,
 
     output_path_source: GeneratedFile,
     output_lib_path_source: GeneratedFile,
@@ -2490,7 +2489,7 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.ofmt) |ofmt| {
+        if (self.target.ofmt) |ofmt| {
             try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
         }
 
