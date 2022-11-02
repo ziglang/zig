@@ -131,6 +131,7 @@ pub fn emitMir(
             .subs_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
             .cmp_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
 
+            .csel => try emit.mirConditionalSelect(inst),
             .cset => try emit.mirConditionalSelect(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
@@ -804,6 +805,14 @@ fn mirAddSubtractExtendedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
+        .csel => {
+            const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
+            const rd = rrr_cond.rd;
+            const rn = rrr_cond.rn;
+            const rm = rrr_cond.rm;
+            const cond = rrr_cond.cond;
+            try emit.writeInstruction(Instruction.csel(rd, rn, rm, cond));
+        },
         .cset => {
             const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
             const zr: Register = switch (r_cond.rd.size()) {
@@ -1182,42 +1191,50 @@ fn mirNop(emit: *Emit) !void {
     try emit.writeInstruction(Instruction.nop());
 }
 
+fn regListIsSet(reg_list: u32, reg: Register) bool {
+    return reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0;
+}
+
 fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
 
-    if (reg_list & @as(u32, 1) << 31 != 0) return emit.fail("xzr is not a valid register for {}", .{tag});
+    if (regListIsSet(reg_list, .xzr)) return emit.fail("xzr is not a valid register for {}", .{tag});
 
     // sp must be aligned at all times, so we only use stp and ldp
-    // instructions for minimal instruction count. However, if we do
-    // not have an even number of registers, we use str and ldr
+    // instructions for minimal instruction count.
+    //
+    // However, if we have an odd number of registers, for pop_regs we
+    // use one ldr instruction followed by zero or more ldp
+    // instructions; for push_regs we use zero or more stp
+    // instructions followed by one str instruction.
     const number_of_regs = @popCount(reg_list);
+    const odd_number_of_regs = number_of_regs % 2 != 0;
 
     switch (tag) {
         .pop_regs => {
             var i: u6 = 32;
             var count: u6 = 0;
-            var other_reg: Register = undefined;
+            var other_reg: ?Register = null;
             while (i > 0) : (i -= 1) {
                 const reg = @intToEnum(Register, i - 1);
-                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
-                    if (count % 2 == 0) {
-                        if (count == number_of_regs - 1) {
-                            try emit.writeInstruction(Instruction.ldr(
-                                reg,
-                                .sp,
-                                Instruction.LoadStoreOffset.imm_post_index(16),
-                            ));
-                        } else {
-                            other_reg = reg;
-                        }
-                    } else {
+                if (regListIsSet(reg_list, reg)) {
+                    if (count == 0 and odd_number_of_regs) {
+                        try emit.writeInstruction(Instruction.ldr(
+                            reg,
+                            .sp,
+                            Instruction.LoadStoreOffset.imm_post_index(16),
+                        ));
+                    } else if (other_reg) |r| {
                         try emit.writeInstruction(Instruction.ldp(
                             reg,
-                            other_reg,
+                            r,
                             .sp,
                             Instruction.LoadStorePairOffset.post_index(16),
                         ));
+                        other_reg = null;
+                    } else {
+                        other_reg = reg;
                     }
                     count += 1;
                 }
@@ -1227,27 +1244,26 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
         .push_regs => {
             var i: u6 = 0;
             var count: u6 = 0;
-            var other_reg: Register = undefined;
+            var other_reg: ?Register = null;
             while (i < 32) : (i += 1) {
                 const reg = @intToEnum(Register, i);
-                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
-                    if (count % 2 == 0) {
-                        if (count == number_of_regs - 1) {
-                            try emit.writeInstruction(Instruction.str(
-                                reg,
-                                .sp,
-                                Instruction.LoadStoreOffset.imm_pre_index(-16),
-                            ));
-                        } else {
-                            other_reg = reg;
-                        }
-                    } else {
+                if (regListIsSet(reg_list, reg)) {
+                    if (count == number_of_regs - 1 and odd_number_of_regs) {
+                        try emit.writeInstruction(Instruction.str(
+                            reg,
+                            .sp,
+                            Instruction.LoadStoreOffset.imm_pre_index(-16),
+                        ));
+                    } else if (other_reg) |r| {
                         try emit.writeInstruction(Instruction.stp(
-                            other_reg,
+                            r,
                             reg,
                             .sp,
                             Instruction.LoadStorePairOffset.pre_index(-16),
                         ));
+                        other_reg = null;
+                    } else {
+                        other_reg = reg;
                     }
                     count += 1;
                 }

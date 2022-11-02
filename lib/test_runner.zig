@@ -130,6 +130,7 @@ pub fn main2() anyerror!void {
     }
     if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_llvm or
         builtin.zig_backend == .stage2_c)
     {

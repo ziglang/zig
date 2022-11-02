@@ -62,6 +62,8 @@ pub const Inst = struct {
         cmp_shifted_register,
         /// Compare (extended register)
         cmp_extended_register,
+        /// Conditional Select
+        csel,
         /// Conditional set
         cset,
         /// Pseudo-instruction: End of prologue
@@ -386,6 +388,15 @@ pub const Inst = struct {
             rd: Register,
             rn: Register,
             rm: Register,
+        },
+        /// Three registers and a condition
+        ///
+        /// Used by e.g. csel
+        rrr_cond: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            cond: bits.Instruction.Condition,
         },
         /// Three registers and a shift (shift type and 6-bit amount)
         ///
