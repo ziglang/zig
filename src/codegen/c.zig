@@ -4930,19 +4930,39 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const dest_ptr = try f.resolveInst(pl_op.operand);
     const value = try f.resolveInst(extra.lhs);
     const len = try f.resolveInst(extra.rhs);
+
     const writer = f.object.writer();
+    if (dest_ty.isVolatilePtr()) {
+        var u8_ptr_pl = dest_ty.ptrInfo();
+        u8_ptr_pl.data.pointee_type = Type.u8;
+        const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+
+        try writer.writeAll("for (");
+        const index = try f.allocLocal(Type.usize, .Mut);
+        try writer.writeAll(" = ");
+        try f.object.dg.renderValue(writer, Type.usize, Value.zero, .Initializer);
+        try writer.writeAll("; ");
+        try f.writeCValue(writer, index, .Other);
+        try writer.writeAll(" != ");
+        try f.writeCValue(writer, len, .Other);
+        try writer.writeAll("; ");
+        try f.writeCValue(writer, index, .Other);
+        try writer.writeAll(" += ");
+        try f.object.dg.renderValue(writer, Type.usize, Value.one, .Other);
+        try writer.writeAll(") ((");
+        try f.renderTypecast(writer, u8_ptr_ty);
+        try writer.writeByte(')');
+        try f.writeCValue(writer, dest_ptr, .FunctionArgument);
+        try writer.writeAll(")[");
+        try f.writeCValue(writer, index, .Other);
+        try writer.writeAll("] = ");
+        try f.writeCValue(writer, value, .FunctionArgument);
+        try writer.writeAll(";\n");
+
+        return CValue.none;
+    }
 
     try writer.writeAll("memset(");
-    if (dest_ty.isVolatilePtr()) {
-        // This is wrong, but good enough for now.
-        var remove_volatile_pl = dest_ty.ptrInfo();
-        remove_volatile_pl.data.@"volatile" = false;
-        const remove_volatile_ty = Type.initPayload(&remove_volatile_pl.base);
-
-        try writer.writeByte('(');
-        try f.renderTypecast(writer, remove_volatile_ty);
-        try writer.writeByte(')');
-    }
     try f.writeCValue(writer, dest_ptr, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, value, .FunctionArgument);
