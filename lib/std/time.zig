@@ -73,6 +73,15 @@ pub fn milliTimestamp() i64 {
     return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_ms));
 }
 
+/// Get a calendar timestamp, in microseconds, relative to UTC 1970-01-01.
+/// Precision of timing depends on the hardware and operating system.
+/// The return value is signed because it is possible to have a date that is
+/// before the epoch.
+/// See `std.os.clock_gettime` for a POSIX timestamp.
+pub fn microTimestamp() i64 {
+    return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_us));
+}
+
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
 /// On Windows this has a maximum granularity of 100 nanoseconds.
