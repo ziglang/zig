@@ -739,7 +739,7 @@ test "shutdown socket" {
     os.closeSocket(sock);
 }
 
-var signal_test_failed = true;
+var signal_test_handler_called_count: u32 = 0;
 
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
@@ -756,11 +756,11 @@ test "sigaction" {
             switch (native_os) {
                 .netbsd => {
                     if (sig == os.SIG.USR1 and sig == info.info.signo)
-                        signal_test_failed = false;
+                        signal_test_handler_called_count += 1;
                 },
                 else => {
                     if (sig == os.SIG.USR1 and sig == info.signo)
-                        signal_test_failed = false;
+                        signal_test_handler_called_count += 1;
                 },
             }
         }
@@ -782,10 +782,19 @@ test "sigaction" {
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
-    try testing.expect(signal_test_failed == false);
+    try testing.expect(signal_test_handler_called_count == 1);
     // Check if the handler has been correctly reset to SIG_DFL
     try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.handler);
+    // ensure we can ignore a signal
+    sa.handler = .{ .handler = os.SIG.IGN };
+    try os.sigaction(os.SIG.USR1, &sa, null);
+    // and ensure it is now ignored
+    try os.raise(os.SIG.USR1);
+    try testing.expect(signal_test_handler_called_count == 1);
+    // and that ignored state is returned when querying
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try testing.expectEqual(os.SIG.IGN, old_sa.handler.handler.?);
 }
 
 test "dup & dup2" {
