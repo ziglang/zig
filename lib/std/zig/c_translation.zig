@@ -576,7 +576,13 @@ pub const MacroArithmetic = struct {
         const a_casted = cast(ResType, a);
         const b_casted = cast(ResType, b);
         switch (@typeInfo(ResType)) {
-            .Int => return @mod(a_casted, b_casted),
+            .Int => {
+                if (@typeInfo(ResType).Int.signedness == .signed) {
+                    return signedRemainder(a_casted, b_casted);
+                } else {
+                    return a_casted % b_casted;
+                }
+            },
             else => unreachable,
         }
     }

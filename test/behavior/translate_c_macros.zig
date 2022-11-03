@@ -190,10 +190,18 @@ test "Macro that uses remainder operator. Issue #13346" {
     );
 
     try expectEqual(
-        @as(c_int, 6),
+        @as(c_int, 5),
         h.REMAINDER_ARGS(
             @as(c_ushort, 25),
             @as(c_ushort, 20),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_int, 1),
+        h.REMAINDER_ARGS(
+            @as(c_int, 5),
+            @as(c_int, -2),
         ),
     );
 }
