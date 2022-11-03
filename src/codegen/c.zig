@@ -704,9 +704,13 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('{');
                     if (ty.unionTagTypeSafety()) |tag_ty| {
-                        try writer.writeAll(" .tag = ");
-                        try dg.renderValue(writer, tag_ty, val, .Initializer);
-                        try writer.writeAll(", .payload = {");
+                        const layout = ty.unionGetLayout(target);
+                        if (layout.tag_size != 0) {
+                            try writer.writeAll(" .tag = ");
+                            try dg.renderValue(writer, tag_ty, val, .Initializer);
+                            try writer.writeByte(',');
+                        }
+                        try writer.writeAll(" .payload = {");
                     }
                     for (ty.unionFields().values()) |field| {
                         if (!field.ty.hasRuntimeBits()) continue;
@@ -1115,7 +1119,6 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
-                const layout = ty.unionGetLayout(target);
 
                 if (location != .Initializer) {
                     try writer.writeByte('(');
@@ -1125,6 +1128,7 @@ pub const DeclGen = struct {
 
                 try writer.writeByte('{');
                 if (ty.unionTagTypeSafety()) |tag_ty| {
+                    const layout = ty.unionGetLayout(target);
                     if (layout.tag_size != 0) {
                         try writer.writeAll(".tag = ");
                         try dg.renderValue(writer, tag_ty, union_obj.tag, .Initializer);
@@ -2215,7 +2219,7 @@ pub fn genFunc(f: *Function) !void {
 
     const is_global = o.dg.module.decl_exports.contains(f.func.owner_decl);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
-    try fwd_decl_writer.writeAll(if (is_global) "zig_extern_c " else "static ");
+    try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
     try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
     try fwd_decl_writer.writeAll(";\n");
 
@@ -2252,9 +2256,10 @@ pub fn genDecl(o: *Object) !void {
         .ty = o.dg.decl.ty,
         .val = o.dg.decl.val,
     };
+    if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime()) return;
     if (tv.val.tag() == .extern_fn) {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
-        try fwd_decl_writer.writeAll("zig_extern_c ");
+        try fwd_decl_writer.writeAll("zig_extern ");
         try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
         try fwd_decl_writer.writeAll(";\n");
     } else if (tv.val.castTag(.variable)) |var_payload| {
@@ -2268,22 +2273,19 @@ pub fn genDecl(o: *Object) !void {
             .decl = o.dg.decl_index,
         };
 
-        if (is_global) try fwd_decl_writer.writeAll("zig_extern_c ");
+        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
         if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
 
-        if (variable.is_extern or variable.init.isUndefDeep()) {
-            return;
-        }
+        if (variable.is_extern) return;
 
         const w = o.writer();
+        if (!is_global) try w.writeAll("static ");
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
-        if (variable.init.tag() != .unreachable_value) {
-            try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
-        }
+        try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
@@ -2319,7 +2321,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
         .Fn => {
             const is_global = dg.declIsGlobal(tv);
             if (is_global) {
-                try writer.writeAll("zig_extern_c ");
+                try writer.writeAll("zig_extern ");
                 try dg.renderFunctionSignature(writer, .Complete);
                 try dg.fwd_decl.appendSlice(";\n");
             }
@@ -2432,7 +2434,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .bool_or,  .bit_or  => try airBinOp(f, inst, "|",  "or",  .None),
             .xor                => try airBinOp(f, inst, "^",  "xor", .None),
             .shr, .shr_exact    => try airBinBuiltinCall(f, inst, "shr", .None),
-            .shl,               => try airBinBuiltinCall(f, inst, "shl", .None),
+            .shl,               => try airBinBuiltinCall(f, inst, "shlw", .Bits),
             .shl_exact          => try airBinOp(f, inst, "<<", "shl", .None),
             .not                => try airNot  (f, inst),
 
@@ -3701,7 +3703,6 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
         const local = try f.allocLocal(inst_ty, .Const);
         try writer.writeAll(" = (");
         try f.renderTypecast(writer, inst_ty);
-
         try writer.writeByte(')');
         try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
@@ -3718,6 +3719,17 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", sizeof(");
     try f.renderTypecast(writer, inst_ty);
     try writer.writeAll("));\n");
+
+    // Ensure padding bits have the expected value.
+    if (inst_ty.isAbiInt()) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = zig_wrap_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+        try writer.writeByte('(');
+        try f.writeCValue(writer, local, .Other);
+        try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
+        try writer.writeAll(");\n");
+    }
 
     return local;
 }
@@ -5307,7 +5319,6 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
     const union_ty = f.air.typeOfIndex(inst);
     const target = f.object.dg.module.getTarget();
-    const layout = union_ty.unionGetLayout(target);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
     const field_name = union_obj.fields.keys()[extra.field_index];
     const payload = try f.resolveInst(extra.init);
@@ -5316,6 +5327,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(union_ty, .Const);
     try writer.writeAll(" = {");
     if (union_ty.unionTagTypeSafety()) |tag_ty| {
+        const layout = union_ty.unionGetLayout(target);
         if (layout.tag_size != 0) {
             const field_index = tag_ty.enumFieldIndex(field_name).?;
 
