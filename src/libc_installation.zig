@@ -411,6 +411,7 @@ pub const LibCInstallation = struct {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
+            .aarch64 => "arm64",
             else => return error.UnsupportedArchitecture,
         };
 
@@ -474,6 +475,7 @@ pub const LibCInstallation = struct {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
+            .aarch64 => "arm64",
             else => return error.UnsupportedArchitecture,
         };
 
