@@ -279,24 +279,21 @@ zig_extern void *memset (void *, int, zig_usize);
     static inline zig_##Type zig_##operation##_##Type(zig_##Type lhs, zig_##RhsType rhs) { \
         return lhs operator rhs; \
     }
-#define zig_int_operators(w) \
-    zig_int_operator(u##w, u##w,       and,  &) \
-    zig_int_operator(i##w, i##w,       and,  &) \
-    zig_int_operator(u##w, u##w,        or,  |) \
-    zig_int_operator(i##w, i##w,        or,  |) \
-    zig_int_operator(u##w, u##w,       xor,  ^) \
-    zig_int_operator(i##w, i##w,       xor,  ^) \
-    zig_int_operator(u##w, u8,         shl, <<) \
-    zig_int_operator(i##w, u8,         shl, <<) \
-    zig_int_operator(u##w, u8,         shr, >>) \
-    zig_int_operator(u##w, u##w, div_floor,  /) \
-    zig_int_operator(u##w, u##w,       mod,  %)
-zig_int_operators(8)
-zig_int_operators(16)
-zig_int_operators(32)
-zig_int_operators(64)
-
+#define zig_int_basic_operator(Type, operation, operator) \
+    zig_int_operator(Type, Type, operation, operator)
+#define zig_int_shift_operator(Type, operation, operator) \
+    zig_int_operator(Type,   u8, operation, operator)
 #define zig_int_helpers(w) \
+    zig_int_basic_operator(u##w, and,  &) \
+    zig_int_basic_operator(i##w, and,  &) \
+    zig_int_basic_operator(u##w,  or,  |) \
+    zig_int_basic_operator(i##w,  or,  |) \
+    zig_int_basic_operator(u##w, xor,  ^) \
+    zig_int_basic_operator(i##w, xor,  ^) \
+    zig_int_shift_operator(u##w, shl, <<) \
+    zig_int_shift_operator(i##w, shl, <<) \
+    zig_int_shift_operator(u##w, shr, >>) \
+\
     static inline zig_i##w zig_shr_i##w(zig_i##w lhs, zig_u8 rhs) { \
         zig_i##w sign_mask = lhs < zig_as_i##w(0) ? -zig_as_i##w(1) : zig_as_i##w(0); \
         return ((lhs ^ sign_mask) >> rhs) ^ sign_mask; \
@@ -320,9 +317,13 @@ zig_int_operators(64)
             ? val | zig_minInt(i##w, bits) : val & zig_maxInt(i##w, bits); \
     } \
 \
+    zig_int_basic_operator(u##w, div_floor, /) \
+\
     static inline zig_i##w zig_div_floor_i##w(zig_i##w lhs, zig_i##w rhs) { \
         return lhs / rhs - (((lhs ^ rhs) & (lhs % rhs)) < zig_as_i##w(0)); \
     } \
+\
+    zig_int_basic_operator(u##w, mod, %) \
 \
     static inline zig_i##w zig_mod_i##w(zig_i##w lhs, zig_i##w rhs) { \
         zig_i##w rem = lhs % rhs; \

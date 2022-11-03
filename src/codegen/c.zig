@@ -2434,7 +2434,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .bool_or,  .bit_or  => try airBinOp(f, inst, "|",  "or",  .None),
             .xor                => try airBinOp(f, inst, "^",  "xor", .None),
             .shr, .shr_exact    => try airBinBuiltinCall(f, inst, "shr", .None),
-            .shl,               => try airBinBuiltinCall(f, inst, "shl", .None),
+            .shl,               => try airBinBuiltinCall(f, inst, "shlw", .Bits),
             .shl_exact          => try airBinOp(f, inst, "<<", "shl", .None),
             .not                => try airNot  (f, inst),
 
