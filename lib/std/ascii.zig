@@ -200,9 +200,11 @@ test "ASCII character classes" {
 
     try testing.expect(!isControl('a'));
     try testing.expect(!isControl('z'));
+    try testing.expect(!isControl(' '));
     try testing.expect(isControl(control_code.nul));
     try testing.expect(isControl(control_code.ff));
     try testing.expect(isControl(control_code.us));
+    try testing.expect(isControl(control_code.del));
     try testing.expect(!isControl(0x80));
     try testing.expect(!isControl(0xff));
 
@@ -210,36 +212,53 @@ test "ASCII character classes" {
     try testing.expect(':' == toUpper(':'));
     try testing.expect('\xab' == toUpper('\xab'));
     try testing.expect(!isUpper('z'));
+    try testing.expect(!isUpper(0x80));
+    try testing.expect(!isUpper(0xff));
 
     try testing.expect('c' == toLower('C'));
     try testing.expect(':' == toLower(':'));
     try testing.expect('\xab' == toLower('\xab'));
     try testing.expect(!isLower('Z'));
+    try testing.expect(!isLower(0x80));
+    try testing.expect(!isLower(0xff));
 
     try testing.expect(isAlphanumeric('Z'));
     try testing.expect(isAlphanumeric('z'));
     try testing.expect(isAlphanumeric('5'));
-    try testing.expect(isAlphanumeric('5'));
+    try testing.expect(isAlphanumeric('a'));
     try testing.expect(!isAlphanumeric('!'));
+    try testing.expect(!isAlphanumeric(0x80));
+    try testing.expect(!isAlphanumeric(0xff));
 
     try testing.expect(!isAlphabetic('5'));
     try testing.expect(isAlphabetic('c'));
-    try testing.expect(!isAlphabetic('5'));
+    try testing.expect(!isAlphabetic('@'));
+    try testing.expect(isAlphabetic('Z'));
+    try testing.expect(!isAlphabetic(0x80));
+    try testing.expect(!isAlphabetic(0xff));
 
     try testing.expect(isWhitespace(' '));
     try testing.expect(isWhitespace('\t'));
     try testing.expect(isWhitespace('\r'));
     try testing.expect(isWhitespace('\n'));
+    try testing.expect(isWhitespace(control_code.ff));
     try testing.expect(!isWhitespace('.'));
+    try testing.expect(!isWhitespace(control_code.us));
+    try testing.expect(!isWhitespace(0x80));
+    try testing.expect(!isWhitespace(0xff));
 
     try testing.expect(!isHex('g'));
     try testing.expect(isHex('b'));
     try testing.expect(isHex('F'));
     try testing.expect(isHex('9'));
+    try testing.expect(!isHex(0x80));
+    try testing.expect(!isHex(0xff));
 
     try testing.expect(!isDigit('~'));
     try testing.expect(isDigit('0'));
     try testing.expect(isDigit('9'));
+    try testing.expect(!isDigit(0x80));
+    try testing.expect(!isDigit(0xff));
 
     try testing.expect(isPrint(' '));
     try testing.expect(isPrint('@'));
