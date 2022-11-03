@@ -704,9 +704,13 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('{');
                     if (ty.unionTagTypeSafety()) |tag_ty| {
-                        try writer.writeAll(" .tag = ");
-                        try dg.renderValue(writer, tag_ty, val, .Initializer);
-                        try writer.writeAll(", .payload = {");
+                        const layout = ty.unionGetLayout(target);
+                        if (layout.tag_size != 0) {
+                            try writer.writeAll(" .tag = ");
+                            try dg.renderValue(writer, tag_ty, val, .Initializer);
+                            try writer.writeByte(',');
+                        }
+                        try writer.writeAll(" .payload = {");
                     }
                     for (ty.unionFields().values()) |field| {
                         if (!field.ty.hasRuntimeBits()) continue;
@@ -1115,7 +1119,6 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
-                const layout = ty.unionGetLayout(target);
 
                 if (location != .Initializer) {
                     try writer.writeByte('(');
@@ -1125,6 +1128,7 @@ pub const DeclGen = struct {
 
                 try writer.writeByte('{');
                 if (ty.unionTagTypeSafety()) |tag_ty| {
+                    const layout = ty.unionGetLayout(target);
                     if (layout.tag_size != 0) {
                         try writer.writeAll(".tag = ");
                         try dg.renderValue(writer, tag_ty, union_obj.tag, .Initializer);
@@ -5305,7 +5309,6 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
     const union_ty = f.air.typeOfIndex(inst);
     const target = f.object.dg.module.getTarget();
-    const layout = union_ty.unionGetLayout(target);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
     const field_name = union_obj.fields.keys()[extra.field_index];
     const payload = try f.resolveInst(extra.init);
@@ -5314,6 +5317,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(union_ty, .Const);
     try writer.writeAll(" = {");
     if (union_ty.unionTagTypeSafety()) |tag_ty| {
+        const layout = union_ty.unionGetLayout(target);
         if (layout.tag_size != 0) {
             const field_index = tag_ty.enumFieldIndex(field_name).?;
 
