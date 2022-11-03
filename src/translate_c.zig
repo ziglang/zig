@@ -6237,7 +6237,7 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             .Percent => {
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
-                node = try Tag.mod.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .rem, .lhs = lhs, .rhs = rhs });
             },
             else => {
                 m.i -= 1;
