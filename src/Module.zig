@@ -1578,7 +1578,7 @@ pub const Fn = struct {
         errors: ErrorSet.NameMap = .{},
 
         /// Other inferred error sets which this inferred error set should include.
-        inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
+        inferred_error_sets: std.AutoArrayHashMapUnmanaged(*InferredErrorSet, void) = .{},
 
         /// Whether the function returned anyerror. This is true if either of
         /// the dependent functions returns anyerror.

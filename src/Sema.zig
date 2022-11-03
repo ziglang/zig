@@ -27509,9 +27509,7 @@ fn analyzeIsNonErrComptimeOnly(
                 // Try to avoid resolving inferred error set if possible.
                 if (ies.errors.count() != 0) break :blk;
                 if (ies.is_anyerror) break :blk;
-                var it = ies.inferred_error_sets.keyIterator();
-                while (it.next()) |other_error_set_ptr| {
-                    const other_ies: *Module.Fn.InferredErrorSet = other_error_set_ptr.*;
+                for (ies.inferred_error_sets.keys()) |other_ies| {
                     if (ies == other_ies) continue;
                     try sema.resolveInferredErrorSet(block, src, other_ies);
                     if (other_ies.is_anyerror) {
@@ -29432,9 +29430,7 @@ fn resolveInferredErrorSet(
 
     ies.is_resolved = true;
 
-    var it = ies.inferred_error_sets.keyIterator();
-    while (it.next()) |other_error_set_ptr| {
-        const other_ies: *Module.Fn.InferredErrorSet = other_error_set_ptr.*;
+    for (ies.inferred_error_sets.keys()) |other_ies| {
         if (ies == other_ies) continue;
         try sema.resolveInferredErrorSet(block, src, other_ies);
 
