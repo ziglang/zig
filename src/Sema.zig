@@ -18232,7 +18232,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 var buffer: Value.ToTypeBuffer = undefined;
                 gop.value_ptr.* = .{
                     .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                    .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
+                    .abi_align = @intCast(u32, (try alignment_val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?),
                 };
             }
 
