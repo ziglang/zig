@@ -511,7 +511,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        _ = @as(c_int, 4) == @as(c_int, 4);
         \\        _ = @as(c_int, 5) * @as(c_int, 6);
         \\        _ = baz(@as(c_int, 1), @as(c_int, 2));
-        \\        _ = @as(c_int, 2) % @as(c_int, 2);
+        \\        _ = @import("std").zig.c_translation.MacroArithmetic.rem(@as(c_int, 2), @as(c_int, 2));
         \\        break :blk_1 baz(@as(c_int, 1), @as(c_int, 2));
         \\    };
         \\}

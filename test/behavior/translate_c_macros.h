@@ -56,3 +56,6 @@ typedef _Bool uintptr_t;
 
 #define DIVIDE_CONSTANT(version) (version / 1000)
 #define DIVIDE_ARGS(A, B) (A / B)
+
+#define REMAINDER_CONSTANT(version) (version % 10000)
+#define REMAINDER_ARGS(A, B) (A % B)

@@ -726,9 +726,7 @@ pub const Payload = struct {
             rhs: Node,
         },
 
-        pub const Operator = enum {
-            div,
-        };
+        pub const Operator = enum { div, rem };
     };
 };
 

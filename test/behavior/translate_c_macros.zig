@@ -171,3 +171,37 @@ test "Macro that uses division operator. Issue #13162" {
         ),
     );
 }
+
+test "Macro that uses remainder operator. Issue #13346" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(c_int, 2_010), h.REMAINDER_CONSTANT(@as(c_int, 42_010)));
+    try expectEqual(@as(c_uint, 2_030), h.REMAINDER_CONSTANT(@as(c_uint, 42_030)));
+
+    try expectEqual(
+        @as(c_int, 7),
+        h.REMAINDER_ARGS(
+            @as(i8, 17),
+            @as(i8, 10),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_int, 5),
+        h.REMAINDER_ARGS(
+            @as(c_ushort, 25),
+            @as(c_ushort, 20),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_int, 1),
+        h.REMAINDER_ARGS(
+            @as(c_int, 5),
+            @as(c_int, -2),
+        ),
+    );
+}
