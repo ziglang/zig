@@ -435,6 +435,7 @@ test "global union with single field is correctly initialized" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     glbl = Foo1{
         .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },

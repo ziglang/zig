@@ -2215,7 +2215,7 @@ pub fn genFunc(f: *Function) !void {
 
     const is_global = o.dg.module.decl_exports.contains(f.func.owner_decl);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
-    try fwd_decl_writer.writeAll(if (is_global) "zig_extern_c " else "static ");
+    try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
     try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
     try fwd_decl_writer.writeAll(";\n");
 
@@ -2252,9 +2252,10 @@ pub fn genDecl(o: *Object) !void {
         .ty = o.dg.decl.ty,
         .val = o.dg.decl.val,
     };
+    if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime()) return;
     if (tv.val.tag() == .extern_fn) {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
-        try fwd_decl_writer.writeAll("zig_extern_c ");
+        try fwd_decl_writer.writeAll("zig_extern ");
         try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
         try fwd_decl_writer.writeAll(";\n");
     } else if (tv.val.castTag(.variable)) |var_payload| {
@@ -2268,22 +2269,19 @@ pub fn genDecl(o: *Object) !void {
             .decl = o.dg.decl_index,
         };
 
-        if (is_global) try fwd_decl_writer.writeAll("zig_extern_c ");
+        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
         if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
 
-        if (variable.is_extern or variable.init.isUndefDeep()) {
-            return;
-        }
+        if (variable.is_extern) return;
 
         const w = o.writer();
+        if (!is_global) try w.writeAll("static ");
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
-        if (variable.init.tag() != .unreachable_value) {
-            try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
-        }
+        try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
@@ -2319,7 +2317,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
         .Fn => {
             const is_global = dg.declIsGlobal(tv);
             if (is_global) {
-                try writer.writeAll("zig_extern_c ");
+                try writer.writeAll("zig_extern ");
                 try dg.renderFunctionSignature(writer, .Complete);
                 try dg.fwd_decl.appendSlice(";\n");
             }
