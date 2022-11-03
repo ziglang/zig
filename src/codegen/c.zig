@@ -3703,7 +3703,6 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
         const local = try f.allocLocal(inst_ty, .Const);
         try writer.writeAll(" = (");
         try f.renderTypecast(writer, inst_ty);
-
         try writer.writeByte(')');
         try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
@@ -3720,6 +3719,17 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", sizeof(");
     try f.renderTypecast(writer, inst_ty);
     try writer.writeAll("));\n");
+
+    // Ensure padding bits have the expected value.
+    if (inst_ty.isAbiInt()) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = zig_wrap_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+        try writer.writeByte('(');
+        try f.writeCValue(writer, local, .Other);
+        try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
+        try writer.writeAll(");\n");
+    }
 
     return local;
 }
