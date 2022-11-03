@@ -18,13 +18,13 @@ comptime {
         if (is_mingw) {
             @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
             @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
+
+            if (arch.isAARCH64()) {
+                @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            }
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
             @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
-            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
-        }
-
-        if (arch.isAARCH64()) {
             @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
         }
     }
