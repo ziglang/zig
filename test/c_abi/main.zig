@@ -833,19 +833,6 @@ test "C ABI pointer sized float struct" {
 }
 
 //=== Helpers for struct test ===//
-pub inline fn expectSize(comptime t: type, size: u32) !void {
-    try expectEqual(size, @sizeOf(t));
-}
-
-pub inline fn expectAlign(comptime t: type, alignment: u32) !void {
-    try expectEqual(alignment, @alignOf(t));
-}
-
-pub fn expectFieldOffset(ps: anytype, pf: anytype, ofst: usize) !void {
-    try std.testing.expect(@ptrToInt(ps) <= @ptrToInt(pf));
-    try expectEqual(ofst, @ptrToInt(pf) - @ptrToInt(ps));
-}
-
 pub inline fn expectOk(c_err: c_int) !void {
     if (c_err != 0) {
         std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
@@ -854,29 +841,19 @@ pub inline fn expectOk(c_err: c_int) !void {
 }
 
 pub inline fn expectFailX86(c_err: c_int) !void {
-    if (comptime !builtin.target.cpu.arch.isX86()) return expectOk(c_err);
-
+    // AFAICT those tests are failing only on Mac, Linux x86_64.
+    if (comptime builtin.target.cpu.arch != .x86_64) return expectOk(c_err);
+    if (comptime builtin.target.os.tag == .windows) return expectOk(c_err);
     if (c_err != 0) {
         std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
-        return error.SkipZigTest;
+    } else {
+        std.debug.print("no ABI mismatch, test should be upgraded to expectOk.\n", .{});
     }
-    std.debug.print("no ABI mismatch, test should be upgraded to expectOk.\n", .{});
-    return error.TestUnexpectedResult;
-}
-
-pub inline fn abiSelect(a: u8, b: u8) u8 {
-    return if (@sizeOf(usize) == 8) a else b;
+    return error.SkipZigTest;
 }
 
 /// Tests for Double + Char struct
 const DC = extern struct { v1: f64, v2: u8 };
-test "DC: layout" {
-    var lv: DC = undefined;
-    try expectSize(DC, abiSelect(16, 12));
-    try expectAlign(DC, abiSelect(8, 4));
-    try expectFieldOffset(&lv, &lv.v1, 0);
-    try expectFieldOffset(&lv, &lv.v2, 8);
-}
 test "DC: Zig passes to C" {
     try expectFailX86(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
@@ -908,14 +885,6 @@ pub export fn zig_ret_DC() DC {
 /// Tests for Char + Float + FloatRect struct
 const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
 
-test "CFF: layout" {
-    var lv: CFF = undefined;
-    try expectSize(CFF, 12);
-    try expectAlign(CFF, 4);
-    try expectFieldOffset(&lv, &lv.v1, 0);
-    try expectFieldOffset(&lv, &lv.v2, 4);
-    try expectFieldOffset(&lv, &lv.v3, 8);
-}
 test "CFF: Zig passes to C" {
     try expectFailX86(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
@@ -947,13 +916,6 @@ pub export fn zig_ret_CFF() CFF {
 /// Tests for Pointer + Double struct
 const PD = extern struct { v1: ?*anyopaque, v2: f64 };
 
-test "PD: layout" {
-    var lv: PD = undefined;
-    try expectSize(PD, abiSelect(16, 12));
-    try expectAlign(PD, abiSelect(8, 4));
-    try expectFieldOffset(&lv, &lv.v1, 0);
-    try expectFieldOffset(&lv, &lv.v2, abiSelect(8, 4));
-}
 test "PD: Zig passes to C" {
     try expectFailX86(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
