@@ -374,22 +374,18 @@ pub const State = struct {
 
     const Halves = struct { l: u32, r: u32 };
 
-    fn feistelF(state: State, x: u32) u32 {
-        var r = state.sboxes[0][@truncate(u8, x >> 24)];
-        r +%= state.sboxes[1][@truncate(u8, x >> 16)];
-        r ^= state.sboxes[2][@truncate(u8, x >> 8)];
-        r +%= state.sboxes[3][@truncate(u8, x)];
-        return r;
-    }
-
     fn halfRound(state: State, i: u32, j: u32, n: usize) u32 {
-        return i ^ state.feistelF(j) ^ state.subkeys[n];
+        var r = state.sboxes[0][@truncate(u8, j >> 24)];
+        r +%= state.sboxes[1][@truncate(u8, j >> 16)];
+        r ^= state.sboxes[2][@truncate(u8, j >> 8)];
+        r +%= state.sboxes[3][@truncate(u8, j)];
+        return i ^ r ^ state.subkeys[n];
     }
 
     fn encipher(state: State, halves: *Halves) void {
         halves.l ^= state.subkeys[0];
-        var i: usize = 1;
-        while (i < 16) : (i += 2) {
+        comptime var i = 1;
+        inline while (i < 16) : (i += 2) {
             halves.r = state.halfRound(halves.r, halves.l, i);
             halves.l = state.halfRound(halves.l, halves.r, i + 1);
         }
