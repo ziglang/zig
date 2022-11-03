@@ -1257,14 +1257,14 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// Files that end with `.`, or that start with `.` and have no other `.` in their name,
 /// are considered to have no extension.
 /// Examples:
-/// - `"main.zig"`     ⇒ `".zig"`
-/// - `"src/main.zig"` ⇒ `".zig"`
-/// - `".gitignore"`   ⇒ `""`
-/// - `".image.png"`   ⇒ `".png"`
-/// - `"keep."`        ⇒ `"."`
-/// - `"src.keep.me"`  ⇒ `".me"`
+/// - `"main.zig"`      ⇒ `".zig"`
+/// - `"src/main.zig"`  ⇒ `".zig"`
+/// - `".gitignore"`    ⇒ `""`
+/// - `".image.png"`    ⇒ `".png"`
+/// - `"keep."`         ⇒ `"."`
+/// - `"src.keep.me"`   ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
-/// - `"/src/keep.me/"`  ⇒ `".me"`
+/// - `"/src/keep.me/"` ⇒ `".me"`
 /// The returned slice is guaranteed to have its pointer within the start and end
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
@@ -1275,7 +1275,7 @@ pub fn extension(path: []const u8) []const u8 {
 }
 
 fn testExtension(path: []const u8, expected: []const u8) !void {
-    try std.testing.expectEqualStrings(expected, extension(path));
+    try testing.expectEqualStrings(expected, extension(path));
 }
 
 test "extension" {
@@ -1318,4 +1318,41 @@ test "extension" {
     try testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
     try testExtension("/foo/bar/bam/a.b.c", ".c");
     try testExtension("/foo/bar/bam/a.b.c/", ".c");
+}
+
+/// Returns the last component of this path without its extension (if any):
+/// - "hello/world/lib.tar.gz" ⇒ "lib.tar"
+/// - "hello/world/lib.tar"    ⇒ "lib"
+/// - "hello/world/lib"        ⇒ "lib"
+pub fn stem(path: []const u8) []const u8 {
+    const filename = basename(path);
+    const index = mem.lastIndexOfScalar(u8, filename, '.') orelse return filename[0..];
+    if (index == 0) return path;
+    return filename[0..index];
+}
+
+fn testStem(path: []const u8, expected: []const u8) !void {
+    try testing.expectEqualStrings(expected, stem(path));
+}
+
+test "stem" {
+    try testStem("hello/world/lib.tar.gz", "lib.tar");
+    try testStem("hello/world/lib.tar", "lib");
+    try testStem("hello/world/lib", "lib");
+    try testStem("hello/lib/", "lib");
+    try testStem("hello...", "hello..");
+    try testStem("hello.", "hello");
+    try testStem("/hello.", "hello");
+    try testStem(".gitignore", ".gitignore");
+    try testStem(".image.png", ".image");
+    try testStem("file.ext", "file");
+    try testStem("file.ext.", "file.ext");
+    try testStem("a.b.c", "a.b");
+    try testStem("a.b.c/", "a.b");
+    try testStem(".a", ".a");
+    try testStem("///", "");
+    try testStem("..", ".");
+    try testStem(".", ".");
+    try testStem(" ", " ");
+    try testStem("", "");
 }
