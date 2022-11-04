@@ -434,3 +434,22 @@ test "implicit cast function to function ptr" {
     var fnPtr2: *const fn () callconv(.C) c_int = S2.someFunctionThatReturnsAValue;
     try expect(fnPtr2() == 123);
 }
+
+test "method call with optional and error union first param" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: i32 = 1234,
+
+        fn opt(s: ?@This()) !void {
+            try expect(s.?.x == 1234);
+        }
+        fn errUnion(s: anyerror!@This()) !void {
+            try expect((try s).x == 1234);
+        }
+    };
+    var s: S = .{};
+    try s.opt();
+    try s.errUnion();
+}

@@ -22833,6 +22833,7 @@ fn fieldCallBind(
                     {
                         const first_param_type = decl_type.fnParamType(0);
                         const first_param_tag = first_param_type.tag();
+                        var opt_buf: Type.Payload.ElemType = undefined;
                         // zig fmt: off
                         if (first_param_tag == .var_args_param or
                             first_param_tag == .generic_poison or (
@@ -22851,7 +22852,27 @@ fn fieldCallBind(
                             });
                             return sema.addConstant(ty, value);
                         } else if (first_param_type.eql(concrete_ty, sema.mod)) {
-                            var deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const ty = Type.Tag.bound_fn.init();
+                            const value = try Value.Tag.bound_fn.create(arena, .{
+                                .func_inst = decl_val,
+                                .arg0_inst = deref,
+                            });
+                            return sema.addConstant(ty, value);
+                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .Optional and
+                            first_param_type.optionalChild(&opt_buf).eql(concrete_ty, sema.mod))
+                        {
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const ty = Type.Tag.bound_fn.init();
+                            const value = try Value.Tag.bound_fn.create(arena, .{
+                                .func_inst = decl_val,
+                                .arg0_inst = deref,
+                            });
+                            return sema.addConstant(ty, value);
+                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .ErrorUnion and
+                            first_param_type.errorUnionPayload().eql(concrete_ty, sema.mod))
+                        {
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                             const ty = Type.Tag.bound_fn.init();
                             const value = try Value.Tag.bound_fn.create(arena, .{
                                 .func_inst = decl_val,
