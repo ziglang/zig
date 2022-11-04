@@ -163,7 +163,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"error", TokenIdKeywordError},
     {"export", TokenIdKeywordExport},
     {"extern", TokenIdKeywordExtern},
-    {"false", TokenIdKeywordFalse},
     {"fn", TokenIdKeywordFn},
     {"for", TokenIdKeywordFor},
     {"if", TokenIdKeywordIf},
@@ -171,7 +170,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"noalias", TokenIdKeywordNoAlias},
     {"noinline", TokenIdKeywordNoInline},
     {"nosuspend", TokenIdKeywordNoSuspend},
-    {"null", TokenIdKeywordNull},
     {"opaque", TokenIdKeywordOpaque},
     {"or", TokenIdKeywordOr},
     {"orelse", TokenIdKeywordOrElse},
@@ -185,9 +183,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"switch", TokenIdKeywordSwitch},
     {"test", TokenIdKeywordTest},
     {"threadlocal", TokenIdKeywordThreadLocal},
-    {"true", TokenIdKeywordTrue},
     {"try", TokenIdKeywordTry},
-    {"undefined", TokenIdKeywordUndefined},
     {"union", TokenIdKeywordUnion},
     {"unreachable", TokenIdKeywordUnreachable},
     {"usingnamespace", TokenIdKeywordUsingNamespace},
@@ -1563,7 +1559,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordExport: return "export";
         case TokenIdKeywordExtern: return "extern";
-        case TokenIdKeywordFalse: return "false";
         case TokenIdKeywordFn: return "fn";
         case TokenIdKeywordFor: return "for";
         case TokenIdKeywordIf: return "if";
@@ -1571,7 +1566,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNoAlias: return "noalias";
         case TokenIdKeywordNoInline: return "noinline";
         case TokenIdKeywordNoSuspend: return "nosuspend";
-        case TokenIdKeywordNull: return "null";
         case TokenIdKeywordOpaque: return "opaque";
         case TokenIdKeywordOr: return "or";
         case TokenIdKeywordOrElse: return "orelse";
@@ -1583,9 +1577,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordTest: return "test";
         case TokenIdKeywordThreadLocal: return "threadlocal";
-        case TokenIdKeywordTrue: return "true";
         case TokenIdKeywordTry: return "try";
-        case TokenIdKeywordUndefined: return "undefined";
         case TokenIdKeywordUnion: return "union";
         case TokenIdKeywordUnreachable: return "unreachable";
         case TokenIdKeywordUsingNamespace: return "usingnamespace";

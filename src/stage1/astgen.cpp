@@ -3857,12 +3857,6 @@ static Stage1ZirInst *astgen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *n
     return ir_build_const_uint(ag, scope, node, codepoint);
 }
 
-static Stage1ZirInst *astgen_null_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeNullLiteral);
-
-    return ir_build_const_null(ag, scope, node);
-}
-
 static Stage1ZirInst *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
@@ -6592,11 +6586,6 @@ static Stage1ZirInst *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, Ast
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
-static Stage1ZirInst *astgen_bool_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeBoolLiteral);
-    return ir_build_const_bool(ag, scope, node, node->data.bool_literal.value);
-}
-
 static Stage1ZirInst *astgen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeEnumLiteral);
     // Currently, stage1 runs astgen for every comptime function call,
@@ -6734,11 +6723,6 @@ static Stage1ZirInst *astgen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNo
     }
 
     return ir_build_anyframe_type(ag, scope, node, payload_type_value);
-}
-
-static Stage1ZirInst *astgen_undefined_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeUndefinedLiteral);
-    return ir_build_const_undefined(ag, scope, node);
 }
 
 static Stage1ZirInst *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node) {
@@ -8063,8 +8047,6 @@ static Stage1ZirInst *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *sc
             Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, node, unwrapped_ptr);
             return ir_expr_wrap(ag, scope, load_ptr, result_loc);
         }
-        case NodeTypeBoolLiteral:
-            return ir_lval_wrap(ag, scope, astgen_bool_literal(ag, scope, node), lval, result_loc);
         case NodeTypeArrayType:
             return ir_lval_wrap(ag, scope, astgen_array_type(ag, scope, node), lval, result_loc);
         case NodeTypePointerType:
@@ -8073,12 +8055,8 @@ static Stage1ZirInst *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *sc
             return ir_lval_wrap(ag, scope, astgen_anyframe_type(ag, scope, node), lval, result_loc);
         case NodeTypeStringLiteral:
             return ir_lval_wrap(ag, scope, astgen_string_literal(ag, scope, node), lval, result_loc);
-        case NodeTypeUndefinedLiteral:
-            return ir_lval_wrap(ag, scope, astgen_undefined_literal(ag, scope, node), lval, result_loc);
         case NodeTypeAsmExpr:
             return ir_lval_wrap(ag, scope, astgen_asm_expr(ag, scope, node), lval, result_loc);
-        case NodeTypeNullLiteral:
-            return ir_lval_wrap(ag, scope, astgen_null_literal(ag, scope, node), lval, result_loc);
         case NodeTypeIfErrorExpr:
             return astgen_if_err_expr(ag, scope, node, lval, result_loc);
         case NodeTypeIfOptional:
@@ -8163,14 +8141,11 @@ static Stage1ZirInst *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *
             case NodeTypeWhileExpr:
             case NodeTypeForExpr:
             case NodeTypeReturnExpr:
-            case NodeTypeBoolLiteral:
             case NodeTypeArrayType:
             case NodeTypePointerType:
             case NodeTypeAnyFrameType:
             case NodeTypeStringLiteral:
-            case NodeTypeUndefinedLiteral:
             case NodeTypeAsmExpr:
-            case NodeTypeNullLiteral:
             case NodeTypeIfErrorExpr:
             case NodeTypeIfOptional:
             case NodeTypeSwitchExpr:
