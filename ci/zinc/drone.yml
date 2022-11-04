@@ -35,10 +35,18 @@ steps:
   commands:
   - ./ci/zinc/build_aarch64_macos
 
+- name: test_determinism
+  depends_on:
+  - test_stage3_release
+  image: ci/debian-amd64:11.1-12
+  commands:
+  - ./ci/zinc/linux_test_determinism
+
 - name: linux_package
   depends_on:
   - test_stage3_debug
   - test_stage3_release
+  - test_determinism
   when:
     branch:
       - master
