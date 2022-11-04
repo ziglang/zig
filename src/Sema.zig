@@ -4380,7 +4380,7 @@ fn zirValidateArrayInit(
         var block_index = block.instructions.items.len - 1;
         while (block.instructions.items[block_index] != elem_ptr_air_inst) {
             if (block_index == 0) {
-                array_is_comptime = true;
+                array_is_comptime = false;
                 continue :outer;
             }
             block_index -= 1;

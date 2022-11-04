@@ -574,3 +574,25 @@ test "tuple to array handles sentinel" {
     };
     try expect(S.b[0] == 1);
 }
+
+test "array init of container level array variable" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        var pair: [2]usize = .{ 1, 2 };
+        noinline fn foo(x: usize, y: usize) void {
+            pair = [2]usize{ x, y };
+        }
+        noinline fn bar(x: usize, y: usize) void {
+            var tmp: [2]usize = .{ x, y };
+            pair = tmp;
+        }
+    };
+    try expectEqual([2]usize{ 1, 2 }, S.pair);
+    S.foo(3, 4);
+    try expectEqual([2]usize{ 3, 4 }, S.pair);
+    S.bar(5, 6);
+    try expectEqual([2]usize{ 5, 6 }, S.pair);
+}
