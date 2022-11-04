@@ -3719,12 +3719,18 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .direct => .load_memory_ptr_direct,
                                 };
                                 const mod = self.bin_file.options.module.?;
+                                const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+                                const atom_index = switch (self.bin_file.tag) {
+                                    .macho => owner_decl.link.macho.sym_index,
+                                    .coff => owner_decl.link.coff.sym_index,
+                                    else => unreachable, // unsupported target format
+                                };
                                 _ = try self.addInst(.{
                                     .tag = tag,
                                     .data = .{
                                         .payload = try self.addExtra(Mir.LoadMemoryPie{
                                             .register = @enumToInt(src_reg),
-                                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                                            .atom_index = atom_index,
                                             .sym_index = load_struct.sym_index,
                                         }),
                                     },
@@ -5161,12 +5167,18 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .direct => .load_memory_ptr_direct,
                         };
                         const mod = self.bin_file.options.module.?;
+                        const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+                        const atom_index = switch (self.bin_file.tag) {
+                            .macho => owner_decl.link.macho.sym_index,
+                            .coff => owner_decl.link.coff.sym_index,
+                            else => unreachable, // unsupported target format
+                        };
                         _ = try self.addInst(.{
                             .tag = tag,
                             .data = .{
                                 .payload = try self.addExtra(Mir.LoadMemoryPie{
                                     .register = @enumToInt(src_reg),
-                                    .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                                    .atom_index = atom_index,
                                     .sym_index = load_struct.sym_index,
                                 }),
                             },
@@ -5268,12 +5280,18 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .direct => .load_memory_direct,
             };
             const mod = self.bin_file.options.module.?;
+            const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+            const atom_index = switch (self.bin_file.tag) {
+                .macho => owner_decl.link.macho.sym_index,
+                .coff => owner_decl.link.coff.sym_index,
+                else => unreachable, // unsupported target format
+            };
             _ = try self.addInst(.{
                 .tag = tag,
                 .data = .{
                     .payload = try self.addExtra(Mir.LoadMemoryPie{
                         .register = @enumToInt(reg),
-                        .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                        .atom_index = atom_index,
                         .sym_index = load_struct.sym_index,
                     }),
                 },
@@ -5455,12 +5473,18 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .direct => .load_memory_ptr_direct,
                         };
                         const mod = self.bin_file.options.module.?;
+                        const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+                        const atom_index = switch (self.bin_file.tag) {
+                            .macho => owner_decl.link.macho.sym_index,
+                            .coff => owner_decl.link.coff.sym_index,
+                            else => unreachable, // unsupported target format
+                        };
                         _ = try self.addInst(.{
                             .tag = tag,
                             .data = .{
                                 .payload = try self.addExtra(Mir.LoadMemoryPie{
                                     .register = @enumToInt(src_reg),
-                                    .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                                    .atom_index = atom_index,
                                     .sym_index = load_struct.sym_index,
                                 }),
                             },
