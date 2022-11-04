@@ -127,8 +127,6 @@ pub const Reloc = struct {
     @"type": enum {
         // x86, x86_64
         got,
-        direct,
-        import,
 
         // aarch64
         branch_26,
@@ -136,6 +134,10 @@ pub const Reloc = struct {
         got_pageoff,
         page,
         pageoff,
+
+        // common
+        import,
+        direct, // as unsigned, TODO split into signed for x86
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -895,40 +897,45 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             file_offset + reloc.offset,
         });
 
+        reloc.dirty = false;
+
         switch (reloc.@"type") {
             .branch_26 => @panic("TODO branch26"),
             .got_page => @panic("TODO got_page"),
             .got_pageoff => @panic("TODO got_pageoff"),
             .page => @panic("TODO page"),
             .pageoff => @panic("TODO pageoff"),
-            else => {},
-        }
 
-        reloc.dirty = false;
-
-        if (reloc.pcrel) {
-            const source_vaddr = source_sym.value + reloc.offset;
-            const disp =
-                @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
-            try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
-            continue;
-        }
-
-        switch (self.ptr_width) {
-            .p32 => try self.base.file.?.pwriteAll(
-                mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
-                file_offset + reloc.offset,
-            ),
-            .p64 => switch (reloc.length) {
-                2 => try self.base.file.?.pwriteAll(
-                    mem.asBytes(&@truncate(u32, target_vaddr_with_addend + default_image_base_exe)),
-                    file_offset + reloc.offset,
-                ),
-                3 => try self.base.file.?.pwriteAll(
-                    mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
-                    file_offset + reloc.offset,
-                ),
-                else => unreachable,
+            .got, .import => {
+                assert(reloc.pcrel);
+                const source_vaddr = source_sym.value + reloc.offset;
+                const disp =
+                    @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
+            },
+            .direct => {
+                if (reloc.pcrel) {
+                    const source_vaddr = source_sym.value + reloc.offset;
+                    const disp =
+                        @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                    try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
+                } else switch (self.ptr_width) {
+                    .p32 => try self.base.file.?.pwriteAll(
+                        mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
+                        file_offset + reloc.offset,
+                    ),
+                    .p64 => switch (reloc.length) {
+                        2 => try self.base.file.?.pwriteAll(
+                            mem.asBytes(&@truncate(u32, target_vaddr_with_addend + default_image_base_exe)),
+                            file_offset + reloc.offset,
+                        ),
+                        3 => try self.base.file.?.pwriteAll(
+                            mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
+                            file_offset + reloc.offset,
+                        ),
+                        else => unreachable,
+                    },
+                }
             },
         }
     }
