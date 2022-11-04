@@ -840,28 +840,20 @@ pub inline fn expectOk(c_err: c_int) !void {
     }
 }
 
-pub inline fn expectFailX86(c_err: c_int) !void {
-    // AFAICT those tests are failing only on Mac, Linux x86_64.
-    if (comptime builtin.target.cpu.arch != .x86_64) return expectOk(c_err);
-    if (comptime builtin.target.os.tag == .windows) return expectOk(c_err);
-    if (c_err != 0) {
-        std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
-    } else {
-        std.debug.print("no ABI mismatch, test should be upgraded to expectOk.\n", .{});
-    }
-    return error.SkipZigTest;
-}
-
 /// Tests for Double + Char struct
 const DC = extern struct { v1: f64, v2: u8 };
 test "DC: Zig passes to C" {
-    try expectFailX86(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
     try expectOk(c_assert_ret_DC());
 }
 test "DC: C passes to Zig" {
-    try expectFailX86(c_send_DC());
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
     try expectEqual(c_ret_DC(), .{ .v1 = -0.25, .v2 = 15 });
@@ -886,13 +878,17 @@ pub export fn zig_ret_DC() DC {
 const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
 
 test "CFF: Zig passes to C" {
-    try expectFailX86(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
 test "CFF: Zig returns to C" {
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
-    try expectFailX86(c_send_CFF());
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
     try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
@@ -917,13 +913,17 @@ pub export fn zig_ret_CFF() CFF {
 const PD = extern struct { v1: ?*anyopaque, v2: f64 };
 
 test "PD: Zig passes to C" {
-    try expectFailX86(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
 test "PD: Zig returns to C" {
     try expectOk(c_assert_ret_PD());
 }
 test "PD: C passes to Zig" {
-    try expectFailX86(c_send_PD());
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    try expectOk(c_send_PD());
 }
 test "PD: C returns to Zig" {
     try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
