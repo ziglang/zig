@@ -125,9 +125,17 @@ const Entry = struct {
 
 pub const Reloc = struct {
     @"type": enum {
+        // x86, x86_64
         got,
         direct,
         import,
+
+        // aarch64
+        branch_26,
+        got_page,
+        got_pageoff,
+        page,
+        pageoff,
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -139,8 +147,17 @@ pub const Reloc = struct {
     /// Returns an Atom which is the target node of this relocation edge (if any).
     fn getTargetAtom(self: Reloc, coff_file: *Coff) ?*Atom {
         switch (self.@"type") {
-            .got => return coff_file.getGotAtomForSymbol(self.target),
-            .direct => return coff_file.getAtomForSymbol(self.target),
+            .got,
+            .got_page,
+            .got_pageoff,
+            => return coff_file.getGotAtomForSymbol(self.target),
+
+            .direct,
+            .branch_26,
+            .page,
+            .pageoff,
+            => return coff_file.getAtomForSymbol(self.target),
+
             .import => return coff_file.getImportAtomForSymbol(self.target),
         }
     }
@@ -877,6 +894,15 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             @tagName(reloc.@"type"),
             file_offset + reloc.offset,
         });
+
+        switch (reloc.@"type") {
+            .branch_26 => @panic("TODO branch26"),
+            .got_page => @panic("TODO got_page"),
+            .got_pageoff => @panic("TODO got_pageoff"),
+            .page => @panic("TODO page"),
+            .pageoff => @panic("TODO pageoff"),
+            else => {},
+        }
 
         reloc.dirty = false;
 
