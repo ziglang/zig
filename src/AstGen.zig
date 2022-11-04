@@ -6500,9 +6500,14 @@ fn switchExpr(
     }
 
     const operand_ri: ResultInfo = .{ .rl = if (any_payload_is_ref) .ref else .none };
+    astgen.advanceSourceCursorToNode(operand_node);
+    const operand_line = astgen.source_line - parent_gz.decl_line;
+    const operand_column = astgen.source_column;
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
     const cond_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_cond_ref else .switch_cond;
     const cond = try parent_gz.addUnNode(cond_tag, raw_operand, operand_node);
+    // Sema expects a dbg_stmt immediately after switch_cond(_ref)
+    try emitDbgStmt(parent_gz, operand_line, operand_column);
     // We need the type of the operand to use as the result location for all the prong items.
     const cond_ty_inst = try parent_gz.addUnNode(.typeof, cond, operand_node);
     const item_ri: ResultInfo = .{ .rl = .{ .ty = cond_ty_inst } };

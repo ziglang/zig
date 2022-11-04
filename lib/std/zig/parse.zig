@@ -812,7 +812,18 @@ const Parser = struct {
         const align_node = try p.parseByteAlign();
         const addrspace_node = try p.parseAddrSpace();
         const section_node = try p.parseLinkSection();
-        const init_node: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
+        const init_node: Node.Index = switch (p.token_tags[p.tok_i]) {
+            .equal_equal => blk: {
+                try p.warn(.wrong_equal_var_decl);
+                p.tok_i += 1;
+                break :blk try p.expectExpr();
+            },
+            .equal => blk: {
+                p.tok_i += 1;
+                break :blk try p.expectExpr();
+            },
+            else => 0,
+        };
         if (section_node == 0 and addrspace_node == 0) {
             if (align_node == 0) {
                 return p.addNode(.{
@@ -1118,7 +1129,18 @@ const Parser = struct {
         if (loop_stmt != 0) return loop_stmt;
 
         if (label_token != 0) {
-            return p.fail(.expected_labelable);
+            const after_colon = p.tok_i;
+            const node = try p.parseTypeExpr();
+            if (node != 0) {
+                const a = try p.parseByteAlign();
+                const b = try p.parseAddrSpace();
+                const c = try p.parseLinkSection();
+                const d = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
+                if (a != 0 or b != 0 or c != 0 or d != 0) {
+                    return p.failMsg(.{ .tag = .expected_var_const, .token = label_token });
+                }
+            }
+            return p.failMsg(.{ .tag = .expected_labelable, .token = after_colon });
         }
 
         return null_node;
