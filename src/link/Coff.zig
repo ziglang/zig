@@ -2186,7 +2186,7 @@ pub fn getImageBase(self: Coff) u64 {
             else => unreachable, // unsupported target architecture
         },
         .Lib => 0x10000000,
-        else => unreachable,
+        .Obj => 0,
     };
     return image_base;
 }
