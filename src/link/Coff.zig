@@ -9,9 +9,11 @@ const fmt = std.fmt;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
+const meta = std.meta;
 
 const Allocator = std.mem.Allocator;
 
+const aarch64 = @import("../arch/aarch64/bits.zig");
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const lld = @import("Coff/lld.zig");
@@ -885,12 +887,13 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
 
+        const source_vaddr = source_sym.value + reloc.offset;
         const target_atom = reloc.getTargetAtom(self) orelse continue;
         const target_vaddr = target_atom.getSymbol(self).value;
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
 
         log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{
-            source_sym.value + reloc.offset,
+            source_vaddr,
             target_vaddr_with_addend,
             self.getSymbolName(reloc.target),
             @tagName(reloc.@"type"),
@@ -899,25 +902,108 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
 
         reloc.dirty = false;
 
+        var buffer: [@sizeOf(u32)]u8 = undefined;
         switch (reloc.@"type") {
-            .branch_26 => @panic("TODO branch26"),
-            .got_page => @panic("TODO got_page"),
-            .got_pageoff => @panic("TODO got_pageoff"),
-            .page => @panic("TODO page"),
-            .pageoff => @panic("TODO pageoff"),
+            .branch_26,
+            .got_page,
+            .got_pageoff,
+            .page,
+            .pageoff,
+            => {
+                const amt = try self.base.file.?.preadAll(&buffer, file_offset + reloc.offset);
+                if (amt != buffer.len) return error.InputOutput;
+
+                switch (reloc.@"type") {
+                    .branch_26 => {
+                        const displacement = math.cast(i28, @intCast(i64, target_vaddr_with_addend) - @intCast(i64, source_vaddr)) orelse
+                            unreachable; // TODO generate thunks
+                        var inst = aarch64.Instruction{
+                            .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.unconditional_branch_immediate,
+                            ), &buffer),
+                        };
+                        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
+                        mem.writeIntLittle(u32, &buffer, inst.toU32());
+                    },
+                    .got_page, .page => {
+                        const source_page = @intCast(i32, source_vaddr >> 12);
+                        const target_page = @intCast(i32, target_vaddr_with_addend >> 12);
+                        const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
+                        var inst = aarch64.Instruction{
+                            .pc_relative_address = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.pc_relative_address,
+                            ), &buffer),
+                        };
+                        inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
+                        inst.pc_relative_address.immlo = @truncate(u2, pages);
+                        mem.writeIntLittle(u32, &buffer, inst.toU32());
+                    },
+                    .got_pageoff, .pageoff => {
+                        assert(!reloc.pcrel);
+
+                        const narrowed = @truncate(u12, @intCast(u64, target_vaddr_with_addend));
+                        if (isArithmeticOp(&buffer)) {
+                            var inst = aarch64.Instruction{
+                                .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.add_subtract_immediate,
+                                ), &buffer),
+                            };
+                            inst.add_subtract_immediate.imm12 = narrowed;
+                            mem.writeIntLittle(u32, &buffer, inst.toU32());
+                        } else {
+                            var inst = aarch64.Instruction{
+                                .load_store_register = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.load_store_register,
+                                ), &buffer),
+                            };
+                            const offset: u12 = blk: {
+                                if (inst.load_store_register.size == 0) {
+                                    if (inst.load_store_register.v == 1) {
+                                        // 128-bit SIMD is scaled by 16.
+                                        break :blk @divExact(narrowed, 16);
+                                    }
+                                    // Otherwise, 8-bit SIMD or ldrb.
+                                    break :blk narrowed;
+                                } else {
+                                    const denom: u4 = math.powi(u4, 2, inst.load_store_register.size) catch unreachable;
+                                    break :blk @divExact(narrowed, denom);
+                                }
+                            };
+                            inst.load_store_register.offset = offset;
+                            mem.writeIntLittle(u32, &buffer, inst.toU32());
+                        }
+                    },
+
+                    else => unreachable,
+                }
+
+                try self.base.file.?.pwriteAll(&buffer, file_offset + reloc.offset);
+
+                return;
+            },
+
+            else => {},
+        }
+
+        switch (reloc.@"type") {
+            .branch_26 => unreachable,
+            .got_page => unreachable,
+            .got_pageoff => unreachable,
+            .page => unreachable,
+            .pageoff => unreachable,
 
             .got, .import => {
                 assert(reloc.pcrel);
-                const source_vaddr = source_sym.value + reloc.offset;
-                const disp =
-                    @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
                 try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
             },
             .direct => {
                 if (reloc.pcrel) {
-                    const source_vaddr = source_sym.value + reloc.offset;
-                    const disp =
-                        @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                    const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
                     try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
                 } else switch (self.ptr_width) {
                     .p32 => try self.base.file.?.pwriteAll(
@@ -2280,4 +2366,9 @@ fn logSections(self: *Coff) void {
             header.pointer_to_raw_data + header.size_of_raw_data,
         });
     }
+}
+
+inline fn isArithmeticOp(inst: *const [4]u8) bool {
+    const group_decode = @truncate(u5, inst[3]);
+    return ((group_decode >> 2) == 4);
 }
