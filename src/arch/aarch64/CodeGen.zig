@@ -1117,13 +1117,11 @@ fn truncRegister(
             });
         },
         32, 64 => {
-            assert(dest_reg.size() == operand_reg.size());
-
             _ = try self.addInst(.{
                 .tag = .mov_register,
                 .data = .{ .rr = .{
-                    .rd = dest_reg,
-                    .rn = operand_reg,
+                    .rd = if (int_bits == 32) dest_reg.toW() else dest_reg.toX(),
+                    .rn = if (int_bits == 32) operand_reg.toW() else operand_reg.toX(),
                 } },
             });
         },
