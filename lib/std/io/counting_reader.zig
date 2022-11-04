@@ -9,11 +9,16 @@ pub fn CountingReader(comptime ReaderType: anytype) type {
         bytes_read: u64 = 0,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*@This(), Error, read);
+        pub const Reader = io.Reader(*@This(), Error, read, peek);
 
         pub fn read(self: *@This(), buf: []u8) Error!usize {
             const amt = try self.child_reader.read(buf);
             self.bytes_read += amt;
+            return amt;
+        }
+
+        pub fn peek(self: *@This(), buf: []u8) Error!usize {
+            const amt = try self.child_reader.read(buf);
             return amt;
         }
 

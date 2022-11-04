@@ -17,7 +17,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
-        pub const Reader = io.Reader(*Self, ReadError, read);
+        pub const Reader = io.Reader(*Self, ReadError, read, peek);
         pub const Writer = io.Writer(*Self, WriteError, write);
 
         pub const SeekableStream = io.SeekableStream(
@@ -50,6 +50,15 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 
             mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
             self.pos = end;
+
+            return size;
+        }
+
+        pub fn peek(self: *Self, dest: []u8) ReadError!usize {
+            const size = std.math.min(dest.len, self.buffer.len - self.pos);
+            const end = self.pos + size;
+
+            mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
 
             return size;
         }

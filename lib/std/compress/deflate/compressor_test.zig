@@ -188,7 +188,7 @@ test "very long sparse chunk" {
         const Self = @This();
         const Error = error{};
 
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, peek);
 
         pub fn reader(self: *Self) Reader {
             return .{ .context = self };
@@ -214,6 +214,28 @@ test "very long sparse chunk" {
                 }
             }
             s.cur = cur;
+            return n;
+        }
+
+        fn peek(s: *Self, b: []u8) Error!usize {
+            var n: usize = 0; // amount read
+
+            if (s.cur >= s.l) {
+                return 0;
+            }
+            n = b.len;
+            var cur = s.cur + n;
+            if (cur > s.l) {
+                n -= cur - s.l;
+                cur = s.l;
+            }
+            for (b[0..n]) |_, i| {
+                if (s.cur + i >= s.l -| (1 << 16)) {
+                    b[i] = 1;
+                } else {
+                    b[i] = 0;
+                }
+            }
             return n;
         }
     };

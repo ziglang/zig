@@ -24,7 +24,7 @@ pub const FileProtocol = extern struct {
     pub const WriteError = error{WriteError};
 
     pub const SeekableStream = io.SeekableStream(*const FileProtocol, SeekError, GetSeekPosError, seekTo, seekBy, getPos, getEndPos);
-    pub const Reader = io.Reader(*const FileProtocol, ReadError, readFn);
+    pub const Reader = io.Reader(*const FileProtocol, ReadError, readFn, null);
     pub const Writer = io.Writer(*const FileProtocol, WriteError, writeFn);
 
     pub fn seekableStream(self: *FileProtocol) SeekableStream {

@@ -22,7 +22,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
         pub const Error = ReaderType.Error ||
             deflate.Decompressor(ReaderType).Error ||
             error{ CorruptedData, WrongChecksum };
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, peek);
 
         allocator: mem.Allocator,
         inflater: deflate.Decompressor(ReaderType),
@@ -124,6 +124,31 @@ pub fn GzipStream(comptime ReaderType: type) type {
             if (r != 0) {
                 self.hasher.update(buffer[0..r]);
                 self.read_amt += r;
+                return r;
+            }
+
+            // We've reached the end of stream, check if the checksum matches
+            const hash = try self.in_reader.readIntLittle(u32);
+            if (hash != self.hasher.final())
+                return error.WrongChecksum;
+
+            // The ISIZE field is the size of the uncompressed input modulo 2^32
+            const input_size = try self.in_reader.readIntLittle(u32);
+            if (self.read_amt & 0xffffffff != input_size)
+                return error.CorruptedData;
+
+            return 0;
+        }
+
+        // Implements the io.Reader interface
+        pub fn peek(self: *Self, buffer: []u8) Error!usize {
+            if (buffer.len == 0)
+                return 0;
+
+            // Read from the compressed stream and update the computed checksum
+            const r = try self.inflater.read(buffer);
+            if (r != 0) {
+                self.hasher.update(buffer[0..r]);
                 return r;
             }
 

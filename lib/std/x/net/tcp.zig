@@ -116,7 +116,7 @@ pub const Client = struct {
     }
 
     /// Wrap `tcp.Client` into `std.io.Reader`.
-    pub fn reader(self: Client, flags: u32) io.Reader(Client.Reader, ErrorSetOf(Client.Reader.read), Client.Reader.read) {
+    pub fn reader(self: Client, flags: u32) io.Reader(Client.Reader, ErrorSetOf(Client.Reader.read), Client.Reader.read, Client.Reader.peek) {
         return .{ .context = .{ .client = self, .flags = flags } };
     }
 

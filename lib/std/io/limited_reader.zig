@@ -9,7 +9,7 @@ pub fn LimitedReader(comptime ReaderType: type) type {
         bytes_left: u64,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, peek);
 
         const Self = @This();
 
@@ -17,6 +17,12 @@ pub fn LimitedReader(comptime ReaderType: type) type {
             const max_read = std.math.min(self.bytes_left, dest.len);
             const n = try self.inner_reader.read(dest[0..max_read]);
             self.bytes_left -= n;
+            return n;
+        }
+
+        pub fn peek(self: *Self, dest: []u8) Error!usize {
+            const max_read = std.math.min(self.bytes_left, dest.len);
+            const n = try self.inner_reader.read(dest[0..max_read]);
             return n;
         }
 

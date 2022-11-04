@@ -306,7 +306,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             error{EndOfStream} ||
             InflateError ||
             Allocator.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, null);
 
         allocator: Allocator,
 

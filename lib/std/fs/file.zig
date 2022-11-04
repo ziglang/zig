@@ -977,6 +977,22 @@ pub const File = struct {
         }
     }
 
+    pub fn peek(self: File, buffer: []u8) !usize {
+        if (is_windows) {
+            var size = windows.ReadFile(self.handle, buffer, null, self.intended_io_mode) catch |e| {
+                return e;
+            };
+            os.lseek_CUR(self.handle, -@bitCast(isize, size)) catch unreachable;
+            return size;
+        }
+
+        var size = os.read(self.handle, buffer) catch |e| {
+            return e;
+        };
+        os.lseek_CUR(self.handle, -@bitCast(isize, size)) catch unreachable;
+        return size;
+    }
+
     /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
     /// means the file reached the end. Reaching the end of a file is not an error condition.
     pub fn readAll(self: File, buffer: []u8) ReadError!usize {
@@ -1374,7 +1390,7 @@ pub const File = struct {
         }
     }
 
-    pub const Reader = io.Reader(File, ReadError, read);
+    pub const Reader = io.Reader(File, ReadError, read, peek);
 
     pub fn reader(file: File) Reader {
         return .{ .context = file };

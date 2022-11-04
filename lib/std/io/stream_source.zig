@@ -25,7 +25,7 @@ pub const StreamSource = union(enum) {
     pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) std.fs.File.SeekError else error{});
     pub const GetSeekPosError = io.FixedBufferStream([]u8).GetSeekPosError || (if (has_file) std.fs.File.GetSeekPosError else error{});
 
-    pub const Reader = io.Reader(*StreamSource, ReadError, read);
+    pub const Reader = io.Reader(*StreamSource, ReadError, read, peek);
     pub const Writer = io.Writer(*StreamSource, WriteError, write);
     pub const SeekableStream = io.SeekableStream(
         *StreamSource,
@@ -42,6 +42,14 @@ pub const StreamSource = union(enum) {
             .buffer => |*x| return x.read(dest),
             .const_buffer => |*x| return x.read(dest),
             .file => |x| if (!has_file) unreachable else return x.read(dest),
+        }
+    }
+
+    pub fn peek(self: *StreamSource, dest: []u8) ReadError!usize {
+        switch (self.*) {
+            .buffer => |*x| return x.peek(dest),
+            .const_buffer => |*x| return x.peek(dest),
+            .file => |x| if (!has_file) unreachable else return x.peek(dest),
         }
     }
 

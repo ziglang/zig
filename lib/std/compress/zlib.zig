@@ -15,7 +15,7 @@ pub fn ZlibStream(comptime ReaderType: type) type {
         pub const Error = ReaderType.Error ||
             deflate.Decompressor(ReaderType).Error ||
             error{ WrongChecksum, Unsupported };
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, null);
 
         allocator: mem.Allocator,
         inflater: deflate.Decompressor(ReaderType),

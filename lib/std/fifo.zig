@@ -39,7 +39,7 @@ pub fn LinearFifo(
         count: usize,
 
         const Self = @This();
-        pub const Reader = std.io.Reader(*Self, error{}, readFn);
+        pub const Reader = std.io.Reader(*Self, error{}, readFn, peekFn);
         pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
         // Type of Self argument for slice operations.
@@ -225,6 +225,10 @@ pub fn LinearFifo(
         /// The purpose of this function existing is to match `std.io.Reader` API.
         fn readFn(self: *Self, dest: []u8) error{}!usize {
             return self.read(dest);
+        }
+
+        fn peekFn(self: *Self, dest: []u8) error{}!usize {
+            return self.peek(dest);
         }
 
         pub fn reader(self: *Self) Reader {

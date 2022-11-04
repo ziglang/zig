@@ -1636,7 +1636,7 @@ pub const Stream = struct {
     pub const ReadError = os.ReadError;
     pub const WriteError = os.WriteError;
 
-    pub const Reader = io.Reader(Stream, ReadError, read);
+    pub const Reader = io.Reader(Stream, ReadError, read, null);
     pub const Writer = io.Writer(Stream, WriteError, write);
 
     pub fn reader(self: Stream) Reader {

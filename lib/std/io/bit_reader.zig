@@ -14,7 +14,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
         bit_count: u3,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, null);
 
         const Self = @This();
         const u8_bit_count = @bitSizeOf(u8);

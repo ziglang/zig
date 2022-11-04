@@ -11,6 +11,11 @@ pub fn Reader(
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
     comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+    /// Returns the number of bytes read. It may be less than buffer.len.
+    /// If the number of bytes read is 0, it means end of stream.
+    /// End of stream is not an error condition.
+    /// This function does not advance the reader position.
+    comptime peekFn: ?fn (context: Context, buffer: []u8) ReadError!usize,
 ) type {
     return struct {
         pub const Error = ReadError;
@@ -26,6 +31,15 @@ pub fn Reader(
             return readFn(self.context, buffer);
         }
 
+        /// Returns the number of bytes read. It may be less than buffer.len.
+        /// If the number of bytes read is 0, it means end of stream.
+        /// End of stream is not an error condition.
+        /// If there is no peek function, the peek method returns 0 size.
+        /// This function does not advance the reader position.
+        pub fn peek(self: Self, buffer: []u8) Error!usize {
+            return if (peekFn == null) 0 else peekFn(self.context, buffer);
+        }
+
         /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
@@ -39,9 +53,30 @@ pub fn Reader(
             return index;
         }
 
+        /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+        /// means the stream reached the end. Reaching the end of a stream is not an error
+        /// condition.
+        /// This function does not advance the reader position.
+        pub fn peekAll(self: Self, buffer: []u8) Error!usize {
+            var index: usize = 0;
+            while (index != buffer.len) {
+                const amt = try self.peek(buffer[index..]);
+                if (amt == 0) return index;
+                index += amt;
+            }
+            return index;
+        }
+
         /// If the number read would be smaller than `buf.len`, `error.EndOfStream` is returned instead.
         pub fn readNoEof(self: Self, buf: []u8) !void {
             const amt_read = try self.readAll(buf);
+            if (amt_read < buf.len) return error.EndOfStream;
+        }
+
+        /// If the number read would be smaller than `buf.len`, `error.EndOfStream` is returned instead.
+        /// This function does not advance the reader position.
+        pub fn peekNoEof(self: Self, buf: []u8) !void {
+            const amt_read = try self.peekAll(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
@@ -93,6 +128,108 @@ pub fn Reader(
             defer array_list.deinit();
             try self.readAllArrayList(&array_list, max_size);
             return array_list.toOwnedSlice();
+        }
+
+        /// Determines whether or not a character is an endline terminatior.
+        /// The Unicode standard defines a number of characters that conforming applications
+        /// should recognize as line terminators:
+        /// LF: Line Feed, U+000A
+        /// VT: Vertical Tab, U+000B
+        /// FF: Form Feed, U+000C
+        /// CR: Carriage Return, U+000D
+        /// CR+LF: CR (U+000D) followed by LF (U+000A)
+        /// NEL: Next Line, U+0085
+        /// LS: Line Separator, U+2028
+        /// PS: Paragraph Separator, U+2029
+        /// This method will recognize LF, VT, FF, CR and NEL
+        fn isEndline(char: u8) bool {
+            return char == 0x0A or char == 0x0B or char == 0x0C or char == 0x0D or char == 0x85;
+        }
+
+        /// Allocates enough memory to read until endline characters are found. If the allocated
+        /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
+        /// If end-of-stream is found, the function returns everything up until the end.
+        /// If the function is called after that point, it returns null.
+        /// Caller owns returned memory.
+        /// If this function returns an error, the contents from the stream read so far are lost.
+        pub fn readLineAlloc(
+            self: Self,
+            allocator: mem.Allocator,
+            max_size: usize,
+        ) !?[]u8 {
+            var array_list = std.ArrayList(u8).init(allocator);
+            defer array_list.deinit();
+            array_list.shrinkRetainingCapacity(0);
+
+            while (true) {
+                if (array_list.items.len == max_size) {
+                    return error.StreamTooLong;
+                }
+
+                var byte: u8 = try self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => {
+                        return if (array_list.items.len == 0) null else array_list.toOwnedSlice();
+                    },
+                };
+
+                try array_list.append(byte);
+
+                while (isEndline(byte)) {
+                    byte = try self.peekByte() catch |err| switch (err) {
+                        error.EndOfStream => {
+                            return array_list.toOwnedSlice();
+                        },
+                    };
+
+                    if (!isEndline(byte))
+                        return array_list.toOwnedSlice();
+
+                    _ = try self.readByte();
+                    array_list.append(byte);
+
+                    if (array_list.items.len == max_size) return error.StreamTooLong;
+                }
+            }
+        }
+
+        /// Reads from the stream until endline characters. If the buffer is not
+        /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
+        /// If end-of-stream is found, the function returns everything up until the end.
+        /// If the function is called after that point, it returns null.
+        /// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
+        /// endline characters are written to the output buffer but is not included
+        /// in the returned slice.
+        pub fn readLine(self: Self, buf: []u8) !?[]u8 {
+            var index: usize = 0;
+            while (true) {
+                if (index >= buf.len) return error.StreamTooLong;
+
+                var byte = try self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => {
+                        return if (index == 0) null else buf[0..index];
+                    },
+                };
+                buf[index] = byte;
+
+                while (isEndline(byte)) {
+                    byte = try self.peekByte() catch |err| switch (err) {
+                        error.EndOfStream => {
+                            return buf[0..index];
+                        },
+                    };
+
+                    if (!isEndline(byte))
+                        return buf[0..index];
+
+                    _ = try self.readByte();
+                    index += 1;
+                    if (index >= buf.len) return error.StreamTooLong;
+
+                    buf[index] = byte;
+                }
+
+                index += 1;
+            }
         }
 
         /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
@@ -214,6 +351,29 @@ pub fn Reader(
         }
 
         /// Reads from the stream until specified byte is found, discarding all data,
+        /// including the endline characters.
+        /// If end-of-stream is found, this function succeeds.
+        pub fn skipLine(self: Self) !void {
+            while (true) {
+                var byte = try self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => |e| return e,
+                };
+
+                while (isEndline(byte)) {
+                    byte = try self.peekByte() catch |err| switch (err) {
+                        error.EndOfStream => return,
+                    };
+
+                    if (!isEndline(byte))
+                        return;
+
+                    _ = try self.readByte();
+                }
+            }
+        }
+
+        /// Reads from the stream until specified byte is found, discarding all data,
         /// including the delimiter.
         /// If end-of-stream is found, this function succeeds.
         pub fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) !void {
@@ -234,9 +394,22 @@ pub fn Reader(
             return result[0];
         }
 
+        /// Peeks 1 byte from the stream or returns `error.EndOfStream`.
+        pub fn peekByte(self: Self) !u8 {
+            var result: [1]u8 = undefined;
+            const amt_read = try self.peek(result[0..], false);
+            if (amt_read < 1) return error.EndOfStream;
+            return result[0];
+        }
+
         /// Same as `readByte` except the returned byte is signed.
         pub fn readByteSigned(self: Self) !i8 {
             return @bitCast(i8, try self.readByte());
+        }
+
+        /// Same as `peekByte` except the returned byte is signed.
+        pub fn peekByteSigned(self: Self) !i8 {
+            return @bitCast(i8, try self.peekByte());
         }
 
         /// Reads exactly `num_bytes` bytes and returns as an array.
@@ -244,6 +417,14 @@ pub fn Reader(
         pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) ![num_bytes]u8 {
             var bytes: [num_bytes]u8 = undefined;
             try self.readNoEof(&bytes);
+            return bytes;
+        }
+
+        /// Peeks exactly `num_bytes` bytes and returns as an array.
+        /// `num_bytes` must be comptime-known
+        pub fn peekBytesNoEof(self: Self, comptime num_bytes: usize) ![num_bytes]u8 {
+            var bytes: [num_bytes]u8 = undefined;
+            try self.peekNoEof(&bytes);
             return bytes;
         }
 
@@ -274,9 +455,21 @@ pub fn Reader(
             return mem.readIntNative(T, &bytes);
         }
 
+        /// Peeks a native-endian integer
+        pub fn peekIntNative(self: Self, comptime T: type) !T {
+            const bytes = try self.peekBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            return mem.readIntNative(T, &bytes);
+        }
+
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: Self, comptime T: type) !T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            return mem.readIntForeign(T, &bytes);
+        }
+
+        /// Peeks a foreign-endian integer
+        pub fn peeksIntForeign(self: Self, comptime T: type) !T {
+            const bytes = try self.peekBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntForeign(T, &bytes);
         }
 
@@ -285,8 +478,18 @@ pub fn Reader(
             return mem.readIntLittle(T, &bytes);
         }
 
+        pub fn peekIntLittle(self: Self, comptime T: type) !T {
+            const bytes = try self.peekBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            return mem.readIntLittle(T, &bytes);
+        }
+
         pub fn readIntBig(self: Self, comptime T: type) !T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            return mem.readIntBig(T, &bytes);
+        }
+
+        pub fn peekIntBig(self: Self, comptime T: type) !T {
+            const bytes = try self.peekBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntBig(T, &bytes);
         }
 
@@ -295,11 +498,24 @@ pub fn Reader(
             return mem.readInt(T, &bytes, endian);
         }
 
+        pub fn peekInt(self: Self, comptime T: type, endian: std.builtin.Endian) !T {
+            const bytes = try self.peekBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            return mem.readInt(T, &bytes, endian);
+        }
+
         pub fn readVarInt(self: Self, comptime ReturnType: type, endian: std.builtin.Endian, size: usize) !ReturnType {
             assert(size <= @sizeOf(ReturnType));
             var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
             const bytes = bytes_buf[0..size];
             try self.readNoEof(bytes);
+            return mem.readVarInt(ReturnType, bytes, endian);
+        }
+
+        pub fn peekVarInt(self: Self, comptime ReturnType: type, endian: std.builtin.Endian, size: usize) !ReturnType {
+            assert(size <= @sizeOf(ReturnType));
+            var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
+            const bytes = bytes_buf[0..size];
+            try self.peekNoEof(bytes);
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
@@ -341,6 +557,14 @@ pub fn Reader(
             return res[0];
         }
 
+        pub fn peekStruct(self: Self, comptime T: type) !T {
+            // Only extern and packed structs have defined in-memory layout.
+            comptime assert(@typeInfo(T).Struct.layout != .Auto);
+            var res: [1]T = undefined;
+            try self.peekNoEof(mem.sliceAsBytes(res[0..]));
+            return res[0];
+        }
+
         /// Reads an integer with the same size as the given enum's tag type. If the integer matches
         /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an error.
         /// TODO optimization taking advantage of most fields being in order
@@ -351,6 +575,26 @@ pub fn Reader(
             };
             const type_info = @typeInfo(Enum).Enum;
             const tag = try self.readInt(type_info.tag_type, endian);
+
+            inline for (std.meta.fields(Enum)) |field| {
+                if (tag == field.value) {
+                    return @field(Enum, field.name);
+                }
+            }
+
+            return E.InvalidValue;
+        }
+
+        /// Peeks an integer with the same size as the given enum's tag type. If the integer matches
+        /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an error.
+        /// TODO optimization taking advantage of most fields being in order
+        pub fn peekEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) !Enum {
+            const E = error{
+                /// An integer was read, but it did not match any of the tags in the supplied enum.
+                InvalidValue,
+            };
+            const type_info = @typeInfo(Enum).Enum;
+            const tag = try self.peekInt(type_info.tag_type, endian);
 
             inline for (std.meta.fields(Enum)) |field| {
                 if (tag == field.value) {

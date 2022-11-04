@@ -15,7 +15,7 @@ pub fn PeekStream(
         fifo: FifoType,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, read, null);
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, buffer_type);
