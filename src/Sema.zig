@@ -11995,10 +11995,18 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const element_vals = try sema.arena.alloc(Value, final_len_including_sent);
             var elem_i: usize = 0;
             while (elem_i < lhs_len) : (elem_i += 1) {
-                element_vals[elem_i] = try lhs_sub_val.elemValue(sema.mod, sema.arena, elem_i);
+                const elem_val = try lhs_sub_val.elemValue(sema.mod, sema.arena, elem_i);
+                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coereced_elem_val;
             }
             while (elem_i < result_len) : (elem_i += 1) {
-                element_vals[elem_i] = try rhs_sub_val.elemValue(sema.mod, sema.arena, elem_i - lhs_len);
+                const elem_val = try rhs_sub_val.elemValue(sema.mod, sema.arena, elem_i - lhs_len);
+                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coereced_elem_val;
             }
             if (res_sent_val) |sent_val| {
                 element_vals[result_len] = sent_val;
