@@ -679,9 +679,6 @@ enum NodeType {
     NodeTypePtrDeref,
     NodeTypeUnwrapOptional,
     NodeTypeUsingNamespace,
-    NodeTypeBoolLiteral,
-    NodeTypeNullLiteral,
-    NodeTypeUndefinedLiteral,
     NodeTypeUnreachable,
     NodeTypeIfBoolExpr,
     NodeTypeWhileExpr,
@@ -1171,10 +1168,6 @@ struct AstNodeEnumLiteral {
     Buf *name;
 };
 
-struct AstNodeBoolLiteral {
-    bool value;
-};
-
 struct AstNodeBreakExpr {
     Buf *name;
     AstNode *expr; // may be null
@@ -1240,7 +1233,6 @@ struct AstNode {
         AstNodeStructField struct_field;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
         AstNodeArrayType array_type;

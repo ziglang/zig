@@ -4094,9 +4094,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeIntLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeUndefinedLiteral:
         case NodeTypeIdentifier:
         case NodeTypePrefixOpExpr:
         case NodeTypePointerType:
