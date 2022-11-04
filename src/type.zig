@@ -3574,15 +3574,13 @@ pub const Type = extern union {
             .u128, .i128, .f128 => return 128,
 
             .@"struct" => {
-                if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
-                if (ty.containerLayout() != .Packed) {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout != .Packed) {
                     return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
                 }
-                var total: u64 = 0;
-                for (ty.structFields().values()) |field| {
-                    total += try bitSizeAdvanced(field.ty, target, sema_kit);
-                }
-                return total;
+                if (sema_kit) |sk| _ = try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                assert(struct_obj.haveLayout());
+                return try struct_obj.backing_int_ty.bitSizeAdvanced(target, sema_kit);
             },
 
             .tuple, .anon_struct => {
