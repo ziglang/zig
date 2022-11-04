@@ -4061,6 +4061,44 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
+        } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            if (func_value.castTag(.function)) |func_payload| {
+                const func = func_payload.data;
+                const fn_owner_decl = mod.declPtr(func.owner_decl);
+                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                    .linker_load = .{
+                        .@"type" = .got,
+                        .sym_index = fn_owner_decl.link.coff.sym_index,
+                    },
+                });
+                // blr x30
+                _ = try self.addInst(.{
+                    .tag = .blr,
+                    .data = .{ .reg = .x30 },
+                });
+            } else if (func_value.castTag(.extern_fn)) |func_payload| {
+                const extern_fn = func_payload.data;
+                const decl_name = mod.declPtr(extern_fn.owner_decl).name;
+                if (extern_fn.lib_name) |lib_name| {
+                    log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
+                        decl_name,
+                        lib_name,
+                    });
+                }
+                const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+
+                _ = try self.addInst(.{
+                    .tag = .call_extern,
+                    .data = .{
+                        .relocation = .{
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.coff.sym_index,
+                            .sym_index = sym_index,
+                        },
+                    },
+                });
+            } else {
+                return self.fail("TODO implement calling bitcasted functions", .{});
+            }
         } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
             if (func_value.castTag(.function)) |func_payload| {
                 try p9.seeDecl(func_payload.data.owner_decl);
