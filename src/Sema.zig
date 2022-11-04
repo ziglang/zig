@@ -28769,6 +28769,13 @@ fn resolvePeerTypes(
                             }
                         }
                     },
+                    .Fn => {
+                        if (!cand_info.mutable and cand_info.pointee_type.zigTypeTag() == .Fn and .ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty, cand_info.pointee_type, target, src, src)) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                            continue;
+                        }
+                    },
                     else => {},
                 }
             },
@@ -28798,6 +28805,11 @@ fn resolvePeerTypes(
             .Array => switch (chosen_ty_tag) {
                 .Vector => continue,
                 else => {},
+            },
+            .Fn => if (chosen_ty.isSinglePointer() and chosen_ty.isConstPtr() and chosen_ty.childType().zigTypeTag() == .Fn) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty.childType(), candidate_ty, target, src, src)) {
+                    continue;
+                }
             },
             else => {},
         }

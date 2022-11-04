@@ -1419,3 +1419,13 @@ test "floatToInt to zero-bit int" {
     var a: f32 = 0.0;
     comptime try std.testing.expect(@floatToInt(u0, a) == 0);
 }
+
+test "peer type resolution of function pointer and function body" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const T = fn () u32;
+    const a: T = undefined;
+    const b: *const T = undefined;
+    try expect(@TypeOf(a, b) == *const fn () u32);
+    try expect(@TypeOf(b, a) == *const fn () u32);
+}
