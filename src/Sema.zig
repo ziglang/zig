@@ -1917,6 +1917,7 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
             if (val.tag() == .runtime_value) make_runtime.* = true;
+            if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
             return val;
         },
         .const_ty => {
@@ -32086,15 +32087,36 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
     const ptr_info = ptr_ty.ptrInfo().data;
     const elem_ty = ptr_ty.elemType2();
     const allow_zero = ptr_info.@"allowzero" and (offset orelse 0) == 0;
+    const target = sema.mod.getTarget();
+    const parent_ty = ptr_ty.childType();
+
+    const vector_info: struct {
+        host_size: u16,
+        bit_offset: u16,
+        alignment: u32,
+    } = if (parent_ty.tag() == .vector) blk: {
+        const elem_bits = elem_ty.bitSize(target);
+        const is_packed = elem_bits != 0 and (elem_bits & (elem_bits - 1)) != 0;
+        // TODO: runtime-known index
+        assert(!is_packed or offset != null);
+        const is_packed_with_offset = is_packed and offset != null and offset.? != 0;
+        const target_offset = if (is_packed_with_offset) (if (target.cpu.arch.endian() == .Big) (parent_ty.vectorLen() - 1 - offset.?) else offset.?) else 0;
+        break :blk .{
+            .host_size = if (is_packed_with_offset) @intCast(u16, parent_ty.abiSize(target)) else 0,
+            .bit_offset = if (is_packed_with_offset) @intCast(u16, elem_bits * target_offset) else 0,
+            .alignment = if (is_packed_with_offset) @intCast(u16, parent_ty.abiAlignment(target)) else 0,
+        };
+    } else .{ .host_size = 0, .bit_offset = 0, .alignment = 0 };
+
     const alignment: u32 = a: {
         // Calculate the new pointer alignment.
         if (ptr_info.@"align" == 0) {
+            if (vector_info.alignment != 0) break :a vector_info.alignment;
             // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
             break :a 0;
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const target = sema.mod.getTarget();
         const elem_size = elem_ty.abiSize(target);
         const addend = if (offset) |off| elem_size * off else elem_size;
 
@@ -32111,5 +32133,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         .@"allowzero" = allow_zero,
         .@"volatile" = ptr_info.@"volatile",
         .@"align" = alignment,
+        .host_size = vector_info.host_size,
+        .bit_offset = vector_info.bit_offset,
     });
 }
