@@ -142,7 +142,8 @@ const MCValue = union(enum) {
     /// The value is in memory but requires a linker relocation fixup:
     /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
     /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
-    linker_load: struct { @"type": enum { got, direct }, sym_index: u32 },
+    /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
+    linker_load: struct { @"type": enum { got, direct, import }, sym_index: u32 },
     /// The value is one of the stack variables.
     ///
     /// If the type is a pointer, it means the pointer address is in
@@ -3717,6 +3718,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
                                     .got => .load_memory_ptr_got,
                                     .direct => .load_memory_ptr_direct,
+                                    .import => unreachable,
                                 };
                                 const mod = self.bin_file.options.module.?;
                                 const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
@@ -4086,15 +4088,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                     });
                 }
                 const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
-
-                _ = try self.addInst(.{
-                    .tag = .call_extern,
-                    .data = .{
-                        .relocation = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.coff.sym_index,
-                            .sym_index = sym_index,
-                        },
+                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                    .linker_load = .{
+                        .@"type" = .import,
+                        .sym_index = sym_index,
                     },
+                });
+                // blr x30
+                _ = try self.addInst(.{
+                    .tag = .blr,
+                    .data = .{ .reg = .x30 },
                 });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
@@ -4119,8 +4122,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
-        } else if (self.bin_file.cast(link.File.Coff)) |_| {
-            return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});
         } else unreachable;
     } else {
         assert(ty.zigTypeTag() == .Pointer);
@@ -5203,6 +5204,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
+                            .import => unreachable,
                         };
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
@@ -5316,6 +5318,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
                 .got => .load_memory_got,
                 .direct => .load_memory_direct,
+                .import => .load_memory_import,
             };
             const mod = self.bin_file.options.module.?;
             const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
@@ -5509,6 +5512,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
+                            .import => unreachable,
                         };
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
@@ -5835,7 +5839,13 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
             .sym_index = decl.link.macho.sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        return self.fail("TODO codegen COFF const Decl pointer", .{});
+        // Because COFF is PIE-always-on, we defer memory address resolution until
+        // the linker has enough info to perform relocations.
+        assert(decl.link.coff.sym_index != 0);
+        return MCValue{ .linker_load = .{
+            .@"type" = .got,
+            .sym_index = decl.link.coff.sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
@@ -5859,7 +5869,10 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
             .sym_index = local_sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        return self.fail("TODO lower unnamed const in COFF", .{});
+        return MCValue{ .linker_load = .{
+            .@"type" = .direct,
+            .sym_index = local_sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
         return self.fail("TODO lower unnamed const in Plan9", .{});
     } else {

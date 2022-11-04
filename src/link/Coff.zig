@@ -128,18 +128,28 @@ const Entry = struct {
 pub const Reloc = struct {
     @"type": enum {
         // x86, x86_64
+        /// RIP-relative displacement to a GOT pointer
         got,
+        /// RIP-relative displacement to an import pointer
+        import,
 
         // aarch64
-        branch_26,
+        /// PC-relative distance to target page in GOT section
         got_page,
+        /// Offset to a GOT pointer relative to the start of a page in GOT section
         got_pageoff,
+        /// PC-relative distance to target page in a section (e.g., .rdata)
         page,
+        /// Offset to a pointer relative to the start of a page in a section (e.g., .rdata)
         pageoff,
+        /// PC-relative distance to target page in a import section
+        import_page,
+        /// Offset to a pointer relative to the start of a page in an import section (e.g., .rdata)
+        import_pageoff,
 
         // common
-        import,
-        direct, // as unsigned, TODO split into signed for x86
+        /// Absolute pointer value
+        direct,
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -157,12 +167,14 @@ pub const Reloc = struct {
             => return coff_file.getGotAtomForSymbol(self.target),
 
             .direct,
-            .branch_26,
             .page,
             .pageoff,
             => return coff_file.getAtomForSymbol(self.target),
 
-            .import => return coff_file.getImportAtomForSymbol(self.target),
+            .import,
+            .import_page,
+            .import_pageoff,
+            => return coff_file.getImportAtomForSymbol(self.target),
         }
     }
 };
@@ -172,8 +184,6 @@ const BaseRelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanag
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
 
 const default_file_alignment: u16 = 0x200;
-const default_image_base_dll: u64 = 0x10000000;
-const default_image_base_exe: u64 = 0x400000;
 const default_size_of_stack_reserve: u32 = 0x1000000;
 const default_size_of_stack_commit: u32 = 0x1000;
 const default_size_of_heap_reserve: u32 = 0x100000;
@@ -891,6 +901,7 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
         const target_atom = reloc.getTargetAtom(self) orelse continue;
         const target_vaddr = target_atom.getSymbol(self).value;
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
+        const image_base = self.getImageBase();
 
         log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{
             source_vaddr,
@@ -902,31 +913,23 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
 
         reloc.dirty = false;
 
-        var buffer: [@sizeOf(u32)]u8 = undefined;
-        switch (reloc.@"type") {
-            .branch_26,
-            .got_page,
-            .got_pageoff,
-            .page,
-            .pageoff,
-            => {
-                const amt = try self.base.file.?.preadAll(&buffer, file_offset + reloc.offset);
-                if (amt != buffer.len) return error.InputOutput;
+        switch (self.base.options.target.cpu.arch) {
+            .aarch64 => {
+                var buffer: [@sizeOf(u64)]u8 = undefined;
+                switch (reloc.length) {
+                    2 => {
+                        const amt = try self.base.file.?.preadAll(buffer[0..4], file_offset + reloc.offset);
+                        if (amt != 4) return error.InputOutput;
+                    },
+                    3 => {
+                        const amt = try self.base.file.?.preadAll(&buffer, file_offset + reloc.offset);
+                        if (amt != 8) return error.InputOutput;
+                    },
+                    else => unreachable,
+                }
 
                 switch (reloc.@"type") {
-                    .branch_26 => {
-                        const displacement = math.cast(i28, @intCast(i64, target_vaddr_with_addend) - @intCast(i64, source_vaddr)) orelse
-                            unreachable; // TODO generate thunks
-                        var inst = aarch64.Instruction{
-                            .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
-                                aarch64.Instruction,
-                                aarch64.Instruction.unconditional_branch_immediate,
-                            ), &buffer),
-                        };
-                        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
-                        mem.writeIntLittle(u32, &buffer, inst.toU32());
-                    },
-                    .got_page, .page => {
+                    .got_page, .import_page, .page => {
                         const source_page = @intCast(i32, source_vaddr >> 12);
                         const target_page = @intCast(i32, target_vaddr_with_addend >> 12);
                         const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
@@ -934,31 +937,31 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                             .pc_relative_address = mem.bytesToValue(meta.TagPayload(
                                 aarch64.Instruction,
                                 aarch64.Instruction.pc_relative_address,
-                            ), &buffer),
+                            ), buffer[0..4]),
                         };
                         inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
                         inst.pc_relative_address.immlo = @truncate(u2, pages);
-                        mem.writeIntLittle(u32, &buffer, inst.toU32());
+                        mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
                     },
-                    .got_pageoff, .pageoff => {
+                    .got_pageoff, .import_pageoff, .pageoff => {
                         assert(!reloc.pcrel);
 
                         const narrowed = @truncate(u12, @intCast(u64, target_vaddr_with_addend));
-                        if (isArithmeticOp(&buffer)) {
+                        if (isArithmeticOp(buffer[0..4])) {
                             var inst = aarch64.Instruction{
                                 .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
                                     aarch64.Instruction,
                                     aarch64.Instruction.add_subtract_immediate,
-                                ), &buffer),
+                                ), buffer[0..4]),
                             };
                             inst.add_subtract_immediate.imm12 = narrowed;
-                            mem.writeIntLittle(u32, &buffer, inst.toU32());
+                            mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
                         } else {
                             var inst = aarch64.Instruction{
                                 .load_store_register = mem.bytesToValue(meta.TagPayload(
                                     aarch64.Instruction,
                                     aarch64.Instruction.load_store_register,
-                                ), &buffer),
+                                ), buffer[0..4]),
                             };
                             const offset: u12 = blk: {
                                 if (inst.load_store_register.size == 0) {
@@ -974,55 +977,73 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                                 }
                             };
                             inst.load_store_register.offset = offset;
-                            mem.writeIntLittle(u32, &buffer, inst.toU32());
+                            mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
+                        }
+                    },
+                    .direct => {
+                        assert(!reloc.pcrel);
+                        switch (reloc.length) {
+                            2 => mem.writeIntLittle(
+                                u32,
+                                buffer[0..4],
+                                @truncate(u32, target_vaddr_with_addend + image_base),
+                            ),
+                            3 => mem.writeIntLittle(u64, &buffer, target_vaddr_with_addend + image_base),
+                            else => unreachable,
                         }
                     },
 
-                    else => unreachable,
+                    .got => unreachable,
+                    .import => unreachable,
                 }
 
-                try self.base.file.?.pwriteAll(&buffer, file_offset + reloc.offset);
-
-                return;
+                switch (reloc.length) {
+                    2 => try self.base.file.?.pwriteAll(buffer[0..4], file_offset + reloc.offset),
+                    3 => try self.base.file.?.pwriteAll(&buffer, file_offset + reloc.offset),
+                    else => unreachable,
+                }
             },
 
-            else => {},
-        }
+            .x86_64, .i386 => {
+                switch (reloc.@"type") {
+                    .got_page => unreachable,
+                    .got_pageoff => unreachable,
+                    .page => unreachable,
+                    .pageoff => unreachable,
+                    .import_page => unreachable,
+                    .import_pageoff => unreachable,
 
-        switch (reloc.@"type") {
-            .branch_26 => unreachable,
-            .got_page => unreachable,
-            .got_pageoff => unreachable,
-            .page => unreachable,
-            .pageoff => unreachable,
-
-            .got, .import => {
-                assert(reloc.pcrel);
-                const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
-                try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
-            },
-            .direct => {
-                if (reloc.pcrel) {
-                    const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
-                    try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
-                } else switch (self.ptr_width) {
-                    .p32 => try self.base.file.?.pwriteAll(
-                        mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
-                        file_offset + reloc.offset,
-                    ),
-                    .p64 => switch (reloc.length) {
-                        2 => try self.base.file.?.pwriteAll(
-                            mem.asBytes(&@truncate(u32, target_vaddr_with_addend + default_image_base_exe)),
-                            file_offset + reloc.offset,
-                        ),
-                        3 => try self.base.file.?.pwriteAll(
-                            mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
-                            file_offset + reloc.offset,
-                        ),
-                        else => unreachable,
+                    .got, .import => {
+                        assert(reloc.pcrel);
+                        const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                        try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
+                    },
+                    .direct => {
+                        if (reloc.pcrel) {
+                            const disp = @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+                            try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
+                        } else switch (self.ptr_width) {
+                            .p32 => try self.base.file.?.pwriteAll(
+                                mem.asBytes(&@intCast(u32, target_vaddr_with_addend + image_base)),
+                                file_offset + reloc.offset,
+                            ),
+                            .p64 => switch (reloc.length) {
+                                2 => try self.base.file.?.pwriteAll(
+                                    mem.asBytes(&@truncate(u32, target_vaddr_with_addend + image_base)),
+                                    file_offset + reloc.offset,
+                                ),
+                                3 => try self.base.file.?.pwriteAll(
+                                    mem.asBytes(&(target_vaddr_with_addend + image_base)),
+                                    file_offset + reloc.offset,
+                                ),
+                                else => unreachable,
+                            },
+                        }
                     },
                 }
             },
+
+            else => unreachable, // unhandled target architecture
         }
     }
 }
@@ -1950,11 +1971,7 @@ fn writeHeader(self: *Coff) !void {
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
     const size_of_headers: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), default_file_alignment);
-    const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
-        .Exe => default_image_base_exe,
-        .Lib => default_image_base_dll,
-        else => unreachable,
-    };
+    const image_base = self.getImageBase();
 
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
     const base_of_data = self.sections.get(self.data_section_index.?).header.virtual_address;
@@ -2159,6 +2176,19 @@ pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
     const entry_name = self.base.options.entry orelse "wWinMainCRTStartup"; // TODO this is incomplete
     const global_index = self.resolver.get(entry_name) orelse return null;
     return self.globals.items[global_index];
+}
+
+pub fn getImageBase(self: Coff) u64 {
+    const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
+        .Exe => switch (self.base.options.target.cpu.arch) {
+            .aarch64 => 0x140000000,
+            .x86_64, .i386 => 0x400000,
+            else => unreachable, // unsupported target architecture
+        },
+        .Lib => 0x10000000,
+        else => unreachable,
+    };
+    return image_base;
 }
 
 /// Returns pointer-to-symbol described by `sym_loc` descriptor.

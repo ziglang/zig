@@ -84,6 +84,10 @@ pub const Inst = struct {
         ///
         /// Payload is `LoadMemoryPie`
         load_memory_direct,
+        /// Loads the contents into a register
+        ///
+        /// Payload is `LoadMemoryPie`
+        load_memory_import,
         /// Loads the address into a register
         ///
         /// Payload is `LoadMemoryPie`
