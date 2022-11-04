@@ -12469,10 +12469,12 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     return sema.addConstant(
                         resolved_type,
@@ -12584,10 +12586,12 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     if (modulus_val.compareWithZero(.neq)) {
                         return sema.fail(block, src, "exact division produced remainder", .{});
                     }
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target);
                     if (modulus_val.compareWithZero(.neq)) {
@@ -12862,10 +12866,12 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     return sema.addConstant(
                         resolved_type,
