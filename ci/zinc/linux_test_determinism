@@ -1,0 +1,28 @@
+#!/bin/sh
+
+set -x
+set -e
+
+DEPS_LOCAL="/deps/local"
+ZIG_PREFIX="$DRONE_WORKSPACE/_release/staging"
+VERSION=$($ZIG_PREFIX/bin/zig version)
+
+"$ZIG_PREFIX/bin/zig" build \
+  --prefix stage4 \
+  -Dconfig_h="build-release/config.h" \
+  -Denable-llvm \
+  -Denable-stage1 \
+  -Dno-lib \
+  -Drelease \
+  -Dstrip \
+  -Dtarget=x86_64-linux-musl \
+  -Duse-zig-libcxx \
+  -Dversion-string="$VERSION"
+
+# diff returns an error code if the files differ.
+echo "If the following command fails, it means nondeterminism has been"
+echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+diff "$ZIG_PREFIX/bin/zig" "stage4/bin/zig"
+
+# Explicit exit helps show last command duration.
+exit
