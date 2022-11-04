@@ -9662,6 +9662,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
     const operand = try sema.resolveInst(extra.data.operand);
+    // AstGen guarantees that the instruction immediately following
+    // switch_cond(_ref) is a dbg_stmt
+    const cond_dbg_node_index = Zir.refToIndex(extra.data.operand).? + 1;
 
     var header_extra_index: usize = extra.end;
 
@@ -10358,6 +10361,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (backend_supports_is_named_enum and block.wantSafety() and operand_ty.zigTypeTag() == .Enum and
             (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
+            try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
             try sema.addSafetyCheck(block, ok, .corrupt_switch);
         }
@@ -10827,6 +10831,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (backend_supports_is_named_enum and special.body.len != 0 and block.wantSafety() and
             operand_ty.zigTypeTag() == .Enum and (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
+            try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
             try sema.addSafetyCheck(&case_block, ok, .corrupt_switch);
         }
@@ -10850,6 +10855,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
             if (case_block.wantSafety()) {
+                try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
                 _ = try sema.safetyPanic(&case_block, src, .corrupt_switch);
             } else {
                 _ = try case_block.addNoOp(.unreach);
@@ -16620,7 +16626,17 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const bitoffset_src: LazySrcLoc = .{ .node_offset_ptr_bitoffset = extra.data.src_node };
     const hostsize_src: LazySrcLoc = .{ .node_offset_ptr_hostsize = extra.data.src_node };
 
-    const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
+    const unresolved_elem_ty = blk: {
+        const air_inst = try sema.resolveInst(extra.data.elem_type);
+        const ty = sema.analyzeAsType(block, elem_ty_src, air_inst) catch |err| {
+            if (err == error.AnalysisFail and sema.err != null and sema.typeOf(air_inst).isSinglePointer()) {
+                try sema.errNote(block, elem_ty_src, sema.err.?, "use '.*' to dereference pointer", .{});
+            }
+            return err;
+        };
+        if (ty.tag() == .generic_poison) return error.GenericPoison;
+        break :blk ty;
+    };
     const target = sema.mod.getTarget();
 
     var extra_i = extra.end;
@@ -18666,6 +18682,13 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
+    if (dest_ty.intInfo(sema.mod.getTarget()).bits == 0) {
+        if (block.wantSafety()) {
+            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, Value.zero));
+            try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
+        }
+        return sema.addConstant(dest_ty, Value.zero);
+    }
     const result = try block.addTyOp(if (block.float_mode == .Optimized) .float_to_int_optimized else .float_to_int, dest_ty, operand);
     if (block.wantSafety()) {
         const back = try block.addTyOp(.int_to_float, operand_ty, result);
@@ -18931,6 +18954,9 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         }
         if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
             return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
+        }
+        if (dest_ty.zigTypeTag() == .Optional and sema.typeOf(ptr).zigTypeTag() != .Optional) {
+            return sema.addConstant(dest_ty, try Value.Tag.opt_payload.create(sema.arena, operand_val));
         }
         return sema.addConstant(aligned_dest_ty, operand_val);
     }
@@ -23919,9 +23945,20 @@ fn coerceExtra(
             // cast from ?*T and ?[*]T to ?*anyopaque
             // but don't do it if the source type is a double pointer
             if (dest_ty.isPtrLikeOptional() and dest_ty.elemType2().tag() == .anyopaque and
-                inst_ty.isPtrLikeOptional() and inst_ty.elemType2().zigTypeTag() != .Pointer)
-            {
+                inst_ty.isPtrAtRuntime())
+            anyopaque_check: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :optional;
+                const elem_ty = inst_ty.elemType2();
+                if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
+                    in_memory_result = .{ .double_ptr_to_anyopaque = .{
+                        .actual = inst_ty,
+                        .wanted = dest_ty,
+                    } };
+                    break :optional;
+                }
+                // Let the logic below handle wrapping the optional now that
+                // it has been checked to correctly coerce.
+                if (!inst_ty.isPtrLikeOptional()) break :anyopaque_check;
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24044,9 +24081,16 @@ fn coerceExtra(
 
             // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
-                inst_ty.childType().zigTypeTag() != .Pointer and sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-            {
+            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer) {
+                if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
+                const elem_ty = inst_ty.elemType2();
+                if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
+                    in_memory_result = .{ .double_ptr_to_anyopaque = .{
+                        .actual = inst_ty,
+                        .wanted = dest_ty,
+                    } };
+                    break :pointer;
+                }
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24528,6 +24572,7 @@ const InMemoryCoercionResult = union(enum) {
     ptr_allowzero: Pair,
     ptr_bit_range: BitRange,
     ptr_alignment: IntPair,
+    double_ptr_to_anyopaque: Pair,
 
     const Pair = struct {
         actual: Type,
@@ -24817,6 +24862,12 @@ const InMemoryCoercionResult = union(enum) {
             .ptr_alignment => |pair| {
                 try sema.errNote(block, src, msg, "pointer alignment '{}' cannot cast into pointer alignment '{}'", .{
                     pair.actual, pair.wanted,
+                });
+                break;
+            },
+            .double_ptr_to_anyopaque => |pair| {
+                try sema.errNote(block, src, msg, "cannot implicitly cast double pointer '{}' to anyopaque pointer '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
                 });
                 break;
             },
