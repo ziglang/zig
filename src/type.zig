@@ -5015,22 +5015,22 @@ pub const Type = extern union {
                 if (enum_full.tag_ty.hasRuntimeBits()) {
                     return null;
                 }
-                if (enum_full.fields.count() == 1) {
-                    if (enum_full.values.count() == 0) {
-                        return Value.zero;
+                switch (enum_full.fields.count()) {
+                    0 => return Value.initTag(.unreachable_value),
+                    1 => if (enum_full.values.count() == 0) {
+                        return Value.zero; // auto-numbered
                     } else {
                         return enum_full.values.keys()[0];
-                    }
-                } else {
-                    return null;
+                    },
+                    else => return null,
                 }
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                if (enum_simple.fields.count() == 1) {
-                    return Value.zero;
-                } else {
-                    return null;
+                switch (enum_simple.fields.count()) {
+                    0 => return Value.initTag(.unreachable_value),
+                    1 => return Value.zero,
+                    else => return null,
                 }
             },
             .enum_nonexhaustive => {
@@ -5044,6 +5044,7 @@ pub const Type = extern union {
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 const tag_val = union_obj.tag_ty.onePossibleValue() orelse return null;
+                if (union_obj.fields.count() == 0) return Value.initTag(.unreachable_value);
                 const only_field = union_obj.fields.values()[0];
                 const val_val = only_field.ty.onePossibleValue() orelse return null;
                 _ = tag_val;

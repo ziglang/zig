@@ -48,3 +48,21 @@ test "empty extern union" {
     try expect(@sizeOf(U) == 0);
     try expect(@alignOf(U) == 1);
 }
+
+test "empty union passed as argument" {
+    const U = union(enum) {
+        fn f(u: @This()) void {
+            switch (u) {}
+        }
+    };
+    U.f(@as(U, undefined));
+}
+
+test "empty enum passed as argument" {
+    const E = enum {
+        fn f(e: @This()) void {
+            switch (e) {}
+        }
+    };
+    E.f(@as(E, undefined));
+}

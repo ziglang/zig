@@ -10343,6 +10343,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
         if (special.is_inline) child_block.inline_case_capture = operand;
+        if (empty_enum) {
+            return Air.Inst.Ref.void_value;
+        }
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
@@ -30479,23 +30482,23 @@ pub fn typeHasOnePossibleValue(
             if (enum_obj.tag_ty.hasRuntimeBits()) {
                 return null;
             }
-            if (enum_obj.fields.count() == 1) {
-                if (enum_obj.values.count() == 0) {
+            switch (enum_obj.fields.count()) {
+                0 => return Value.initTag(.unreachable_value),
+                1 => if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
-                }
-            } else {
-                return null;
+                },
+                else => return null,
             }
         },
         .enum_simple => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
-            if (enum_simple.fields.count() == 1) {
-                return Value.zero;
-            } else {
-                return null;
+            switch (enum_simple.fields.count()) {
+                0 => return Value.initTag(.unreachable_value),
+                1 => return Value.zero,
+                else => return null,
             }
         },
         .enum_nonexhaustive => {
@@ -30512,7 +30515,7 @@ pub fn typeHasOnePossibleValue(
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
             const fields = union_obj.fields.values();
-            if (fields.len == 0) return Value.initTag(.empty_struct_value);
+            if (fields.len == 0) return Value.initTag(.unreachable_value);
             const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
