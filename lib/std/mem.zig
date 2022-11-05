@@ -285,8 +285,8 @@ pub fn zeroes(comptime T: type) T {
         .Pointer => |ptr_info| {
             switch (ptr_info.size) {
                 .Slice => {
-                    if(ptr_info.sentinel) |sentinel| {
-                        if(ptr_info.child == u8 and @ptrCast(*const u8, sentinel).* == 0) {
+                    if (ptr_info.sentinel) |sentinel| {
+                        if (ptr_info.child == u8 and @ptrCast(*const u8, sentinel).* == 0) {
                             return ""; // A special case for the most common use-case: null-terminated strings.
                         }
                         @compileError("Can't set a sentinel slice to zero. This would require allocating memory.");
