@@ -145,6 +145,7 @@ pub fn emitMir(
 
             .load_memory_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_direct => try emit.mirLoadMemoryPie(inst),
+            .load_memory_import => try emit.mirLoadMemoryPie(inst),
             .load_memory_ptr_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_ptr_direct => try emit.mirLoadMemoryPie(inst),
 
@@ -674,13 +675,14 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
+    const offset = blk: {
+        const offset = @intCast(u32, emit.code.items.len);
+        // bl
+        try emit.writeInstruction(Instruction.bl(0));
+        break :blk offset;
+    };
+
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-        const offset = blk: {
-            const offset = @intCast(u32, emit.code.items.len);
-            // bl
-            try emit.writeInstruction(Instruction.bl(0));
-            break :blk offset;
-        };
         // Add relocation to the decl.
         const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
@@ -692,8 +694,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
             .pcrel = true,
             .length = 2,
         });
+    } else if (emit.bin_file.cast(link.File.Coff)) |_| {
+        unreachable; // Calling imports is handled via `.load_memory_import`
     } else {
-        return emit.fail("Implement call_extern for linking backends != MachO", .{});
+        return emit.fail("Implement call_extern for linking backends != {{ COFF, MachO }}", .{});
     }
 }
 
@@ -855,7 +859,9 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.writeInstruction(Instruction.adrp(reg.toX(), 0));
 
     switch (tag) {
-        .load_memory_got => {
+        .load_memory_got,
+        .load_memory_import,
+        => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
@@ -923,6 +929,51 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 .load_memory_direct,
                 .load_memory_ptr_direct,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                else => unreachable,
+            },
+        });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        const target = switch (tag) {
+            .load_memory_got,
+            .load_memory_ptr_got,
+            .load_memory_direct,
+            .load_memory_ptr_direct,
+            => link.File.Coff.SymbolWithLoc{ .sym_index = data.sym_index, .file = null },
+            .load_memory_import => coff_file.getGlobalByIndex(data.sym_index),
+            else => unreachable,
+        };
+        try atom.addRelocation(coff_file, .{
+            .target = target,
+            .offset = offset,
+            .addend = 0,
+            .pcrel = true,
+            .length = 2,
+            .@"type" = switch (tag) {
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => .got_page,
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => .page,
+                .load_memory_import => .import_page,
+                else => unreachable,
+            },
+        });
+        try atom.addRelocation(coff_file, .{
+            .target = target,
+            .offset = offset + 4,
+            .addend = 0,
+            .pcrel = false,
+            .length = 2,
+            .@"type" = switch (tag) {
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => .got_pageoff,
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => .pageoff,
+                .load_memory_import => .import_pageoff,
                 else => unreachable,
             },
         });
