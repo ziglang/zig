@@ -22475,7 +22475,10 @@ fn fieldVal(
                     } else (try sema.mod.getErrorValue(field_name)).key;
 
                     return sema.addConstant(
-                        try child_type.copy(arena),
+                        if (!child_type.isAnyError())
+                            try child_type.copy(arena)
+                        else
+                            try Type.Tag.error_set_single.create(arena, name),
                         try Value.Tag.@"error".create(arena, .{ .name = name }),
                     );
                 },
@@ -22686,7 +22689,10 @@ fn fieldPtr(
                     var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     return sema.analyzeDeclRef(try anon_decl.finish(
-                        try child_type.copy(anon_decl.arena()),
+                        if (!child_type.isAnyError())
+                            try child_type.copy(anon_decl.arena())
+                        else
+                            try Type.Tag.error_set_single.create(anon_decl.arena(), name),
                         try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
                         0, // default alignment
                     ));
