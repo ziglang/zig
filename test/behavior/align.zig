@@ -107,7 +107,7 @@ test "alignment and size of structs with 128-bit fields" {
             .u129_size = 24,
         },
 
-        .i386 => switch (builtin.os.tag) {
+        .x86 => switch (builtin.os.tag) {
             .windows => .{
                 .a_align = 8,
                 .a_size = 16,

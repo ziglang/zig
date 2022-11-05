@@ -746,7 +746,7 @@ test "sigaction" {
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
-    if (native_os == .linux and builtin.target.cpu.arch == .i386)
+    if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
 
     const S = struct {

@@ -275,7 +275,7 @@ fn _start() callconv(.Naked) noreturn {
                     \\ andq $-16, %%rsp
                     \\ call _posixCallMainAndExit
                 ),
-                .i386 => asm volatile (
+                .x86 => asm volatile (
                     \\ xorl %%ebp, %%ebp
                     \\ movl %%esp, argc_argv_ptr
                     \\ andl $-16, %%esp
@@ -307,7 +307,7 @@ fn _start() callconv(.Naked) noreturn {
                     : [argc] "={rsp}" (-> [*]usize),
                 );
             },
-            .i386 => {
+            .x86 => {
                 argc_argv_ptr = asm volatile (
                     \\ xor %%ebp, %%ebp
                     : [argc] "={esp}" (-> [*]usize),

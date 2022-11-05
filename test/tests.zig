@@ -163,14 +163,14 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .musl,
             },
@@ -178,7 +178,7 @@ const test_targets = blk: {
         },
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .gnu,
             },
@@ -387,7 +387,7 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .windows,
                 .abi = .msvc,
             },
@@ -403,7 +403,7 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .windows,
                 .abi = .gnu,
             },
@@ -1279,7 +1279,7 @@ const c_abi_targets = [_]CrossTarget{
         .abi = .musl,
     },
     .{
-        .cpu_arch = .i386,
+        .cpu_arch = .x86,
         .os_tag = .linux,
         .abi = .musl,
     },

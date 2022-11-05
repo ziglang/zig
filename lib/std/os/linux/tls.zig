@@ -30,7 +30,7 @@ const native_arch = @import("builtin").cpu.arch;
 //         `-- The thread pointer register points here
 //
 // The structure of the TCB is not defined by the ABI so we reserve enough space
-// for a single pointer as some architectures such as i386 and x86_64 need a
+// for a single pointer as some architectures such as x86 and x86_64 need a
 // pointer to the TCB block itself at the address pointed by the tp.
 //
 // In this case the control structure and DTV are placed one after another right
@@ -49,7 +49,7 @@ const TLSVariant = enum {
 
 const tls_variant = switch (native_arch) {
     .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
-    .x86_64, .i386, .sparc64 => TLSVariant.VariantII,
+    .x86_64, .x86, .sparc64 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
@@ -102,7 +102,7 @@ const TLSImage = struct {
     dtv_offset: usize,
     data_offset: usize,
     data_size: usize,
-    // Only used on the i386 architecture
+    // Only used on the x86 architecture
     gdt_entry_number: usize,
 };
 
@@ -110,7 +110,7 @@ pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
     switch (native_arch) {
-        .i386 => {
+        .x86 => {
             var user_desc = std.os.linux.user_desc{
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,

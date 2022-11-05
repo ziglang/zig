@@ -110,7 +110,7 @@ pub fn generateFunction(
         //.tcele => return Function(.tcele).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.thumb => return Function(.thumb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.thumbeb => return Function(.thumbeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.i386 => return Function(.i386).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.x86 => return Function(.x86).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.xcore => return Function(.xcore).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.nvptx => return Function(.nvptx).generate(bin_file, src_loc, func, air, liveness, code, debug_output),

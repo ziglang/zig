@@ -197,7 +197,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{image_base}));
         }
 
-        if (target.cpu.arch == .i386) {
+        if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
@@ -380,7 +380,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     if (target.abi.isGnu()) {
                         try argv.append("-lldmingw");
 
-                        if (target.cpu.arch == .i386) {
+                        if (target.cpu.arch == .x86) {
                             try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
                         } else {
                             try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
@@ -388,7 +388,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
                         if (is_dyn_lib) {
                             try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.obj"));
-                            if (target.cpu.arch == .i386) {
+                            if (target.cpu.arch == .x86) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");

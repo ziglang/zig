@@ -128,7 +128,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = extra_flags,
                 };
             }
-            if (comp.getTarget().cpu.arch == .i386) {
+            if (comp.getTarget().cpu.arch == .x86) {
                 for (msvcrt_i386_src) |dep| {
                     (try c_source_files.addOne()).* = .{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -180,7 +180,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 };
             }
             const target = comp.getTarget();
-            if (target.cpu.arch == .i386 or target.cpu.arch == .x86_64) {
+            if (target.cpu.arch == .x86 or target.cpu.arch == .x86_64) {
                 for (mingwex_x86_src) |dep| {
                     (try c_source_files.addOne()).* = .{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -338,7 +338,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const target_def_arg = switch (target.cpu.arch) {
-        .i386 => "-DDEF_I386",
+        .x86 => "-DDEF_I386",
         .x86_64 => "-DDEF_X64",
         .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "-DDEF_ARM32",
         .aarch64, .aarch64_be => "-DDEF_ARM64",
@@ -434,7 +434,7 @@ fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8
     const target = comp.getTarget();
 
     const lib_path = switch (target.cpu.arch) {
-        .i386 => "lib32",
+        .x86 => "lib32",
         .x86_64 => "lib64",
         .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "libarm32",
         .aarch64, .aarch64_be => "libarm64",

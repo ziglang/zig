@@ -1294,7 +1294,7 @@ pub fn updateDeclExports(
             const exported_decl = module.declPtr(exp.exported_decl);
             if (exported_decl.getFunction() == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
-                .i386 => std.builtin.CallingConvention.Stdcall,
+                .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
             const decl_cc = exported_decl.ty.fnCallingConvention();

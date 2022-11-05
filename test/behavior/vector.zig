@@ -639,7 +639,7 @@ test "vector shift operators" {
     };
 
     switch (builtin.target.cpu.arch) {
-        .i386,
+        .x86,
         .aarch64,
         .aarch64_be,
         .aarch64_32,

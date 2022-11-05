@@ -21,7 +21,7 @@ struct ZigWindowsSDKPrivate {
 
 enum NativeArch {
     NativeArchArm,
-    NativeArchi386,
+    NativeArchx86,
     NativeArchx86_64,
     NativeArchAarch64,
 };
@@ -29,7 +29,7 @@ enum NativeArch {
 #if defined(_M_ARM) || defined(__arm_)
 static const NativeArch native_arch = NativeArchArm;
 #elif defined(_M_IX86) || defined(__i386__)
-static const NativeArch native_arch = NativeArchi386;
+static const NativeArch native_arch = NativeArchx86;
 #elif defined(_M_X64) || defined(__x86_64__)
 static const NativeArch native_arch = NativeArchx86_64;
 #elif defined(_M_ARM64) || defined(__aarch64__)
@@ -110,7 +110,7 @@ static ZigFindWindowsSdkError find_msvc_lib_dir(ZigWindowsSDKPrivate *priv) {
             fclose(tools_file);
             out_append_ptr += sprintf(out_append_ptr, "VC\\Tools\\MSVC\\%s\\lib\\", tmp_path);
             switch (native_arch) {
-            case NativeArchi386:
+            case NativeArchx86:
                 out_append_ptr += sprintf(out_append_ptr, "x86\\");
                 break;
             case NativeArchx86_64:
@@ -158,7 +158,7 @@ com_done:;
     char *tmp_buf_append_ptr = tmp_buf + (cb_data - 1);
     tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "VC\\Lib\\");
     switch (native_arch) {
-    case NativeArchi386:
+    case NativeArchx86:
         //x86 is in the root of the Lib folder
         break;
     case NativeArchx86_64:
@@ -219,7 +219,7 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 	case NativeArchx86_64:
 		option_name = "OptionId.DesktopCPPx64";
 		break;
-	case NativeArchi386:
+	case NativeArchx86:
 		option_name = "OptionId.DesktopCPPx86";
 		break;
 	default:

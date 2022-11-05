@@ -11,7 +11,7 @@ const R_RISCV_RELATIVE = 3;
 const R_SPARC_RELATIVE = 22;
 
 const R_RELATIVE = switch (builtin.cpu.arch) {
-    .i386 => R_386_RELATIVE,
+    .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
     .arm => R_ARM_RELATIVE,
     .aarch64 => R_AARCH64_RELATIVE,
@@ -24,7 +24,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 // relocation that, at this point, is not yet applied.
 fn getDynamicSymbol() [*]elf.Dyn {
     return switch (builtin.cpu.arch) {
-        .i386 => asm volatile (
+        .x86 => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ call 1f

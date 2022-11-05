@@ -8415,20 +8415,20 @@ fn funcCommon(
         if (switch (cc_workaround) {
             .Unspecified, .C, .Naked, .Async, .Inline => null,
             .Interrupt => switch (arch) {
-                .i386, .x86_64, .avr, .msp430 => null,
-                else => @as([]const u8, "i386, x86_64, AVR, and MSP430"),
+                .x86, .x86_64, .avr, .msp430 => null,
+                else => @as([]const u8, "x86, x86_64, AVR, and MSP430"),
             },
             .Signal => switch (arch) {
                 .avr => null,
                 else => @as([]const u8, "AVR"),
             },
             .Stdcall, .Fastcall, .Thiscall => switch (arch) {
-                .i386 => null,
-                else => @as([]const u8, "i386"),
+                .x86 => null,
+                else => @as([]const u8, "x86"),
             },
             .Vectorcall => switch (arch) {
-                .i386, .aarch64, .aarch64_be, .aarch64_32 => null,
-                else => @as([]const u8, "i386 and AArch64"),
+                .x86, .aarch64, .aarch64_be, .aarch64_32 => null,
+                else => @as([]const u8, "x86 and AArch64"),
             },
             .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
                 .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32, .thumb, .thumbeb => null,
@@ -30813,7 +30813,7 @@ pub fn analyzeAddressSpace(
 
     const supported = switch (address_space) {
         .generic => true,
-        .gs, .fs, .ss => (arch == .i386 or arch == .x86_64) and ctx == .pointer,
+        .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized
         .param => is_nv,
         .global, .shared, .local => is_gpu,

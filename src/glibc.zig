@@ -327,7 +327,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 });
                 try add_include_dirs(comp, arena, &args);
 
-                if (target.cpu.arch == .i386) {
+                if (target.cpu.arch == .x86) {
                     // This prevents i386/sysdep.h from trying to do some
                     // silly and unnecessary inline asm hack that uses weird
                     // syntax that clang does not support.
@@ -406,7 +406,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         }
     } else if (arch == .x86_64) {
         try result.appendSlice("x86_64");
-    } else if (arch == .i386) {
+    } else if (arch == .x86) {
         try result.appendSlice("i386");
     } else if (is_aarch64) {
         try result.appendSlice("aarch64");
@@ -504,7 +504,7 @@ fn add_include_dirs_arch(
     opt_nptl: ?[]const u8,
     dir: []const u8,
 ) error{OutOfMemory}!void {
-    const is_x86 = arch == .i386 or arch == .x86_64;
+    const is_x86 = arch == .x86 or arch == .x86_64;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
@@ -521,7 +521,7 @@ fn add_include_dirs_arch(
                 try args.append("-I");
                 try args.append(try path.join(arena, &[_][]const u8{ dir, "x86_64" }));
             }
-        } else if (arch == .i386) {
+        } else if (arch == .x86) {
             if (opt_nptl) |nptl| {
                 try args.append("-I");
                 try args.append(try path.join(arena, &[_][]const u8{ dir, "i386", nptl }));

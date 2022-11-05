@@ -3004,7 +3004,7 @@ fn sectHeaderTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
 
 fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
-        .i386 => return "elf_i386",
+        .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
         .aarch64_be => return "aarch64_be_linux",
         .arm, .thumb => return "armelf_linux_eabi",
