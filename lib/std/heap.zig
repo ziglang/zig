@@ -746,7 +746,7 @@ pub const FixedBufferAllocator = struct {
     }
 
     /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
-    /// *WARNING* using this at the same time as the interface returned by `getAllocator` is not thread safe
+    /// *WARNING* using this at the same time as the interface returned by `allocator` is not thread safe
     pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
         return Allocator.init(
             self,

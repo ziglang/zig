@@ -2891,6 +2891,7 @@ test "rotate" {
 /// Replace needle with replacement as many times as possible, writing to an output buffer which is assumed to be of
 /// appropriate size. Use replacementSize to calculate an appropriate buffer size.
 /// The needle must not be empty.
+/// Returns the number of replacements made.
 pub fn replace(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: []T) usize {
     // Empty needle will loop until output buffer overflows.
     assert(needle.len > 0);
