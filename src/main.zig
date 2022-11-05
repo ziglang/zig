@@ -168,7 +168,13 @@ pub fn main() anyerror!void {
         // This sets our CWD to "/preopens/cwd"
         // Dot-prefixed preopens like `--dir=.` are "mounted" at "/preopens/cwd"
         // Other preopens like `--dir=lib` are "mounted" at "/"
-        try std.os.initPreopensWasi(std.heap.page_allocator, "/preopens/cwd");
+        try std.os.initPreopensWasi(arena, "/preopens/cwd");
+    }
+
+    // Short circuit some of the other logic for bootstrapping.
+    if (build_options.only_c) {
+        assert(mem.eql(u8, args[1], "build-obj"));
+        return buildOutputType(gpa, arena, args, .{ .build = .Obj });
     }
 
     return mainArgs(gpa, arena, args);

@@ -2421,11 +2421,13 @@ pub fn update(comp: *Compilation) !void {
         return;
     }
 
-    if (comp.emit_docs) |doc_location| {
-        if (comp.bin_file.options.module) |module| {
-            var autodoc = Autodoc.init(module, doc_location);
-            defer autodoc.deinit();
-            try autodoc.generateZirData();
+    if (!build_options.only_c) {
+        if (comp.emit_docs) |doc_location| {
+            if (comp.bin_file.options.module) |module| {
+                var autodoc = Autodoc.init(module, doc_location);
+                defer autodoc.deinit();
+                try autodoc.generateZirData();
+            }
         }
     }
 

@@ -14,12 +14,29 @@ const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *Builder) !void {
-    b.setPreferredReleaseMode(.ReleaseFast);
-    const test_step = b.step("test", "Run all the tests");
-    const mode = b.standardReleaseOptions();
-    var target = b.standardTargetOptions(.{});
+    const wasi_bootstrap = b.option(bool, "wasi-bootstrap", "Produce a WASI build for bootstrapping the compiler") orelse false;
+    const release = b.option(bool, "release", "Build in release mode") orelse wasi_bootstrap;
+    const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse wasi_bootstrap;
+    const target = t: {
+        var default_target: std.zig.CrossTarget = .{};
+        if (wasi_bootstrap) {
+            default_target.cpu_arch = .wasm32;
+            default_target.os_tag = .wasi;
+            break :t default_target;
+        } else if (only_c) {
+            default_target.ofmt = .c;
+        }
+        break :t b.standardTargetOptions(.{ .default_target = default_target });
+    };
+    const mode: std.builtin.Mode = if (release) switch (target.getCpuArch()) {
+        .wasm32 => .ReleaseSmall,
+        else => .ReleaseFast,
+    } else .Debug;
+
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
+
+    const test_step = b.step("test", "Run all the tests");
 
     const docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
     docgen_exe.single_threaded = single_threaded;
@@ -48,8 +65,6 @@ pub fn build(b: *Builder) !void {
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
-    const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
-
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -65,7 +80,7 @@ pub fn build(b: *Builder) !void {
     if (deprecated_skip_install_lib_files) {
         std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
     }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse (deprecated_skip_install_lib_files or wasi_bootstrap);
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -129,20 +144,16 @@ pub fn build(b: *Builder) !void {
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
-    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or (only_c and !wasi_bootstrap));
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
-    const strip = b.option(bool, "strip", "Omit debug information") orelse false;
+    const strip = b.option(bool, "strip", "Omit debug information");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
-        if (strip) break :blk @as(u32, 0);
+        if (strip == true) break :blk @as(u32, 0);
         if (mode != .Debug) break :blk 0;
         break :blk 4;
     };
-
-    if (only_c) {
-        target.ofmt = .c;
-    }
 
     const main_file: ?[]const u8 = "src/main.zig";
 
