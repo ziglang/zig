@@ -8553,11 +8553,11 @@ test "@hasDecl" {
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
               The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file.
-              This is usually <code>src/main.zig</code> but it depends on what file is chosen to be built.
+          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
+              This is usually <code>src/main.zig</code> but depends on what file is built.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
