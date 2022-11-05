@@ -285,7 +285,14 @@ pub fn zeroes(comptime T: type) T {
         .Pointer => |ptr_info| {
             switch (ptr_info.size) {
                 .Slice => {
-                    return &[_]ptr_info.child{};
+                    if(ptr_info.sentinel) |sentinel| {
+                        if(ptr_info.child == u8 and @ptrCast(*const u8, sentinel).* == 0) {
+                            return ""; // A special case for the most common use-case: null-terminated strings.
+                        }
+                        @compileError("Can't set a sentinel slice to zero. This would require allocating memory.");
+                    } else {
+                        return &[_]ptr_info.child{};
+                    }
                 },
                 .C => {
                     return null;
@@ -373,6 +380,7 @@ test "zeroes" {
             optional: ?*u8,
             c_pointer: [*c]u8,
             slice: []u8,
+            nullTerminatedString: [:0]const u8,
         },
 
         array: [2]u32,
@@ -403,6 +411,7 @@ test "zeroes" {
     try testing.expectEqual(@as(?*u8, null), b.pointers.optional);
     try testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
     try testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
+    try testing.expectEqual(@as([:0]const u8, ""), b.pointers.nullTerminatedString);
     for (b.array) |e| {
         try testing.expectEqual(@as(u32, 0), e);
     }
