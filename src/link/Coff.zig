@@ -1004,7 +1004,7 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                 }
             },
 
-            .x86_64, .i386 => {
+            .x86_64, .x86 => {
                 switch (reloc.@"type") {
                     .got_page => unreachable,
                     .got_pageoff => unreachable,
@@ -2182,7 +2182,7 @@ pub fn getImageBase(self: Coff) u64 {
     const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
         .Exe => switch (self.base.options.target.cpu.arch) {
             .aarch64 => @as(u64, 0x140000000),
-            .x86_64, .i386 => 0x400000,
+            .x86_64, .x86 => 0x400000,
             else => unreachable, // unsupported target architecture
         },
         .Lib => 0x10000000,
