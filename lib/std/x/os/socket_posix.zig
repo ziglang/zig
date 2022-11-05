@@ -62,7 +62,7 @@ pub fn Mixin(comptime Socket: type) type {
         pub fn read(self: Socket, buf: []u8, flags: u32) !usize {
             return os.recv(self.fd, buf, flags);
         }
-        
+
         /// Peek data from the socket into the buffer provided with a set of flags
         /// specified. It returns the number of bytes read into the buffer provided.
         pub fn peek(self: Socket, buf: []u8, flags: u32) !usize {

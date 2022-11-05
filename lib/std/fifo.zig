@@ -204,7 +204,7 @@ pub fn LinearFifo(
             self.discard(1);
             return c;
         }
-        
+
         /// Peek the next item from the fifo
         pub fn peekItemNext(self: *Self) ?T {
             if (self.count == 0) return null;
@@ -228,11 +228,11 @@ pub fn LinearFifo(
 
             return dst.len - dst_left.len;
         }
-        
+
         pub fn peek(self: *Self, dst: []T) usize {
             var dst_left = dst;
 
-            var off : usize = 0;
+            var off: usize = 0;
             while (dst_left.len > 0) {
                 const slice = self.readableSlice(off);
                 if (slice.len == 0) break;
