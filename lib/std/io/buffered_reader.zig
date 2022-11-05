@@ -14,49 +14,46 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
 
-        fn read(s: *Self, b: []u8) Error!usize {
-            var n: usize = 0; // amount read
-
-            if (s.cur >= s.l) {
-                return 0;
-            }
-            n = b.len;
-            var cur = s.cur + n;
-            if (cur > s.l) {
-                n -= cur - s.l;
-                cur = s.l;
-            }
-            for (b[0..n]) |_, i| {
-                if (s.cur + i >= s.l -| (1 << 16)) {
-                    b[i] = 1;
-                } else {
-                    b[i] = 0;
+        pub fn read(self: *Self, dest: []u8) Error!usize {
+            var dest_index: usize = 0;
+            while (dest_index < dest.len) {
+                const written = self.fifo.read(dest[dest_index..]);
+                if (written == 0) {
+                    // fifo empty, fill it
+                    const writable = self.fifo.writableSlice(0);
+                    assert(writable.len > 0);
+                    const n = try self.unbuffered_reader.read(writable);
+                    if (n == 0) {
+                        // reading from the unbuffered stream returned nothing
+                        // so we have nothing left to read.
+                        return dest_index;
+                    }
+                    self.fifo.update(n);
                 }
+                dest_index += written;
             }
-            s.cur = cur;
-            return n;
+            return dest.len;
         }
 
-        fn peek(s: *Self, b: []u8) Error!usize {
-            var n: usize = 0; // amount read
-
-            if (s.cur >= s.l) {
-                return 0;
-            }
-            n = b.len;
-            var cur = s.cur + n;
-            if (cur > s.l) {
-                n -= cur - s.l;
-                cur = s.l;
-            }
-            for (b[0..n]) |_, i| {
-                if (s.cur + i >= s.l -| (1 << 16)) {
-                    b[i] = 1;
-                } else {
-                    b[i] = 0;
+        fn peek(self: *Self, dest: []u8) Error!usize {
+            var dest_index: usize = 0;
+            while (dest_index < dest.len) {
+                const written = self.fifo.peek(dest[dest_index..]);
+                if (written == 0) {
+                    // fifo empty, fill it
+                    const writable = self.fifo.writableSlice(0);
+                    assert(writable.len > 0);
+                    const n = try self.unbuffered_reader.peek(writable);
+                    if (n == 0) {
+                        // reading from the unbuffered stream returned nothing
+                        // so we have nothing left to read.
+                        return dest_index;
+                    }
+                    self.fifo.update(n);
                 }
+                dest_index += written;
             }
-            return n;
+            return dest.len;
         }
 
         pub fn reader(self: *Self) Reader {
@@ -76,7 +73,7 @@ test "io.BufferedReader" {
 
         const Error = error{NoError};
         const Self = @This();
-        const Reader = io.Reader(*Self, Error, read);
+        const Reader = io.Reader(*Self, Error, read, null);
 
         fn init(str: []const u8) Self {
             return Self{

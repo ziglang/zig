@@ -64,6 +64,11 @@ pub const Client = struct {
         pub fn read(self: Client.Reader, buffer: []u8) !usize {
             return self.client.read(buffer, self.flags);
         }
+
+        /// Implements `peekFn` for `std.io.Reader`.
+        pub fn peek(self: Client.Reader, buffer: []u8) !usize {
+            return self.client.peek(buffer, self.flags);
+        }
     };
 
     /// Implements `std.io.Writer`.
@@ -129,6 +134,12 @@ pub const Client = struct {
     /// specified. It returns the number of bytes read into the buffer provided.
     pub fn read(self: Client, buf: []u8, flags: u32) !usize {
         return self.socket.read(buf, flags);
+    }
+
+    /// Read data from the socket into the buffer provided with a set of flags
+    /// specified. It returns the number of bytes read into the buffer provided.
+    pub fn peek(self: Client, buf: []u8, flags: u32) !usize {
+        return self.socket.peek(buf, flags);
     }
 
     /// Write a buffer of data provided to the socket with a set of flags specified.

@@ -204,6 +204,14 @@ pub fn LinearFifo(
             self.discard(1);
             return c;
         }
+        
+        /// Peek the next item from the fifo
+        pub fn peekItemNext(self: *Self) ?T {
+            if (self.count == 0) return null;
+
+            const c = self.buf[self.head];
+            return c;
+        }
 
         /// Read data from the fifo into `dst`, returns number of items copied.
         pub fn read(self: *Self, dst: []T) usize {
@@ -215,6 +223,22 @@ pub fn LinearFifo(
                 const n = math.min(slice.len, dst_left.len);
                 mem.copy(T, dst_left, slice[0..n]);
                 self.discard(n);
+                dst_left = dst_left[n..];
+            }
+
+            return dst.len - dst_left.len;
+        }
+        
+        pub fn peek(self: *Self, dst: []T) usize {
+            var dst_left = dst;
+
+            var off : usize = 0;
+            while (dst_left.len > 0) {
+                const slice = self.readableSlice(off);
+                if (slice.len == 0) break;
+                const n = math.min(slice.len, dst_left.len);
+                mem.copy(T, dst_left, slice[off..n]);
+                off += n;
                 dst_left = dst_left[n..];
             }
 
@@ -508,6 +532,51 @@ test "LinearFifo" {
                 try testing.expectEqual(@as(T, 0), fifo.readItem().?);
                 try testing.expectEqual(@as(T, 1), fifo.readItem().?);
                 try testing.expectEqual(@as(usize, 0), fifo.readableLength());
+            }
+
+            {
+                try fifo.writeItem(1);
+                try fifo.writeItem(1);
+                try fifo.writeItem(1);
+                try testing.expectEqual(@as(usize, 3), fifo.readableLength());
+            }
+
+            {
+                var readBuf: [3]T = undefined;
+                const n = fifo.read(&readBuf);
+                try testing.expectEqual(@as(usize, 3), n); // NOTE: It should be the number of items.
+            }
+        }
+    }
+}
+
+test "LinearFifo Peek" {
+    inline for ([_]type{ u1, u8, u16, u64 }) |T| {
+        inline for ([_]LinearFifoBufferType{ LinearFifoBufferType{ .Static = 32 }, .Slice, .Dynamic }) |bt| {
+            const FifoType = LinearFifo(T, bt);
+            var buf: if (bt == .Slice) [32]T else void = undefined;
+            var fifo = switch (bt) {
+                .Static => FifoType.init(),
+                .Slice => FifoType.init(buf[0..]),
+                .Dynamic => FifoType.init(testing.allocator),
+            };
+            defer fifo.deinit();
+
+            try fifo.write(&[_]T{ 0, 1, 1, 0, 1 });
+            try testing.expectEqual(@as(usize, 5), fifo.readableLength());
+
+            {
+                var a = fifo.peekItemNext().?;
+                var b = fifo.readItem().?;
+
+                try testing.expectEqual(a, b);
+                try testing.expectEqual(@as(usize, 4), fifo.readableLength());
+
+                var c = fifo.peekItemNext().?;
+                try testing.expectEqual(@as(T, 1), c);
+                try testing.expectEqual(@as(usize, 4), fifo.readableLength());
+
+                fifo.discard(fifo.readableLength());
             }
 
             {

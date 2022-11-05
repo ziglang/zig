@@ -210,6 +210,42 @@ pub fn Mixin(comptime Socket: type) type {
             return @intCast(usize, num_bytes);
         }
 
+        /// Peek data from the socket into the buffer provided with a set of flags
+        /// specified. It returns the number of bytes read into the buffer provided.
+        pub fn peek(self: Socket, buf: []u8, flags: u32) !usize {
+            var bufs = &[_]ws2_32.WSABUF{.{ .len = @intCast(u32, buf.len), .buf = buf.ptr }};
+            var num_bytes: u32 = undefined;
+            var flags_ = flags | ws2_32.MSG.PEEK;
+
+            const rc = ws2_32.WSARecv(self.fd, bufs, 1, &num_bytes, &flags_, null, null);
+            if (rc == ws2_32.SOCKET_ERROR) {
+                return switch (ws2_32.WSAGetLastError()) {
+                    .WSAECONNABORTED => error.ConnectionAborted,
+                    .WSAECONNRESET => error.ConnectionResetByPeer,
+                    .WSAEDISCON => error.ConnectionClosedByPeer,
+                    .WSAEFAULT => error.BadBuffer,
+                    .WSAEINPROGRESS,
+                    .WSAEWOULDBLOCK,
+                    .WSA_IO_PENDING,
+                    .WSAETIMEDOUT,
+                    => error.WouldBlock,
+                    .WSAEINTR => error.Cancelled,
+                    .WSAEINVAL => error.SocketNotBound,
+                    .WSAEMSGSIZE => error.MessageTooLarge,
+                    .WSAENETDOWN => error.NetworkSubsystemFailed,
+                    .WSAENETRESET => error.NetworkReset,
+                    .WSAENOTCONN => error.SocketNotConnected,
+                    .WSAENOTSOCK => error.FileDescriptorNotASocket,
+                    .WSAEOPNOTSUPP => error.OperationNotSupported,
+                    .WSAESHUTDOWN => error.AlreadyShutdown,
+                    .WSA_OPERATION_ABORTED => error.OperationAborted,
+                    else => |err| windows.unexpectedWSAError(err),
+                };
+            }
+
+            return @intCast(usize, num_bytes);
+        }
+
         /// Write a buffer of data provided to the socket with a set of flags specified.
         /// It returns the number of bytes that are written to the socket.
         pub fn write(self: Socket, buf: []const u8, flags: u32) !usize {
