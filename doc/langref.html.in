@@ -575,32 +575,27 @@ pub fn main() void {
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    print("\noptional 1\ntype: {s}\nvalue: {?s}\n", .{
-        @typeName(@TypeOf(optional_value)),
-        optional_value,
+    print("\noptional 1\ntype: {}\nvalue: {?s}\n", .{
+        @TypeOf(optional_value), optional_value,
     });
 
     optional_value = "hi";
     assert(optional_value != null);
 
-    print("\noptional 2\ntype: {s}\nvalue: {?s}\n", .{
-        @typeName(@TypeOf(optional_value)),
-        optional_value,
+    print("\noptional 2\ntype: {}\nvalue: {?s}\n", .{
+        @TypeOf(optional_value), optional_value,
     });
 
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    print("\nerror union 1\ntype: {s}\nvalue: {!}\n", .{
-        @typeName(@TypeOf(number_or_error)),
-        number_or_error,
-    });
+    print("\nerror union 1\ntype: {}\nvalue: {!}\n", .{
+        @TypeOf(number_or_error), number_or_error, });
 
     number_or_error = 1234;
 
-    print("\nerror union 2\ntype: {s}\nvalue: {!}\n", .{
-        @typeName(@TypeOf(number_or_error)),
-        number_or_error,
+    print("\nerror union 2\ntype: {}\nvalue: {!}\n", .{
+        @TypeOf(number_or_error), number_or_error,
     });
 }
       {#code_end#}
@@ -859,7 +854,7 @@ const mem = @import("std").mem; // will be used to compare bytes
 
 pub fn main() void {
     const bytes = "hello";
-    print("{s}\n", .{@typeName(@TypeOf(bytes))});       // *const [5:0]u8
+    print("{}\n", .{@TypeOf(bytes)});                   // *const [5:0]u8
     print("{d}\n", .{bytes.len});                       // 5
     print("{c}\n", .{bytes[1]});                        // 'e'
     print("{d}\n", .{bytes[5]});                        // 0
