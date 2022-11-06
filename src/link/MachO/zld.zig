@@ -4300,24 +4300,21 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // segment and the beginning of __LINKEDIT segment is zerofilled as the loader will
         // copy-paste this space into memory for quicker zerofill operation.
         if (zld.getSegmentByName("__DATA")) |data_seg_id| blk: {
-            var physical_zerofill_start: u64 = 0;
+            var physical_zerofill_start: ?u64 = null;
             const section_indexes = zld.getSectionIndexes(data_seg_id);
             for (zld.sections.items(.header)[section_indexes.start..section_indexes.end]) |header| {
                 if (header.isZerofill() and header.size > 0) break;
                 physical_zerofill_start = header.offset + header.size;
             } else break :blk;
+            const start = physical_zerofill_start orelse break :blk;
             const linkedit = zld.getLinkeditSegmentPtr();
-            const physical_zerofill_size = math.cast(usize, linkedit.fileoff - physical_zerofill_start) orelse
-                return error.Overflow;
-            if (physical_zerofill_size > 0) {
-                log.debug("zeroing out zerofill area of length {x} at {x}", .{
-                    physical_zerofill_size,
-                    physical_zerofill_start,
-                });
-                var padding = try zld.gpa.alloc(u8, physical_zerofill_size);
+            const size = math.cast(usize, linkedit.fileoff - start) orelse return error.Overflow;
+            if (size > 0) {
+                log.debug("zeroing out zerofill area of length {x} at {x}", .{ size, start });
+                var padding = try zld.gpa.alloc(u8, size);
                 defer zld.gpa.free(padding);
                 mem.set(u8, padding, 0);
-                try zld.file.pwriteAll(padding, physical_zerofill_start);
+                try zld.file.pwriteAll(padding, start);
             }
         }
 

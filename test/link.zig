@@ -79,6 +79,10 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
 }
 
 fn addMachOCases(cases: *tests.StandaloneContext) void {
+    cases.addBuildFile("test/link/macho/bugs/13457/build.zig", .{
+        .build_modes = true,
+    });
+
     cases.addBuildFile("test/link/macho/dead_strip/build.zig", .{
         .build_modes = false,
     });
