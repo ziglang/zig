@@ -40,6 +40,12 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                     break;
                 };
                 try self.addIncludeDir(include_path);
+            } else if (mem.eql(u8, word, "-iframework")) {
+                const framework_path = it.next() orelse {
+                    try self.addWarning("Expected argument after -iframework in NIX_CFLAGS_COMPILE");
+                    break;
+                };
+                try self.addFrameworkDir(framework_path);
             } else {
                 if (mem.startsWith(u8, word, "-frandom-seed=")) {
                     continue;
