@@ -569,7 +569,7 @@ pub fn writeCurrentStackTrace(
 }
 
 pub fn walkStackWindows(addresses: []usize) usize {
-    if (builtin.cpu.arch == .i386) {
+    if (builtin.cpu.arch == .x86) {
         // RtlVirtualUnwind doesn't exist on x86
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
     }
