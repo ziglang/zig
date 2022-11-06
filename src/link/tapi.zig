@@ -26,6 +26,7 @@ pub const TbdV3 = struct {
         allowable_clients: ?[]const []const u8,
         re_exports: ?[]const []const u8,
         symbols: ?[]const []const u8,
+        weak_symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
         objc_ivars: ?[]const []const u8,
         objc_eh_types: ?[]const []const u8,
@@ -53,6 +54,7 @@ pub const TbdV4 = struct {
     exports: ?[]const struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
+        weak_symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
         objc_ivars: ?[]const []const u8,
         objc_eh_types: ?[]const []const u8,
@@ -60,6 +62,7 @@ pub const TbdV4 = struct {
     reexports: ?[]const struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
+        weak_symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
         objc_ivars: ?[]const []const u8,
         objc_eh_types: ?[]const []const u8,
