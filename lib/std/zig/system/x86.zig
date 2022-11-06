@@ -80,7 +80,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
     }
     switch (family) {
         3 => {
-            cpu.model = &Target.x86.cpu.x86;
+            cpu.model = &Target.x86.cpu.i386;
             return;
         },
         4 => {

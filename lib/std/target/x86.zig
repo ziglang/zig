@@ -2040,8 +2040,8 @@ pub const cpu = struct {
             .xsaveopt,
         }),
     };
-    pub const x86 = CpuModel{
-        .name = "x86",
+    pub const @"i386" = CpuModel{
+        .name = "i386",
         .llvm_name = "i386",
         .features = featureSet(&[_]Feature{
             .slow_unaligned_mem_16,
