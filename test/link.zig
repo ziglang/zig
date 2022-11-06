@@ -79,6 +79,11 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
 }
 
 fn addMachOCases(cases: *tests.StandaloneContext) void {
+    cases.addBuildFile("test/link/macho/bugs/13056/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
+
     cases.addBuildFile("test/link/macho/bugs/13457/build.zig", .{
         .build_modes = true,
     });
