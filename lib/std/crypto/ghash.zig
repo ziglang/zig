@@ -76,29 +76,52 @@ pub const Ghash = struct {
     }
 
     // Carryless multiplication of two 64-bit integers for x86_64.
-    inline fn clmulPclmul(x: u64, y: u64) u128 {
-        const product = asm (
-            \\ vpclmulqdq $0x00, %[x], %[y], %[out]
-            : [out] "=x" (-> @Vector(2, u64)),
-            : [x] "x" (@bitCast(@Vector(2, u64), @as(u128, x))),
-              [y] "x" (@bitCast(@Vector(2, u64), @as(u128, y))),
-        );
-        return (@as(u128, product[1]) << 64) | product[0];
+    inline fn clmulPclmul(x: u128, y: u128, comptime half: enum { lo, hi }) u128 {
+        if (half == .hi) {
+            const product = asm (
+                \\ vpclmulqdq $0x11, %[x], %[y], %[out]
+                : [out] "=x" (-> @Vector(2, u64)),
+                : [x] "x" (@bitCast(@Vector(2, u64), @as(u128, x))),
+                  [y] "x" (@bitCast(@Vector(2, u64), @as(u128, y))),
+            );
+            return @bitCast(u128, product);
+        } else {
+            const product = asm (
+                \\ vpclmulqdq $0x00, %[x], %[y], %[out]
+                : [out] "=x" (-> @Vector(2, u64)),
+                : [x] "x" (@bitCast(@Vector(2, u64), @as(u128, x))),
+                  [y] "x" (@bitCast(@Vector(2, u64), @as(u128, y))),
+            );
+            return @bitCast(u128, product);
+        }
     }
 
     // Carryless multiplication of two 64-bit integers for ARM crypto.
-    inline fn clmulPmull(x: u64, y: u64) u128 {
-        const product = asm (
-            \\ pmull %[out].1q, %[x].1d, %[y].1d
-            : [out] "=w" (-> @Vector(2, u64)),
-            : [x] "w" (@bitCast(@Vector(2, u64), @as(u128, x))),
-              [y] "w" (@bitCast(@Vector(2, u64), @as(u128, y))),
-        );
-        return (@as(u128, product[1]) << 64) | product[0];
+    inline fn clmulPmull(x: u128, y: u128, comptime half: enum { lo, hi }) u128 {
+        if (half == .hi) {
+            const product = asm (
+                \\ pmull2 %[out].1q, %[x].2d, %[y].2d
+                : [out] "=w" (-> @Vector(2, u64)),
+                : [x] "w" (@bitCast(@Vector(2, u64), @as(u128, x))),
+                  [y] "w" (@bitCast(@Vector(2, u64), @as(u128, y))),
+            );
+            return @bitCast(u128, product);
+        } else {
+            const product = asm (
+                \\ pmull %[out].1q, %[x].1d, %[y].1d
+                : [out] "=w" (-> @Vector(2, u64)),
+                : [x] "w" (@bitCast(@Vector(2, u64), @as(u128, x))),
+                  [y] "w" (@bitCast(@Vector(2, u64), @as(u128, y))),
+            );
+            return @bitCast(u128, product);
+        }
     }
 
     // Software carryless multiplication of two 64-bit integers.
-    fn clmulSoft(x: u64, y: u64) u128 {
+    fn clmulSoft(x_: u128, y_: u128, comptime half: enum { lo, hi }) u128 {
+        const x = @truncate(u64, if (half == .hi) x_ >> 64 else x_);
+        const y = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
+
         const x0 = x & 0x1111111111111110;
         const x1 = x & 0x2222222222222220;
         const x2 = x & 0x4444444444444440;
@@ -130,21 +153,19 @@ pub const Ghash = struct {
         const lo = @truncate(u64, x);
         const hi = @truncate(u64, x >> 64);
         const mid = lo ^ hi;
-        const r_lo = clmul(lo, lo);
-        const r_hi = clmul(hi, hi);
-        const r_mid = clmul(mid, mid) ^ r_lo ^ r_hi;
+        const r_lo = clmul(x, x, .lo);
+        const r_hi = clmul(x, x, .hi);
+        const r_mid = clmul(mid, mid, .lo) ^ r_lo ^ r_hi;
         return (@as(u256, r_hi) << 128) ^ (@as(u256, r_mid) << 64) ^ r_lo;
     }
 
     // Multiply two 128-bit integers in GF(2^128).
     inline fn clmul128(x: u128, y: u128) u256 {
-        const x_lo = @truncate(u64, x);
         const x_hi = @truncate(u64, x >> 64);
-        const y_lo = @truncate(u64, y);
         const y_hi = @truncate(u64, y >> 64);
-        const r_lo = clmul(x_lo, y_lo);
-        const r_hi = clmul(x_hi, y_hi);
-        const r_mid = clmul(x_lo ^ x_hi, y_lo ^ y_hi) ^ r_lo ^ r_hi;
+        const r_lo = clmul(x, y, .lo);
+        const r_hi = clmul(x, y, .hi);
+        const r_mid = clmul(x ^ x_hi, y ^ y_hi, .lo) ^ r_lo ^ r_hi;
         return (@as(u256, r_hi) << 128) ^ (@as(u256, r_mid) << 64) ^ r_lo;
     }
 
@@ -153,9 +174,10 @@ pub const Ghash = struct {
     // https://blog.quarkslab.com/reversing-a-finite-field-multiplication-optimization.html
     inline fn gcmReduce(x: u256) u128 {
         const p64 = (((1 << 121) | (1 << 126) | (1 << 127)) >> 64);
-        const a = clmul(@truncate(u64, x), p64);
-        const b = ((@truncate(u128, x) << 64) | (@truncate(u128, x) >> 64)) ^ a;
-        const c = clmul(@truncate(u64, b), p64);
+        const lo = @truncate(u128, x);
+        const a = clmul(lo, p64, .lo);
+        const b = ((lo << 64) | (lo >> 64)) ^ a;
+        const c = clmul(b, p64, .lo);
         const d = ((b << 64) | (b >> 64)) ^ c;
         return d ^ @truncate(u128, x >> 128);
     }
