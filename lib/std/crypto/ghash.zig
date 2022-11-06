@@ -18,7 +18,11 @@ pub const Ghash = struct {
     pub const mac_length = 16;
     pub const key_length = 16;
 
-    const pc_count = if (builtin.mode != .ReleaseSmall) 8 else 1;
+    const pc_count = if (builtin.mode != .ReleaseSmall) 16 else 2;
+    const agg_2_treshold = 5 * block_length;
+    const agg_4_treshold = 22 * block_length;
+    const agg_8_treshold = 84 * block_length;
+    const agg_16_treshold = 328 * block_length;
 
     hx: [pc_count]Precomp,
     acc: u128 = 0,
@@ -38,19 +42,29 @@ pub const Ghash = struct {
 
         var hx: [pc_count]Precomp = undefined;
         hx[0] = h;
+        if (block_count >= agg_2_treshold) {
+            hx[1] = gcmReduce(clsq128(hx[0])); // h^2
+        }
         if (builtin.mode != .ReleaseSmall) {
-            if (block_count > 2) {
-                hx[1] = gcm_reduce(clsq128(hx[0])); // h^2
+            if (block_count >= agg_4_treshold) {
+                hx[2] = gcmReduce(clmul128(hx[1], h)); // h^3
+                hx[3] = gcmReduce(clsq128(hx[1])); // h^4 = h^2^2
             }
-            if (block_count > 4) {
-                hx[2] = gcm_reduce(clmul128(hx[1], h)); // h^3
-                hx[3] = gcm_reduce(clsq128(hx[1])); // h^4
+            if (block_count >= agg_8_treshold) {
+                hx[4] = gcmReduce(clmul128(hx[3], h)); // h^5
+                hx[5] = gcmReduce(clsq128(hx[2])); // h^6 = h^3^2
+                hx[6] = gcmReduce(clmul128(hx[5], h)); // h^7
+                hx[7] = gcmReduce(clsq128(hx[3])); // h^8 = h^4^2
             }
-            if (block_count > 8) {
-                hx[4] = gcm_reduce(clmul128(hx[3], h)); // h^5
-                hx[5] = gcm_reduce(clmul128(hx[4], h)); // h^6
-                hx[6] = gcm_reduce(clmul128(hx[5], h)); // h^7
-                hx[7] = gcm_reduce(clsq128(hx[3])); // h^8
+            if (block_count >= agg_16_treshold) {
+                hx[8] = gcmReduce(clmul128(hx[7], h)); // h^9
+                hx[9] = gcmReduce(clsq128(hx[4])); // h^10 = h^5^2
+                hx[10] = gcmReduce(clmul128(hx[9], h)); // h^11
+                hx[11] = gcmReduce(clsq128(hx[5])); // h^12 = h^6^2
+                hx[12] = gcmReduce(clmul128(hx[11], h)); // h^13
+                hx[13] = gcmReduce(clsq128(hx[6])); // h^14 = h^7^2
+                hx[14] = gcmReduce(clmul128(hx[13], h)); // h^15
+                hx[15] = gcmReduce(clsq128(hx[7])); // h^16 = h^8^2
             }
         }
         return Ghash{ .hx = hx };
@@ -62,7 +76,7 @@ pub const Ghash = struct {
     }
 
     // Carryless multiplication of two 64-bit integers for x86_64.
-    inline fn clmul_pclmul(x: u64, y: u64) u128 {
+    inline fn clmulPclmul(x: u64, y: u64) u128 {
         const product = asm (
             \\ vpclmulqdq $0x00, %[x], %[y], %[out]
             : [out] "=x" (-> @Vector(2, u64)),
@@ -73,7 +87,7 @@ pub const Ghash = struct {
     }
 
     // Carryless multiplication of two 64-bit integers for ARM crypto.
-    inline fn clmul_pmull(x: u64, y: u64) u128 {
+    inline fn clmulPmull(x: u64, y: u64) u128 {
         const product = asm (
             \\ pmull %[out].1q, %[x].1d, %[y].1d
             : [out] "=w" (-> @Vector(2, u64)),
@@ -84,7 +98,7 @@ pub const Ghash = struct {
     }
 
     // Software carryless multiplication of two 64-bit integers.
-    fn clmul_soft(x: u64, y: u64) u128 {
+    fn clmulSoft(x: u64, y: u64) u128 {
         const x0 = x & 0x1111111111111110;
         const x1 = x & 0x2222222222222220;
         const x2 = x & 0x4444444444444440;
@@ -137,7 +151,7 @@ pub const Ghash = struct {
     // Reduce a 256-bit representative of a polynomial modulo the irreducible polynomial x^128 + x^127 + x^126 + x^121 + 1.
     // This is done *without reversing the bits*, using Shay Gueron's black magic demysticated here:
     // https://blog.quarkslab.com/reversing-a-finite-field-multiplication-optimization.html
-    inline fn gcm_reduce(x: u256) u128 {
+    inline fn gcmReduce(x: u256) u128 {
         const p64 = (((1 << 121) | (1 << 126) | (1 << 127)) >> 64);
         const a = clmul(@truncate(u64, x), p64);
         const b = ((@truncate(u128, x) << 64) | (@truncate(u128, x) >> 64)) ^ a;
@@ -150,103 +164,73 @@ pub const Ghash = struct {
     const has_avx = std.Target.x86.featureSetHas(builtin.cpu.features, .avx);
     const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
     const clmul = if (builtin.cpu.arch == .x86_64 and has_pclmul and has_avx) impl: {
-        break :impl clmul_pclmul;
+        break :impl clmulPclmul;
     } else if (builtin.cpu.arch == .aarch64 and has_armaes) impl: {
-        break :impl clmul_pmull;
+        break :impl clmulPmull;
     } else impl: {
-        break :impl clmul_soft;
+        break :impl clmulSoft;
     };
 
-    // Process a block of 16 bytes.
+    // Process 16 byte blocks.
     fn blocks(st: *Ghash, msg: []const u8) void {
         assert(msg.len % 16 == 0); // GHASH blocks() expects full blocks
         var acc = st.acc;
 
         var i: usize = 0;
 
-        if (builtin.mode != .ReleaseSmall) {
+        if (builtin.mode != .ReleaseSmall and msg.len >= agg_16_treshold) {
+            // 16-blocks aggregated reduction
+            while (i + 256 <= msg.len) : (i += 256) {
+                var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[15 - 0]);
+                comptime var j = 1;
+                inline while (j < 16) : (j += 1) {
+                    u ^= clmul128(mem.readIntBig(u128, msg[i..][j * 16 ..][0..16]), st.hx[15 - j]);
+                }
+                acc = gcmReduce(u);
+            }
+        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_8_treshold) {
             // 8-blocks aggregated reduction
             while (i + 128 <= msg.len) : (i += 128) {
-                const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                const z0 = acc ^ b0;
-                const z0h = clmul128(z0, st.hx[7]);
-
-                const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                const b1h = clmul128(b1, st.hx[6]);
-
-                const b2 = mem.readIntBig(u128, msg[i..][32..48]);
-                const b2h = clmul128(b2, st.hx[5]);
-
-                const b3 = mem.readIntBig(u128, msg[i..][48..64]);
-                const b3h = clmul128(b3, st.hx[4]);
-
-                const b4 = mem.readIntBig(u128, msg[i..][64..80]);
-                const b4h = clmul128(b4, st.hx[3]);
-
-                const b5 = mem.readIntBig(u128, msg[i..][80..96]);
-                const b5h = clmul128(b5, st.hx[2]);
-
-                const b6 = mem.readIntBig(u128, msg[i..][96..112]);
-                const b6h = clmul128(b6, st.hx[1]);
-
-                const b7 = mem.readIntBig(u128, msg[i..][112..128]);
-                const b7h = clmul128(b7, st.hx[0]);
-
-                const u = z0h ^ b1h ^ b2h ^ b3h ^ b4h ^ b5h ^ b6h ^ b7h;
-                acc = gcm_reduce(u);
+                var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[7 - 0]);
+                comptime var j = 1;
+                inline while (j < 8) : (j += 1) {
+                    u ^= clmul128(mem.readIntBig(u128, msg[i..][j * 16 ..][0..16]), st.hx[7 - j]);
+                }
+                acc = gcmReduce(u);
             }
-
+        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_4_treshold) {
             // 4-blocks aggregated reduction
             while (i + 64 <= msg.len) : (i += 64) {
-                // (acc + b0) * H^4 unreduced
-                const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                const z0 = acc ^ b0;
-                const z0h = clmul128(z0, st.hx[3]);
-
-                // b1 * H^3 unreduced
-                const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                const b1h = clmul128(b1, st.hx[2]);
-
-                // b2 * H^2 unreduced
-                const b2 = mem.readIntBig(u128, msg[i..][32..48]);
-                const b2h = clmul128(b2, st.hx[1]);
-
-                // b3 * H unreduced
-                const b3 = mem.readIntBig(u128, msg[i..][48..64]);
-                const b3h = clmul128(b3, st.hx[0]);
-
-                // (((acc + b0) * H^4) + B1 * H^3 + B2 * H^2 + B3 * H) (mod P)
-                const u = z0h ^ b1h ^ b2h ^ b3h;
-                acc = gcm_reduce(u);
+                var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[3 - 0]);
+                comptime var j = 1;
+                inline while (j < 4) : (j += 1) {
+                    u ^= clmul128(mem.readIntBig(u128, msg[i..][j * 16 ..][0..16]), st.hx[3 - j]);
+                }
+                acc = gcmReduce(u);
             }
-
+        } else if (msg.len >= agg_2_treshold) {
             // 2-blocks aggregated reduction
             while (i + 32 <= msg.len) : (i += 32) {
-                // (acc + b0) * H^2 unreduced
-                const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-                const z0 = acc ^ b0;
-                const z0h = clmul128(z0, st.hx[1]);
-
-                // b1 * H unreduced
-                const b1 = mem.readIntBig(u128, msg[i..][16..32]);
-                const b1h = clmul128(b1, st.hx[0]);
-
-                // (((acc + b0) * H^2) + B1 * H) (mod P)
-                const u = z0h ^ b1h;
-                acc = gcm_reduce(u);
+                var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[1 - 0]);
+                comptime var j = 1;
+                inline while (j < 2) : (j += 1) {
+                    u ^= clmul128(mem.readIntBig(u128, msg[i..][j * 16 ..][0..16]), st.hx[1 - j]);
+                }
+                acc = gcmReduce(u);
             }
         }
-
-        // single block
-        while (i + 16 <= msg.len) : (i += 16) {
-            // (acc + b0) * H unreduced
-            const b0 = mem.readIntBig(u128, msg[i..][0..16]);
-            const z0 = acc ^ b0;
-            const z0h = clmul128(z0, st.hx[0]);
-
-            // (acc + b0) * H (mod P)
-            acc = gcm_reduce(z0h);
+        // remaining blocks
+        if (i < msg.len) {
+            const n = (msg.len - i) / 16;
+            var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[n - 1 - 0]);
+            var j: usize = 1;
+            while (j < n) : (j += 1) {
+                u ^= clmul128(mem.readIntBig(u128, msg[i..][j * 16 ..][0..16]), st.hx[n - 1 - j]);
+            }
+            i += n * 16;
+            acc = gcmReduce(u);
         }
+        assert(i == msg.len);
         st.acc = acc;
     }
 
