@@ -147,6 +147,8 @@ pub const stream = struct {
     };
 
     pub const salsa = struct {
+        pub const Salsa = @import("crypto/salsa20.zig").Salsa;
+        pub const XSalsa = @import("crypto/salsa20.zig").XSalsa;
         pub const Salsa20 = @import("crypto/salsa20.zig").Salsa20;
         pub const XSalsa20 = @import("crypto/salsa20.zig").XSalsa20;
     };
