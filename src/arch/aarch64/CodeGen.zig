@@ -2882,8 +2882,40 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const optional_ty = self.air.typeOf(ty_op.operand);
+        const mcv = try self.resolveInst(ty_op.operand);
+        break :result try self.optionalPayload(inst, mcv, optional_ty);
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty: Type) !MCValue {
+    var opt_buf: Type.Payload.ElemType = undefined;
+    const payload_ty = optional_ty.optionalChild(&opt_buf);
+    if (!payload_ty.hasRuntimeBits()) return MCValue.none;
+    if (optional_ty.isPtrLikeOptional()) {
+        // TODO should we reuse the operand here?
+        const raw_reg = try self.register_manager.allocReg(inst, gp);
+        const reg = self.registerAlias(raw_reg, payload_ty);
+        try self.genSetReg(payload_ty, reg, mcv);
+        return MCValue{ .register = reg };
+    }
+
+    const offset = @intCast(u32, optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*));
+    switch (mcv) {
+        .register => return self.fail("TODO optionalPayload for registers", .{}),
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off + offset };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr + offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
 }
 
 fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
