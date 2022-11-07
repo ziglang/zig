@@ -1055,6 +1055,40 @@ pub const Value = extern union {
         }
     }
 
+    pub fn tagName(val: Value, ty: Type, mod: *Module) []const u8 {
+        if (ty.zigTypeTag() == .Union) return val.unionTag().tagName(ty.unionTagTypeHypothetical(), mod);
+
+        const field_index = switch (val.tag()) {
+            .enum_field_index => val.castTag(.enum_field_index).?.data,
+            .the_only_possible_value => blk: {
+                assert(ty.enumFieldCount() == 1);
+                break :blk 0;
+            },
+            .enum_literal => return val.castTag(.enum_literal).?.data,
+            else => field_index: {
+                const values = switch (ty.tag()) {
+                    .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.values,
+                    .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
+                    .enum_simple => Module.EnumFull.ValueMap{},
+                    else => unreachable,
+                };
+                break :field_index if (values.entries.len == 0)
+                    // auto-numbered enum
+                    @intCast(u32, val.toUnsignedInt(mod.getTarget()))
+                else
+                    @intCast(u32, values.getIndexContext(val, .{ .ty = ty, .mod = mod }).?);
+            },
+        };
+
+        const fields = switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.fields,
+            .enum_numbered => ty.castTag(.enum_numbered).?.data.fields,
+            .enum_simple => ty.castTag(.enum_simple).?.data.fields,
+            else => unreachable,
+        };
+        return fields.keys()[field_index];
+    }
+
     /// Asserts the value is an integer.
     pub fn toBigInt(val: Value, space: *BigIntSpace, target: Target) BigIntConst {
         return val.toBigIntAdvanced(space, target, null) catch unreachable;
@@ -2211,7 +2245,7 @@ pub const Value = extern union {
                 return eqlAdvanced(a_union.val, active_field_ty, b_union.val, active_field_ty, mod, sema_kit);
             },
             else => {},
-        } else if (a_tag == .null_value or b_tag == .null_value) {
+        } else if (b_tag == .null_value or b_tag == .@"error") {
             return false;
         } else if (a_tag == .undef or b_tag == .undef) {
             return false;
@@ -2335,18 +2369,25 @@ pub const Value = extern union {
                 if (a_nan) return true;
                 return a_float == b_float;
             },
-            .Optional => {
-                if (a.tag() != .opt_payload and b.tag() == .opt_payload) {
-                    var buffer: Payload.SubValue = .{
-                        .base = .{ .tag = .opt_payload },
-                        .data = a,
-                    };
-                    const opt_val = Value.initPayload(&buffer.base);
-                    return eqlAdvanced(opt_val, ty, b, ty, mod, sema_kit);
-                }
+            .Optional => if (a_tag != .null_value and b_tag == .opt_payload) {
+                var sub_pl: Payload.SubValue = .{
+                    .base = .{ .tag = b.tag() },
+                    .data = a,
+                };
+                const sub_val = Value.initPayload(&sub_pl.base);
+                return eqlAdvanced(sub_val, ty, b, ty, mod, sema_kit);
+            },
+            .ErrorUnion => if (a_tag != .@"error" and b_tag == .eu_payload) {
+                var sub_pl: Payload.SubValue = .{
+                    .base = .{ .tag = b.tag() },
+                    .data = a,
+                };
+                const sub_val = Value.initPayload(&sub_pl.base);
+                return eqlAdvanced(sub_val, ty, b, ty, mod, sema_kit);
             },
             else => {},
         }
+        if (a_tag == .null_value or a_tag == .@"error") return false;
         return (try orderAdvanced(a, b, target, sema_kit)).compare(.eq);
     }
 
@@ -2436,7 +2477,7 @@ pub const Value = extern union {
                     const sub_ty = ty.optionalChild(&buffer);
                     sub_val.hash(sub_ty, hasher, mod);
                 } else {
-                    std.hash.autoHash(hasher, false); // non-null
+                    std.hash.autoHash(hasher, false); // null
                 }
             },
             .ErrorUnion => {
@@ -2474,8 +2515,8 @@ pub const Value = extern union {
                 union_obj.val.hash(active_field_ty, hasher, mod);
             },
             .Fn => {
-                // Note that his hashes the *Fn/*ExternFn rather than the *Decl. This is
-                // to differentiate function bodies from function pointers.
+                // Note that this hashes the *Fn/*ExternFn rather than the *Decl.
+                // This is to differentiate function bodies from function pointers.
                 // This is currently redundant since we already hash the zig type tag
                 // at the top of this function.
                 if (val.castTag(.function)) |func| {
@@ -2494,6 +2535,64 @@ pub const Value = extern union {
                 const bytes = val.castTag(.enum_literal).?.data;
                 hasher.update(bytes);
             },
+        }
+    }
+
+    /// This is a more conservative hash function that produces equal hashes for values
+    /// that can coerce into each other.
+    /// This function is used by hash maps and so treats floating-point NaNs as equal
+    /// to each other, and not equal to other floating-point values.
+    pub fn hashUncoerced(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
+        if (val.isUndef()) return;
+        // The value is runtime-known and shouldn't affect the hash.
+        if (val.tag() == .runtime_value) return;
+
+        switch (ty.zigTypeTag()) {
+            .BoundFn => unreachable, // TODO remove this from the language
+            .Opaque => unreachable, // Cannot hash opaque types
+            .Void,
+            .NoReturn,
+            .Undefined,
+            .Null,
+            .Struct, // It sure would be nice to do something clever with structs.
+            => |zig_type_tag| std.hash.autoHash(hasher, zig_type_tag),
+            .Type => {
+                var buf: ToTypeBuffer = undefined;
+                val.toType(&buf).hashWithHasher(hasher, mod);
+            },
+            .Float, .ComptimeFloat => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128))),
+            .Bool, .Int, .ComptimeInt, .Pointer, .Fn => switch (val.tag()) {
+                .slice => val.castTag(.slice).?.data.ptr.hashPtr(hasher, mod.getTarget()),
+                else => val.hashPtr(hasher, mod.getTarget()),
+            },
+            .Array, .Vector => {
+                const len = ty.arrayLen();
+                const elem_ty = ty.childType();
+                var index: usize = 0;
+                var elem_value_buf: ElemValueBuffer = undefined;
+                while (index < len) : (index += 1) {
+                    const elem_val = val.elemValueBuffer(mod, index, &elem_value_buf);
+                    elem_val.hashUncoerced(elem_ty, hasher, mod);
+                }
+            },
+            .Optional => if (val.castTag(.opt_payload)) |payload| {
+                var buf: Type.Payload.ElemType = undefined;
+                const child_ty = ty.optionalChild(&buf);
+                payload.data.hashUncoerced(child_ty, hasher, mod);
+            } else std.hash.autoHash(hasher, std.builtin.TypeId.Null),
+            .ErrorSet, .ErrorUnion => if (val.getError()) |err| hasher.update(err) else {
+                const pl_ty = ty.errorUnionPayload();
+                val.castTag(.eu_payload).?.data.hashUncoerced(pl_ty, hasher, mod);
+            },
+            .Enum, .EnumLiteral, .Union => {
+                hasher.update(val.tagName(ty, mod));
+                if (val.cast(Payload.Union)) |union_obj| {
+                    const active_field_ty = ty.unionFieldType(union_obj.data.tag, mod);
+                    union_obj.data.val.hashUncoerced(active_field_ty, hasher, mod);
+                } else std.hash.autoHash(hasher, std.builtin.TypeId.Void);
+            },
+            .Frame => @panic("TODO implement hashing frame values"),
+            .AnyFrame => @panic("TODO implement hashing anyframe values"),
         }
     }
 
