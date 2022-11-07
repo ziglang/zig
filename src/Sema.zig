@@ -6828,7 +6828,7 @@ fn instantiateGenericCall(
     // don't find out until after generating a monomorphed function whether the parameter
     // type ended up being a "must-be-comptime-known" type.
     var hasher = std.hash.Wyhash.init(0);
-    std.hash.autoHash(&hasher, @ptrToInt(module_fn));
+    std.hash.autoHash(&hasher, module_fn.owner_decl);
 
     const generic_args = try sema.arena.alloc(GenericCallAdapter.Arg, func_ty_info.param_types.len);
     {
@@ -6871,7 +6871,7 @@ fn instantiateGenericCall(
                     },
                     else => |e| return e,
                 };
-                arg_val.hash(arg_ty, &hasher, mod);
+                arg_val.hashUncoerced(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
                     generic_args[i] = .{
