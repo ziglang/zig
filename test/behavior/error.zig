@@ -855,3 +855,13 @@ test "error from comptime string" {
         try expect(mem.eql(u8, name, @errorName(err)));
     }
 }
+
+test "field access of anyerror results in smaller error set" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const E1 = @TypeOf(error.Foo);
+    try expect(@TypeOf(E1.Foo) == E1);
+    const E2 = error{ A, B, C };
+    try expect(@TypeOf(E2.A) == E2);
+    try expect(@TypeOf(@field(anyerror, "NotFound")) == error{NotFound});
+}

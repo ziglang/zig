@@ -1917,6 +1917,7 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
             if (val.tag() == .runtime_value) make_runtime.* = true;
+            if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
             return val;
         },
         .const_ty => {
@@ -4380,7 +4381,7 @@ fn zirValidateArrayInit(
         var block_index = block.instructions.items.len - 1;
         while (block.instructions.items[block_index] != elem_ptr_air_inst) {
             if (block_index == 0) {
-                array_is_comptime = true;
+                array_is_comptime = false;
                 continue :outer;
             }
             block_index -= 1;
@@ -10343,6 +10344,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
         if (special.is_inline) child_block.inline_case_capture = operand;
+        if (empty_enum) {
+            return Air.Inst.Ref.void_value;
+        }
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
@@ -11992,10 +11996,18 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const element_vals = try sema.arena.alloc(Value, final_len_including_sent);
             var elem_i: usize = 0;
             while (elem_i < lhs_len) : (elem_i += 1) {
-                element_vals[elem_i] = try lhs_sub_val.elemValue(sema.mod, sema.arena, elem_i);
+                const elem_val = try lhs_sub_val.elemValue(sema.mod, sema.arena, elem_i);
+                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coereced_elem_val;
             }
             while (elem_i < result_len) : (elem_i += 1) {
-                element_vals[elem_i] = try rhs_sub_val.elemValue(sema.mod, sema.arena, elem_i - lhs_len);
+                const elem_val = try rhs_sub_val.elemValue(sema.mod, sema.arena, elem_i - lhs_len);
+                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coereced_elem_val;
             }
             if (res_sent_val) |sent_val| {
                 element_vals[result_len] = sent_val;
@@ -12469,10 +12481,12 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     return sema.addConstant(
                         resolved_type,
@@ -12584,10 +12598,12 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     if (modulus_val.compareWithZero(.neq)) {
                         return sema.fail(block, src, "exact division produced remainder", .{});
                     }
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target);
                     if (modulus_val.compareWithZero(.neq)) {
@@ -12862,10 +12878,12 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    return sema.addConstant(
-                        resolved_type,
-                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                    );
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target);
+                    var vector_index: usize = undefined;
+                    if (!(try sema.intFitsInType(block, src, res, resolved_type, &vector_index))) {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    }
+                    return sema.addConstant(resolved_type, res);
                 } else {
                     return sema.addConstant(
                         resolved_type,
@@ -22457,7 +22475,10 @@ fn fieldVal(
                     } else (try sema.mod.getErrorValue(field_name)).key;
 
                     return sema.addConstant(
-                        try child_type.copy(arena),
+                        if (!child_type.isAnyError())
+                            try child_type.copy(arena)
+                        else
+                            try Type.Tag.error_set_single.create(arena, name),
                         try Value.Tag.@"error".create(arena, .{ .name = name }),
                     );
                 },
@@ -22668,7 +22689,10 @@ fn fieldPtr(
                     var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     return sema.analyzeDeclRef(try anon_decl.finish(
-                        try child_type.copy(anon_decl.arena()),
+                        if (!child_type.isAnyError())
+                            try child_type.copy(anon_decl.arena())
+                        else
+                            try Type.Tag.error_set_single.create(anon_decl.arena(), name),
                         try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
                         0, // default alignment
                     ));
@@ -22827,6 +22851,7 @@ fn fieldCallBind(
                     {
                         const first_param_type = decl_type.fnParamType(0);
                         const first_param_tag = first_param_type.tag();
+                        var opt_buf: Type.Payload.ElemType = undefined;
                         // zig fmt: off
                         if (first_param_tag == .var_args_param or
                             first_param_tag == .generic_poison or (
@@ -22845,7 +22870,27 @@ fn fieldCallBind(
                             });
                             return sema.addConstant(ty, value);
                         } else if (first_param_type.eql(concrete_ty, sema.mod)) {
-                            var deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const ty = Type.Tag.bound_fn.init();
+                            const value = try Value.Tag.bound_fn.create(arena, .{
+                                .func_inst = decl_val,
+                                .arg0_inst = deref,
+                            });
+                            return sema.addConstant(ty, value);
+                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .Optional and
+                            first_param_type.optionalChild(&opt_buf).eql(concrete_ty, sema.mod))
+                        {
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                            const ty = Type.Tag.bound_fn.init();
+                            const value = try Value.Tag.bound_fn.create(arena, .{
+                                .func_inst = decl_val,
+                                .arg0_inst = deref,
+                            });
+                            return sema.addConstant(ty, value);
+                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .ErrorUnion and
+                            first_param_type.errorUnionPayload().eql(concrete_ty, sema.mod))
+                        {
+                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                             const ty = Type.Tag.bound_fn.init();
                             const value = try Value.Tag.bound_fn.create(arena, .{
                                 .func_inst = decl_val,
@@ -28763,6 +28808,13 @@ fn resolvePeerTypes(
                             }
                         }
                     },
+                    .Fn => {
+                        if (!cand_info.mutable and cand_info.pointee_type.zigTypeTag() == .Fn and .ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty, cand_info.pointee_type, target, src, src)) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                            continue;
+                        }
+                    },
                     else => {},
                 }
             },
@@ -28792,6 +28844,11 @@ fn resolvePeerTypes(
             .Array => switch (chosen_ty_tag) {
                 .Vector => continue,
                 else => {},
+            },
+            .Fn => if (chosen_ty.isSinglePointer() and chosen_ty.isConstPtr() and chosen_ty.childType().zigTypeTag() == .Fn) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty.childType(), candidate_ty, target, src, src)) {
+                    continue;
+                }
             },
             else => {},
         }
@@ -30440,23 +30497,23 @@ pub fn typeHasOnePossibleValue(
             if (enum_obj.tag_ty.hasRuntimeBits()) {
                 return null;
             }
-            if (enum_obj.fields.count() == 1) {
-                if (enum_obj.values.count() == 0) {
+            switch (enum_obj.fields.count()) {
+                0 => return Value.initTag(.unreachable_value),
+                1 => if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
-                }
-            } else {
-                return null;
+                },
+                else => return null,
             }
         },
         .enum_simple => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
-            if (enum_simple.fields.count() == 1) {
-                return Value.zero;
-            } else {
-                return null;
+            switch (enum_simple.fields.count()) {
+                0 => return Value.initTag(.unreachable_value),
+                1 => return Value.zero,
+                else => return null,
             }
         },
         .enum_nonexhaustive => {
@@ -30473,7 +30530,7 @@ pub fn typeHasOnePossibleValue(
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
             const fields = union_obj.fields.values();
-            if (fields.len == 0) return Value.initTag(.empty_struct_value);
+            if (fields.len == 0) return Value.initTag(.unreachable_value);
             const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
@@ -32036,15 +32093,36 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
     const ptr_info = ptr_ty.ptrInfo().data;
     const elem_ty = ptr_ty.elemType2();
     const allow_zero = ptr_info.@"allowzero" and (offset orelse 0) == 0;
+    const target = sema.mod.getTarget();
+    const parent_ty = ptr_ty.childType();
+
+    const vector_info: struct {
+        host_size: u16,
+        bit_offset: u16,
+        alignment: u32,
+    } = if (parent_ty.tag() == .vector) blk: {
+        const elem_bits = elem_ty.bitSize(target);
+        const is_packed = elem_bits != 0 and (elem_bits & (elem_bits - 1)) != 0;
+        // TODO: runtime-known index
+        assert(!is_packed or offset != null);
+        const is_packed_with_offset = is_packed and offset != null and offset.? != 0;
+        const target_offset = if (is_packed_with_offset) (if (target.cpu.arch.endian() == .Big) (parent_ty.vectorLen() - 1 - offset.?) else offset.?) else 0;
+        break :blk .{
+            .host_size = if (is_packed_with_offset) @intCast(u16, parent_ty.abiSize(target)) else 0,
+            .bit_offset = if (is_packed_with_offset) @intCast(u16, elem_bits * target_offset) else 0,
+            .alignment = if (is_packed_with_offset) @intCast(u16, parent_ty.abiAlignment(target)) else 0,
+        };
+    } else .{ .host_size = 0, .bit_offset = 0, .alignment = 0 };
+
     const alignment: u32 = a: {
         // Calculate the new pointer alignment.
         if (ptr_info.@"align" == 0) {
+            if (vector_info.alignment != 0) break :a vector_info.alignment;
             // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
             break :a 0;
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const target = sema.mod.getTarget();
         const elem_size = elem_ty.abiSize(target);
         const addend = if (offset) |off| elem_size * off else elem_size;
 
@@ -32061,5 +32139,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         .@"allowzero" = allow_zero,
         .@"volatile" = ptr_info.@"volatile",
         .@"align" = alignment,
+        .host_size = vector_info.host_size,
+        .bit_offset = vector_info.bit_offset,
     });
 }
