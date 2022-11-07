@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const has_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
@@ -918,6 +919,7 @@ test "PD: Zig passes to C" {
     try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
 test "PD: Zig returns to C" {
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     try expectOk(c_assert_ret_PD());
 }
 test "PD: C passes to Zig" {
@@ -926,6 +928,7 @@ test "PD: C passes to Zig" {
     try expectOk(c_send_PD());
 }
 test "PD: C returns to Zig" {
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
 }
 pub extern fn c_assert_PD(lv: PD) c_int;
