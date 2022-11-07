@@ -1548,7 +1548,7 @@ fn allocRegs(
             };
             const raw_reg = try self.register_manager.allocReg(track_inst, gp);
             arg.reg.* = self.registerAlias(raw_reg, arg.ty);
-            read_locks[i] = self.register_manager.lockReg(arg.reg.*);
+            read_locks[i] = self.register_manager.lockRegAssumeUnused(arg.reg.*);
         }
     }
 
@@ -2920,13 +2920,13 @@ fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty:
                         Mir.Inst.Tag.lsr_immediate,
                     .data = .{ .rr_shift = .{
                         .rd = dest_reg,
-                        .rn = source_reg,
+                        .rn = source_reg.toX(),
                         .shift = shift,
                     } },
                 });
             }
 
-            return MCValue{ .register = dest_reg };
+            return MCValue{ .register = self.registerAlias(dest_reg, payload_ty) };
         },
         .stack_argument_offset => |off| {
             return MCValue{ .stack_argument_offset = off + offset };
@@ -4215,18 +4215,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     const result: MCValue = result: {
         switch (info.return_value) {
-            .register => |reg| {
-                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
-                    // Save function return value in a callee saved register
-                    break :result try self.copyToNewRegister(inst, info.return_value);
-                }
+            .register => {
+                // Save function return value in a callee saved register
+                break :result try self.copyToNewRegister(inst, info.return_value);
             },
             else => {},
         }
         break :result info.return_value;
     };
 
-    if (args.len + 1 <= Liveness.bpi - 1) {
+    if (args.len <= Liveness.bpi - 2) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
         buf[0] = callee;
         std.mem.copy(Air.Inst.Ref, buf[1..], args);
@@ -4642,19 +4640,13 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
-    if (operand_ty.isPtrLikeOptional()) {
-        assert(operand_ty.abiSize(self.target.*) == 8);
-
-        const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
-        return self.cmp(operand_bind, imm_bind, Type.usize, .eq);
-    } else {
+    const sentinel_ty: Type = if (!operand_ty.isPtrLikeOptional()) blk: {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = operand_ty.optionalChild(&buf);
-        const sentinel_ty = if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else operand_ty;
-
-        const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
-        return self.cmp(operand_bind, imm_bind, sentinel_ty, .eq);
-    }
+        break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else operand_ty;
+    } else operand_ty;
+    const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
+    return self.cmp(operand_bind, imm_bind, sentinel_ty, .eq);
 }
 
 fn isNonNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
@@ -4692,10 +4684,10 @@ fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
 fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
 
-        break :result try self.isNull(operand_bind, operand_ty);
+        break :result try self.isNull(.{ .mcv = operand }, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4718,10 +4710,10 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
 
-        break :result try self.isNonNull(operand_bind, operand_ty);
+        break :result try self.isNonNull(.{ .mcv = operand }, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
