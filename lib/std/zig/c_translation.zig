@@ -500,6 +500,7 @@ fn ArithmeticConversion(comptime A: type, comptime B: type) type {
     if (A == c_longdouble or B == c_longdouble) return c_longdouble;
     if (A == f80 or B == f80) return f80;
     if (A == f64 or B == f64) return f64;
+    if (A == comptime_float or B == comptime_float) return f64;
     if (A == f32 or B == f32) return f32;
 
     const A_Promoted = PromotedIntType(A);
@@ -542,6 +543,7 @@ test "ArithmeticConversion" {
 
     try Test.checkPromotion(c_longdouble, c_int, c_longdouble);
     try Test.checkPromotion(c_int, f64, f64);
+    try Test.checkPromotion(c_int, comptime_float, f64);
     try Test.checkPromotion(f32, bool, f32);
 
     try Test.checkPromotion(bool, c_short, c_int);
