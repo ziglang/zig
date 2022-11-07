@@ -643,13 +643,6 @@ test "C ABI structs of floats as multiple parameters" {
     c_multiple_struct_floats(r1, r2);
 }
 
-const C_C_D = extern struct { v1: u8, v2: u8, v3: f64 };
-extern fn c_C_C_D(lv: C_C_D) c_int;
-
-test "C_C_D" {
-    try expect(c_C_C_D(.{ .v1 = 88, .v2 = 39, .v3 = -2.125 }) == 0);
-}
-
 export fn zig_ret_bool() bool {
     return true;
 }
@@ -837,4 +830,160 @@ test "C ABI pointer sized float struct" {
     var x = c_ret_ptr_size_float_struct();
     try expect(x.x == 3);
     try expect(x.y == 4);
+}
+
+//=== Helpers for struct test ===//
+pub inline fn expectSize(comptime t: type, size: u32) !void {
+    try expectEqual(size, @sizeOf(t));
+}
+
+pub inline fn expectAlign(comptime t: type, alignment: u32) !void {
+    try expectEqual(alignment, @alignOf(t));
+}
+
+pub fn expectFieldOffset(ps: anytype, pf: anytype, ofst: usize) !void {
+    try std.testing.expect(@ptrToInt(ps) <= @ptrToInt(pf));
+    try expectEqual(ofst, @ptrToInt(pf) - @ptrToInt(ps));
+}
+
+pub inline fn expectOk(c_err: c_int) !void {
+    if (c_err != 0) {
+        std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
+        return error.TestExpectedEqual;
+    }
+}
+
+pub inline fn expectFailX86(c_err: c_int) !void {
+    if (comptime !builtin.target.cpu.arch.isX86()) return expectOk(c_err);
+
+    if (c_err != 0) {
+        std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
+        return error.SkipZigTest;
+    }
+    std.debug.print("no ABI mismatch, test should be upgraded to expectOk.\n", .{});
+    return error.TestUnexpectedResult;
+}
+
+pub inline fn abiSelect(a: u8, b: u8) u8 {
+    return if (@sizeOf(usize) == 8) a else b;
+}
+
+/// Tests for Double + Char struct
+const DC = extern struct { v1: f64, v2: u8 };
+test "DC: layout" {
+    var lv: DC = undefined;
+    try expectSize(DC, abiSelect(16, 12));
+    try expectAlign(DC, abiSelect(8, 4));
+    try expectFieldOffset(&lv, &lv.v1, 0);
+    try expectFieldOffset(&lv, &lv.v2, 8);
+}
+test "DC: Zig passes to C" {
+    try expectFailX86(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
+}
+test "DC: Zig returns to C" {
+    try expectOk(c_assert_ret_DC());
+}
+test "DC: C passes to Zig" {
+    try expectFailX86(c_send_DC());
+}
+test "DC: C returns to Zig" {
+    try expectEqual(c_ret_DC(), .{ .v1 = -0.25, .v2 = 15 });
+}
+
+pub extern fn c_assert_DC(lv: DC) c_int;
+pub extern fn c_assert_ret_DC() c_int;
+pub extern fn c_send_DC() c_int;
+pub extern fn c_ret_DC() DC;
+pub export fn zig_assert_DC(lv: DC) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != -0.25) err = 1;
+    if (lv.v2 != 15) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_DC() DC {
+    return .{ .v1 = -0.25, .v2 = 15 };
+}
+
+/// Tests for Char + Float + FloatRect struct
+const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
+
+test "CFF: layout" {
+    var lv: CFF = undefined;
+    try expectSize(CFF, 12);
+    try expectAlign(CFF, 4);
+    try expectFieldOffset(&lv, &lv.v1, 0);
+    try expectFieldOffset(&lv, &lv.v2, 4);
+    try expectFieldOffset(&lv, &lv.v3, 8);
+}
+test "CFF: Zig passes to C" {
+    try expectFailX86(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
+}
+test "CFF: Zig returns to C" {
+    try expectOk(c_assert_ret_CFF());
+}
+test "CFF: C passes to Zig" {
+    try expectFailX86(c_send_CFF());
+}
+test "CFF: C returns to Zig" {
+    try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
+}
+pub extern fn c_assert_CFF(lv: CFF) c_int;
+pub extern fn c_assert_ret_CFF() c_int;
+pub extern fn c_send_CFF() c_int;
+pub extern fn c_ret_CFF() CFF;
+pub export fn zig_assert_CFF(lv: CFF) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != 39) err = 1;
+    if (lv.v2 != 0.875) err = 2;
+    if (lv.v3 != 1.0) err = 3;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_CFF() CFF {
+    return .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 };
+}
+
+/// Tests for Pointer + Double struct
+const PD = extern struct { v1: ?*anyopaque, v2: f64 };
+
+test "PD: layout" {
+    var lv: PD = undefined;
+    try expectSize(PD, abiSelect(16, 12));
+    try expectAlign(PD, abiSelect(8, 4));
+    try expectFieldOffset(&lv, &lv.v1, 0);
+    try expectFieldOffset(&lv, &lv.v2, abiSelect(8, 4));
+}
+test "PD: Zig passes to C" {
+    try expectFailX86(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
+}
+test "PD: Zig returns to C" {
+    try expectOk(c_assert_ret_PD());
+}
+test "PD: C passes to Zig" {
+    try expectFailX86(c_send_PD());
+}
+test "PD: C returns to Zig" {
+    try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
+}
+pub extern fn c_assert_PD(lv: PD) c_int;
+pub extern fn c_assert_ret_PD() c_int;
+pub extern fn c_send_PD() c_int;
+pub extern fn c_ret_PD() PD;
+pub export fn zig_c_assert_PD(lv: PD) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != null) err = 1;
+    if (lv.v2 != 0.5) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_PD() PD {
+    return .{ .v1 = null, .v2 = 0.5 };
+}
+pub export fn zig_assert_PD(lv: PD) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != null) err = 1;
+    if (lv.v2 != 0.5) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
 }
