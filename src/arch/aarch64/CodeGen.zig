@@ -4562,18 +4562,21 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
+    if (operand_ty.isPtrLikeOptional()) {
+        assert(operand_ty.abiSize(self.target.*) == 8);
+
+        const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
+        return self.cmp(operand_bind, imm_bind, Type.usize, .eq);
+    } else {
+        return self.fail("TODO implement non-pointer optionals", .{});
+    }
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
+    const is_null_res = try self.isNull(operand_bind, operand_ty);
+    assert(is_null_res.compare_flags == .eq);
+    return MCValue{ .compare_flags = is_null_res.compare_flags.negate() };
 }
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
@@ -4605,8 +4608,10 @@ fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
 fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNull(operand_bind, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4621,7 +4626,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
 
-        break :result try self.isNull(operand);
+        break :result try self.isNull(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4629,8 +4634,10 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNonNull(operand_bind, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4645,7 +4652,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
 
-        break :result try self.isNonNull(operand);
+        break :result try self.isNonNull(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
