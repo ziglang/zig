@@ -4601,7 +4601,12 @@ fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
         const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
         return self.cmp(operand_bind, imm_bind, Type.usize, .eq);
     } else {
-        return self.fail("TODO implement non-pointer optionals", .{});
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = operand_ty.optionalChild(&buf);
+        const sentinel_ty = if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else operand_ty;
+
+        const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
+        return self.cmp(operand_bind, imm_bind, sentinel_ty, .eq);
     }
 }
 
