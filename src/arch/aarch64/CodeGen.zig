@@ -2904,7 +2904,30 @@ fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty:
 
     const offset = @intCast(u32, optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*));
     switch (mcv) {
-        .register => return self.fail("TODO optionalPayload for registers", .{}),
+        .register => |source_reg| {
+            // TODO should we reuse the operand here?
+            const raw_reg = try self.register_manager.allocReg(inst, gp);
+            const dest_reg = raw_reg.toX();
+
+            const shift = @intCast(u6, offset * 8);
+            if (shift == 0) {
+                try self.genSetReg(payload_ty, dest_reg, mcv);
+            } else {
+                _ = try self.addInst(.{
+                    .tag = if (payload_ty.isSignedInt())
+                        Mir.Inst.Tag.asr_immediate
+                    else
+                        Mir.Inst.Tag.lsr_immediate,
+                    .data = .{ .rr_shift = .{
+                        .rd = dest_reg,
+                        .rn = source_reg,
+                        .shift = shift,
+                    } },
+                });
+            }
+
+            return MCValue{ .register = dest_reg };
+        },
         .stack_argument_offset => |off| {
             return MCValue{ .stack_argument_offset = off + offset };
         },
