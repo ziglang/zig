@@ -57,14 +57,11 @@ pub const Ghash = struct {
                 hx[7] = gcmReduce(clsq128(hx[3])); // h^8 = h^4^2
             }
             if (block_count >= agg_16_treshold) {
-                hx[8] = gcmReduce(clmul128(hx[7], h)); // h^9
-                hx[9] = gcmReduce(clsq128(hx[4])); // h^10 = h^5^2
-                hx[10] = gcmReduce(clmul128(hx[9], h)); // h^11
-                hx[11] = gcmReduce(clsq128(hx[5])); // h^12 = h^6^2
-                hx[12] = gcmReduce(clmul128(hx[11], h)); // h^13
-                hx[13] = gcmReduce(clsq128(hx[6])); // h^14 = h^7^2
-                hx[14] = gcmReduce(clmul128(hx[13], h)); // h^15
-                hx[15] = gcmReduce(clsq128(hx[7])); // h^16 = h^8^2
+                var i: usize = 8;
+                while (i < 16) : (i += 2) {
+                    hx[i] = gcmReduce(clmul128(hx[i - 1], h));
+                    hx[i + 1] = gcmReduce(clsq128(hx[i / 2]));
+                }
             }
         }
         return Ghash{ .hx = hx };
@@ -333,4 +330,37 @@ test "ghash" {
     st.update(m[100..]);
     st.final(&out);
     try htest.assertEqual("889295fa746e8b174bf4ec80a65dea41", &out);
+}
+
+test "ghash2" {
+    var key: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < key.len) : (i += 1) {
+        key[i] = @intCast(u8, i * 15 + 1);
+    }
+    const tvs = [_]struct { len: usize, hash: [:0]const u8 }{
+        .{ .len = 5263, .hash = "b9395f37c131cd403a327ccf82ec016a" },
+        .{ .len = 1361, .hash = "8c24cb3664e9a36e32ddef0c8178ab33" },
+        .{ .len = 1344, .hash = "015d7243b52d62eee8be33a66a9658cc" },
+        .{ .len = 1000, .hash = "56e148799944193f351f2014ef9dec9d" },
+        .{ .len = 512, .hash = "ca4882ce40d37546185c57709d17d1ca" },
+        .{ .len = 128, .hash = "d36dc3aac16cfe21a75cd5562d598c1c" },
+        .{ .len = 111, .hash = "6e2bea99700fd19cf1694e7b56543320" },
+        .{ .len = 80, .hash = "aa28f4092a7cca155f3de279cf21aa17" },
+        .{ .len = 16, .hash = "9d7eb5ed121a52a4b0996e4ec9b98911" },
+        .{ .len = 1, .hash = "968a203e5c7a98b6d4f3112f4d6b89a7" },
+        .{ .len = 0, .hash = "00000000000000000000000000000000" },
+    };
+    inline for (tvs) |tv| {
+        var m: [tv.len]u8 = undefined;
+        i = 0;
+        while (i < m.len) : (i += 1) {
+            m[i] = @truncate(u8, i % 254 + 1);
+        }
+        var st = Ghash.init(&key);
+        st.update(&m);
+        var out: [16]u8 = undefined;
+        st.final(&out);
+        try htest.assertEqual(tv.hash, &out);
+    }
 }
