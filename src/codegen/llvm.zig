@@ -3013,6 +3013,13 @@ pub const DeclGen = struct {
                 const layout = t.unionGetLayout(target);
                 const union_obj = t.cast(Type.Payload.Union).?.data;
 
+                if (union_obj.layout == .Packed) {
+                    const bitsize = @intCast(c_uint, t.bitSize(target));
+                    const int_llvm_ty = dg.context.intType(bitsize);
+                    gop.value_ptr.* = int_llvm_ty;
+                    return int_llvm_ty;
+                }
+
                 if (layout.payload_size == 0) {
                     const enum_tag_llvm_ty = try dg.lowerType(union_obj.tag_ty);
                     gop.value_ptr.* = enum_tag_llvm_ty;
@@ -3762,13 +3769,23 @@ pub const DeclGen = struct {
                 const field_index = tv.ty.unionTagFieldIndex(tag_and_val.tag, dg.module).?;
                 assert(union_obj.haveFieldTypes());
 
+                const field_ty = union_obj.fields.values()[field_index].ty;
+                if (union_obj.layout == .Packed) {
+                    const non_int_val = try lowerValue(dg, .{ .ty = field_ty, .val = tag_and_val.val });
+                    const ty_bit_size = @intCast(u16, field_ty.bitSize(target));
+                    const small_int_ty = dg.context.intType(ty_bit_size);
+                    const small_int_val = if (field_ty.isPtrAtRuntime())
+                        non_int_val.constPtrToInt(small_int_ty)
+                    else
+                        non_int_val.constBitCast(small_int_ty);
+                    return small_int_val.constZExtOrBitCast(llvm_union_ty);
+                }
+
                 // Sometimes we must make an unnamed struct because LLVM does
                 // not support bitcasting our payload struct to the true union payload type.
                 // Instead we use an unnamed struct and every reference to the global
                 // must pointer cast to the expected type before accessing the union.
                 var need_unnamed: bool = layout.most_aligned_field != field_index;
-
-                const field_ty = union_obj.fields.values()[field_index].ty;
                 const payload = p: {
                     if (!field_ty.hasRuntimeBitsIgnoreComptime()) {
                         const padding_len = @intCast(c_uint, layout.payload_size);
@@ -3959,6 +3976,9 @@ pub const DeclGen = struct {
                 switch (parent_ty.zigTypeTag()) {
                     .Union => {
                         bitcast_needed = true;
+                        if (parent_ty.containerLayout() == .Packed) {
+                            break :blk parent_llvm_ptr;
+                        }
 
                         const layout = parent_ty.unionGetLayout(target);
                         if (layout.payload_size == 0) {
@@ -5768,7 +5788,21 @@ pub const FuncGen = struct {
                     },
                 },
                 .Union => {
-                    return self.todo("airStructFieldVal byval union", .{});
+                    assert(struct_ty.containerLayout() == .Packed);
+                    const containing_int = struct_llvm_val;
+                    const elem_llvm_ty = try self.dg.lowerType(field_ty);
+                    if (field_ty.zigTypeTag() == .Float) {
+                        const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
+                        const same_size_int = self.context.intType(elem_bits);
+                        const truncated_int = self.builder.buildTrunc(containing_int, same_size_int, "");
+                        return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
+                    } else if (field_ty.isPtrAtRuntime()) {
+                        const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
+                        const same_size_int = self.context.intType(elem_bits);
+                        const truncated_int = self.builder.buildTrunc(containing_int, same_size_int, "");
+                        return self.builder.buildIntToPtr(truncated_int, elem_llvm_ty, "");
+                    }
+                    return self.builder.buildTrunc(containing_int, elem_llvm_ty, "");
                 },
                 else => unreachable,
             }
@@ -9510,6 +9544,9 @@ pub const FuncGen = struct {
         if (layout.payload_size == 0) {
             return self.builder.buildBitCast(union_ptr, result_llvm_ty, "");
         }
+        if (union_ty.containerLayout() == .Packed) {
+            return self.builder.buildBitCast(union_ptr, result_llvm_ty, "");
+        }
         const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
         const union_llvm_ty = try self.dg.lowerType(union_ty);
         const union_field_ptr = self.builder.buildStructGEP(union_llvm_ty, union_ptr, payload_index, "");
@@ -10667,7 +10704,10 @@ fn isByRef(ty: Type) bool {
             }
             return false;
         },
-        .Union => return ty.hasRuntimeBits(),
+        .Union => switch (ty.containerLayout()) {
+            .Packed => return false,
+            else => return ty.hasRuntimeBits(),
+        },
         .ErrorUnion => {
             const payload_ty = ty.errorUnionPayload();
             if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
