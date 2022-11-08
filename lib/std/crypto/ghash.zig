@@ -72,8 +72,10 @@ pub const Ghash = struct {
         return Ghash.initForBlockCount(key, math.maxInt(usize));
     }
 
+    const Selector = enum { lo, hi };
+
     // Carryless multiplication of two 64-bit integers for x86_64.
-    inline fn clmulPclmul(x: u128, y: u128, comptime half: enum { lo, hi }) u128 {
+    inline fn clmulPclmul(x: u128, y: u128, comptime half: Selector) u128 {
         if (half == .hi) {
             const product = asm (
                 \\ vpclmulqdq $0x11, %[x], %[y], %[out]
@@ -94,7 +96,7 @@ pub const Ghash = struct {
     }
 
     // Carryless multiplication of two 64-bit integers for ARM crypto.
-    inline fn clmulPmull(x: u128, y: u128, comptime half: enum { lo, hi }) u128 {
+    inline fn clmulPmull(x: u128, y: u128, comptime half: Selector) u128 {
         if (half == .hi) {
             const product = asm (
                 \\ pmull2 %[out].1q, %[x].2d, %[y].2d
@@ -115,7 +117,7 @@ pub const Ghash = struct {
     }
 
     // Software carryless multiplication of two 64-bit integers.
-    fn clmulSoft(x_: u128, y_: u128, comptime half: enum { lo, hi }) u128 {
+    fn clmulSoft(x_: u128, y_: u128, comptime half: Selector) u128 {
         const x = @truncate(u64, if (half == .hi) x_ >> 64 else x_);
         const y = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
 
