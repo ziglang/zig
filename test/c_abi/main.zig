@@ -892,6 +892,7 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
+    if (builtin.target.cpu.arch == .aarch64) return error.SkipZigTest;
     try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
 }
 pub extern fn c_assert_CFF(lv: CFF) c_int;
