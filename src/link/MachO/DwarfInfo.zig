@@ -257,13 +257,21 @@ pub const Attribute = struct {
     }
 
     pub fn getString(self: Attribute, ctx: DwarfInfo, cuh: CompileUnit.Header) ?[]const u8 {
-        if (self.form != dwarf.FORM.strp) return null;
         const debug_info = self.getDebugInfo(ctx);
-        const off = if (cuh.is_64bit)
-            mem.readIntLittle(u64, debug_info[0..8])
-        else
-            mem.readIntLittle(u32, debug_info[0..4]);
-        return ctx.getString(off);
+
+        switch (self.form) {
+            dwarf.FORM.string => {
+                return mem.sliceTo(@ptrCast([*:0]const u8, debug_info.ptr), 0);
+            },
+            dwarf.FORM.strp => {
+                const off = if (cuh.is_64bit)
+                    mem.readIntLittle(u64, debug_info[0..8])
+                else
+                    mem.readIntLittle(u32, debug_info[0..4]);
+                return ctx.getString(off);
+            },
+            else => return null,
+        }
     }
 
     pub fn getConstant(self: Attribute, ctx: DwarfInfo) !?i128 {
@@ -440,8 +448,9 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
 
         dwarf.FORM.string => {
             var count: usize = 0;
-            while (true) : (count += 1) {
+            while (true) {
                 const byte = try reader.readByte();
+                count += 1;
                 if (byte == 0x0) break;
             }
             return count;
