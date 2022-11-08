@@ -5294,9 +5294,11 @@ fn orelseCatchExpr(
     // up for this fact by calling rvalue on the else branch.
     const operand = try reachableExpr(&block_scope, &block_scope.base, operand_ri, lhs, rhs);
     const cond = try block_scope.addUnNode(cond_op, operand, node);
-    const condbr = try block_scope.addCondBr(.condbr, node);
+    const condbr_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .condbr_inline else .condbr;
+    const condbr = try block_scope.addCondBr(condbr_tag, node);
 
-    const block = try parent_gz.makeBlockInst(.block, node);
+    const block_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .block_inline else .block;
+    const block = try parent_gz.makeBlockInst(block_tag, node);
     try block_scope.setBlockBody(block);
     // block_scope unstacked now, can add new instructions to parent_gz
     try parent_gz.instructions.append(astgen.gpa, block);
@@ -5608,9 +5610,11 @@ fn ifExpr(
         }
     };
 
-    const condbr = try block_scope.addCondBr(.condbr, node);
+    const condbr_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .condbr_inline else .condbr;
+    const condbr = try block_scope.addCondBr(condbr_tag, node);
 
-    const block = try parent_gz.makeBlockInst(.block, node);
+    const block_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .block_inline else .block;
+    const block = try parent_gz.makeBlockInst(block_tag, node);
     try block_scope.setBlockBody(block);
     // block_scope unstacked now, can add new instructions to parent_gz
     try parent_gz.instructions.append(astgen.gpa, block);
