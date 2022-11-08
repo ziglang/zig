@@ -16490,9 +16490,9 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     if (start_block.is_comptime or start_block.is_typeof) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
+    const ok = if (sema.owner_func) |owner_func| owner_func.calls_or_awaits_errorable_fn and
         sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing;
+        backend_supports_error_return_tracing else false;
     if (!ok) return;
 
     const tracy = trace(@src());
