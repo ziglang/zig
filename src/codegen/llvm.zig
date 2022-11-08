@@ -10216,7 +10216,7 @@ fn llvmFieldIndex(
                 llvm_field_index += 1;
             }
 
-            if (field_index == i) {
+            if (field_index <= i) {
                 ptr_pl_buf.* = .{
                     .data = .{
                         .pointee_type = field_ty,
@@ -10249,7 +10249,7 @@ fn llvmFieldIndex(
             llvm_field_index += 1;
         }
 
-        if (field_index == i) {
+        if (field_index <= i) {
             ptr_pl_buf.* = .{
                 .data = .{
                     .pointee_type = field.ty,
