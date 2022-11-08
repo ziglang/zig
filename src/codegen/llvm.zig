@@ -8671,9 +8671,9 @@ pub const FuncGen = struct {
         const arena = arena_allocator.allocator();
 
         const mod = self.dg.module;
-        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{
-            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
-        });
+        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        defer self.gpa.free(fqn);
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
 
         var int_tag_type_buffer: Type.Payload.Bits = undefined;
         const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
@@ -8752,9 +8752,9 @@ pub const FuncGen = struct {
         const arena = arena_allocator.allocator();
 
         const mod = self.dg.module;
-        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{
-            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
-        });
+        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        defer self.gpa.free(fqn);
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
         const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
         const llvm_ret_ty = try self.dg.lowerType(slice_ty);
