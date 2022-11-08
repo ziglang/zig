@@ -4215,16 +4215,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     const result: MCValue = result: {
         switch (info.return_value) {
-            .register => {
-                // Save function return value in a callee saved register
-                break :result try self.copyToNewRegister(inst, info.return_value);
+            .register => |reg| {
+                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
+                    // Save function return value in a callee saved register
+                    break :result try self.copyToNewRegister(inst, info.return_value);
+                }
             },
             else => {},
         }
         break :result info.return_value;
     };
 
-    if (args.len <= Liveness.bpi - 2) {
+    if (args.len + 1 <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
         buf[0] = callee;
         std.mem.copy(Air.Inst.Ref, buf[1..], args);
