@@ -91,6 +91,7 @@ set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not com
 set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB off CACHE BOOL "Prefer linking against static zlib")
+set(ZIG_ENABLE_ZSTD on CACHE BOOL "Enable linking zstd")
 set(ZIG_STATIC_ZSTD off CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache")
 
@@ -138,19 +139,24 @@ find_package(clang 15)
 find_package(lld 15)
 
 if(ZIG_STATIC_ZLIB)
-    list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
+    if (MSVC)
+        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "z.lib")
+    else()
+        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lz")
+    endif()
+
     find_library(ZLIB NAMES libz.a libzlibstatic.a z zlib libz NAMES_PER_DIR)
     list(APPEND LLVM_LIBRARIES "${ZLIB}")
 endif()
 
-if(ZIG_STATIC_ZSTD)
-    list(REMOVE_ITEM LLVM_LIBRARIES "-lzstd")
+if(ZIG_STATIC_ZSTD AND ZIG_ENABLE_ZSTD)
+    list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lzstd")
     find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
 if(APPLE AND ZIG_STATIC)
-    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
+    list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
       PATHS
         /usr/local/opt/ncurses/lib
@@ -706,6 +712,7 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
+    ${LLVM_SYSTEM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
@@ -839,7 +846,7 @@ if(ZIG_SINGLE_THREADED)
 else()
   set(ZIG_SINGLE_THREADED_ARG "")
 endif()
-if(ZIG_STATIC)
+if(ZIG_STATIC AND NOT MSVC)
   set(ZIG_STATIC_ARG "-Duse-zig-libcxx")
 else()
   set(ZIG_STATIC_ARG "")

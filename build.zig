@@ -552,6 +552,7 @@ fn addCmakeCfgOptionsToExe(
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
+    addCMakeSystemLibraryList(exe, cfg.clang_system_libraries);
     addCMakeSystemLibraryList(exe, cfg.llvm_system_libraries);
 
     if (use_zig_libcxx) {
@@ -627,10 +628,20 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     }
 
     exe.linkSystemLibrary("z");
-    exe.linkSystemLibrary("zstd");
 
-    // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
-    exe.linkSystemLibrary("c++");
+    if (exe.target.getOs().tag != .windows and exe.target.getAbi() != .msvc) {
+        // TODO: Support this on msvc
+        exe.linkSystemLibrary("zstd");
+
+        // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
+        exe.linkSystemLibrary("c++");
+    }
+
+    if (exe.target.getOs().tag == .windows) {
+        exe.linkSystemLibrary("version");
+        exe.linkSystemLibrary("uuid");
+        exe.linkSystemLibrary("ole32");
+    }
 }
 
 fn addCxxKnownPath(
@@ -707,6 +718,7 @@ const CMakeConfig = struct {
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
     clang_libraries: []const u8,
+    clang_system_libraries: []const u8,
     llvm_lib_dir: []const u8,
     llvm_include_dir: []const u8,
     llvm_libraries: []const u8,
@@ -773,6 +785,7 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .lld_include_dir = undefined,
         .lld_libraries = undefined,
         .clang_libraries = undefined,
+        .clang_system_libraries = undefined,
         .llvm_lib_dir = undefined,
         .llvm_include_dir = undefined,
         .llvm_libraries = undefined,
@@ -812,6 +825,10 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_CLANG_LIBRARIES ",
             .field = "clang_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_CLANG_SYSTEM_LIBRARIES ",
+            .field = "clang_system_libraries",
         },
         .{
             .prefix = "#define ZIG_LLVM_LIBRARIES ",

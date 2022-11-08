@@ -486,6 +486,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     continue;
                 }
             }
+            if (target.abi == .msvc) { // TODO: Do this at the top, if we detect we're using the native libc?
+                log.warn("adding system lib {s}", .{ lib_basename  });
+                argv.appendAssumeCapacity(lib_basename);
+                continue;
+            }
+
             log.err("DLL import library for -l{s} not found", .{key});
             return error.DllImportLibraryNotFound;
         }

@@ -3297,8 +3297,8 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .windows_import_lib,
-                    "unable to generate DLL import .lib file: {s}",
-                    .{@errorName(err)},
+                    "unable to generate DLL import .lib file for {s}: {s}",
+                    .{link_lib, @errorName(err)},
                 );
             };
         },
