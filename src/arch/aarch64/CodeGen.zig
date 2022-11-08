@@ -3067,7 +3067,12 @@ fn airSaveErrReturnTraceIndex(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+
+    const result: MCValue = result: {
         const payload_ty = self.air.typeOf(ty_op.operand);
         if (!payload_ty.hasRuntimeBits()) {
             break :result MCValue{ .immediate = 1 };
@@ -3100,6 +3105,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result MCValue{ .stack_offset = stack_offset };
     };
+
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
