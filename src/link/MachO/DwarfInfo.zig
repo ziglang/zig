@@ -402,6 +402,26 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         => return if (cuh.is_64bit) @sizeOf(u64) else @sizeOf(u32),
 
         dwarf.FORM.addr => return cuh.address_size,
+
+        dwarf.FORM.block1,
+        dwarf.FORM.block2,
+        dwarf.FORM.block4,
+        dwarf.FORM.block,
+        => {
+            const len: u64 = switch (form) {
+                dwarf.FORM.block1 => try reader.readIntLittle(u8),
+                dwarf.FORM.block2 => try reader.readIntLittle(u16),
+                dwarf.FORM.block4 => try reader.readIntLittle(u32),
+                dwarf.FORM.block => try leb.readULEB128(u64, reader),
+                else => unreachable,
+            };
+            var i: u64 = 0;
+            while (i < len) : (i += 1) {
+                _ = try reader.readByte();
+            }
+            return creader.bytes_read;
+        },
+
         dwarf.FORM.exprloc => {
             const expr_len = try leb.readULEB128(u64, reader);
             var i: u64 = 0;
@@ -414,18 +434,15 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
 
         dwarf.FORM.data1,
         dwarf.FORM.ref1,
-        dwarf.FORM.block1,
         dwarf.FORM.flag,
         => return @sizeOf(u8),
 
         dwarf.FORM.data2,
         dwarf.FORM.ref2,
-        dwarf.FORM.block2,
         => return @sizeOf(u16),
 
         dwarf.FORM.data4,
         dwarf.FORM.ref4,
-        dwarf.FORM.block4,
         => return @sizeOf(u32),
 
         dwarf.FORM.data8,
@@ -435,7 +452,6 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
 
         dwarf.FORM.udata,
         dwarf.FORM.ref_udata,
-        dwarf.FORM.block,
         => {
             _ = try leb.readULEB128(u64, reader);
             return math.cast(usize, creader.bytes_read) orelse error.Overflow;
