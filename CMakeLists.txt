@@ -159,6 +159,12 @@ if(APPLE AND ZIG_STATIC)
         /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
 endif()
+if (APPLE AND (${LLVM_LINK_MODE} STREQUAL "shared"))
+    find_library(APPLE_LIBCPP NAMES libc++.tbd NAMES_PER_DIR)
+    if ("${APPLE_LIBCPP}" STREQUAL "APPLE_LIBCPP-NOTFOUND")
+        set(APPLE_LIBCPP "")
+    endif()
+endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zigcpp")
 

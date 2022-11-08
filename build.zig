@@ -252,6 +252,18 @@ pub fn build(b: *Builder) !void {
     };
     exe_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
 
+    // -Dzig0 makes extra assumptions about the system config/bootstrapping, which we verify here.
+    if (use_zig0) {
+        if (!have_stage1) {
+            std.log.err("-Dzig0 is currently only supported in combination with -Denable-stage1", .{});
+            std.os.exit(1);
+        }
+        if (!static_llvm) {
+            std.log.err("-Dzig0 is currently only supported with -Dstatic-llvm", .{});
+            std.os.exit(1);
+        }
+    }
+
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
             if (findConfigH(b, config_h_path_option)) |config_h_path| {
@@ -286,15 +298,19 @@ pub fn build(b: *Builder) !void {
                 artifact.addIncludePath("deps/SoftFloat-3e/source/include");
                 artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
 
-                artifact.defineCMacro("ZIG_LINK_MODE", "Static");
+                if (cmake_cfg) |cfg| {
+                    artifact.defineCMacro("ZIG_LINK_MODE", if (cfg.llvm_linkage == .dynamic) "Dynamic" else "Static");
+                } else {
+                    artifact.defineCMacro("ZIG_LINK_MODE", "Static");
+                }
 
                 artifact.addCSourceFiles(&stage1_sources, &exe_cflags);
                 artifact.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
 
                 artifact.linkLibrary(softfloat);
-                artifact.linkLibCpp();
             }
 
+            zig0.linkLibCpp();
             try addStaticLlvmOptionsToExe(zig0);
 
             const zig1_obj_ext = target.getObjectFormat().fileExt(target.getCpuArch());
@@ -349,6 +365,7 @@ pub fn build(b: *Builder) !void {
             // is pointless.
             exe.addPackagePath("compiler_rt", "src/empty.zig");
         }
+
         if (cmake_cfg) |cfg| {
             // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
             // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
@@ -567,11 +584,14 @@ fn addCmakeCfgOptionsToExe(
     exe: *std.build.LibExeObjStep,
     use_zig_libcxx: bool,
 ) !void {
-    exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
-        cfg.cmake_binary_dir,
-        "zigcpp",
-        b.fmt("{s}{s}{s}", .{ exe.target.libPrefix(), "zigcpp", exe.target.staticLibSuffix() }),
-    }) catch unreachable);
+    // Adds the Zig C++ sources which both stage1 and stage2 need.
+    //
+    // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
+    // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
+    // unavailable when LLVM is compiled in Release mode.
+    const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
+    exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+
     assert(cfg.lld_include_dir.len != 0);
     exe.addIncludePath(cfg.lld_include_dir);
     exe.addIncludePath(cfg.llvm_include_dir);
@@ -583,7 +603,6 @@ fn addCmakeCfgOptionsToExe(
     if (use_zig_libcxx) {
         exe.linkLibCpp();
     } else {
-        const need_cpp_includes = true;
         const lib_suffix = switch (cfg.llvm_linkage) {
             .static => exe.target.staticLibSuffix()[1..],
             .dynamic => exe.target.dynamicLibSuffix()[1..],
@@ -594,21 +613,29 @@ fn addCmakeCfgOptionsToExe(
         if (exe.target.getOsTag() == .linux) {
             // First we try to link against gcc libstdc++. If that doesn't work, we fall
             // back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
+            addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "") catch |err| switch (err) {
                 error.RequiredLibraryNotFound => {
                     exe.linkSystemLibrary("c++");
                 },
                 else => |e| return e,
             };
+            try addLibcxxIncludePaths(b, cfg, exe);
             exe.linkSystemLibrary("unwind");
         } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null);
             exe.linkSystemLibrary("pthread");
         } else if (exe.target.getOsTag() == .openbsd) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null);
+            try addLibcxxIncludePaths(b, cfg, exe);
         } else if (exe.target.isDarwin()) {
-            exe.linkSystemLibrary("c++");
+            if (cfg.llvm_linkage == .dynamic and cfg.apple_libcpp_path.len > 0) {
+                exe.addObjectFile(cfg.apple_libcpp_path);
+                const sysroot = std.fs.path.dirname(std.fs.path.dirname(std.fs.path.dirname(cfg.apple_libcpp_path).?).?).?;
+                exe.addIncludePath(b.fmt("{s}/usr/include/c++/v1/", .{sysroot}));
+            } else {
+                exe.linkSystemLibrary("c++");
+            }
         }
     }
 
@@ -651,13 +678,14 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     }
 }
 
+/// Invoke the system C++ compiler and have it locate `objname`, usually
+/// a static or shared library file that's included in the stdlib.
 fn addCxxKnownPath(
     b: *Builder,
     ctx: CMakeConfig,
     exe: *std.build.LibExeObjStep,
     objname: []const u8,
     errtxt: ?[]const u8,
-    need_cpp_includes: bool,
 ) !void {
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
@@ -676,14 +704,53 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
     }
     exe.addObjectFile(path_unpadded);
+}
 
-    // TODO a way to integrate with system c++ include files here
+/// Invoke the system C++ compiler and add to the build any libc++ include
+/// paths in its system include search list.
+fn addLibcxxIncludePaths(
+    b: *Builder,
+    ctx: CMakeConfig,
+    exe: *std.build.LibExeObjStep,
+) !void {
     // c++ -E -Wp,-v -xc++ /dev/null
-    if (need_cpp_includes) {
-        // I used these temporarily for testing something but we obviously need a
-        // more general purpose solution here.
-        //exe.addIncludePath("/nix/store/2lr0fc0ak8rwj0k8n3shcyz1hz63wzma-gcc-11.3.0/include/c++/11.3.0");
-        //exe.addIncludePath("/nix/store/2lr0fc0ak8rwj0k8n3shcyz1hz63wzma-gcc-11.3.0/include/c++/11.3.0/x86_64-unknown-linux-gnu");
+    const max_output_size = 400 * 1024;
+    var child = std.ChildProcess.init(&[_][]const u8{ ctx.cxx_compiler, "-E", "-Wp,-v", "-xc++", "/dev/null" }, b.allocator);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Pipe;
+    try child.spawn();
+    const stderr = child.stderr.?.reader().readAllAlloc(b.allocator, max_output_size) catch unreachable;
+    errdefer b.allocator.free(stderr);
+
+    const term = try child.wait();
+    assert(term == .Exited and term.Exited == 0);
+
+    var it = mem.tokenize(u8, stderr, "\r\n");
+    while (it.next()) |line| {
+        if (std.mem.eql(u8, line, "#include <...> search starts here:"))
+            break;
+    } else unreachable;
+
+    paths: while (it.next()) |line| {
+        if (line[0] != ' ')
+            break;
+
+        // Look for a directory name starting with "c++" or "g++" within the last three
+        // components of the path.
+        var i: u8 = 0;
+        var parent_dir = line[1..];
+        while (i < 3) : (i += 1) {
+            if (std.mem.startsWith(u8, std.fs.path.basename(parent_dir), "c++") or
+                std.mem.startsWith(u8, std.fs.path.basename(parent_dir), "g++"))
+            {
+
+                // TODO: Use `addSystemIncludePath` once
+                //       https://github.com/ziglang/zig/issues/13496 is resolved.
+                exe.addIncludePath(line[1..]);
+                continue :paths;
+            } else parent_dir = std.fs.path.dirname(parent_dir) orelse continue :paths;
+        }
     }
 }
 
@@ -700,6 +767,7 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
 
 const CMakeConfig = struct {
     llvm_linkage: std.build.LibExeObjStep.Linkage,
+    apple_libcpp_path: []const u8,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cxx_compiler: []const u8,
@@ -763,6 +831,7 @@ fn findConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?[]const u8 {
 fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
     var ctx: CMakeConfig = .{
         .llvm_linkage = undefined,
+        .apple_libcpp_path = undefined,
         .cmake_binary_dir = undefined,
         .cmake_prefix_path = undefined,
         .cxx_compiler = undefined,
@@ -815,6 +884,10 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_LLVM_LIB_PATH ",
             .field = "llvm_lib_dir",
+        },
+        .{
+            .prefix = "#define ZIG_APPLE_LIBCPP_PATH ",
+            .field = "apple_libcpp_path",
         },
         // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
