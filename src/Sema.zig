@@ -1132,6 +1132,7 @@ fn analyzeBodyInner(
                     .sub_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
                     .mul_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
                     .shl_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .mul_carryless         => try sema.zirMulCarryless(      block, extended),
                     .c_undef               => try sema.zirCUndef(            block, extended),
                     .c_include             => try sema.zirCInclude(          block, extended),
                     .c_define              => try sema.zirCDefine(           block, extended),
@@ -13604,6 +13605,69 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     const air_tag = airTag(block, is_int, .rem, .rem_optimized);
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn zirMulCarryless(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const extra = sema.code.extraData(Zir.Inst.MulCarryless, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    sema.src = src;
+    const a_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const b_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const imm_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+
+    const a = try sema.resolveInst(extra.a);
+    const b = try sema.resolveInst(extra.b);
+    const imm = try sema.resolveInst(extra.imm);
+
+    const a_ty = sema.typeOf(a);
+    const b_ty = sema.typeOf(b);
+    const imm_ty = sema.typeOf(imm);
+    const mod = sema.mod;
+    const target = mod.getTarget();
+
+    try sema.checkVectorizableBinaryOperands(block, src, a_ty, b_ty, a_src, b_src);
+
+    if (a_ty.scalarType().zigTypeTag() != .Int)
+        return sema.fail(block, a_src, "expected vector of 64 bit integers, found '{}'", .{a_ty.fmt(mod)});
+    const a_bit_size = try a_ty.scalarType().bitSizeAdvanced(target, sema.kit(block, src));
+    if (a_bit_size != 64)
+        return sema.fail(block, a_src, "expected vector of 64 bit integers, found '{}'", .{a_ty.fmt(mod)});
+
+    if (!imm_ty.isInt())
+        return sema.fail(block, imm_src, "imm must be a comptime known 8 bit integer", .{});
+    const bit_size = try imm_ty.bitSizeAdvanced(target, sema.kit(block, src));
+    if (bit_size != 8)
+        return sema.fail(block, imm_src, "imm must be a comptime known 8 bit integer", .{});
+    if (!try sema.isComptimeKnown(block, imm_src, imm))
+        return sema.fail(block, imm_src, "imm must be a comptime known 8 bit integer", .{});
+
+    const instructions = &[_]Air.Inst.Ref{ a, b };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ a_src, b_src },
+    });
+    const casted_a = try sema.coerce(block, resolved_type, a, a_src);
+    const casted_b = try sema.coerce(block, resolved_type, b, b_src);
+
+    return block.addInst(.{
+        .tag = .mul_carryless,
+        .data = .{
+            .ty_pl = .{
+                .ty = try block.sema.addType(sema.typeOf(casted_a)),
+                .payload = try block.sema.addExtra(Air.MulCarryless{
+                    .a = casted_a,
+                    .b = casted_b,
+                    .imm = imm,
+                }),
+            },
+        },
+    });
 }
 
 fn zirOverflowArithmetic(

@@ -4495,6 +4495,8 @@ pub const FuncGen = struct {
                 .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
                 .shl_with_overflow => try self.airShlWithOverflow(inst),
 
+                .mul_carryless      => try self.airMulCarryless(inst),
+
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
@@ -8898,6 +8900,17 @@ pub const FuncGen = struct {
         const vector_ty = self.air.typeOfIndex(inst);
         const len = vector_ty.vectorLen();
         return self.builder.buildVectorSplat(len, scalar, "");
+    }
+
+    fn airMulCarryless(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.MulCarryless, ty_pl.payload).data;
+        const a = try self.resolveInst(extra.a);
+        const b = try self.resolveInst(extra.b);
+        const imm = try self.resolveInst(extra.imm);
+        return self.builder.buildMulcl(a, b, imm, "");
     }
 
     fn airSelect(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

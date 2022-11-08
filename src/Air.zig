@@ -178,6 +178,11 @@ pub const Inst = struct {
         /// and if an overflow happens, ov is 1. Otherwise ov is 0.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         shl_with_overflow,
+        /// Carryless multiplication. Both operands are guaranteed to be the same type,
+        /// Result type is the same as both operands.
+        /// Uses the `ty_pl` field. Payload is `MulCarryless`.
+        /// Uses the `ty` field.
+        mul_carryless,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -897,6 +902,12 @@ pub const Shuffle = struct {
     mask_len: u32,
 };
 
+pub const MulCarryless = struct {
+    a: Inst.Ref,
+    b: Inst.Ref,
+    imm: Inst.Ref,
+};
+
 pub const VectorCmp = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
@@ -1222,7 +1233,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
             return air.typeOf(extra.lhs);
         },
-
+        .mul_carryless => {
+            // const extra = air.extraData(Air.MulCarryless, datas[inst].ty_pl.payload).data;
+            // return air.typeOf(extra.a);
+            return air.getRefType(datas[inst].ty_pl.ty);
+        },
         .@"try" => {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
             return err_union_ty.errorUnionPayload();

@@ -548,6 +548,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
 
+            .mul_carryless => @panic("TODO"),
+
             .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
             .cmp_lt  => try self.airCmp(inst, .lt),

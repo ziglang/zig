@@ -1927,6 +1927,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `OverflowArithmetic`.
         /// `small` is unused.
         mul_with_overflow,
+        /// Implements the `@mulCarryless` builtin.
+        /// `operand` is payload index to `MulCarryless`.
+        /// `small` is unused.
+        mul_carryless,
         /// Implements the `@shlWithOverflow` builtin.
         /// `operand` is payload index to `OverflowArithmetic`.
         /// `small` is unused.
@@ -3423,6 +3427,13 @@ pub const Inst = struct {
         lhs: Ref,
         rhs: Ref,
         ptr: Ref,
+    };
+
+    pub const MulCarryless = struct {
+        node: i32,
+        a: Ref,
+        b: Ref,
+        imm: Ref,
     };
 
     pub const Cmpxchg = struct {

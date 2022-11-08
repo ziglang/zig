@@ -66,6 +66,7 @@ pub const Tag = enum {
     wasm_memory_grow,
     mod,
     mul_with_overflow,
+    mul_carryless,
     panic,
     pop_count,
     prefetch,
@@ -609,6 +610,13 @@ pub const list = list: {
             .{
                 .tag = .mul_with_overflow,
                 .param_count = 4,
+            },
+        },
+        .{
+            "@mulCarryless",
+            .{
+                .tag = .mul_carryless,
+                .param_count = 3,
             },
         },
         .{

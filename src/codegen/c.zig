@@ -2732,6 +2732,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .mul_with_overflow => try airOverflow(f, inst, "mul", .Bits),
             .shl_with_overflow => try airOverflow(f, inst, "shl", .Bits),
 
+            .mul_carryless => return f.fail("TODO: C backend: implement @mulCarryless()", .{}),
+
             .min => try airMinMax(f, inst, '<', "fmin"),
             .max => try airMinMax(f, inst, '>', "fmax"),
 

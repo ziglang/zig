@@ -736,6 +736,15 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
+    pub const buildMulcl = ZigLLVMBuildMulcl;
+    extern fn ZigLLVMBuildMulcl(
+        *Builder,
+        A: *Value,
+        B: *Value,
+        IMM: *Value,
+        Name: [*:0]const u8,
+    ) *Value;
+
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *Builder,

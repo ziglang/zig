@@ -1717,6 +1717,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .shl_with_overflow => func.airShlWithOverflow(inst),
         .mul_with_overflow => func.airMulWithOverflow(inst),
 
+        .mul_carryless => @panic("TODO"),
+
         .clz => func.airClz(inst),
         .ctz => func.airCtz(inst),
 

@@ -8250,7 +8250,15 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
-
+        .mul_carryless => {
+            const result = try gz.addExtendedPayload(.mul_carryless, Zir.Inst.MulCarryless{
+                .node = gz.nodeIndexToRelative(node),
+                .a = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .b = try expr(gz, scope, .{ .rl = .none }, params[1]),
+                .imm = try expr(gz, scope, .{ .rl = .none }, params[2]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
         .atomic_load => {
             const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.AtomicLoad{
                 // zig fmt: off

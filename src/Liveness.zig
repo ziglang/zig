@@ -405,6 +405,13 @@ pub fn categorizeOperand(
             if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
             return .none;
         },
+        .mul_carryless => {
+            const extra = air.extraData(Air.MulCarryless, air_datas[inst].ty_pl.payload).data;
+            if (extra.a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            if (extra.imm == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
+            return .none;
+        },
         .reduce, .reduce_optimized => {
             const reduce = air_datas[inst].reduce;
             if (reduce.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -904,6 +911,11 @@ fn analyzeInst(
             const ty_pl = inst_datas[inst].ty_pl;
             const extra = a.air.extraData(Air.Bin, ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
+        .mul_carryless => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.MulCarryless, ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.a, extra.b, extra.imm });
         },
 
         .dbg_var_ptr,

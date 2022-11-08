@@ -539,6 +539,7 @@ const Writer = struct {
             },
             .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
             .cmpxchg => try self.writeCmpxchg(stream, extended),
+            .mul_carryless => try self.writeMulCarryless(stream, extended),
         }
     }
 
@@ -1157,6 +1158,19 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeMulCarryless(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.MulCarryless, extended.operand).data;
+        const src = LazySrcLoc.nodeOffset(extra.node);
+
+        try self.writeInstRef(stream, extra.a);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.b);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.imm);
         try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
     }

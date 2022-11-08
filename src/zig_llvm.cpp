@@ -29,6 +29,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicsX86.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
@@ -553,6 +554,13 @@ LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRe
 
 LLVMValueRef LLVMBuildVectorSplat(LLVMBuilderRef B, unsigned elem_count, LLVMValueRef V, const char *Name) {
   return wrap(unwrap(B)->CreateVectorSplat(elem_count, unwrap(V), Name));
+}
+
+LLVMValueRef ZigLLVMBuildMulcl(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, LLVMValueRef IMM, const char *name) {
+    llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(IMM)};
+
+    CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::X86Intrinsics::x86_pclmulqdq, llvm::None, values, nullptr, name);
+    return wrap(call_inst);
 }
 
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
