@@ -9,7 +9,7 @@ NATIVE_TARBALL="zig-linux-$(uname -m)-$VERSION.tar.xz"
 
 # Check for all the builds being completed. It's expected that this script is run several times
 # before they are all complete.
-AARCH64_LINUX_JSON_URL="https://ziglang.org/builds/aarch64-linux-$VERSION.json"
+#AARCH64_LINUX_JSON_URL="https://ziglang.org/builds/aarch64-linux-$VERSION.json"
 X86_64_LINUX_JSON_URL="https://ziglang.org/builds/x86_64-linux-$VERSION.json"
 X86_64_WINDOWS_JSON_URL="https://ziglang.org/builds/x86_64-windows-$VERSION.json"
 AARCH64_MACOS_JSON_URL="https://ziglang.org/builds/aarch64-macos-$VERSION.json"
@@ -19,7 +19,7 @@ X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json
 
 # If any of these fail, it's not really this job failing; rather we have detected
 # that this job will be called again later when other jobs have completed.
-curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
+#curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$AARCH64_MACOS_JSON_URL" >/dev/null || exit 0
@@ -76,10 +76,10 @@ export X86_64_LINUX_TARBALL="$(echo "$X86_64_LINUX_JSON" | jq .tarball -r)"
 export X86_64_LINUX_BYTESIZE="$(echo "$X86_64_LINUX_JSON" | jq .size -r)"
 export X86_64_LINUX_SHASUM="$(echo "$X86_64_LINUX_JSON" | jq .shasum -r)"
 
-AARCH64_LINUX_JSON=$(curl --fail "$AARCH64_LINUX_JSON_URL" || exit 1)
-export AARCH64_LINUX_TARBALL="$(echo "$AARCH64_LINUX_JSON" | jq .tarball -r)"
-export AARCH64_LINUX_BYTESIZE="$(echo "$AARCH64_LINUX_JSON" | jq .size -r)"
-export AARCH64_LINUX_SHASUM="$(echo "$AARCH64_LINUX_JSON" | jq .shasum -r)"
+#AARCH64_LINUX_JSON=$(curl --fail "$AARCH64_LINUX_JSON_URL" || exit 1)
+#export AARCH64_LINUX_TARBALL="$(echo "$AARCH64_LINUX_JSON" | jq .tarball -r)"
+#export AARCH64_LINUX_BYTESIZE="$(echo "$AARCH64_LINUX_JSON" | jq .size -r)"
+#export AARCH64_LINUX_SHASUM="$(echo "$AARCH64_LINUX_JSON" | jq .shasum -r)"
 
 X86_64_FREEBSD_JSON=$(curl --fail "$X86_64_FREEBSD_JSON_URL" || exit 1)
 export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
