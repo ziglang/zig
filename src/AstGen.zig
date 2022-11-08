@@ -339,6 +339,8 @@ pub const ResultInfo = struct {
         fn_arg,
         /// The expression is the right-hand side of an initializer for a `const` variable
         const_init,
+        /// The expression is the right-hand side of an assignment expression.
+        assignment,
         /// No specific operator in particular.
         none,
     };
@@ -3216,7 +3218,7 @@ fn assign(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerError!voi
         // This intentionally does not support `@"_"` syntax.
         const ident_name = tree.tokenSlice(main_tokens[lhs]);
         if (mem.eql(u8, ident_name, "_")) {
-            _ = try expr(gz, scope, .{ .rl = .discard }, rhs);
+            _ = try expr(gz, scope, .{ .rl = .discard, .ctx = .assignment }, rhs);
             return;
         }
     }
@@ -7088,7 +7090,7 @@ fn localVarRef(
             if (local_val.name == name_str_index) {
                 // Locals cannot shadow anything, so we do not need to look for ambiguous
                 // references in this case.
-                if (ri.rl == .discard) {
+                if (ri.rl == .discard and ri.ctx == .assignment) {
                     local_val.discarded = ident_token;
                 } else {
                     local_val.used = ident_token;
@@ -7111,7 +7113,7 @@ fn localVarRef(
         .local_ptr => {
             const local_ptr = s.cast(Scope.LocalPtr).?;
             if (local_ptr.name == name_str_index) {
-                if (ri.rl == .discard) {
+                if (ri.rl == .discard and ri.ctx == .assignment) {
                     local_ptr.discarded = ident_token;
                 } else {
                     local_ptr.used = ident_token;
@@ -10672,14 +10674,19 @@ const GenZir = struct {
                 gz.break_result_info = parent_ri;
             },
 
-            .discard, .none, .ref => {
+            .none, .ref => {
                 gz.rl_ty_inst = .none;
                 gz.break_result_info = parent_ri;
             },
 
+            .discard => {
+                gz.rl_ty_inst = .none;
+                gz.break_result_info = .{ .rl = .discard };
+            },
+
             .ptr => |ptr_res| {
                 gz.rl_ty_inst = .none;
-                gz.break_result_info = .{ .rl = .{ .ptr = .{ .inst = ptr_res.inst } } };
+                gz.break_result_info = .{ .rl = .{ .ptr = .{ .inst = ptr_res.inst } }, .ctx = parent_ri.ctx };
             },
 
             .inferred_ptr => |ptr| {
