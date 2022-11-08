@@ -419,7 +419,7 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
             while (i < len) : (i += 1) {
                 _ = try reader.readByte();
             }
-            return creader.bytes_read;
+            return math.cast(usize, creader.bytes_read) orelse error.Overflow;
         },
 
         dwarf.FORM.exprloc => {
