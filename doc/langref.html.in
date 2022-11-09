@@ -536,7 +536,7 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
       <p>User documentation that doesn't belong to whatever
-      immediately follows it, like container-level documentation, goes
+      immediately follows it, like {#link|container|Containers#}-level documentation, goes
       in top-level doc comments. A top-level doc comment is one that
       begins with two slashes and an exclamation point:
       {#syntax#}//!{#endsyntax#}.</p>
@@ -1080,7 +1080,7 @@ fn addOne(number: i32) i32 {
       <p>
         When the <kbd>zig test</kbd> tool is building a test runner, only resolved {#syntax#}test{#endsyntax#}
         declarations are included in the build. Initially, only the given Zig source file's top-level
-        declarations are resolved. Unless nested containers are referenced from a top-level test declaration,
+        declarations are resolved. Unless nested {#link|containers|Containers#} are referenced from a top-level test declaration,
         nested container tests will not be resolved.
       </p>
       <p>
@@ -1328,7 +1328,7 @@ const color: Color = .@"really red";
 
       {#header_open|Container Level Variables#}
       <p>
-      Container level variables have static lifetime and are order-independent and lazily analyzed.
+      {#link|Container|Containers#} level variables have static lifetime and are order-independent and lazily analyzed.
       The initialization value of container level variables is implicitly
       {#link|comptime#}. If a container level variable is {#syntax#}const{#endsyntax#} then its value is
       {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
@@ -1350,7 +1350,7 @@ const std = @import("std");
 const expect = std.testing.expect;
       {#code_end#}
       <p>
-      Container level variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+      Container level variables may be declared inside a {#link|struct#}, {#link|union#}, {#link|enum#}, or {#link|opaque#}:
       </p>
       {#code_begin|test|namespaced_container_level_variable#}
 const std = @import("std");
@@ -7066,7 +7066,7 @@ test "fibonacci" {
       {#code_end#}
 
       <p>
-      At container level (outside of any function), all expressions are implicitly
+      At {#link|container|Containers#} level (outside of any function), all expressions are implicitly
       {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
       initialize complex static data. For example:
       </p>
@@ -7538,7 +7538,7 @@ volatile (
 
       {#header_open|Global Assembly#}
       <p>
-      When an assembly expression occurs in a container level {#link|comptime#} block, this is
+      When an assembly expression occurs in a {#link|container|Containers#} level {#link|comptime#} block, this is
       <strong>global assembly</strong>.
       </p>
       <p>
@@ -8843,7 +8843,7 @@ fn func() void {
       {#header_open|@hasDecl#}
       <pre>{#syntax#}@hasDecl(comptime Container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>
-      Returns whether or not a {#link|struct#}, {#link|enum#}, or {#link|union#} has a declaration
+      Returns whether or not a {#link|container|Containers#} has a declaration
       matching {#syntax#}name{#endsyntax#}.
       </p>
       {#code_begin|test|hasDecl#}
@@ -12436,6 +12436,19 @@ fn readU32Be() u32 {}
       </div>
       {#header_close#}
 
+      {#header_open|Appendix#}
+      {#header_open|Containers#}
+      <p>
+      A <em>container</em> in Zig is any syntactical construct that acts as a namespace to hold {#link|variable|Container Level Variables#} and {#link|function|Functions#} declarations.
+      Containers are also type definitions which can be instantiated.
+      {#link|Structs|struct#}, {#link|enums|enum#}, {#link|unions|union#}, {#link|opaques|opaque#}, and even Zig source files themselves are containers.
+      </p>
+      <p>
+      Although containers (except Zig source files) use curly braces to surround their definition, they should not be confused with {#link|blocks|Blocks#} or functions.
+      Containers do not contain statements.
+      </p>
+      {#header_close#}
+
       {#header_open|Grammar#}
       {#syntax_block|peg|grammar.y#}Root <- skip container_doc_comment? ContainerMembers eof
 
@@ -13000,6 +13013,7 @@ keyword <- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
         <li>Memory is a resource.</li>
         <li>Together we serve the users.</li>
       </ul>
+      {#header_close#}
       {#header_close#}
       </main></div>
     </div>
