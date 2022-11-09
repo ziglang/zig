@@ -5233,7 +5233,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
         const parent_mcv = blk: {
             var i: usize = self.branch_stack.items.len - 1;
             while (true) {
-                i -= 1;
+                i = std.math.sub(usize, i, 1) catch break;
                 if (self.branch_stack.items[i].inst_table.get(canon_key)) |mcv| {
                     assert(mcv != .dead);
                     break :blk mcv;
