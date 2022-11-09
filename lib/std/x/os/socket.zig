@@ -307,6 +307,12 @@ pub const Socket = struct {
     /// The underlying handle of a socket.
     fd: os.socket_t,
 
+    // Whether or not the socket should raise SIGPIPE errors on platforms
+    // that support SIGPIPE. Default is changed to being false, as this
+    // option generates API compatibility between operating systems such as
+    // Linux, which does generate SIGPIPE, and Windows, which does not.
+    raise_sigpipe: bool = false,
+
     /// Enclose a socket abstraction over an existing socket file descriptor.
     pub fn from(fd: os.socket_t) Socket {
         return Socket{ .fd = fd };

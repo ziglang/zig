@@ -1630,6 +1630,12 @@ pub const Stream = struct {
     // regular files descriptor.
     handle: os.socket_t,
 
+    // Whether or not the socket should raise SIGPIPE errors on platforms
+    // that support SIGPIPE. Default is changed to being false, as this
+    // option generates API compatibility between operating systems such as
+    // Linux, which does generate SIGPIPE, and Windows, which does not.
+    raise_sigpipe: bool = false,
+
     pub fn close(self: Stream) void {
         os.closeSocket(self.handle);
     }
@@ -1671,9 +1677,18 @@ pub const Stream = struct {
         if (std.io.is_async) {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
-            if (builtin.os.tag == .linux)
-                return os.send(@bitCast(os.socket_t, self.handle), buffer, os.linux.MSG.NOSIGNAL)
-            else {
+            if (builtin.os.tag == .linux and !self.raise_sigpipe) {
+                return os.send(@bitCast(os.socket_t, self.handle), buffer, os.linux.MSG.NOSIGNAL) catch |e| {
+                    return switch (e) {
+                        error.FastOpenAlreadyInProgress => error.Unexpected,
+                        error.FileDescriptorNotASocket => error.Unexpected,
+                        error.MessageTooBig => error.Unexpected,
+                        error.NetworkSubsystemFailed => error.Unexpected,
+                        error.NetworkUnreachable => error.Unexpected,
+                        else => e,
+                    };
+                };
+            } else {
                 return os.write(self.handle, buffer);
             }
         }

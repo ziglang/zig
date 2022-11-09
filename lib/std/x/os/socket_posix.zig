@@ -69,7 +69,7 @@ pub fn Mixin(comptime Socket: type) type {
         pub fn write(self: Socket, buf: []const u8, flags: u32) !usize {
             var flags_ = flags;
 
-            if (builtin.os.tag == .linux) {
+            if (builtin.os.tag == .linux and !self.raise_sigpipe) {
                 flags_ |= os.linux.MSG.NOSIGNAL;
             }
 
