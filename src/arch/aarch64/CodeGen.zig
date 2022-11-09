@@ -261,14 +261,23 @@ const DbgInfoReloc = struct {
 
                     .ptr_stack_offset,
                     .stack_offset,
-                    => |off| {
+                    .stack_argument_offset,
+                    => |offset| {
+                        const adjusted_offset = switch (reloc.mcv) {
+                            .ptr_stack_offset,
+                            .stack_offset,
+                            => -@intCast(i32, offset),
+                            .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
+                            else => unreachable,
+                        };
+
                         try dbg_info.ensureUnusedCapacity(7);
                         const fixup = dbg_info.items.len;
                         dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                             1, // we will backpatch it after we encode the displacement in LEB128
                             Register.x29.dwarfLocOpDeref(), // frame pointer
                         });
-                        leb128.writeILEB128(dbg_info.writer(), -@intCast(i32, off)) catch unreachable;
+                        leb128.writeILEB128(dbg_info.writer(), adjusted_offset) catch unreachable;
                         dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                     },
 
@@ -352,8 +361,6 @@ const DbgInfoReloc = struct {
                             2, DW.OP.lit0, DW.OP.stack_value,
                         });
                     },
-
-                    .stack_argument_offset => unreachable,
 
                     else => {
                         try dbg_info.ensureUnusedCapacity(2);
