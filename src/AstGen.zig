@@ -9969,7 +9969,7 @@ fn parseStrLit(
 ) InnerError!void {
     const raw_string = bytes[offset..];
     var buf_managed = buf.toManaged(astgen.gpa);
-    const result = std.zig.string_literal.parseAppend(&buf_managed, raw_string);
+    const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
     buf.* = buf_managed.moveToUnmanaged();
     switch (try result) {
         .success => return,
