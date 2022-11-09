@@ -66,7 +66,13 @@ pub fn Mixin(comptime Socket: type) type {
         /// Write a buffer of data provided to the socket with a set of flags specified.
         /// It returns the number of bytes that are written to the socket.
         pub fn write(self: Socket, buf: []const u8, flags: u32) !usize {
-            return os.send(self.fd, buf, flags);
+            var flags_ = flags;
+
+            if(builtin.os.tag == .linux) {
+                flags_ |= os.linux.MSG.NOSIGNAL;
+            }
+
+            return os.send(self.fd, buf, flags_);
         }
 
         /// Writes multiple I/O vectors with a prepended message header to the socket

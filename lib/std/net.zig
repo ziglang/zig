@@ -1671,7 +1671,11 @@ pub const Stream = struct {
         if (std.io.is_async) {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
-            return os.write(self.handle, buffer);
+            if(builtin.os.tag == .linux)
+                return os.send(@bitCast(socket_t, self.handle), buffer, os.linux.MSG.NOSIGNAL)
+            else {
+                return os.write(self.handle, buffer);
+            }
         }
     }
 
