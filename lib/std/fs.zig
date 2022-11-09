@@ -2685,12 +2685,12 @@ pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) Fil
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().openDirZ(absolute_path_c, flags);
+    return cwd().openDirZ(absolute_path_c, flags, false);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
-    return cwd().openDirW(absolute_path_c, flags);
+    return cwd().openDirW(absolute_path_c, flags, false);
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains
