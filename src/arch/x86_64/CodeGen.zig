@@ -3797,62 +3797,66 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const ty = self.air.typeOfIndex(inst);
     const mcv = self.args[arg_index];
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
-    const name_with_null = name.ptr[0 .. name.len + 1];
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
 
-    const dst_mcv: MCValue = blk: {
-        switch (mcv) {
-            .register => |reg| {
-                self.register_manager.getRegAssumeFree(reg.to64(), inst);
-                switch (self.debug_output) {
-                    .dwarf => |dw| {
-                        const dbg_info = &dw.dbg_info;
-                        try dbg_info.ensureUnusedCapacity(3);
-                        dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                        dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                            1, // ULEB128 dwarf expression length
-                            reg.dwarfLocOp(),
-                        });
-                        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                        try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                    },
-                    .plan9 => {},
-                    .none => {},
-                }
-                break :blk mcv;
-            },
-            .stack_offset => |off| {
-                const offset = @intCast(i32, self.max_end_stack) - off + 16;
-                switch (self.debug_output) {
-                    .dwarf => |dw| {
-                        const dbg_info = &dw.dbg_info;
-                        try dbg_info.ensureUnusedCapacity(8);
-                        dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                        const fixup = dbg_info.items.len;
-                        dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                            1, // we will backpatch it after we encode the displacement in LEB128
-                            DW.OP.breg6, // .rbp TODO handle -fomit-frame-pointer
-                        });
-                        leb128.writeILEB128(dbg_info.writer(), offset) catch unreachable;
-                        dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                        try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
-                    },
-                    .plan9 => {},
-                    .none => {},
-                }
-                break :blk MCValue{ .stack_offset = -offset };
-            },
-            else => return self.fail("TODO implement arg for {}", .{mcv}),
-        }
+    const dst_mcv: MCValue = switch (mcv) {
+        .register => |reg| blk: {
+            self.register_manager.getRegAssumeFree(reg.to64(), inst);
+            break :blk MCValue{ .register = reg };
+        },
+        .stack_offset => |off| blk: {
+            const offset = @intCast(i32, self.max_end_stack) - off + 16;
+            break :blk MCValue{ .stack_offset = -offset };
+        },
+        else => return self.fail("TODO implement arg for {}", .{mcv}),
     };
+    try self.genArgDbgInfo(ty, name, dst_mcv);
 
     return self.finishAir(inst, dst_mcv, .{ .none, .none, .none });
+}
+
+fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
+    const name_with_null = name.ptr[0 .. name.len + 1];
+    switch (self.debug_output) {
+        .dwarf => |dw| {
+            const dbg_info = &dw.dbg_info;
+            switch (mcv) {
+                .register => |reg| {
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, // ULEB128 dwarf expression length
+                        reg.dwarfLocOp(),
+                    });
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                },
+
+                .stack_offset => |off| {
+                    try dbg_info.ensureUnusedCapacity(8);
+                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
+                    const fixup = dbg_info.items.len;
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, // we will backpatch it after we encode the displacement in LEB128
+                        Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
+                    });
+                    leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
+                    dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+
+                },
+
+                else => unreachable, // not a valid function parameter
+            }
+        },
+        .plan9 => {},
+        .none => {},
+    }
 }
 
 fn airBreakpoint(self: *Self) !void {
@@ -4424,7 +4428,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genVarDbgInfo(
-    self: *Self,
+    self: Self,
     tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
@@ -4445,17 +4449,23 @@ fn genVarDbgInfo(
                         reg.dwarfLocOp(),
                     });
                 },
-                .ptr_stack_offset, .stack_offset => |off| {
+
+                .ptr_stack_offset,
+                .stack_offset,
+                => |off| {
                     try dbg_info.ensureUnusedCapacity(7);
                     const fixup = dbg_info.items.len;
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // we will backpatch it after we encode the displacement in LEB128
-                        DW.OP.breg6, // .rbp TODO handle -fomit-frame-pointer
+                        Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
                     });
                     leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 },
-                .memory, .linker_load => {
+
+                .memory,
+                .linker_load,
+                => {
                     const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
                     const is_ptr = switch (tag) {
                         .dbg_var_ptr => true,
@@ -4494,27 +4504,23 @@ fn genVarDbgInfo(
                         else => {},
                     }
                 },
+
                 .immediate => |x| {
-                    const signedness: std.builtin.Signedness = blk: {
-                        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
-                        break :blk ty.intInfo(self.target.*).signedness;
-                    };
                     try dbg_info.ensureUnusedCapacity(2);
                     const fixup = dbg_info.items.len;
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1,
-                        switch (signedness) {
-                            .signed => DW.OP.consts,
-                            .unsigned => DW.OP.constu,
-                        },
+                        if (ty.isSignedInt()) DW.OP.consts else DW.OP.constu,
                     });
-                    switch (signedness) {
-                        .signed => try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x)),
-                        .unsigned => try leb128.writeULEB128(dbg_info.writer(), x),
+                    if (ty.isSignedInt()) {
+                        try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x));
+                    } else {
+                        try leb128.writeULEB128(dbg_info.writer(), x);
                     }
                     try dbg_info.append(DW.OP.stack_value);
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 },
+
                 .undef => {
                     // DW.AT.location, DW.FORM.exprloc
                     // uleb128(exprloc_len)
@@ -4530,12 +4536,14 @@ fn genVarDbgInfo(
                     dbg_info.appendSliceAssumeCapacity(implicit_value_len.items);
                     dbg_info.appendNTimesAssumeCapacity(0xaa, abi_size);
                 },
+
                 .none => {
                     try dbg_info.ensureUnusedCapacity(3);
                     dbg_info.appendSliceAssumeCapacity(&[3]u8{ // DW.AT.location, DW.FORM.exprloc
                         2, DW.OP.lit0, DW.OP.stack_value,
                     });
                 },
+
                 else => {
                     try dbg_info.ensureUnusedCapacity(2);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
@@ -4556,7 +4564,7 @@ fn genVarDbgInfo(
 
 /// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
 /// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
+fn addDbgInfoTypeReloc(self: Self, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
             const dbg_info = &dw.dbg_info;
