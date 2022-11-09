@@ -6,7 +6,6 @@ const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "passing an optional integer as a parameter" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -26,8 +25,6 @@ test "passing an optional integer as a parameter" {
 pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var e = EmptyStruct{};
     var o: ?*EmptyStruct = &e;
     try expect(o != null);
@@ -142,7 +139,6 @@ fn test_cmp_optional_non_optional() !void {
 }
 
 test "unwrap function call with optional pointer return value" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -163,7 +159,6 @@ test "unwrap function call with optional pointer return value" {
 }
 
 test "nested orelse" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -189,7 +184,6 @@ test "nested orelse" {
 }
 
 test "self-referential struct through a slice of optional" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -270,7 +264,6 @@ test "0-bit child type coerced to optional return ptr result location" {
 
 test "0-bit child type coerced to optional" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

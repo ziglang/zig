@@ -1548,7 +1548,7 @@ fn allocRegs(
             };
             const raw_reg = try self.register_manager.allocReg(track_inst, gp);
             arg.reg.* = self.registerAlias(raw_reg, arg.ty);
-            read_locks[i] = self.register_manager.lockReg(arg.reg.*);
+            read_locks[i] = self.register_manager.lockRegAssumeUnused(arg.reg.*);
         }
     }
 
@@ -2882,8 +2882,63 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const optional_ty = self.air.typeOf(ty_op.operand);
+        const mcv = try self.resolveInst(ty_op.operand);
+        break :result try self.optionalPayload(inst, mcv, optional_ty);
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty: Type) !MCValue {
+    var opt_buf: Type.Payload.ElemType = undefined;
+    const payload_ty = optional_ty.optionalChild(&opt_buf);
+    if (!payload_ty.hasRuntimeBits()) return MCValue.none;
+    if (optional_ty.isPtrLikeOptional()) {
+        // TODO should we reuse the operand here?
+        const raw_reg = try self.register_manager.allocReg(inst, gp);
+        const reg = self.registerAlias(raw_reg, payload_ty);
+        try self.genSetReg(payload_ty, reg, mcv);
+        return MCValue{ .register = reg };
+    }
+
+    const offset = @intCast(u32, optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*));
+    switch (mcv) {
+        .register => |source_reg| {
+            // TODO should we reuse the operand here?
+            const raw_reg = try self.register_manager.allocReg(inst, gp);
+            const dest_reg = raw_reg.toX();
+
+            const shift = @intCast(u6, offset * 8);
+            if (shift == 0) {
+                try self.genSetReg(payload_ty, dest_reg, mcv);
+            } else {
+                _ = try self.addInst(.{
+                    .tag = if (payload_ty.isSignedInt())
+                        Mir.Inst.Tag.asr_immediate
+                    else
+                        Mir.Inst.Tag.lsr_immediate,
+                    .data = .{ .rr_shift = .{
+                        .rd = dest_reg,
+                        .rn = source_reg.toX(),
+                        .shift = shift,
+                    } },
+                });
+            }
+
+            return MCValue{ .register = self.registerAlias(dest_reg, payload_ty) };
+        },
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off + offset };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr + offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
 }
 
 fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -3012,15 +3067,45 @@ fn airSaveErrReturnTraceIndex(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const optional_ty = self.air.typeOfIndex(inst);
 
-        // Optional with a zero-bit payload type is just a boolean true
-        if (optional_ty.abiSize(self.target.*) == 1)
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+
+    const result: MCValue = result: {
+        const payload_ty = self.air.typeOf(ty_op.operand);
+        if (!payload_ty.hasRuntimeBits()) {
             break :result MCValue{ .immediate = 1 };
+        }
 
-        return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
+        const optional_ty = self.air.typeOfIndex(inst);
+        const operand = try self.resolveInst(ty_op.operand);
+        const operand_lock: ?RegisterLock = switch (operand) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+        if (optional_ty.isPtrLikeOptional()) {
+            // TODO should we check if we can reuse the operand?
+            const raw_reg = try self.register_manager.allocReg(inst, gp);
+            const reg = self.registerAlias(raw_reg, payload_ty);
+            try self.genSetReg(payload_ty, raw_reg, operand);
+            break :result MCValue{ .register = reg };
+        }
+
+        const optional_abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
+        const optional_abi_align = optional_ty.abiAlignment(self.target.*);
+        const payload_abi_size = @intCast(u32, payload_ty.abiSize(self.target.*));
+        const offset = optional_abi_size - payload_abi_size;
+
+        const stack_offset = try self.allocMem(optional_abi_size, optional_abi_align, inst);
+        try self.genSetStack(Type.bool, stack_offset, .{ .immediate = 1 });
+        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, offset), operand);
+
+        break :result MCValue{ .stack_offset = stack_offset };
     };
+
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -4562,18 +4647,20 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
+    const sentinel_ty: Type = if (!operand_ty.isPtrLikeOptional()) blk: {
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = operand_ty.optionalChild(&buf);
+        break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else operand_ty;
+    } else operand_ty;
+    const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
+    return self.cmp(operand_bind, imm_bind, sentinel_ty, .eq);
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
+    const is_null_res = try self.isNull(operand_bind, operand_ty);
+    assert(is_null_res.compare_flags == .eq);
+    return MCValue{ .compare_flags = is_null_res.compare_flags.negate() };
 }
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
@@ -4606,7 +4693,9 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNull(.{ .mcv = operand }, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4621,7 +4710,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
 
-        break :result try self.isNull(operand);
+        break :result try self.isNull(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4630,7 +4719,9 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNonNull(.{ .mcv = operand }, operand_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4645,7 +4736,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
 
-        break :result try self.isNonNull(operand);
+        break :result try self.isNonNull(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
