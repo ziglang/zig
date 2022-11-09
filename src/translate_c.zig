@@ -5707,7 +5707,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             }
 
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
-                .none => "c_int",
+                .none => "comptime_int",
                 .u => "c_uint",
                 .l => "c_long",
                 .lu => "c_ulong",
