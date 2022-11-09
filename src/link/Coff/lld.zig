@@ -260,6 +260,10 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append(p);
         }
 
+        if (self.base.options.module_definition_file) |def| {
+            try argv.append(try allocPrint(arena, "-DEF:{s}", .{ def }));
+        }
+
         const resolved_subsystem: ?std.Target.SubSystem = blk: {
             if (self.base.options.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {

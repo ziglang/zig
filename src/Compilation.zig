@@ -984,6 +984,7 @@ pub const InitOptions = struct {
     linker_dynamicbase: bool = false,
     linker_optimization: ?u8 = null,
     linker_compress_debug_sections: ?link.CompressDebugSections = null,
+    linker_module_definition_file: ?[]const u8 = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1815,6 +1816,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
+            .module_definition_file = options.linker_module_definition_file,
             .import_memory = options.linker_import_memory orelse false,
             .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
@@ -4379,7 +4381,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .zig => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig => {},
         .assembly => {
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
@@ -4524,6 +4526,7 @@ pub const FileExt = enum {
     object,
     static_library,
     zig,
+    def,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -4537,6 +4540,7 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
+            .def,
             .unknown,
             => false,
         };
@@ -4629,6 +4633,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .object;
     } else if (mem.endsWith(u8, filename, ".cu")) {
         return .cu;
+    } else if (mem.endsWith(u8, filename, ".def")) {
+        return .def;
     } else {
         return .unknown;
     }

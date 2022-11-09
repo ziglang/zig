@@ -742,6 +742,7 @@ fn buildOutputType(
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
     var linker_optimization: ?u8 = null;
+    var linker_module_definition_file: ?[]const u8 = null;
     var test_evented_io = false;
     var test_no_exec = false;
     var entry: ?[]const u8 = null;
@@ -1404,7 +1405,7 @@ fn buildOutputType(
                             root_src_file = arg;
                         }
                     },
-                    .unknown => {
+                    .def, .unknown => {
                         fatal("unrecognized file extension of parameter '{s}'", .{arg});
                     },
                 }
@@ -1477,6 +1478,9 @@ fn buildOutputType(
                                     .path = it.only_arg,
                                     .must_link = must_link,
                                 });
+                            },
+                            .def => {
+                                linker_module_definition_file = it.only_arg;
                             },
                             .zig => {
                                 if (root_src_file) |other| {
@@ -3015,6 +3019,7 @@ fn buildOutputType(
         .linker_dynamicbase = linker_dynamicbase,
         .linker_optimization = linker_optimization,
         .linker_compress_debug_sections = linker_compress_debug_sections,
+        .linker_module_definition_file = linker_module_definition_file,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
