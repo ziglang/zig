@@ -5658,14 +5658,14 @@ fn lookupInNamespace(
         const src_file = block.namespace.file_scope;
 
         const gpa = sema.gpa;
-        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .{};
+        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, bool) = .{};
         defer checked_namespaces.deinit(gpa);
 
         // Keep track of name conflicts for error notes.
         var candidates: std.ArrayListUnmanaged(Decl.Index) = .{};
         defer candidates.deinit(gpa);
 
-        try checked_namespaces.put(gpa, namespace, {});
+        try checked_namespaces.put(gpa, namespace, namespace.file_scope == src_file);
         var check_i: usize = 0;
 
         while (check_i < checked_namespaces.count()) : (check_i += 1) {
@@ -5674,7 +5674,7 @@ fn lookupInNamespace(
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 const decl = mod.declPtr(decl_index);
-                if (decl.is_pub or src_file == decl.getFileScope()) {
+                if (decl.is_pub or (src_file == decl.getFileScope() and checked_namespaces.values()[check_i])) {
                     try candidates.append(gpa, decl_index);
                 }
             }
@@ -5693,7 +5693,7 @@ fn lookupInNamespace(
                 try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index);
                 const ns_ty = sub_usingnamespace_decl.val.castTag(.ty).?.data;
                 const sub_ns = ns_ty.getNamespace().?;
-                try checked_namespaces.put(gpa, sub_ns, {});
+                try checked_namespaces.put(gpa, sub_ns, src_file == sub_usingnamespace_decl.getFileScope());
             }
         }
 
