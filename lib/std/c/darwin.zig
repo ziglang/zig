@@ -918,7 +918,7 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) callconv(.C) void);
+    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
     pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
 
     handler: extern union {
