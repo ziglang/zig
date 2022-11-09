@@ -1491,6 +1491,8 @@ fn analyzeBodyInner(
                     return err;
                 };
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
+
+                try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
                 defer block.runtime_index = old_runtime_index;
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
