@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 
 const os = std.os;
 const mem = std.mem;
@@ -68,7 +69,7 @@ pub fn Mixin(comptime Socket: type) type {
         pub fn write(self: Socket, buf: []const u8, flags: u32) !usize {
             var flags_ = flags;
 
-            if(builtin.os.tag == .linux) {
+            if (builtin.os.tag == .linux) {
                 flags_ |= os.linux.MSG.NOSIGNAL;
             }
 

@@ -1671,8 +1671,8 @@ pub const Stream = struct {
         if (std.io.is_async) {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
-            if(builtin.os.tag == .linux)
-                return os.send(@bitCast(socket_t, self.handle), buffer, os.linux.MSG.NOSIGNAL)
+            if (builtin.os.tag == .linux)
+                return os.send(@bitCast(os.socket_t, self.handle), buffer, os.linux.MSG.NOSIGNAL)
             else {
                 return os.write(self.handle, buffer);
             }
@@ -1817,6 +1817,9 @@ pub const StreamServer = struct {
         NetworkSubsystemFailed,
 
         OperationNotSupported,
+
+        /// Occurs when timeout happens on a blocking socket
+        WouldBlock,
     } || os.UnexpectedError;
 
     pub const Connection = struct {
@@ -1843,7 +1846,6 @@ pub const StreamServer = struct {
                 .address = accepted_addr,
             };
         } else |err| switch (err) {
-            error.WouldBlock => unreachable,
             else => |e| return e,
         }
     }
