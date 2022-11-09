@@ -828,7 +828,13 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .slice_open => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            const line = gz.astgen.source_line - gz.decl_line;
+            const column = gz.astgen.source_column;
+
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
+            try emitDbgStmt(gz, line, column);
             const result = try gz.addPlNode(.slice_start, node, Zir.Inst.SliceStart{
                 .lhs = lhs,
                 .start = start,
@@ -837,9 +843,15 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .slice => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            const line = gz.astgen.source_line - gz.decl_line;
+            const column = gz.astgen.source_column;
+
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end);
+            try emitDbgStmt(gz, line, column);
             const result = try gz.addPlNode(.slice_end, node, Zir.Inst.SliceEnd{
                 .lhs = lhs,
                 .start = start,
@@ -849,10 +861,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .slice_sentinel => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            const line = gz.astgen.source_line - gz.decl_line;
+            const column = gz.astgen.source_column;
+
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
             const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
+            try emitDbgStmt(gz, line, column);
             const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
                 .lhs = lhs,
                 .start = start,
@@ -883,16 +901,26 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .unwrap_optional => switch (ri.rl) {
-            .ref => return gz.addUnNode(
-                .optional_payload_safe_ptr,
-                try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs),
-                node,
-            ),
-            else => return rvalue(gz, ri, try gz.addUnNode(
-                .optional_payload_safe,
-                try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs),
-                node,
-            ), node),
+            .ref => {
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+
+                maybeAdvanceSourceCursorToMainToken(gz, node);
+                const line = gz.astgen.source_line - gz.decl_line;
+                const column = gz.astgen.source_column;
+                try emitDbgStmt(gz, line, column);
+
+                return gz.addUnNode(.optional_payload_safe_ptr, lhs, node);
+            },
+            else => {
+                const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
+
+                maybeAdvanceSourceCursorToMainToken(gz, node);
+                const line = gz.astgen.source_line - gz.decl_line;
+                const column = gz.astgen.source_column;
+                try emitDbgStmt(gz, line, column);
+
+                return rvalue(gz, ri, try gz.addUnNode(.optional_payload_safe, lhs, node), node);
+            },
         },
         .block_two, .block_two_semicolon => {
             const statements = [2]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
@@ -3241,10 +3269,27 @@ fn assignOp(
     const node_datas = tree.nodes.items(.data);
 
     const lhs_ptr = try lvalExpr(gz, scope, node_datas[infix_node].lhs);
+
+    var line: u32 = undefined;
+    var column: u32 = undefined;
+    switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => {
+            maybeAdvanceSourceCursorToMainToken(gz, infix_node);
+            line = gz.astgen.source_line - gz.decl_line;
+            column = gz.astgen.source_column;
+        },
+        else => {},
+    }
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = lhs_type } }, node_datas[infix_node].rhs);
 
+    switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => {
+            try emitDbgStmt(gz, line, column);
+        },
+        else => {},
+    }
     const result = try gz.addPlNode(op_inst_tag, infix_node, Zir.Inst.Bin{
         .lhs = lhs,
         .rhs = rhs,
@@ -5475,9 +5520,15 @@ fn addFieldAccess(
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
     const str_index = try astgen.identAsString(field_ident);
+    const lhs = try expr(gz, scope, lhs_ri, object_node);
+
+    maybeAdvanceSourceCursorToMainToken(gz, node);
+    const line = gz.astgen.source_line - gz.decl_line;
+    const column = gz.astgen.source_column;
+    try emitDbgStmt(gz, line, column);
 
     return gz.addPlNode(tag, node, Zir.Inst.Field{
-        .lhs = try expr(gz, scope, lhs_ri, object_node),
+        .lhs = lhs,
         .field_name_start = str_index,
     });
 }
@@ -5488,18 +5539,33 @@ fn arrayAccess(
     ri: ResultInfo,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = gz.astgen.tree;
     const node_datas = tree.nodes.items(.data);
     switch (ri.rl) {
-        .ref => return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{
-            .lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs),
-            .rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs),
-        }),
-        else => return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{
-            .lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs),
-            .rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs),
-        }), node),
+        .ref => {
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            const line = gz.astgen.source_line - gz.decl_line;
+            const column = gz.astgen.source_column;
+
+            const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
+            try emitDbgStmt(gz, line, column);
+
+            return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+        },
+        else => {
+            const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
+
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            const line = gz.astgen.source_line - gz.decl_line;
+            const column = gz.astgen.source_column;
+
+            const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
+            try emitDbgStmt(gz, line, column);
+
+            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+        },
     }
 }
 
@@ -5514,10 +5580,26 @@ fn simpleBinOp(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
 
-    const result = try gz.addPlNode(op_inst_tag, node, Zir.Inst.Bin{
-        .lhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].lhs, node),
-        .rhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].rhs, node),
-    });
+    const lhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].lhs, node);
+    var line: u32 = undefined;
+    var column: u32 = undefined;
+    switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => {
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            line = gz.astgen.source_line - gz.decl_line;
+            column = gz.astgen.source_column;
+        },
+        else => {},
+    }
+    const rhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].rhs, node);
+
+    switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => {
+            try emitDbgStmt(gz, line, column);
+        },
+        else => {},
+    }
+    const result = try gz.addPlNode(op_inst_tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
     return rvalue(gz, ri, result, node);
 }
 
@@ -7858,9 +7940,7 @@ fn builtinCall(
         },
 
         .src => {
-            const token_starts = tree.tokens.items(.start);
-            const node_start = token_starts[tree.firstToken(node)];
-            astgen.advanceSourceCursor(node_start);
+            maybeAdvanceSourceCursorToMainToken(gz, node);
             const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.Src{
                 .node = gz.nodeIndexToRelative(node),
                 .line = astgen.source_line,
@@ -7975,6 +8055,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .err_set_cast => {
+            try emitDbgNode(gz, node);
+
             const result = try gz.addExtendedPayload(.err_set_cast, Zir.Inst.BinNode{
                 .lhs = try typeExpr(gz, scope, params[0]),
                 .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
@@ -8280,6 +8362,8 @@ fn typeCast(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    try emitDbgNode(gz, node);
+
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = try typeExpr(gz, scope, lhs_node),
         .rhs = try expr(gz, scope, .{ .rl = .none }, rhs_node),
@@ -8309,6 +8393,10 @@ fn simpleUnOp(
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    switch (tag) {
+        .tag_name, .error_name, .ptr_to_int => try emitDbgNode(gz, node),
+        else => {},
+    }
     const operand = try expr(gz, scope, operand_ri, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, ri, result, node);
@@ -8381,6 +8469,8 @@ fn divBuiltin(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    try emitDbgNode(gz, node);
+
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node),
         .rhs = try expr(gz, scope, .{ .rl = .none }, rhs_node),
@@ -8434,8 +8524,15 @@ fn shiftOp(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
+
+    maybeAdvanceSourceCursorToMainToken(gz, node);
+    const line = gz.astgen.source_line - gz.decl_line;
+    const column = gz.astgen.source_column;
+
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .ty = log2_int_type }, .ctx = .shift_op }, rhs_node);
+
+    try emitDbgStmt(gz, line, column);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = lhs,
         .rhs = rhs,
@@ -12063,6 +12160,18 @@ fn detectLocalShadowing(
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
         .top => break,
     };
+}
+
+/// Advances the source cursor to the main token of `node` if not in comptime scope.
+/// Usually paired with `emitDbgStmt`.
+fn maybeAdvanceSourceCursorToMainToken(gz: *GenZir, node: Ast.Node.Index) void {
+    if (gz.force_comptime) return;
+
+    const tree = gz.astgen.tree;
+    const token_starts = tree.tokens.items(.start);
+    const main_tokens = tree.nodes.items(.main_token);
+    const node_start = token_starts[main_tokens[node]];
+    gz.astgen.advanceSourceCursor(node_start);
 }
 
 /// Advances the source cursor to the beginning of `node`.
