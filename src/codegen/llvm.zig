@@ -5644,6 +5644,14 @@ pub const FuncGen = struct {
         const base_ptr = self.builder.buildExtractValue(slice, 0, "");
         const indices: [1]*llvm.Value = .{index};
         const ptr = self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
+        if (isByRef(elem_ty)) {
+            if (self.canElideLoad(body_tail))
+                return ptr;
+
+            const target = self.dg.module.getTarget();
+            return self.loadByRef(ptr, elem_ty, elem_ty.abiAlignment(target), false);
+        }
+
         return self.load(ptr, slice_ty);
     }
 
@@ -5709,6 +5717,14 @@ pub const FuncGen = struct {
             const indices: [1]*llvm.Value = .{rhs};
             break :ptr self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
         };
+        if (isByRef(elem_ty)) {
+            if (self.canElideLoad(body_tail))
+                return ptr;
+
+            const target = self.dg.module.getTarget();
+            return self.loadByRef(ptr, elem_ty, elem_ty.abiAlignment(target), false);
+        }
+
         return self.load(ptr, ptr_ty);
     }
 
@@ -5832,7 +5848,14 @@ pub const FuncGen = struct {
                 const struct_llvm_ty = try self.dg.lowerType(struct_ty);
                 const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, struct_llvm_val, llvm_field_index, "");
                 const field_ptr_ty = Type.initPayload(&ptr_ty_buf.base);
-                return self.load(field_ptr, field_ptr_ty);
+                if (isByRef(field_ty)) {
+                    if (canElideLoad(self, body_tail))
+                        return field_ptr;
+
+                    return self.loadByRef(field_ptr, field_ty, ptr_ty_buf.data.alignment(target), false);
+                } else {
+                    return self.load(field_ptr, field_ptr_ty);
+                }
             },
             .Union => {
                 const union_llvm_ty = try self.dg.lowerType(struct_ty);
