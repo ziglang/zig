@@ -1,3 +1,8 @@
+/// Tests for the C ABI.
+/// Those tests are passing back and forth struct and values across C ABI
+/// by combining Zig code here and it's mirror in cfunc.c
+/// To run the tests on a specific architecture:
+/// zig test -fno-stage1 -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
 const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
@@ -846,6 +851,7 @@ const DC = extern struct { v1: f64, v2: u8 };
 test "DC: Zig passes to C" {
     if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
@@ -854,6 +860,7 @@ test "DC: Zig returns to C" {
 test "DC: C passes to Zig" {
     if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
@@ -881,18 +888,24 @@ const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
 test "CFF: Zig passes to C" {
     if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
 test "CFF: Zig returns to C" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
     if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
+    // segfault on aarch64 and mips
     if (builtin.target.cpu.arch == .aarch64) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
 }
 pub extern fn c_assert_CFF(lv: CFF) c_int;
@@ -917,6 +930,7 @@ const PD = extern struct { v1: ?*anyopaque, v2: f64 };
 test "PD: Zig passes to C" {
     if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
 test "PD: Zig returns to C" {
@@ -926,6 +940,7 @@ test "PD: Zig returns to C" {
 test "PD: C passes to Zig" {
     if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     try expectOk(c_send_PD());
 }
 test "PD: C returns to Zig" {
