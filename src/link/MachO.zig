@@ -329,8 +329,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
     if (!options.strip and options.module != null) {
         // Create dSYM bundle.
-        const dir = options.module.?.zig_cache_artifact_directory;
-        log.debug("creating {s}.dSYM bundle in {?s}", .{ emit.sub_path, dir.path });
+        log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
         const d_sym_path = try fmt.allocPrint(
             allocator,
@@ -339,7 +338,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         );
         defer allocator.free(d_sym_path);
 
-        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+        var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
         defer d_sym_bundle.close();
 
         const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
