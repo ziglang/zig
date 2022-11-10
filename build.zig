@@ -22,6 +22,7 @@ pub fn build(b: *Builder) !void {
         if (wasi_bootstrap) {
             default_target.cpu_arch = .wasm32;
             default_target.os_tag = .wasi;
+            default_target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
             break :t default_target;
         } else if (only_c) {
             default_target.ofmt = .c;
