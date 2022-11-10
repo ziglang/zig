@@ -6248,11 +6248,12 @@ pub const FuncGen = struct {
         var rendered_template = std.ArrayList(u8).init(self.gpa);
         defer rendered_template.deinit();
 
-        const State = enum { start, percent, input };
+        const State = enum { start, percent, input, modifier };
 
         var state: State = .start;
 
         var name_start: usize = undefined;
+        var modifier_start: usize = undefined;
         for (asm_source) |byte, i| {
             switch (state) {
                 .start => switch (byte) {
@@ -6267,6 +6268,7 @@ pub const FuncGen = struct {
                     },
                     '[' => {
                         try rendered_template.append('$');
+                        try rendered_template.append('{');
                         name_start = i + 1;
                         state = .input;
                     },
@@ -6277,15 +6279,30 @@ pub const FuncGen = struct {
                     },
                 },
                 .input => switch (byte) {
-                    ']' => {
+                    ']', ':' => {
                         const name = asm_source[name_start..i];
-                        state = .start;
 
                         const index = name_map.get(name) orelse {
                             // we should validate the assembly in Sema; by now it is too late
                             return self.todo("unknown input or output name: '{s}'", .{name});
                         };
                         try rendered_template.writer().print("{d}", .{index});
+                        if (byte == ':') {
+                            try rendered_template.append(':');
+                            modifier_start = i + 1;
+                            state = .modifier;
+                        } else {
+                            try rendered_template.append('}');
+                            state = .start;
+                        }
+                    },
+                    else => {},
+                },
+                .modifier => switch (byte) {
+                    ']' => {
+                        try rendered_template.appendSlice(asm_source[modifier_start..i]);
+                        try rendered_template.append('}');
+                        state = .start;
                     },
                     else => {},
                 },
