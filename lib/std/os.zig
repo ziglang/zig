@@ -1521,76 +1521,6 @@ pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t 
     };
 }
 
-var wasi_cwd = if (builtin.os.tag == .wasi and !builtin.link_libc) struct {
-    // List of available Preopens
-    preopens: ?PreopenList = null,
-    // Memory buffer for storing the relative portion of the CWD
-    path_buffer: [MAX_PATH_BYTES]u8 = undefined,
-    // The absolute path associated with the current working directory
-    cwd: []const u8 = "/",
-}{} else undefined;
-
-/// Initialize the available Preopen list on WASI and set the CWD to `cwd_init`.
-/// Note that `cwd_init` corresponds to a Preopen directory, not necessarily
-/// a POSIX path. For example, "." matches a Preopen provided with `--dir=.`
-///
-/// This must be called before using any relative or absolute paths with `std.os`
-/// functions, if you are on WASI without linking libc.
-///
-/// The current working directory is initialized to `cwd_root`, and `cwd_root`
-/// is inserted as a prefix for any Preopens whose dir begins with "."
-///   For example:
-///      "./foo/bar" - canonicalizes to -> "{cwd_root}/foo/bar"
-///      "foo/bar"   - canonicalizes to -> "/foo/bar"
-///      "/foo/bar"  - canonicalizes to -> "/foo/bar"
-///
-/// `cwd_root` must be an absolute path. For initialization behavior similar to
-/// wasi-libc, use "/" as the `cwd_root`
-///
-/// `alloc` must not be a temporary or leak-detecting allocator, since `std.os`
-/// retains ownership of allocations internally and may never call free().
-pub fn initPreopensWasi(alloc: Allocator, cwd_root: []const u8) !void {
-    if (builtin.os.tag == .wasi) {
-        if (!builtin.link_libc) {
-            var preopen_list = PreopenList.init(alloc);
-            errdefer preopen_list.deinit();
-            try preopen_list.populate(cwd_root);
-
-            var path_alloc = std.heap.FixedBufferAllocator.init(&wasi_cwd.path_buffer);
-            wasi_cwd.cwd = try path_alloc.allocator().dupe(u8, cwd_root);
-
-            if (wasi_cwd.preopens) |preopens| preopens.deinit();
-            wasi_cwd.preopens = preopen_list;
-        } else {
-            // wasi-libc defaults to an effective CWD root of "/"
-            if (!mem.eql(u8, cwd_root, "/")) return error.UnsupportedDirectory;
-        }
-    }
-}
-
-/// Resolve a relative or absolute path to an handle (`fd_t`) and a relative subpath.
-///
-/// For absolute paths, this automatically searches among available Preopens to find
-/// a match. For relative paths, it uses the "emulated" CWD.
-/// Automatically looks up the correct Preopen corresponding to the provided path.
-pub fn resolvePathWasi(path: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
-    var allocator = std.heap.FixedBufferAllocator.init(out_buffer);
-    var alloc = allocator.allocator();
-
-    const abs_path = fs.path.resolve(alloc, &.{ wasi_cwd.cwd, path }) catch return error.NameTooLong;
-    const preopen_uri = wasi_cwd.preopens.?.findContaining(.{ .Dir = abs_path });
-
-    if (preopen_uri) |po| {
-        return RelativePathWasi{
-            .dir_fd = po.base.fd,
-            .relative_path = po.relative_path,
-        };
-    } else {
-        // No matching preopen found
-        return error.AccessDenied;
-    }
-}
-
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatZ`.
@@ -1600,22 +1530,23 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
         return openatW(dir_fd, file_path_w.span(), flags, mode);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         // `mode` is ignored on WASI, which does not support unix-style file permissions
-        const fd = if (dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(file_path)) blk: {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const path = try resolvePathWasi(file_path, &path_buf);
-
-            const opts = try openOptionsFromFlagsWasi(path.dir_fd, flags);
-            break :blk try openatWasi(path.dir_fd, path.relative_path, opts.lookup_flags, opts.oflags, opts.fs_flags, opts.fs_rights_base, opts.fs_rights_inheriting);
-        } else blk: {
-            const opts = try openOptionsFromFlagsWasi(dir_fd, flags);
-            break :blk try openatWasi(dir_fd, file_path, opts.lookup_flags, opts.oflags, opts.fs_flags, opts.fs_rights_base, opts.fs_rights_inheriting);
-        };
+        const opts = try openOptionsFromFlagsWasi(dir_fd, flags);
+        const fd = try openatWasi(
+            dir_fd,
+            file_path,
+            opts.lookup_flags,
+            opts.oflags,
+            opts.fs_flags,
+            opts.fs_rights_base,
+            opts.fs_rights_inheriting,
+        );
         errdefer close(fd);
 
-        const info = try fstat(fd);
-        if (flags & O.WRONLY != 0 and info.filetype == .DIRECTORY)
-            return error.IsDir;
+        if (flags & O.WRONLY != 0) {
+            const info = try fstat(fd);
+            if (info.filetype == .DIRECTORY)
+                return error.IsDir;
+        }
 
         return fd;
     }
@@ -1673,7 +1604,15 @@ fn openOptionsFromFlagsWasi(fd: fd_t, oflag: u32) OpenError!WasiOpenOptions {
 }
 
 /// Open and possibly create a file in WASI.
-pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, lookup_flags: lookupflags_t, oflags: oflags_t, fdflags: fdflags_t, base: rights_t, inheriting: rights_t) OpenError!fd_t {
+pub fn openatWasi(
+    dir_fd: fd_t,
+    file_path: []const u8,
+    lookup_flags: lookupflags_t,
+    oflags: oflags_t,
+    fdflags: fdflags_t,
+    base: rights_t,
+    inheriting: rights_t,
+) OpenError!fd_t {
     while (true) {
         var fd: fd_t = undefined;
         switch (wasi.path_open(dir_fd, lookup_flags, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
@@ -2031,7 +1970,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     if (builtin.os.tag == .windows) {
         return windows.GetCurrentDirectory(out_buffer);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const path = wasi_cwd.cwd;
+        const path = ".";
         if (out_buffer.len < path.len) return error.NameTooLong;
         std.mem.copy(u8, out_buffer, path);
         return out_buffer[0..path.len];
@@ -2125,12 +2064,6 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
     if (builtin.os.tag == .windows) {
         @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        if (newdirfd == wasi.AT.FDCWD or fs.path.isAbsolute(target_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const path = try resolvePathWasi(sym_link_path, &path_buf);
-            return symlinkatWasi(target_path, path.dir_fd, path.relative_path);
-        }
         return symlinkatWasi(target_path, newdirfd, sym_link_path);
     }
     const target_path_c = try toPosixPath(target_path);
@@ -2284,25 +2217,8 @@ pub fn linkat(
     flags: i32,
 ) LinkatError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolve_olddir: bool = (olddir == wasi.AT.FDCWD or fs.path.isAbsolute(oldpath));
-        var resolve_newdir: bool = (newdir == wasi.AT.FDCWD or fs.path.isAbsolute(newpath));
-
-        var old: RelativePathWasi = .{ .dir_fd = olddir, .relative_path = oldpath };
-        var new: RelativePathWasi = .{ .dir_fd = newdir, .relative_path = newpath };
-
-        // Resolve absolute or CWD-relative paths to a path within a Preopen
-        if (resolve_olddir or resolve_newdir) {
-            var buf_old: [MAX_PATH_BYTES]u8 = undefined;
-            var buf_new: [MAX_PATH_BYTES]u8 = undefined;
-
-            if (resolve_olddir)
-                old = try resolvePathWasi(oldpath, &buf_old);
-
-            if (resolve_newdir)
-                new = try resolvePathWasi(newpath, &buf_new);
-
-            return linkatWasi(old, new, flags);
-        }
+        const old: RelativePathWasi = .{ .dir_fd = olddir, .relative_path = oldpath };
+        const new: RelativePathWasi = .{ .dir_fd = newdir, .relative_path = newpath };
         return linkatWasi(old, new, flags);
     }
     const old = try toPosixPath(oldpath);
@@ -2423,12 +2339,6 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return unlinkatW(dirfd, file_path_w.span(), flags);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        if (dirfd == wasi.AT.FDCWD or fs.path.isAbsolute(file_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const path = try resolvePathWasi(file_path, &path_buf);
-            return unlinkatWasi(path.dir_fd, path.relative_path, flags);
-        }
         return unlinkatWasi(dirfd, file_path, flags);
     } else {
         const file_path_c = try toPosixPath(file_path);
@@ -2597,24 +2507,8 @@ pub fn renameat(
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
         return renameatW(old_dir_fd, old_path_w.span(), new_dir_fd, new_path_w.span(), windows.TRUE);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolve_old: bool = (old_dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(old_path));
-        var resolve_new: bool = (new_dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(new_path));
-
-        var old: RelativePathWasi = .{ .dir_fd = old_dir_fd, .relative_path = old_path };
-        var new: RelativePathWasi = .{ .dir_fd = new_dir_fd, .relative_path = new_path };
-
-        // Resolve absolute or CWD-relative paths to a path within a Preopen
-        if (resolve_old or resolve_new) {
-            var buf_old: [MAX_PATH_BYTES]u8 = undefined;
-            var buf_new: [MAX_PATH_BYTES]u8 = undefined;
-
-            if (resolve_old)
-                old = try resolvePathWasi(old_path, &buf_old);
-            if (resolve_new)
-                new = try resolvePathWasi(new_path, &buf_new);
-
-            return renameatWasi(old, new);
-        }
+        const old: RelativePathWasi = .{ .dir_fd = old_dir_fd, .relative_path = old_path };
+        const new: RelativePathWasi = .{ .dir_fd = new_dir_fd, .relative_path = new_path };
         return renameatWasi(old, new);
     } else {
         const old_path_c = try toPosixPath(old_path);
@@ -2755,12 +2649,6 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        if (dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(sub_dir_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const path = try resolvePathWasi(sub_dir_path, &path_buf);
-            return mkdiratWasi(path.dir_fd, path.relative_path, mode);
-        }
         return mkdiratWasi(dir_fd, sub_dir_path, mode);
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
@@ -2997,22 +2885,7 @@ pub const ChangeCurDirError = error{
 /// `dir_path` is recommended to be a UTF-8 encoded string.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var buf: [MAX_PATH_BYTES]u8 = undefined;
-        var alloc = std.heap.FixedBufferAllocator.init(&buf);
-        const path = fs.path.resolve(alloc.allocator(), &.{ wasi_cwd.cwd, dir_path }) catch |err| switch (err) {
-            error.OutOfMemory => return error.NameTooLong,
-            else => |e| return e,
-        };
-
-        const dirinfo = try fstatat(AT.FDCWD, path, 0);
-        if (dirinfo.filetype != .DIRECTORY) {
-            return error.NotDir;
-        }
-
-        // This copy is guaranteed to succeed, since buf and path_buffer are the same size.
-        var cwd_alloc = std.heap.FixedBufferAllocator.init(&wasi_cwd.path_buffer);
-        wasi_cwd.cwd = cwd_alloc.allocator().dupe(u8, path) catch unreachable;
-        return;
+        @compileError("WASI does not support os.chdir");
     } else if (builtin.os.tag == .windows) {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
         const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
@@ -3143,12 +3016,6 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
 /// See also `readlinkatWasi`, `realinkatZ` and `realinkatW`.
 pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        if (dirfd == wasi.AT.FDCWD or fs.path.isAbsolute(file_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            var path = try resolvePathWasi(file_path, &path_buf);
-            return readlinkatWasi(path.dir_fd, path.relative_path, out_buffer);
-        }
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (builtin.os.tag == .windows) {
@@ -4155,12 +4022,6 @@ pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound, SymLink
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const wasi_flags = if (flags & linux.AT.SYMLINK_NOFOLLOW == 0) wasi.LOOKUP_SYMLINK_FOLLOW else 0;
-        if (dirfd == wasi.AT.FDCWD or fs.path.isAbsolute(pathname)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const path = try resolvePathWasi(pathname, &path_buf);
-            return fstatatWasi(path.dir_fd, path.relative_path, wasi_flags);
-        }
         return fstatatWasi(dirfd, pathname, wasi_flags);
     } else if (builtin.os.tag == .windows) {
         @compileError("fstatat is not yet implemented on Windows");
@@ -4556,12 +4417,6 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         var resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
 
         const file = blk: {
-            if (dirfd == wasi.AT.FDCWD or fs.path.isAbsolute(path)) {
-                // Resolve absolute or CWD-relative paths to a path within a Preopen
-                var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                resolved = resolvePathWasi(path, &path_buf) catch |err| break :blk @as(FStatAtError!Stat, err);
-                break :blk fstatat(resolved.dir_fd, resolved.relative_path, flags);
-            }
             break :blk fstatat(dirfd, path, flags);
         } catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
@@ -5147,12 +5002,7 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
         return realpathW(pathname_w.span(), out_buffer);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var alloc = std.heap.FixedBufferAllocator.init(out_buffer);
-
-        // NOTE: This emulation is incomplete. Symbolic links are not
-        //       currently expanded during path canonicalization.
-        const paths = &.{ wasi_cwd.cwd, pathname };
-        return fs.path.resolve(alloc.allocator(), paths) catch error.NameTooLong;
+        @compileError("WASI does not support os.realpath");
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathZ(&pathname_c, out_buffer);

@@ -37,34 +37,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
 /// based on a hard-coded Preopen directory ("/zig")
 pub fn findZigExePath(allocator: mem.Allocator) ![]u8 {
     if (builtin.os.tag == .wasi) {
-        var args = try std.process.argsWithAllocator(allocator);
-        defer args.deinit();
-        // On WASI, argv[0] is always just the basename of the current executable
-        const argv0 = args.next() orelse return error.FileNotFound;
-
-        // Check these paths:
-        //  1. "/zig/{exe_name}"
-        //  2. "/zig/bin/{exe_name}"
-        const base_paths_to_check = &[_][]const u8{ "/zig", "/zig/bin" };
-        const exe_names_to_check = &[_][]const u8{ fs.path.basename(argv0), "zig.wasm" };
-
-        for (base_paths_to_check) |base_path| {
-            for (exe_names_to_check) |exe_name| {
-                const test_path = fs.path.join(allocator, &.{ base_path, exe_name }) catch continue;
-                defer allocator.free(test_path);
-
-                // Make sure it's a file we're pointing to
-                const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
-                if (file.filetype != .REGULAR_FILE) continue;
-
-                // Path seems to be valid, let's try to turn it into an absolute path
-                var real_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                if (os.realpath(test_path, &real_path_buf)) |real_path| {
-                    return allocator.dupe(u8, real_path); // Success: return absolute path
-                } else |_| continue;
-            }
-        }
-        return error.FileNotFound;
+        @compileError("this function is unsupported on WASI");
     }
 
     return fs.selfExePathAlloc(allocator);
@@ -107,6 +80,9 @@ pub fn findZigLibDirFromSelfExe(
 
 /// Caller owns returned memory.
 pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
+    if (builtin.os.tag == .wasi) {
+        @compileError("on WASI the global cache dir must be resolved with preopens");
+    }
     if (std.process.getEnvVarOwned(allocator, "ZIG_GLOBAL_CACHE_DIR")) |value| {
         if (value.len > 0) {
             return value;
@@ -125,17 +101,7 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
         }
     }
 
-    if (builtin.os.tag == .wasi) {
-        // On WASI, we have no way to get an App data dir, so we try to use a fixed
-        // Preopen path "/cache" as a last resort
-        const path = "/cache";
-
-        const file = os.fstatat(os.wasi.AT.FDCWD, path, 0) catch return error.CacheDirUnavailable;
-        if (file.filetype != .DIRECTORY) return error.CacheDirUnavailable;
-        return allocator.dupe(u8, path);
-    } else {
-        return fs.getAppDataDir(allocator, appname);
-    }
+    return fs.getAppDataDir(allocator, appname);
 }
 
 /// Similar to std.fs.path.resolve, with a few important differences:

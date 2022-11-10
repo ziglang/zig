@@ -27,6 +27,23 @@ const crash_report = @import("crash_report.zig");
 // Crash report needs to override the panic handler and other root decls
 pub usingnamespace crash_report.root_decls;
 
+var wasi_preopens: fs.wasi.Preopens = undefined;
+pub inline fn wasi_cwd() fs.Dir {
+    // Expect the first preopen to be current working directory.
+    const cwd_fd: std.os.fd_t = 3;
+    assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
+    return .{ .fd = cwd_fd };
+}
+
+pub fn getWasiPreopen(name: []const u8) Compilation.Directory {
+    return .{
+        .path = name,
+        .handle = .{
+            .fd = wasi_preopens.find(name) orelse fatal("WASI preopen not found: '{s}'", .{name}),
+        },
+    };
+}
+
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);
     process.exit(1);
@@ -161,20 +178,14 @@ pub fn main() anyerror!void {
         return mainArgs(gpa_tracy.allocator(), arena, args);
     }
 
-    // WASI: `--dir` instructs the WASM runtime to "preopen" a directory, making
-    // it available to the us, the guest program. This is the only way for us to
-    // access files/dirs on the host filesystem
     if (builtin.os.tag == .wasi) {
-        // This sets our CWD to "/preopens/cwd"
-        // Dot-prefixed preopens like `--dir=.` are "mounted" at "/preopens/cwd"
-        // Other preopens like `--dir=lib` are "mounted" at "/"
-        try std.os.initPreopensWasi(arena, "/preopens/cwd");
+        wasi_preopens = try fs.wasi.preopensAlloc(arena);
     }
 
     // Short circuit some of the other logic for bootstrapping.
     if (build_options.only_c) {
-        assert(mem.eql(u8, args[1], "build-obj"));
-        return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+        assert(mem.eql(u8, args[1], "build-exe"));
+        return buildOutputType(gpa, arena, args, .{ .build = .Exe });
     }
 
     return mainArgs(gpa, arena, args);
@@ -2300,7 +2311,7 @@ fn buildOutputType(
                 },
             }
 
-            if (std.fs.path.isAbsolute(lib_name)) {
+            if (fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
 
@@ -2763,18 +2774,33 @@ fn buildOutputType(
         }
     }
 
-    const self_exe_path = try introspect.findZigExePath(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |unresolved_lib_dir| l: {
-        const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
-        break :l .{
-            .path = lib_dir,
-            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
-            },
+    const self_exe_path: ?[]const u8 = if (!process.can_spawn)
+        null
+    else
+        introspect.findZigExePath(arena) catch |err| {
+            fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
         };
-    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+
+    var zig_lib_directory: Compilation.Directory = d: {
+        if (override_lib_dir) |unresolved_lib_dir| {
+            const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
+            break :d .{
+                .path = lib_dir,
+                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                    fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
+                },
+            };
+        } else if (builtin.os.tag == .wasi) {
+            break :d getWasiPreopen("/lib");
+        } else if (self_exe_path) |p| {
+            break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
+                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+            };
+        } else {
+            unreachable;
+        }
     };
+
     defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
@@ -2791,7 +2817,16 @@ fn buildOutputType(
     }
 
     var global_cache_directory: Compilation.Directory = l: {
-        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        if (override_global_cache_dir) |p| {
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(p, .{}),
+                .path = p,
+            };
+        }
+        if (builtin.os.tag == .wasi) {
+            break :l getWasiPreopen("/cache");
+        }
+        const p = try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
             .path = p,
@@ -3082,7 +3117,7 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path,
+            self_exe_path.?,
             arg_mode,
             target_info,
             watch,
@@ -3154,7 +3189,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        self_exe_path.?,
                         arg_mode,
                         target_info,
                         watch,
@@ -3179,7 +3214,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        self_exe_path.?,
                         arg_mode,
                         target_info,
                         watch,
@@ -3523,7 +3558,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void
         defer tree.deinit(comp.gpa);
 
         if (out_dep_path) |dep_file_path| {
-            const dep_basename = std.fs.path.basename(dep_file_path);
+            const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             // Just to save disk space, we delete the file because it is never needed again.

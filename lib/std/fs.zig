@@ -1130,13 +1130,6 @@ pub const Dir = struct {
                 w.RIGHT.FD_FILESTAT_SET_TIMES |
                 w.RIGHT.FD_FILESTAT_SET_SIZE;
         }
-        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, 0x0, fdflags, base, 0x0);
-            return File{ .handle = fd };
-        }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
     }
@@ -1300,13 +1293,6 @@ pub const Dir = struct {
         }
         if (flags.exclusive) {
             oflags |= w.O.EXCL;
-        }
-        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, oflags, 0x0, base, 0x0);
-            return File{ .handle = fd };
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
@@ -1711,16 +1697,15 @@ pub const Dir = struct {
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT.ALL ^ w.RIGHT.SOCK_SHUTDOWN;
 
-        const result = blk: {
-            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-                // Resolve absolute or CWD-relative paths to a path within a Preopen
-                var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-                break :blk os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
-            } else {
-                break :blk os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
-            }
-        };
+        const result = os.openatWasi(
+            self.fd,
+            sub_path,
+            symlink_flags,
+            w.O.DIRECTORY,
+            0x0,
+            base,
+            inheriting,
+        );
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O.DIRECTORY
@@ -2667,6 +2652,8 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else if (builtin.os.tag == .wasi and @hasDecl(root, "wasi_cwd")) {
+        return root.wasi_cwd();
     } else {
         return Dir{ .fd = os.AT.FDCWD };
     }
