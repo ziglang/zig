@@ -1146,8 +1146,6 @@ test "size of enum with only one tag which has explicit integer tag type" {
 }
 
 test "switch on an extern enum with negative value" {
-    // TODO x86, wasm backends fail because they assume that enum tag types are unsigned
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const Foo = enum(c_int) {
