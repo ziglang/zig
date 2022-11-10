@@ -184,8 +184,13 @@ pub fn main() anyerror!void {
 
     // Short circuit some of the other logic for bootstrapping.
     if (build_options.only_c) {
-        assert(mem.eql(u8, args[1], "build-exe"));
-        return buildOutputType(gpa, arena, args, .{ .build = .Exe });
+        if (mem.eql(u8, args[1], "build-exe")) {
+            return buildOutputType(gpa, arena, args, .{ .build = .Exe });
+        } else if (mem.eql(u8, args[1], "build-obj")) {
+            return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+        } else {
+            @panic("only build-exe or build-obj is supported in a -Donly-c build");
+        }
     }
 
     return mainArgs(gpa, arena, args);
