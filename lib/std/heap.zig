@@ -1,13 +1,13 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");
-const debug = std.debug;
-const assert = debug.assert;
+const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
 const c = std.c;
 const maxInt = std.math.maxInt;
+const Allocator = std.mem.Allocator;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
@@ -16,8 +16,11 @@ pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").Log
 pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
+pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
+pub const PageAllocator = @import("heap/PageAllocator.zig");
 
-const Allocator = mem.Allocator;
+/// TODO Utilize this on Windows.
+pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
 
 const CAllocator = struct {
     comptime {
@@ -226,303 +229,6 @@ pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     assert(mem.alignForward(aligned_len, mem.page_size) == full_len);
     return aligned_len;
 }
-
-/// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
-
-const PageAllocator = struct {
-    const vtable = Allocator.VTable{
-        .alloc = alloc,
-        .resize = resize,
-        .free = free,
-    };
-
-    fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
-        _ = ra;
-        _ = log2_align;
-        assert(n > 0);
-        if (n > maxInt(usize) - (mem.page_size - 1)) return null;
-        const aligned_len = mem.alignForward(n, mem.page_size);
-
-        if (builtin.os.tag == .windows) {
-            const w = os.windows;
-            const addr = w.VirtualAlloc(
-                null,
-                aligned_len,
-                w.MEM_COMMIT | w.MEM_RESERVE,
-                w.PAGE_READWRITE,
-            ) catch return null;
-            return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, addr));
-        }
-
-        const hint = @atomicLoad(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, .Unordered);
-        const slice = os.mmap(
-            hint,
-            aligned_len,
-            os.PROT.READ | os.PROT.WRITE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
-            -1,
-            0,
-        ) catch return null;
-        assert(mem.isAligned(@ptrToInt(slice.ptr), mem.page_size));
-        const new_hint = @alignCast(mem.page_size, slice.ptr + aligned_len);
-        _ = @cmpxchgStrong(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
-        return slice.ptr;
-    }
-
-    fn resize(
-        _: *anyopaque,
-        buf_unaligned: []u8,
-        log2_buf_align: u8,
-        new_size: usize,
-        return_address: usize,
-    ) bool {
-        _ = log2_buf_align;
-        _ = return_address;
-        const new_size_aligned = mem.alignForward(new_size, mem.page_size);
-
-        if (builtin.os.tag == .windows) {
-            const w = os.windows;
-            if (new_size <= buf_unaligned.len) {
-                const base_addr = @ptrToInt(buf_unaligned.ptr);
-                const old_addr_end = base_addr + buf_unaligned.len;
-                const new_addr_end = mem.alignForward(base_addr + new_size, mem.page_size);
-                if (old_addr_end > new_addr_end) {
-                    // For shrinking that is not releasing, we will only
-                    // decommit the pages not needed anymore.
-                    w.VirtualFree(
-                        @intToPtr(*anyopaque, new_addr_end),
-                        old_addr_end - new_addr_end,
-                        w.MEM_DECOMMIT,
-                    );
-                }
-                return true;
-            }
-            const old_size_aligned = mem.alignForward(buf_unaligned.len, mem.page_size);
-            if (new_size_aligned <= old_size_aligned) {
-                return true;
-            }
-            return false;
-        }
-
-        const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
-        if (new_size_aligned == buf_aligned_len)
-            return true;
-
-        if (new_size_aligned < buf_aligned_len) {
-            const ptr = @alignCast(mem.page_size, buf_unaligned.ptr + new_size_aligned);
-            // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
-            os.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
-            return true;
-        }
-
-        // TODO: call mremap
-        // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-        return false;
-    }
-
-    fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
-        _ = log2_buf_align;
-        _ = return_address;
-
-        if (builtin.os.tag == .windows) {
-            os.windows.VirtualFree(slice.ptr, 0, os.windows.MEM_RELEASE);
-        } else {
-            const buf_aligned_len = mem.alignForward(slice.len, mem.page_size);
-            const ptr = @alignCast(mem.page_size, slice.ptr);
-            os.munmap(ptr[0..buf_aligned_len]);
-        }
-    }
-};
-
-const WasmPageAllocator = struct {
-    comptime {
-        if (!builtin.target.isWasm()) {
-            @compileError("WasmPageAllocator is only available for wasm32 arch");
-        }
-    }
-
-    const vtable = Allocator.VTable{
-        .alloc = alloc,
-        .resize = resize,
-        .free = free,
-    };
-
-    const PageStatus = enum(u1) {
-        used = 0,
-        free = 1,
-
-        pub const none_free: u8 = 0;
-    };
-
-    const FreeBlock = struct {
-        data: []u128,
-
-        const Io = std.packed_int_array.PackedIntIo(u1, .Little);
-
-        fn totalPages(self: FreeBlock) usize {
-            return self.data.len * 128;
-        }
-
-        fn isInitialized(self: FreeBlock) bool {
-            return self.data.len > 0;
-        }
-
-        fn getBit(self: FreeBlock, idx: usize) PageStatus {
-            const bit_offset = 0;
-            return @intToEnum(PageStatus, Io.get(mem.sliceAsBytes(self.data), idx, bit_offset));
-        }
-
-        fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
-            const bit_offset = 0;
-            var i: usize = 0;
-            while (i < len) : (i += 1) {
-                Io.set(mem.sliceAsBytes(self.data), start_idx + i, bit_offset, @enumToInt(val));
-            }
-        }
-
-        // Use '0xFFFFFFFF' as a _missing_ sentinel
-        // This saves ~50 bytes compared to returning a nullable
-
-        // We can guarantee that conventional memory never gets this big,
-        // and wasm32 would not be able to address this memory (32 GB > usize).
-
-        // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
-        const not_found = std.math.maxInt(usize);
-
-        fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
-            @setCold(true);
-            for (self.data) |segment, i| {
-                const spills_into_next = @bitCast(i128, segment) < 0;
-                const has_enough_bits = @popCount(segment) >= num_pages;
-
-                if (!spills_into_next and !has_enough_bits) continue;
-
-                var j: usize = i * 128;
-                while (j < (i + 1) * 128) : (j += 1) {
-                    var count: usize = 0;
-                    while (j + count < self.totalPages() and self.getBit(j + count) == .free) {
-                        count += 1;
-                        const addr = j * mem.page_size;
-                        if (count >= num_pages and mem.isAlignedLog2(addr, log2_align)) {
-                            self.setBits(j, num_pages, .used);
-                            return j;
-                        }
-                    }
-                    j += count;
-                }
-            }
-            return not_found;
-        }
-
-        fn recycle(self: FreeBlock, start_idx: usize, len: usize) void {
-            self.setBits(start_idx, len, .free);
-        }
-    };
-
-    var _conventional_data = [_]u128{0} ** 16;
-    // Marking `conventional` as const saves ~40 bytes
-    const conventional = FreeBlock{ .data = &_conventional_data };
-    var extended = FreeBlock{ .data = &[_]u128{} };
-
-    fn extendedOffset() usize {
-        return conventional.totalPages();
-    }
-
-    fn nPages(memsize: usize) usize {
-        return mem.alignForward(memsize, mem.page_size) / mem.page_size;
-    }
-
-    fn alloc(_: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
-        _ = ra;
-        if (len > maxInt(usize) - (mem.page_size - 1)) return null;
-        const page_count = nPages(len);
-        const page_idx = allocPages(page_count, log2_align) catch return null;
-        return @intToPtr([*]u8, page_idx * mem.page_size);
-    }
-
-    fn allocPages(page_count: usize, log2_align: u8) !usize {
-        {
-            const idx = conventional.useRecycled(page_count, log2_align);
-            if (idx != FreeBlock.not_found) {
-                return idx;
-            }
-        }
-
-        const idx = extended.useRecycled(page_count, log2_align);
-        if (idx != FreeBlock.not_found) {
-            return idx + extendedOffset();
-        }
-
-        const next_page_idx = @wasmMemorySize(0);
-        const next_page_addr = next_page_idx * mem.page_size;
-        const aligned_addr = mem.alignForwardLog2(next_page_addr, log2_align);
-        const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
-        const result = @wasmMemoryGrow(0, @intCast(u32, drop_page_count + page_count));
-        if (result <= 0)
-            return error.OutOfMemory;
-        assert(result == next_page_idx);
-        const aligned_page_idx = next_page_idx + drop_page_count;
-        if (drop_page_count > 0) {
-            freePages(next_page_idx, aligned_page_idx);
-        }
-        return @intCast(usize, aligned_page_idx);
-    }
-
-    fn freePages(start: usize, end: usize) void {
-        if (start < extendedOffset()) {
-            conventional.recycle(start, @min(extendedOffset(), end) - start);
-        }
-        if (end > extendedOffset()) {
-            var new_end = end;
-            if (!extended.isInitialized()) {
-                // Steal the last page from the memory currently being recycled
-                // TODO: would it be better if we use the first page instead?
-                new_end -= 1;
-
-                extended.data = @intToPtr([*]u128, new_end * mem.page_size)[0 .. mem.page_size / @sizeOf(u128)];
-                // Since this is the first page being freed and we consume it, assume *nothing* is free.
-                mem.set(u128, extended.data, PageStatus.none_free);
-            }
-            const clamped_start = @max(extendedOffset(), start);
-            extended.recycle(clamped_start - extendedOffset(), new_end - clamped_start);
-        }
-    }
-
-    fn resize(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_len: usize,
-        return_address: usize,
-    ) bool {
-        _ = log2_buf_align;
-        _ = return_address;
-        const aligned_len = mem.alignForward(buf.len, mem.page_size);
-        if (new_len > aligned_len) return false;
-        const current_n = nPages(aligned_len);
-        const new_n = nPages(new_len);
-        if (new_n != current_n) {
-            const base = nPages(@ptrToInt(buf.ptr));
-            freePages(base + new_n, base + current_n);
-        }
-        return true;
-    }
-
-    fn free(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        _ = log2_buf_align;
-        _ = return_address;
-        const aligned_len = mem.alignForward(buf.len, mem.page_size);
-        const current_n = nPages(aligned_len);
-        const base = nPages(@ptrToInt(buf.ptr));
-        freePages(base, base + current_n);
-    }
-};
 
 pub const HeapAllocator = switch (builtin.os.tag) {
     .windows => struct {
@@ -1163,7 +869,10 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     try testing.expect(slice[60] == 0x34);
 }
 
-test "heap" {
-    _ = @import("heap/logging_allocator.zig");
-    _ = @import("heap/log_to_writer_allocator.zig");
+test {
+    _ = LoggingAllocator;
+    _ = LogToWriterAllocator;
+    _ = ScopedLoggingAllocator;
+    _ = ArenaAllocator;
+    _ = GeneralPurposeAllocator;
 }
