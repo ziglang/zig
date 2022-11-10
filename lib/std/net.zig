@@ -1685,7 +1685,12 @@ pub const Stream = struct {
                         error.MessageTooBig => error.Unexpected,
                         error.NetworkSubsystemFailed => error.Unexpected,
                         error.NetworkUnreachable => error.Unexpected,
-                        else => e,
+                        error.AccessDenied => error.AccessDenied,
+                        error.BrokenPipe => error.BrokenPipe,
+                        error.ConnectionResetByPeer => error.ConnectionResetByPeer,
+                        error.SystemResources => error.SystemResources,
+                        error.Unexpected => error.Unexpected,
+                        error.WouldBlock => error.WouldBlock,
                     };
                 };
             } else {
