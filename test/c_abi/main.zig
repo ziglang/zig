@@ -852,18 +852,22 @@ test "DC: Zig passes to C" {
     if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     try expectOk(c_assert_ret_DC());
 }
 test "DC: C passes to Zig" {
     if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
         return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     try expectEqual(c_ret_DC(), .{ .v1 = -0.25, .v2 = 15 });
 }
 
