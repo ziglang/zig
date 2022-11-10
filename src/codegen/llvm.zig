@@ -4568,14 +4568,14 @@ pub const FuncGen = struct {
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
                 .cond_br        => try self.airCondBr(inst),
-                .@"try"         => try self.airTry(inst),
+                .@"try"         => try self.airTry(body[i..]),
                 .try_ptr        => try self.airTryPtr(inst),
                 .intcast        => try self.airIntCast(inst),
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
                 .ptrtoint       => try self.airPtrToInt(inst),
-                .load           => try self.airLoad(inst, body, i + 1),
+                .load           => try self.airLoad(body[i..]),
                 .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
                 .ret            => try self.airRet(inst),
@@ -4634,7 +4634,7 @@ pub const FuncGen = struct {
                 .atomic_store_seq_cst   => try self.airAtomicStore(inst, .SequentiallyConsistent),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
-                .struct_field_val => try self.airStructFieldVal(inst),
+                .struct_field_val => try self.airStructFieldVal(body[i..]),
 
                 .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                 .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4643,18 +4643,18 @@ pub const FuncGen = struct {
 
                 .field_parent_ptr => try self.airFieldParentPtr(inst),
 
-                .array_elem_val     => try self.airArrayElemVal(inst),
-                .slice_elem_val     => try self.airSliceElemVal(inst),
+                .array_elem_val     => try self.airArrayElemVal(body[i..]),
+                .slice_elem_val     => try self.airSliceElemVal(body[i..]),
                 .slice_elem_ptr     => try self.airSliceElemPtr(inst),
-                .ptr_elem_val       => try self.airPtrElemVal(inst),
+                .ptr_elem_val       => try self.airPtrElemVal(body[i..]),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
-                .optional_payload         => try self.airOptionalPayload(inst),
+                .optional_payload         => try self.airOptionalPayload(body[i..]),
                 .optional_payload_ptr     => try self.airOptionalPayloadPtr(inst),
                 .optional_payload_ptr_set => try self.airOptionalPayloadPtrSet(inst),
 
-                .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
-                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
+                .unwrap_errunion_payload     => try self.airErrUnionPayload(body[i..], false),
+                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(body[i..], true),
                 .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
                 .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
                 .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
@@ -5159,8 +5159,8 @@ pub const FuncGen = struct {
                 _ = self.builder.buildBr(end_block);
 
                 self.builder.positionBuilderAtEnd(both_pl_block);
-                const lhs_payload = try self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty);
-                const rhs_payload = try self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty);
+                const lhs_payload = try self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty, true);
+                const rhs_payload = try self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty, true);
                 const payload_cmp = try self.cmp(lhs_payload, rhs_payload, payload_ty, op);
                 _ = self.builder.buildBr(end_block);
                 const both_pl_block_end = self.builder.getInsertBlock();
@@ -5305,14 +5305,16 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airTry(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const err_union = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
         const err_union_ty = self.air.typeOf(pl_op.operand);
-        const result_ty = self.air.typeOfIndex(inst);
-        return lowerTry(self, err_union, body, err_union_ty, false, result_ty);
+        const payload_ty = self.air.typeOfIndex(inst);
+        const can_elide_load = if (isByRef(payload_ty)) self.canElideLoad(body_tail) else false;
+        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, payload_ty);
     }
 
     fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -5321,8 +5323,8 @@ pub const FuncGen = struct {
         const err_union_ptr = try self.resolveInst(extra.data.ptr);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
         const err_union_ty = self.air.typeOf(extra.data.ptr).childType();
-        const result_ty = self.air.typeOfIndex(inst);
-        return lowerTry(self, err_union_ptr, body, err_union_ty, true, result_ty);
+        const payload_ty = self.air.typeOfIndex(inst);
+        return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, payload_ty);
     }
 
     fn lowerTry(
@@ -5331,6 +5333,7 @@ pub const FuncGen = struct {
         body: []const Air.Inst.Index,
         err_union_ty: Type,
         operand_is_ptr: bool,
+        can_elide_load: bool,
         result_ty: Type,
     ) !?*llvm.Value {
         const payload_ty = err_union_ty.errorUnionPayload();
@@ -5379,12 +5382,15 @@ pub const FuncGen = struct {
             return fg.builder.buildBitCast(err_union, res_ptr_ty, "");
         }
         const offset = errUnionPayloadOffset(payload_ty, target);
-        if (operand_is_ptr or isByRef(payload_ty)) {
+        if (operand_is_ptr) {
             return fg.builder.buildStructGEP(err_union_llvm_ty, err_union, offset, "");
         } else if (isByRef(err_union_ty)) {
             const payload_ptr = fg.builder.buildStructGEP(err_union_llvm_ty, err_union, offset, "");
             if (isByRef(payload_ty)) {
-                return payload_ptr;
+                if (can_elide_load)
+                    return payload_ptr;
+
+                return fg.loadByRef(payload_ptr, payload_ty, payload_ty.abiAlignment(target), false);
             }
             const load_inst = fg.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
@@ -5625,14 +5631,16 @@ pub const FuncGen = struct {
         return self.builder.buildStructGEP(slice_llvm_ty, slice_ptr, index, "");
     }
 
-    fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airSliceElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const slice_ty = self.air.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
         const slice = try self.resolveInst(bin_op.lhs);
         const index = try self.resolveInst(bin_op.rhs);
-        const llvm_elem_ty = try self.dg.lowerPtrElemTy(slice_ty.childType());
+        const elem_ty = slice_ty.childType();
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
         const base_ptr = self.builder.buildExtractValue(slice, 0, "");
         const indices: [1]*llvm.Value = .{index};
         const ptr = self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
@@ -5653,7 +5661,8 @@ pub const FuncGen = struct {
         return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
     }
 
-    fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airArrayElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -5666,7 +5675,11 @@ pub const FuncGen = struct {
             const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
             const elem_ty = array_ty.childType();
             if (isByRef(elem_ty)) {
-                return elem_ptr;
+                if (canElideLoad(self, body_tail))
+                    return elem_ptr;
+
+                const target = self.dg.module.getTarget();
+                return self.loadByRef(elem_ptr, elem_ty, elem_ty.abiAlignment(target), false);
             } else {
                 const elem_llvm_ty = try self.dg.lowerType(elem_ty);
                 return self.builder.buildLoad(elem_llvm_ty, elem_ptr, "");
@@ -5677,12 +5690,14 @@ pub const FuncGen = struct {
         return self.builder.buildExtractElement(array_llvm_val, rhs, "");
     }
 
-    fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airPtrElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
+        const elem_ty = ptr_ty.childType();
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         // TODO: when we go fully opaque pointers in LLVM 16 we can remove this branch
@@ -5743,7 +5758,8 @@ pub const FuncGen = struct {
         return self.fieldPtr(inst, struct_ptr, struct_ptr_ty, field_index);
     }
 
-    fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airStructFieldVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -5826,7 +5842,10 @@ pub const FuncGen = struct {
                 const llvm_field_ty = try self.dg.lowerType(field_ty);
                 const field_ptr = self.builder.buildBitCast(union_field_ptr, llvm_field_ty.pointerType(0), "");
                 if (isByRef(field_ty)) {
-                    return field_ptr;
+                    if (canElideLoad(self, body_tail))
+                        return field_ptr;
+
+                    return self.loadByRef(field_ptr, field_ty, layout.payload_align, false);
                 } else {
                     return self.builder.buildLoad(llvm_field_ty, field_ptr, "");
                 }
@@ -6516,7 +6535,8 @@ pub const FuncGen = struct {
         return self.builder.buildStructGEP(optional_llvm_ty, operand, 0, "");
     }
 
-    fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airOptionalPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -6531,14 +6551,16 @@ pub const FuncGen = struct {
         }
 
         const opt_llvm_ty = try self.dg.lowerType(optional_ty);
-        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty);
+        const can_elide_load = if (isByRef(payload_ty)) self.canElideLoad(body_tail) else false;
+        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty, can_elide_load);
     }
 
     fn airErrUnionPayload(
         self: *FuncGen,
-        inst: Air.Inst.Index,
+        body_tail: []const Air.Inst.Index,
         operand_is_ptr: bool,
     ) !?*llvm.Value {
+        const inst = body_tail[0];
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -6558,12 +6580,15 @@ pub const FuncGen = struct {
         }
         const offset = errUnionPayloadOffset(payload_ty, target);
         const err_union_llvm_ty = try self.dg.lowerType(err_union_ty);
-        if (operand_is_ptr or isByRef(payload_ty)) {
+        if (operand_is_ptr) {
             return self.builder.buildStructGEP(err_union_llvm_ty, operand, offset, "");
         } else if (isByRef(err_union_ty)) {
             const payload_ptr = self.builder.buildStructGEP(err_union_llvm_ty, operand, offset, "");
             if (isByRef(payload_ty)) {
-                return payload_ptr;
+                if (self.canElideLoad(body_tail))
+                    return payload_ptr;
+
+                return self.loadByRef(payload_ptr, payload_ty, payload_ty.abiAlignment(target), false);
             }
             const load_inst = self.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
@@ -8064,35 +8089,37 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airLoad(
-        self: *FuncGen,
-        inst: Air.Inst.Index,
-        body: []const Air.Inst.Index,
-        body_i: usize,
-    ) !?*llvm.Value {
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const ptr_ty = self.air.typeOf(ty_op.operand);
-        elide: {
-            const ptr_info = ptr_ty.ptrInfo().data;
-            if (ptr_info.@"volatile") break :elide;
-            if (self.liveness.isUnused(inst)) return null;
-            if (!isByRef(ptr_info.pointee_type)) break :elide;
+    /// As an optimization, we want to avoid unnecessary copies of isByRef=true
+    /// types. Here, we scan forward in the current block, looking to see if
+    /// this load dies before any side effects occur. In such case, we can
+    /// safely return the operand without making a copy.
+    ///
+    /// The first instruction of `body_tail` is the one whose copy we want to elide.
+    fn canElideLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) bool {
+        for (body_tail[1..]) |body_inst| {
+            switch (fg.liveness.categorizeOperand(fg.air, body_inst, body_tail[0])) {
+                .none => continue,
+                .write, .noret, .complex => return false,
+                .tomb => return true,
+            }
+        } else unreachable;
+    }
 
-            // It would be valid to fall back to the code below here that simply calls
-            // load(). However, as an optimization, we want to avoid unnecessary copies
-            // of isByRef=true types. Here, we scan forward in the current block,
-            // looking to see if this load dies before any side effects occur.
-            // In such case, we can safely return the operand without making a copy.
-            for (body[body_i..]) |body_inst| {
-                switch (self.liveness.categorizeOperand(self.air, body_inst, inst)) {
-                    .none => continue,
-                    .write, .noret, .complex => break :elide,
-                    .tomb => return try self.resolveInst(ty_op.operand),
-                }
-            } else unreachable;
+    fn airLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
+        const inst = body_tail[0];
+        const ty_op = fg.air.instructions.items(.data)[inst].ty_op;
+        const ptr_ty = fg.air.typeOf(ty_op.operand);
+        const ptr_info = ptr_ty.ptrInfo().data;
+        const ptr = try fg.resolveInst(ty_op.operand);
+
+        elide: {
+            if (ptr_info.@"volatile") break :elide;
+            if (fg.liveness.isUnused(inst)) return null;
+            if (!isByRef(ptr_info.pointee_type)) break :elide;
+            if (!canElideLoad(fg, body_tail)) break :elide;
+            return ptr;
         }
-        const ptr = try self.resolveInst(ty_op.operand);
-        return self.load(ptr, ptr_ty);
+        return fg.load(ptr, ptr_ty);
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -9412,6 +9439,7 @@ pub const FuncGen = struct {
         opt_llvm_ty: *llvm.Type,
         opt_handle: *llvm.Value,
         opt_ty: Type,
+        can_elide_load: bool,
     ) !*llvm.Value {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = opt_ty.optionalChild(&buf);
@@ -9420,11 +9448,14 @@ pub const FuncGen = struct {
             // We have a pointer and we need to return a pointer to the first field.
             const payload_ptr = fg.builder.buildStructGEP(opt_llvm_ty, opt_handle, 0, "");
 
-            if (isByRef(payload_ty)) {
-                return payload_ptr;
-            }
             const target = fg.dg.module.getTarget();
             const payload_alignment = payload_ty.abiAlignment(target);
+            if (isByRef(payload_ty)) {
+                if (can_elide_load)
+                    return payload_ptr;
+
+                return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, false);
+            }
             const payload_llvm_ty = try fg.dg.lowerType(payload_ty);
             const load_inst = fg.builder.buildLoad(payload_llvm_ty, payload_ptr, "");
             load_inst.setAlignment(payload_alignment);
@@ -9559,6 +9590,32 @@ pub const FuncGen = struct {
         return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
+    /// Load a by-ref type by constructing a new alloca and performing a memcpy.
+    fn loadByRef(
+        fg: *FuncGen,
+        ptr: *llvm.Value,
+        pointee_type: Type,
+        ptr_alignment: u32,
+        is_volatile: bool,
+    ) !*llvm.Value {
+        const pointee_llvm_ty = try fg.dg.lowerType(pointee_type);
+        const target = fg.dg.module.getTarget();
+        const result_align = @max(ptr_alignment, pointee_type.abiAlignment(target));
+        const result_ptr = fg.buildAlloca(pointee_llvm_ty, result_align);
+        const llvm_ptr_u8 = fg.context.intType(8).pointerType(0);
+        const llvm_usize = fg.context.intType(Type.usize.intInfo(target).bits);
+        const size_bytes = pointee_type.abiSize(target);
+        _ = fg.builder.buildMemCpy(
+            fg.builder.buildBitCast(result_ptr, llvm_ptr_u8, ""),
+            result_align,
+            fg.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
+            ptr_alignment,
+            llvm_usize.constInt(size_bytes, .False),
+            is_volatile,
+        );
+        return result_ptr;
+    }
+
     /// This function always performs a copy. For isByRef=true types, it creates a new
     /// alloca and copies the value into it, then returns the alloca instruction.
     /// For isByRef=false types, it creates a load instruction and returns it.
@@ -9570,24 +9627,10 @@ pub const FuncGen = struct {
         const ptr_alignment = info.alignment(target);
         const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
         if (info.host_size == 0) {
-            const elem_llvm_ty = try self.dg.lowerType(info.pointee_type);
             if (isByRef(info.pointee_type)) {
-                const result_align = info.pointee_type.abiAlignment(target);
-                const max_align = @max(result_align, ptr_alignment);
-                const result_ptr = self.buildAlloca(elem_llvm_ty, max_align);
-                const llvm_ptr_u8 = self.context.intType(8).pointerType(0);
-                const llvm_usize = self.context.intType(Type.usize.intInfo(target).bits);
-                const size_bytes = info.pointee_type.abiSize(target);
-                _ = self.builder.buildMemCpy(
-                    self.builder.buildBitCast(result_ptr, llvm_ptr_u8, ""),
-                    max_align,
-                    self.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
-                    max_align,
-                    llvm_usize.constInt(size_bytes, .False),
-                    info.@"volatile",
-                );
-                return result_ptr;
+                return self.loadByRef(ptr, info.pointee_type, ptr_alignment, info.@"volatile");
             }
+            const elem_llvm_ty = try self.dg.lowerType(info.pointee_type);
             const llvm_inst = self.builder.buildLoad(elem_llvm_ty, ptr, "");
             llvm_inst.setAlignment(ptr_alignment);
             llvm_inst.setVolatile(ptr_volatile);
