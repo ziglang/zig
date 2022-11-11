@@ -6333,6 +6333,7 @@ fn analyzeCall(
             .instructions = .{},
             .label = null,
             .inlining = &inlining,
+            .is_typeof = block.is_typeof,
             .is_comptime = is_comptime_call,
             .comptime_reason = comptime_reason,
             .error_return_trace_index = block.error_return_trace_index,
@@ -16531,9 +16532,6 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     // This is only relevant at runtime.
     if (block.is_comptime or block.is_typeof) return;
-
-    // This is only relevant within functions.
-    if (sema.func == null) return;
 
     const save_index = inst_data.operand == .none or b: {
         const operand = try sema.resolveInst(inst_data.operand);
@@ -27504,9 +27502,6 @@ fn analyzeLoad(
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
-        }
-        if (block.is_typeof) {
-            return sema.addConstUndef(elem_ty);
         }
     }
 
