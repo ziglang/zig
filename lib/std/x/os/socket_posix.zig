@@ -13,7 +13,9 @@ pub fn Mixin(comptime Socket: type) type {
             const set = std.EnumSet(Socket.InitFlags).init(flags);
             if (set.contains(.close_on_exec)) raw_flags |= os.SOCK.CLOEXEC;
             if (set.contains(.nonblocking)) raw_flags |= os.SOCK.NONBLOCK;
-            return Socket{ .fd = try os.socket(domain, raw_flags, protocol) };
+            var s = Socket{ .fd = try os.socket(domain, raw_flags, protocol) };
+            try s.setRaiseSIGPIPE(s.raise_sigpipe);
+            return s;
         }
 
         /// Closes the socket.

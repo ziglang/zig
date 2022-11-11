@@ -1666,6 +1666,21 @@ pub const Stream = struct {
         }
     }
 
+    /// Set whether or not the socket should raise SIGPIPE errors on platforms that support it
+    /// This function will setsockopt on FreeBSD and Mac which support socket level. This also
+    /// will set the raise_sigpipe variable, which works on Linux.
+    pub fn setRaiseSIGPIPE(self: Stream, enabled: bool) !void {
+        self.raise_sigpipe = enabled;
+
+        if (builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
+            var set: u32 = if (self.raise_sigpipe) 1 else 0;
+
+            const SO_NOSIGPIPE = if (builtin.os.tag == .darwin) 4130 else if (builtin.os.tag == .freebsd) 0x00000800 else 0;
+
+            try os.setsockopt(@bitCast(os.socket_t, self.handle), os.SOL.SOCKET, SO_NOSIGPIPE, std.mem.asBytes(&set));
+        }
+    }
+
     /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
