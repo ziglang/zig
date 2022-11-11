@@ -67,6 +67,7 @@ fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize)
     _ = ctx;
     _ = len_align;
     _ = ra;
+    if (alignment > wasm.page_size) return error.OutOfMemory; // calm down
     const aligned_len = @max(len, alignment);
     const slot_size = math.ceilPowerOfTwo(usize, aligned_len) catch return error.OutOfMemory;
     const class = math.log2(slot_size);
@@ -110,11 +111,8 @@ fn resize(
     buf_align: u29,
     new_len: usize,
     len_align: u29,
-    return_address: usize,
+    ra: usize,
 ) ?usize {
-    _ = ctx;
-    _ = return_address;
-    _ = len_align;
     // We don't want to move anything from one size class to another. But we can recover bytes
     // in between powers of two.
     const old_aligned_len = @max(buf.len, buf_align);
@@ -126,13 +124,29 @@ fn resize(
         //std.debug.print("resize: old_small_slot_size={d} new_small_slot_size={d}\n", .{
         //    old_small_slot_size, new_small_slot_size,
         //});
-        if (old_small_slot_size != new_small_slot_size) return null;
+        if (old_small_slot_size != new_small_slot_size) {
+            if (new_aligned_len >= old_aligned_len) {
+                return null;
+            }
+            // TODO this panic is a design flaw in the Allocator interface that
+            // should be addressed.
+            const new = alloc(ctx, new_len, buf_align, len_align, ra) catch @panic("out of memory");
+            @memcpy(new.ptr, buf.ptr, buf.len);
+        }
     } else {
         const old_bigpages_needed = (old_aligned_len + (bigpage_size - 1)) / bigpage_size;
         const old_big_slot_size = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
         const new_bigpages_needed = (new_aligned_len + (bigpage_size - 1)) / bigpage_size;
         const new_big_slot_size = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
-        if (old_big_slot_size != new_big_slot_size) return null;
+        if (old_big_slot_size != new_big_slot_size) {
+            if (new_aligned_len >= old_aligned_len) {
+                return null;
+            }
+            // TODO this panic is a design flaw in the Allocator interface that
+            // should be addressed.
+            const new = alloc(ctx, new_len, buf_align, len_align, ra) catch @panic("out of memory");
+            @memcpy(new.ptr, buf.ptr, buf.len);
+        }
     }
     return new_len;
 }
@@ -290,4 +304,69 @@ test "shrink" {
     for (slice) |b| {
         try std.testing.expect(b == 0x11);
     }
+}
+
+test "large object - grow" {
+    var slice1 = try test_ally.alloc(u8, bigpage_size * 2 - 20);
+    defer test_ally.free(slice1);
+
+    const old = slice1;
+    slice1 = try test_ally.realloc(slice1, bigpage_size * 2 - 10);
+    try std.testing.expect(slice1.ptr == old.ptr);
+
+    slice1 = try test_ally.realloc(slice1, bigpage_size * 2);
+    try std.testing.expect(slice1.ptr == old.ptr);
+
+    slice1 = try test_ally.realloc(slice1, bigpage_size * 2 + 1);
+}
+
+test "realloc small object to large object" {
+    var slice = try test_ally.alloc(u8, 70);
+    defer test_ally.free(slice);
+    slice[0] = 0x12;
+    slice[60] = 0x34;
+
+    // This requires upgrading to a large object
+    const large_object_size = bigpage_size * 2 + 50;
+    slice = try test_ally.realloc(slice, large_object_size);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
+}
+
+test "shrink large object to large object" {
+    var slice = try test_ally.alloc(u8, bigpage_size * 2 + 50);
+    defer test_ally.free(slice);
+    slice[0] = 0x12;
+    slice[60] = 0x34;
+
+    slice = test_ally.resize(slice, bigpage_size * 2 + 1) orelse return;
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
+
+    slice = test_ally.shrink(slice, bigpage_size * 2 + 1);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
+
+    slice = try test_ally.realloc(slice, bigpage_size * 2);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
+}
+
+test "realloc large object to small object" {
+    var slice = try test_ally.alloc(u8, bigpage_size * 2 + 50);
+    defer test_ally.free(slice);
+    slice[0] = 0x12;
+    slice[16] = 0x34;
+
+    slice = try test_ally.realloc(slice, 19);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[16] == 0x34);
+}
+
+test "objects of size 1024 and 2048" {
+    const slice = try test_ally.alloc(u8, 1025);
+    const slice2 = try test_ally.alloc(u8, 3000);
+
+    test_ally.free(slice);
+    test_ally.free(slice2);
 }
