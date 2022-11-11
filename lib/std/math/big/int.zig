@@ -2061,7 +2061,7 @@ pub const Const = struct {
             radix = 16;
             case = .upper;
         } else {
-            @compileError("Unknown format string: '" ++ fmt ++ "'");
+            std.fmt.invalidFmtErr(fmt, self);
         }
 
         var limbs: [128]Limb = undefined;

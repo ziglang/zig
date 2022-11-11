@@ -534,7 +534,7 @@ pub const Version = struct {
                 return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
             }
         } else {
-            @compileError("Unknown format string: '" ++ fmt ++ "'");
+            std.fmt.invalidFmtErr(fmt, self);
         }
     }
 };
