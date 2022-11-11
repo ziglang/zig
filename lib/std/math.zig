@@ -1596,9 +1596,8 @@ pub fn break_f80(x: f80) F80 {
 }
 
 /// Returns -1, 0, or 1.
-/// Supports integer types, vectors of integer types, and float types.
+/// Supports integer and float types and vectors of integer and float types.
 /// Unsigned integer types will always return 0 or 1.
-/// TODO: support vectors of floats
 /// Branchless.
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
@@ -1606,15 +1605,14 @@ pub inline fn sign(i: anytype) @TypeOf(i) {
         .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @boolToInt(i < 0),
         .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
         .Vector => |vinfo| blk: {
-            const u1xN = std.meta.Vector(vinfo.len, u1);
-            break :blk switch (@typeInfo(vinfo.child)) {
-                .Int => @as(T, @bitCast(u1xN, i > @splat(vinfo.len, @as(vinfo.child, 0)))) -
-                    @as(T, @bitCast(u1xN, i < @splat(vinfo.len, @as(vinfo.child, 0)))),
-                .Float => @compileError("TODO: add support for vectors of floats once @intToFloat accepts vector types"),
-                // break :blk @intToFloat(T, @bitCast(u1xN, i > @splat(vinfo.len, @as(vinfo.child, 0)))) -
-                //     @intToFloat(T, @bitCast(u1xN, i < @splat(vinfo.len, @as(vinfo.child, 0)))),
+            switch (@typeInfo(vinfo.child)) {
+                .Int, .Float => {
+                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    const one = @splat(vinfo.len, @as(vinfo.child, 1));
+                    break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
+                },
                 else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),
-            };
+            }
         },
         else => @compileError("Expected an int, float or vector of one, found " ++ @typeName(T)),
     };
@@ -1669,24 +1667,21 @@ fn testSign() !void {
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
     {
         const T = f32;
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
     {
         const T = f64;
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
 
     // comptime_int
