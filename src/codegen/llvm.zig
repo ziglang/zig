@@ -3198,7 +3198,8 @@ pub const DeclGen = struct {
     /// There are other similar cases handled here as well.
     fn lowerPtrElemTy(dg: *DeclGen, elem_ty: Type) Allocator.Error!*llvm.Type {
         const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
-            .Opaque, .Fn => true,
+            .Opaque => true,
+            .Fn => !elem_ty.fnInfo().is_generic,
             .Array => elem_ty.childType().hasRuntimeBitsIgnoreComptime(),
             else => elem_ty.hasRuntimeBitsIgnoreComptime(),
         };
@@ -4145,7 +4146,9 @@ pub const DeclGen = struct {
         }
 
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
-        if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
+        if ((!is_fn_body and !decl.ty.hasRuntimeBits()) or
+            (is_fn_body and decl.ty.fnInfo().is_generic))
+        {
             return self.lowerPtrToVoid(tv.ty);
         }
 
