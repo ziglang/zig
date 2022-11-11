@@ -19,10 +19,10 @@ pub const Ghash = struct {
     pub const key_length = 16;
 
     const pc_count = if (builtin.mode != .ReleaseSmall) 16 else 2;
-    const agg_2_treshold = 5 * block_length;
-    const agg_4_treshold = 22 * block_length;
-    const agg_8_treshold = 84 * block_length;
-    const agg_16_treshold = 328 * block_length;
+    const agg_2_treshold = 5;
+    const agg_4_treshold = 22;
+    const agg_8_treshold = 84;
+    const agg_16_treshold = 328;
 
     hx: [pc_count]Precomp,
     acc: u128 = 0,
@@ -199,7 +199,7 @@ pub const Ghash = struct {
 
         var i: usize = 0;
 
-        if (builtin.mode != .ReleaseSmall and msg.len >= agg_16_treshold) {
+        if (builtin.mode != .ReleaseSmall and msg.len >= agg_16_treshold * block_length) {
             // 16-blocks aggregated reduction
             while (i + 256 <= msg.len) : (i += 256) {
                 var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[15 - 0]);
@@ -209,7 +209,7 @@ pub const Ghash = struct {
                 }
                 acc = gcmReduce(u);
             }
-        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_8_treshold) {
+        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_8_treshold * block_length) {
             // 8-blocks aggregated reduction
             while (i + 128 <= msg.len) : (i += 128) {
                 var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[7 - 0]);
@@ -219,7 +219,7 @@ pub const Ghash = struct {
                 }
                 acc = gcmReduce(u);
             }
-        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_4_treshold) {
+        } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_4_treshold * block_length) {
             // 4-blocks aggregated reduction
             while (i + 64 <= msg.len) : (i += 64) {
                 var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[3 - 0]);
@@ -229,7 +229,7 @@ pub const Ghash = struct {
                 }
                 acc = gcmReduce(u);
             }
-        } else if (msg.len >= agg_2_treshold) {
+        } else if (msg.len >= agg_2_treshold * block_length) {
             // 2-blocks aggregated reduction
             while (i + 32 <= msg.len) : (i += 32) {
                 var u = clmul128(acc ^ mem.readIntBig(u128, msg[i..][0..16]), st.hx[1 - 0]);

@@ -12,7 +12,7 @@
 #define ZIG_VERSION_MAJOR @ZIG_VERSION_MAJOR@
 #define ZIG_VERSION_MINOR @ZIG_VERSION_MINOR@
 #define ZIG_VERSION_PATCH @ZIG_VERSION_PATCH@
-#define ZIG_VERSION_STRING "@ZIG_VERSION@"
+#define ZIG_VERSION_STRING "@RESOLVED_ZIG_VERSION@"
 
 // Used by build.zig for communicating build information to self hosted build.
 #define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"

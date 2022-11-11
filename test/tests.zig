@@ -960,7 +960,7 @@ pub const StackTracesContext = struct {
                         pos = marks[i] + delim.len;
                     }
                     // locate source basename
-                    pos = mem.lastIndexOfAny(u8, line[0..marks[0]], "\\/") orelse {
+                    pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
                         // unexpected pattern: emit raw line and cont
                         try buf.appendSlice(line);
                         try buf.appendSlice("\n");

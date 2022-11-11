@@ -739,8 +739,6 @@ test "shutdown socket" {
     os.closeSocket(sock);
 }
 
-var signal_test_failed = true;
-
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
@@ -750,17 +748,19 @@ test "sigaction" {
         return error.SkipZigTest;
 
     const S = struct {
+        var handler_called_count: u32 = 0;
+
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {
                 .netbsd => {
                     if (sig == os.SIG.USR1 and sig == info.info.signo)
-                        signal_test_failed = false;
+                        handler_called_count += 1;
                 },
                 else => {
                     if (sig == os.SIG.USR1 and sig == info.signo)
-                        signal_test_failed = false;
+                        handler_called_count += 1;
                 },
             }
         }
@@ -774,18 +774,41 @@ test "sigaction" {
         .flags = os.SA.SIGINFO | os.SA.RESETHAND,
     };
     var old_sa: os.Sigaction = undefined;
+
     // Install the new signal handler.
     try os.sigaction(os.SIG.USR1, &sa, null);
+
     // Check that we can read it back correctly.
     try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(actual_handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
+
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
-    try testing.expect(signal_test_failed == false);
-    // Check if the handler has been correctly reset to SIG_DFL
+    try testing.expect(S.handler_called_count == 1);
+
+    // Check if passing RESETHAND correctly reset the handler to SIG_DFL
     try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.handler);
+
+    // Reinstall the signal w/o RESETHAND and re-raise
+    sa.flags = os.SA.SIGINFO;
+    try os.sigaction(os.SIG.USR1, &sa, null);
+    try os.raise(os.SIG.USR1);
+    try testing.expect(S.handler_called_count == 2);
+
+    // Now set the signal to ignored
+    sa.handler = .{ .handler = os.SIG.IGN };
+    sa.flags = 0;
+    try os.sigaction(os.SIG.USR1, &sa, null);
+
+    // Re-raise to ensure handler is actually ignored
+    try os.raise(os.SIG.USR1);
+    try testing.expect(S.handler_called_count == 2);
+
+    // Ensure that ignored state is returned when querying
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try testing.expectEqual(os.SIG.IGN, old_sa.handler.handler.?);
 }
 
 test "dup & dup2" {
