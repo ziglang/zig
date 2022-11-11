@@ -5463,13 +5463,13 @@ pub const Type = extern union {
         }
         const S = struct {
             fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, m: *Module) ?usize {
-                if (int_val.compareWithZero(.lt)) return null;
+                if (int_val.compareAllWithZero(.lt)) return null;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val, int_ty, m)) return null;
+                if (int_val.compareAll(.gte, end_val, int_ty, m)) return null;
                 return @intCast(usize, int_val.toUnsignedInt(m.getTarget()));
             }
         };
@@ -6455,12 +6455,12 @@ pub const Type = extern union {
                 if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
                     switch (d.size) {
                         .Slice => {
-                            if (sent.compareWithZero(.eq)) {
+                            if (sent.compareAllWithZero(.eq)) {
                                 return Type.initTag(.const_slice_u8_sentinel_0);
                             }
                         },
                         .Many => {
-                            if (sent.compareWithZero(.eq)) {
+                            if (sent.compareAllWithZero(.eq)) {
                                 return Type.initTag(.manyptr_const_u8_sentinel_0);
                             }
                         },
