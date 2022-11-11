@@ -490,8 +490,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     continue;
                 }
             }
-            if (target.abi == .msvc) { // TODO: Do this at the top, if we detect we're using the native libc?
-                log.warn("adding system lib {s}", .{ lib_basename  });
+            if (target.abi == .msvc) {
                 argv.appendAssumeCapacity(lib_basename);
                 continue;
             }
