@@ -454,7 +454,7 @@ fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
         fmt[1..];
 }
 
-fn invalidFmtErr(comptime fmt: []const u8, value: anytype) void {
+pub fn invalidFmtErr(comptime fmt: []const u8, value: anytype) void {
     @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
