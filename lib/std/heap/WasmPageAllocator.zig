@@ -103,7 +103,8 @@ fn nPages(memsize: usize) usize {
     return mem.alignForward(memsize, mem.page_size) / mem.page_size;
 }
 
-fn alloc(_: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    _ = ctx;
     _ = ra;
     if (len > maxInt(usize) - (mem.page_size - 1)) {
         return error.OutOfMemory;
@@ -161,13 +162,14 @@ fn freePages(start: usize, end: usize) void {
 }
 
 fn resize(
-    _: *anyopaque,
+    ctx: *anyopaque,
     buf: []u8,
     buf_align: u29,
     new_len: usize,
     len_align: u29,
     return_address: usize,
 ) ?usize {
+    _ = ctx;
     _ = buf_align;
     _ = return_address;
     const aligned_len = mem.alignForward(buf.len, mem.page_size);
@@ -182,11 +184,12 @@ fn resize(
 }
 
 fn free(
-    _: *anyopaque,
+    ctx: *anyopaque,
     buf: []u8,
     buf_align: u29,
     return_address: usize,
 ) void {
+    _ = ctx;
     _ = buf_align;
     _ = return_address;
     const aligned_len = mem.alignForward(buf.len, mem.page_size);
