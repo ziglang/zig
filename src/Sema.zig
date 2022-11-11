@@ -29768,11 +29768,20 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 extra_index += body.len;
                 const init = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
                 const field = &struct_obj.fields.values()[i];
-                const tree = try sema.getAstTree(&block_scope);
-                const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
-                const coerced = try sema.coerce(&block_scope, field.ty, init, init_src);
-                const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse
-                    return sema.failWithNeededComptime(&block_scope, src, "struct field default value must be comptime-known");
+                const coerced = sema.coerce(&block_scope, field.ty, init, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const tree = try sema.getAstTree(&block_scope);
+                        const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                        _ = try sema.coerce(&block_scope, field.ty, init, init_src);
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
+                const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
+                    const tree = try sema.getAstTree(&block_scope);
+                    const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                    return sema.failWithNeededComptime(&block_scope, init_src, "struct field default value must be comptime-known");
+                };
                 field.default_val = try default_val.copy(decl_arena_allocator);
             }
         }
