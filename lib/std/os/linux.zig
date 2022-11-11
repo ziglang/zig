@@ -3605,34 +3605,69 @@ else
         fields: siginfo_fields_union,
     };
 
-pub const io_uring_params = extern struct {
-    sq_entries: u32,
-    cq_entries: u32,
-    flags: u32,
-    sq_thread_cpu: u32,
-    sq_thread_idle: u32,
-    features: u32,
-    wq_fd: u32,
-    resv: [3]u32,
-    sq_off: io_sqring_offsets,
-    cq_off: io_cqring_offsets,
+// io_uring declarations, as they are ordered in linux/io_uring.h
+
+/// IO submission data structure (Submission Queue Entry)
+pub const io_uring_sqe = extern struct {
+    opcode: IORING_OP,
+    flags: u8,
+    ioprio: u16,
+    fd: i32,
+    off: u64,
+    addr: u64,
+    len: u32,
+    rw_flags: u32,
+    user_data: u64,
+    buf_index: u16,
+    personality: u16,
+    splice_fd_in: i32,
+    addr3: u64,
+    resv: u64,
 };
 
-// io_uring_params.features flags
+/// If sqe->file_index is set to this for opcodes that instantiate a new
+/// direct descriptor (like openat/openat2/accept), then io_uring will allocate
+/// an available direct descriptor instead of having the application pass one
+/// in. The picked direct descriptor will be returned in cqe->res, or -ENFILE
+/// if the space is full.
+/// Available since Linux 5.19
+pub const IORING_FILE_INDEX_ALLOC = maxInt(u32);
 
-pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
-pub const IORING_FEAT_NODROP = 1 << 1;
-pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
-pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
-pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
-pub const IORING_FEAT_FAST_POLL = 1 << 5;
-pub const IORING_FEAT_POLL_32BITS = 1 << 6;
-pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
-pub const IORING_FEAT_EXT_ARG = 1 << 8;
-pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
-pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
-pub const IORING_FEAT_CQE_SKIP = 1 << 11;
-pub const IORING_FEAT_LINKED_FILE = 1 << 12;
+pub const IOSQE_BIT = enum(u8) {
+    FIXED_FILE,
+    IO_DRAIN,
+    IO_LINK,
+    IO_HARDLINK,
+    ASYNC,
+    BUFFER_SELECT,
+    CQE_SKIP_SUCCESS,
+
+    _,
+};
+
+// io_uring_sqe.flags
+
+/// use fixed fileset
+pub const IOSQE_FIXED_FILE = 1 << @enumToInt(IOSQE_BIT.FIXED_FILE);
+
+/// issue after inflight IO
+pub const IOSQE_IO_DRAIN = 1 << @enumToInt(IOSQE_BIT.IO_DRAIN);
+
+/// links next sqe
+pub const IOSQE_IO_LINK = 1 << @enumToInt(IOSQE_BIT.IO_LINK);
+
+/// like LINK, but stronger
+pub const IOSQE_IO_HARDLINK = 1 << @enumToInt(IOSQE_BIT.IO_HARDLINK);
+
+/// always go async
+pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
+
+/// select buffer from buf_group
+pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
+
+/// don't post CQE if request succeeded
+/// Available since Linux 5.17
+pub const IOSQE_CQE_SKIP_SUCCESS = 1 << @enumToInt(IOSQE_BIT.CQE_SKIP_SUCCESS);
 
 // io_uring_params.flags
 
@@ -3665,18 +3700,206 @@ pub const IORING_SETUP_SUBMIT_ALL = 1 << 7;
 /// flag is set, work will be done when the task transitions anyway, rather
 /// than force an inter-processor interrupt reschedule. This avoids interrupting
 /// a task running in userspace, and saves an IPI.
+/// Available since Linux 5.19
 pub const IORING_SETUP_COOP_TASKRUN = 1 << 8;
 
 /// If COOP_TASKRUN is set, get notified if task work is available for
 /// running and a kernel transition would be needed to run it. This sets
 /// IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
+/// Available since Linux 5.19
 pub const IORING_SETUP_TASKRUN_FLAG = 1 << 9;
 
-/// SQEs are 128 byte
+/// SQEs are 128 byte. Available since Linux 5.19
 pub const IORING_SETUP_SQE128 = 1 << 10;
-/// CQEs are 32 byte
+/// CQEs are 32 byte. Available since Linux 5.19
 pub const IORING_SETUP_CQE32 = 1 << 11;
 
+/// Only one task is allowed to submit requests
+/// Available since Linux 6.0
+pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
+
+/// Defer running task work to get events.
+/// Rather than running bits of task work whenever the task transitions
+/// try to do it just before it is needed.
+/// Available since Linux 6.1
+pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
+
+pub const IORING_OP = enum(u8) {
+    // Available since Linux 5.1
+    NOP,
+    READV,
+    WRITEV,
+    FSYNC,
+    READ_FIXED,
+    WRITE_FIXED,
+    POLL_ADD,
+    POLL_REMOVE,
+    // Available since Linux 5.2
+    SYNC_FILE_RANGE,
+    // Available since Linux 5.3
+    SENDMSG,
+    RECVMSG,
+    // Available since Linux 5.4
+    TIMEOUT,
+    // Available since Linux 5.5
+    TIMEOUT_REMOVE,
+    ACCEPT,
+    ASYNC_CANCEL,
+    LINK_TIMEOUT,
+    CONNECT,
+    // Available since Linux 5.6
+    FALLOCATE,
+    OPENAT,
+    CLOSE,
+    FILES_UPDATE,
+    STATX,
+    READ,
+    WRITE,
+    FADVISE,
+    MADVISE,
+    SEND,
+    RECV,
+    OPENAT2,
+    EPOLL_CTL,
+    // Available since Linux 5.7
+    SPLICE,
+    PROVIDE_BUFFERS,
+    REMOVE_BUFFERS,
+    // Available since Linux 5.8
+    TEE,
+    // Available since Linux 5.11
+    SHUTDOWN,
+    RENAMEAT,
+    UNLINKAT,
+    // Available since Linux 5.15
+    MKDIRAT,
+    SYMLINKAT,
+    LINKAT,
+    // Available since Linux 5.18
+    MSG_RING,
+    // Available since Linux 5.19
+    FSETXATTR,
+    SETXATTR,
+    FGETXATTR,
+    GETXATTR,
+    SOCKET,
+    URING_CMD,
+    // Available since Linux 6.0
+    SEND_ZC,
+    // Available since Linux 6.1
+    SENDMSG_ZC,
+
+    _,
+};
+
+// io_uring_sqe.uring_cmd_flags (rw_flags in the Zig struct)
+
+/// use registered buffer; pass thig flag along with setting sqe->buf_index.
+/// Available since Linux 6.1
+pub const IORING_URING_CMD_FIXED = 1 << 0;
+
+// io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
+pub const IORING_FSYNC_DATASYNC = 1 << 0;
+
+// io_uring_sqe.timeout_flags (rw_flags in the Zig struct)
+pub const IORING_TIMEOUT_ABS = 1 << 0;
+pub const IORING_TIMEOUT_UPDATE = 1 << 1; // Available since Linux 5.11
+pub const IORING_TIMEOUT_BOOTTIME = 1 << 2; // Available since Linux 5.15
+pub const IORING_TIMEOUT_REALTIME = 1 << 3; // Available since Linux 5.15
+pub const IORING_LINK_TIMEOUT_UPDATE = 1 << 4; // Available since Linux 5.15
+pub const IORING_TIMEOUT_ETIME_SUCCESS = 1 << 5; // Available since Linux 5.16
+pub const IORING_TIMEOUT_CLOCK_MASK = IORING_TIMEOUT_BOOTTIME | IORING_TIMEOUT_REALTIME;
+pub const IORING_TIMEOUT_UPDATE_MASK = IORING_TIMEOUT_UPDATE | IORING_LINK_TIMEOUT_UPDATE;
+
+// io_uring_sqe.splice_flags (rw_flags in the Zig struct)
+// extends splice(2) flags
+pub const IORING_SPLICE_F_FD_IN_FIXED = 1 << 31;
+
+// POLL_ADD flags.
+// Note that since sqe->poll_events (rw_flags in the Zig struct) is the flag space, the command flags for POLL_ADD are stored in sqe->len.
+
+/// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue to report CQEs on behalf of the same SQE.
+pub const IORING_POLL_ADD_MULTI = 1 << 0;
+/// Update existing poll request, matching sqe->addr as the old user_data field.
+pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
+pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
+/// Level triggered poll. Available since Linux 6.0
+pub const IORING_POLL_ADD_LEVEL = 1 << 3;
+
+// ASYNC_CANCEL flags.
+
+/// Cancel all requests that match the given key
+pub const IORING_ASYNC_CANCEL_ALL = 1 << 0;
+/// Key off 'fd' for cancelation rather than the request 'user_data'.
+pub const IORING_ASYNC_CANCEL_FD = 1 << 1;
+/// Match any request
+pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
+/// 'fd' passed in is a fixed descriptor. Available since Linux 6.0
+pub const IORING_ASYNC_CANCEL_FD_FIXED = 1 << 3;
+
+// send/sendmsg and recv/recvmsg flags (sqe->ioprio)
+
+/// If set, instead of first attempting to send or receive and arm poll if that yields an -EAGAIN result,
+/// arm poll upfront and skip the initial transfer attempt.
+pub const IORING_RECVSEND_POLL_FIRST = 1 << 0;
+/// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue to report CQEs on behalf of the same SQE. Available since Linux 6.0
+pub const IORING_RECV_MULTISHOT = 1 << 1;
+/// Use registered buffers, the index is stored in the buf_index field. Available since Linux 6.0
+pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
+
+/// accept flags stored in sqe->ioprio. Available since Linux 5.19
+pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
+
+/// IORING_OP_MSG_RING command types, stored in sqe->addr
+pub const IORING_MSG_RING_COMMAND = enum(u8) {
+    /// pass sqe->len as 'res' and off as user_data
+    DATA,
+    /// send a registered fd to another ring
+    SEND_FD,
+};
+
+// io_uring_sqe.msg_ring_flags (rw_flags in the Zig struct)
+
+/// Don't post a CQE to the target ring. Not applicable for IORING_MSG_DATA, obviously.
+pub const IORING_MSG_RING_CQE_SKIP = 1 << 0;
+
+/// IO completion data structure (Completion Queue Entry)
+pub const io_uring_cqe = extern struct {
+    /// io_uring_sqe.data submission passed back
+    user_data: u64,
+
+    /// result code for this event
+    res: i32,
+    flags: u32,
+
+    pub fn err(self: io_uring_cqe) E {
+        if (self.res > -4096 and self.res < 0) {
+            return @intToEnum(E, -self.res);
+        }
+        return .SUCCESS;
+    }
+};
+
+// io_uring_cqe.flags
+
+/// If set, the upper 16 bits are the buffer ID
+pub const IORING_CQE_F_BUFFER = 1 << 0;
+/// If set, parent SQE will generate more CQE entries.
+/// Avaiable since Linux 5.13.
+pub const IORING_CQE_F_MORE = 1 << 1;
+/// If set, more data to read after socket recv
+pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
+/// Set for notification CQEs. Can be used to distinct them from sends.
+pub const IORING_CQE_F_NOTIF = 1 << 3;
+
+pub const IORING_CQE_BUFFER_SHIFT = 16;
+
+/// Magic offsets for the application to mmap the data it needs
+pub const IORING_OFF_SQ_RING = 0;
+pub const IORING_OFF_CQ_RING = 0x8000000;
+pub const IORING_OFF_SQES = 0x10000000;
+
+/// Filled with the offset for mmap(2)
 pub const io_sqring_offsets = extern struct {
     /// offset of ring head
     head: u32,
@@ -3719,185 +3942,15 @@ pub const io_cqring_offsets = extern struct {
     ring_entries: u32,
     overflow: u32,
     cqes: u32,
-    resv: [2]u64,
-};
-
-pub const io_uring_sqe = extern struct {
-    opcode: IORING_OP,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
-    off: u64,
-    addr: u64,
-    len: u32,
-    rw_flags: u32,
-    user_data: u64,
-    buf_index: u16,
-    personality: u16,
-    splice_fd_in: i32,
-    __pad2: [2]u64,
-};
-
-pub const IOSQE_BIT = enum(u8) {
-    FIXED_FILE,
-    IO_DRAIN,
-    IO_LINK,
-    IO_HARDLINK,
-    ASYNC,
-    BUFFER_SELECT,
-    CQE_SKIP_SUCCESS,
-
-    _,
-};
-
-// io_uring_sqe.flags
-
-/// use fixed fileset
-pub const IOSQE_FIXED_FILE = 1 << @enumToInt(IOSQE_BIT.FIXED_FILE);
-
-/// issue after inflight IO
-pub const IOSQE_IO_DRAIN = 1 << @enumToInt(IOSQE_BIT.IO_DRAIN);
-
-/// links next sqe
-pub const IOSQE_IO_LINK = 1 << @enumToInt(IOSQE_BIT.IO_LINK);
-
-/// like LINK, but stronger
-pub const IOSQE_IO_HARDLINK = 1 << @enumToInt(IOSQE_BIT.IO_HARDLINK);
-
-/// always go async
-pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
-
-/// select buffer from buf_group
-pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
-
-/// don't post CQE if request succeeded
-/// Available since Linux 5.17
-pub const IOSQE_CQE_SKIP_SUCCESS = 1 << @enumToInt(IOSQE_BIT.CQE_SKIP_SUCCESS);
-
-pub const IORING_OP = enum(u8) {
-    NOP,
-    READV,
-    WRITEV,
-    FSYNC,
-    READ_FIXED,
-    WRITE_FIXED,
-    POLL_ADD,
-    POLL_REMOVE,
-    SYNC_FILE_RANGE,
-    SENDMSG,
-    RECVMSG,
-    TIMEOUT,
-    TIMEOUT_REMOVE,
-    ACCEPT,
-    ASYNC_CANCEL,
-    LINK_TIMEOUT,
-    CONNECT,
-    FALLOCATE,
-    OPENAT,
-    CLOSE,
-    FILES_UPDATE,
-    STATX,
-    READ,
-    WRITE,
-    FADVISE,
-    MADVISE,
-    SEND,
-    RECV,
-    OPENAT2,
-    EPOLL_CTL,
-    SPLICE,
-    PROVIDE_BUFFERS,
-    REMOVE_BUFFERS,
-    TEE,
-    SHUTDOWN,
-    RENAMEAT,
-    UNLINKAT,
-    MKDIRAT,
-    SYMLINKAT,
-    LINKAT,
-
-    _,
-};
-
-// io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
-pub const IORING_FSYNC_DATASYNC = 1 << 0;
-
-// io_uring_sqe.timeout_flags (rw_flags in the Zig struct)
-pub const IORING_TIMEOUT_ABS = 1 << 0;
-pub const IORING_TIMEOUT_UPDATE = 1 << 1; // Available since Linux 5.11
-pub const IORING_TIMEOUT_BOOTTIME = 1 << 2; // Available since Linux 5.15
-pub const IORING_TIMEOUT_REALTIME = 1 << 3; // Available since Linux 5.15
-pub const IORING_LINK_TIMEOUT_UPDATE = 1 << 4; // Available since Linux 5.15
-pub const IORING_TIMEOUT_ETIME_SUCCESS = 1 << 5; // Available since Linux 5.16
-pub const IORING_TIMEOUT_CLOCK_MASK = IORING_TIMEOUT_BOOTTIME | IORING_TIMEOUT_REALTIME;
-pub const IORING_TIMEOUT_UPDATE_MASK = IORING_TIMEOUT_UPDATE | IORING_LINK_TIMEOUT_UPDATE;
-
-// io_uring_sqe.splice_flags (rw_flags in the Zig struct)
-// extends splice(2) flags
-pub const IORING_SPLICE_F_FD_IN_FIXED = 1 << 31;
-
-// POLL_ADD flags.
-// Note that since sqe->poll_events (rw_flags in the Zig struct) is the flag space, the command flags for POLL_ADD are stored in sqe->len.
-
-/// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue to report CQEs on behalf of the same SQE.
-pub const IORING_POLL_ADD_MULTI = 1 << 0;
-/// Update existing poll request, matching sqe->addr as the old user_data field.
-pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
-pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
-
-// ASYNC_CANCEL flags.
-
-/// Cancel all requests that match the given key
-pub const IORING_ASYNC_CANCEL_ALL = 1 << 0;
-/// Key off 'fd' for cancelation rather than the request 'user_data'.
-pub const IORING_ASYNC_CANCEL_FD = 1 << 1;
-/// Match any request
-pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
-
-// send/sendmsg and recv/recvmsg flags (sqe->ioprio)
-
-/// If set, instead of first attempting to send or receive and arm poll if that yields an -EAGAIN result,
-/// arm poll upfront and skip the initial transfer attempt.
-pub const IORING_RECVSEND_POLL_FIRST = 1 << 0;
-/// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue to report CQEs on behalf of the same SQE.
-pub const IORING_RECV_MULTISHOT = 1 << 1;
-
-/// accept flags stored in sqe->ioprio
-pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
-
-// IO completion data structure (Completion Queue Entry)
-pub const io_uring_cqe = extern struct {
-    /// io_uring_sqe.data submission passed back
-    user_data: u64,
-
-    /// result code for this event
-    res: i32,
     flags: u32,
-
-    pub fn err(self: io_uring_cqe) E {
-        if (self.res > -4096 and self.res < 0) {
-            return @intToEnum(E, -self.res);
-        }
-        return .SUCCESS;
-    }
+    resv1: u32,
+    resv2: u64,
 };
 
-// io_uring_cqe.flags
+// io_cqring_offsets.flags
 
-/// If set, the upper 16 bits are the buffer ID
-pub const IORING_CQE_F_BUFFER = 1 << 0;
-/// If set, parent SQE will generate more CQE entries.
-/// Avaiable since Linux 5.13.
-pub const IORING_CQE_F_MORE = 1 << 1;
-/// If set, more data to read after socket recv
-pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
-/// Set for notification CQEs. Can be used to distinct them from sends.
-pub const IORING_CQE_F_NOTIF = 1 << 3;
-
-/// Magic offsets for the application to mmap the data it needs
-pub const IORING_OFF_SQ_RING = 0;
-pub const IORING_OFF_CQ_RING = 0x8000000;
-pub const IORING_OFF_SQES = 0x10000000;
+/// disable eventfd notifications
+pub const IORING_CQ_EVENTFD_DISABLED = 1 << 0;
 
 // io_uring_enter flags
 pub const IORING_ENTER_GETEVENTS = 1 << 0;
@@ -3906,57 +3959,147 @@ pub const IORING_ENTER_SQ_WAIT = 1 << 2;
 pub const IORING_ENTER_EXT_ARG = 1 << 3;
 pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
 
+/// Passed in for io_uring_setup(2). Copied back with updated info on success
+pub const io_uring_params = extern struct {
+    sq_entries: u32,
+    cq_entries: u32,
+    flags: u32,
+    sq_thread_cpu: u32,
+    sq_thread_idle: u32,
+    features: u32,
+    wq_fd: u32,
+    resv: [3]u32,
+    sq_off: io_sqring_offsets,
+    cq_off: io_cqring_offsets,
+};
+
+// io_uring_params.features flags
+
+pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
+pub const IORING_FEAT_NODROP = 1 << 1;
+pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
+pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
+pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
+pub const IORING_FEAT_FAST_POLL = 1 << 5;
+pub const IORING_FEAT_POLL_32BITS = 1 << 6;
+pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
+pub const IORING_FEAT_EXT_ARG = 1 << 8;
+pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
+pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
+pub const IORING_FEAT_CQE_SKIP = 1 << 11;
+pub const IORING_FEAT_LINKED_FILE = 1 << 12;
+
 // io_uring_register opcodes and arguments
 pub const IORING_REGISTER = enum(u8) {
+    // Available since Linux 5.1
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
     UNREGISTER_FILES,
+    // Available since Linux 5.2
     REGISTER_EVENTFD,
     UNREGISTER_EVENTFD,
+    // Available since Linux 5.5
     REGISTER_FILES_UPDATE,
+    // Available since Linux 5.6
     REGISTER_EVENTFD_ASYNC,
     REGISTER_PROBE,
     REGISTER_PERSONALITY,
     UNREGISTER_PERSONALITY,
+    // Available since Linux 5.10
     REGISTER_RESTRICTIONS,
     REGISTER_ENABLE_RINGS,
 
+    // Available since Linux 5.13
     // extended with tagging
-    IORING_REGISTER_FILES2,
-    IORING_REGISTER_FILES_UPDATE2,
-    IORING_REGISTER_BUFFERS2,
-    IORING_REGISTER_BUFFERS_UPDATE,
+    REGISTER_FILES2,
+    REGISTER_FILES_UPDATE2,
+    REGISTER_BUFFERS2,
+    REGISTER_BUFFERS_UPDATE,
 
+    // Available since Linux 5.14
     // set/clear io-wq thread affinities
-    IORING_REGISTER_IOWQ_AFF,
-    IORING_UNREGISTER_IOWQ_AFF,
+    REGISTER_IOWQ_AFF,
+    UNREGISTER_IOWQ_AFF,
 
+    // Available since Linux 5.15
     // set/get max number of io-wq workers
-    IORING_REGISTER_IOWQ_MAX_WORKERS,
+    REGISTER_IOWQ_MAX_WORKERS,
 
+    // Available since Linux 5.18
     // register/unregister io_uring fd with the ring
-    IORING_REGISTER_RING_FDS,
-    IORING_UNREGISTER_RING_FDS,
+    REGISTER_RING_FDS,
+    UNREGISTER_RING_FDS,
 
+    // Available since Linux 5.19
     // register ring based provide buffer group
-    IORING_REGISTER_PBUF_RING,
-    IORING_UNREGISTER_PBUF_RING,
+    REGISTER_PBUF_RING,
+    UNREGISTER_PBUF_RING,
 
+    // Available since Linux 6.0
     // sync cancelation API
-    IORING_REGISTER_SYNC_CANCEL,
+    REGISTER_SYNC_CANCEL,
 
     // register a range of fixed file slots for automatic slot allocation
-    IORING_REGISTER_FILE_ALLOC_RANGE,
+    REGISTER_FILE_ALLOC_RANGE,
 
     _,
 };
 
+/// io_uring_restriction->opcode values
+pub const IOWQ_CATEGORIES = enum(u8) {
+    BOUND,
+    UNBOUND,
+};
+
+/// deprecated, see struct io_uring_rsrc_update
 pub const io_uring_files_update = extern struct {
     offset: u32,
     resv: u32,
     fds: u64,
 };
+
+/// Register a fully sparse file space, rather than pass in an array of all -1 file descriptors.
+pub const IORING_RSRC_REGISTER_SPARSE = 1 << 0;
+
+pub const io_uring_rsrc_register = extern struct {
+    nr: u32,
+    flags: u32,
+    resv2: u64,
+    data: u64,
+    tags: u64,
+};
+
+pub const io_uring_rsrc_update = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+};
+
+pub const io_uring_rsrc_update2 = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+    tags: u64,
+    nr: u32,
+    resv2: u32,
+};
+
+pub const io_uring_notification_slot = extern struct {
+    tag: u64,
+    resv: [3]u64,
+};
+
+pub const io_uring_notification_register = extern struct {
+    nr_slots: u32,
+    resv: u32,
+    resv2: u64,
+    data: u64,
+    resv3: u64,
+};
+
+/// Skip updating fd indexes set to this value in the fd table */
+pub const IORING_REGISTER_FILES_SKIP = -2;
 
 pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
@@ -3979,13 +4122,13 @@ pub const io_uring_probe = extern struct {
     ops_len: u8,
 
     resv: u16,
-    resv2: u32[3],
+    resv2: [3]u32,
 
     // Followed by up to `ops_len` io_uring_probe_op structures
 };
 
 pub const io_uring_restriction = extern struct {
-    opcode: u16,
+    opcode: IORING_RESTRICTION,
     arg: extern union {
         /// IORING_RESTRICTION_REGISTER_OP
         register_op: IORING_REGISTER,
@@ -3997,11 +4140,30 @@ pub const io_uring_restriction = extern struct {
         sqe_flags: u8,
     },
     resv: u8,
-    resv2: u32[3],
+    resv2: [3]u32,
+};
+
+pub const io_uring_buf = extern struct {
+    addr: u64,
+    len: u32,
+    bid: u16,
+    resv: u16,
+};
+
+// io_uring_buf_ring struct omitted
+// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+
+/// argument for IORING_(UN)REGISTER_PBUF_RING
+pub const io_uring_buf_reg = extern struct {
+    ring_addr: u64,
+    ring_entries: u32,
+    bgid: u16,
+    pad: u16,
+    resv: [3]u64,
 };
 
 /// io_uring_restriction->opcode values
-pub const IORING_RESTRICTION = enum(u8) {
+pub const IORING_RESTRICTION = enum(u16) {
     /// Allow an io_uring_register(2) opcode
     REGISTER_OP = 0,
 
@@ -4015,6 +4177,37 @@ pub const IORING_RESTRICTION = enum(u8) {
     SQE_FLAGS_REQUIRED = 3,
 
     _,
+};
+
+pub const io_uring_getevents_arg = extern struct {
+    sigmask: u64,
+    sigmask_sz: u32,
+    pad: u32,
+    ts: u64,
+};
+
+/// Argument for IORING_REGISTER_SYNC_CANCEL
+pub const io_uring_sync_cancel_reg = extern struct {
+    addr: u64,
+    fd: i32,
+    flags: u32,
+    timeout: kernel_timespec,
+    pad: [4]u64,
+};
+
+/// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
+/// The range is specified as [off, off + len)
+pub const io_uring_file_index_range = extern struct {
+    off: u32,
+    len: u32,
+    resv: u64,
+};
+
+pub const io_uring_recvmsg_out = extern struct {
+    namelen: u32,
+    controllen: u32,
+    payloadlen: u32,
+    flags: u32,
 };
 
 pub const utsname = extern struct {
