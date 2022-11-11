@@ -86,6 +86,7 @@ test {
     _ = @import("behavior/bugs/12003.zig");
     _ = @import("behavior/bugs/12025.zig");
     _ = @import("behavior/bugs/12033.zig");
+    _ = @import("behavior/bugs/12043.zig");
     _ = @import("behavior/bugs/12430.zig");
     _ = @import("behavior/bugs/12486.zig");
     _ = @import("behavior/bugs/12488.zig");
@@ -104,7 +105,10 @@ test {
     _ = @import("behavior/bugs/12945.zig");
     _ = @import("behavior/bugs/12972.zig");
     _ = @import("behavior/bugs/12984.zig");
+    _ = @import("behavior/bugs/13064.zig");
+    _ = @import("behavior/bugs/13065.zig");
     _ = @import("behavior/bugs/13068.zig");
+    _ = @import("behavior/bugs/13069.zig");
     _ = @import("behavior/bugs/13112.zig");
     _ = @import("behavior/bugs/13128.zig");
     _ = @import("behavior/bugs/13164.zig");
@@ -210,6 +214,7 @@ test {
         builtin.zig_backend != .stage2_wasm and
         builtin.zig_backend != .stage2_c)
     {
+        _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/export.zig");
     }

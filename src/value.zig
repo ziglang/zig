@@ -2039,8 +2039,8 @@ pub const Value = extern union {
     }
 
     /// Asserts the values are comparable. Both operands have type `ty`.
-    /// Vector results will be reduced with AND.
-    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, mod: *Module) bool {
+    /// For vectors, returns true if comparison is true for ALL elements.
+    pub fn compareAll(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, mod: *Module) bool {
         if (ty.zigTypeTag() == .Vector) {
             var i: usize = 0;
             while (i < ty.vectorLen()) : (i += 1) {
@@ -2069,21 +2069,23 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is comparable.
-    /// Vector results will be reduced with AND.
-    pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
-        return compareWithZeroAdvanced(lhs, op, null) catch unreachable;
+    /// For vectors, returns true if comparison is true for ALL elements.
+    ///
+    /// Note that `!compareAllWithZero(.eq, ...) != compareAllWithZero(.neq, ...)`
+    pub fn compareAllWithZero(lhs: Value, op: std.math.CompareOperator) bool {
+        return compareAllWithZeroAdvanced(lhs, op, null) catch unreachable;
     }
 
-    pub fn compareWithZeroAdvanced(
+    pub fn compareAllWithZeroAdvanced(
         lhs: Value,
         op: std.math.CompareOperator,
         sema_kit: ?Module.WipAnalysis,
     ) Module.CompileError!bool {
         switch (lhs.tag()) {
-            .repeated => return lhs.castTag(.repeated).?.data.compareWithZeroAdvanced(op, sema_kit),
+            .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvanced(op, sema_kit),
             .aggregate => {
                 for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                    if (!(try elem_val.compareWithZeroAdvanced(op, sema_kit))) return false;
+                    if (!(try elem_val.compareAllWithZeroAdvanced(op, sema_kit))) return false;
                 }
                 return true;
             },
@@ -3081,7 +3083,7 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            => compareWithZero(self, .eq),
+            => compareAllWithZero(self, .eq),
 
             .undef => unreachable,
             .unreachable_value => unreachable,
