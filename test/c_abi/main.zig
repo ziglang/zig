@@ -1,8 +1,10 @@
-/// Tests for the C ABI.
-/// Those tests are passing back and forth struct and values across C ABI
-/// by combining Zig code here and it's mirror in cfunc.c
-/// To run the tests on a specific architecture:
-/// zig test -fno-stage1 -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
+//! Tests for the C ABI.
+//! Those tests are passing back and forth struct and values across C ABI
+//! by combining Zig code here and its mirror in cfunc.c
+//! To run all the tests on the tier 1 architecture you can use:
+//! zig build test-c-abi -fqemu
+//! To run the tests on a specific architecture:
+//! zig test -fno-stage1 -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
 const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
