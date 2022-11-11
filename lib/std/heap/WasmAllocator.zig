@@ -68,7 +68,7 @@ fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize)
     _ = len_align;
     _ = ra;
     const aligned_len = @max(len, alignment);
-    const slot_size = math.ceilPowerOfTwoAssert(usize, aligned_len);
+    const slot_size = math.ceilPowerOfTwo(usize, aligned_len) catch return error.OutOfMemory;
     const class = math.log2(slot_size);
     if (class < size_class_count) {
         const addr = a: {
@@ -113,12 +113,28 @@ fn resize(
     return_address: usize,
 ) ?usize {
     _ = ctx;
-    _ = buf_align;
     _ = return_address;
     _ = len_align;
-    _ = new_len;
-    _ = buf;
-    @panic("handle resize");
+    // We don't want to move anything from one size class to another. But we can recover bytes
+    // in between powers of two.
+    const old_aligned_len = @max(buf.len, buf_align);
+    const new_aligned_len = @max(new_len, buf_align);
+    const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_aligned_len);
+    const old_small_class = math.log2(old_small_slot_size);
+    if (old_small_class < size_class_count) {
+        const new_small_slot_size = math.ceilPowerOfTwo(usize, new_aligned_len) catch return null;
+        //std.debug.print("resize: old_small_slot_size={d} new_small_slot_size={d}\n", .{
+        //    old_small_slot_size, new_small_slot_size,
+        //});
+        if (old_small_slot_size != new_small_slot_size) return null;
+    } else {
+        const old_bigpages_needed = (old_aligned_len + (bigpage_size - 1)) / bigpage_size;
+        const old_big_slot_size = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
+        const new_bigpages_needed = (new_aligned_len + (bigpage_size - 1)) / bigpage_size;
+        const new_big_slot_size = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
+        if (old_big_slot_size != new_big_slot_size) return null;
+    }
+    return new_len;
 }
 
 fn free(
@@ -233,4 +249,45 @@ test "large allocations" {
     const ptr3 = try test_ally.alloc(u64, 62768);
     test_ally.free(ptr3);
     test_ally.free(ptr2);
+}
+
+test "very large allocation" {
+    try std.testing.expectError(error.OutOfMemory, test_ally.alloc(u8, math.maxInt(usize)));
+}
+
+test "realloc" {
+    var slice = try test_ally.alignedAlloc(u8, @alignOf(u32), 1);
+    defer test_ally.free(slice);
+    slice[0] = 0x12;
+
+    // This reallocation should keep its pointer address.
+    const old_slice = slice;
+    slice = try test_ally.realloc(slice, 2);
+    try std.testing.expect(old_slice.ptr == slice.ptr);
+    try std.testing.expect(slice[0] == 0x12);
+    slice[1] = 0x34;
+
+    // This requires upgrading to a larger size class
+    slice = try test_ally.realloc(slice, 17);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[1] == 0x34);
+}
+
+test "shrink" {
+    var slice = try test_ally.alloc(u8, 20);
+    defer test_ally.free(slice);
+
+    mem.set(u8, slice, 0x11);
+
+    slice = test_ally.shrink(slice, 17);
+
+    for (slice) |b| {
+        try std.testing.expect(b == 0x11);
+    }
+
+    slice = test_ally.shrink(slice, 16);
+
+    for (slice) |b| {
+        try std.testing.expect(b == 0x11);
+    }
 }
