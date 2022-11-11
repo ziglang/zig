@@ -588,15 +588,7 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
         if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
             var handler_data: ?*anyopaque = null;
             var establisher_frame: u64 = undefined;
-            _ = windows.ntdll.RtlVirtualUnwind(
-                windows.UNW_FLAG_NHANDLER,
-                image_base,
-                current_regs.ip,
-                runtime_function,
-                &context,
-                &handler_data,
-                &establisher_frame,
-                null);
+            _ = windows.ntdll.RtlVirtualUnwind(windows.UNW_FLAG_NHANDLER, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
         } else {
             // leaf function
             context.setIp(@intToPtr(*u64, current_regs.sp).*);
