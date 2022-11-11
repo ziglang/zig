@@ -2061,7 +2061,7 @@ pub const Const = struct {
             radix = 16;
             case = .upper;
         } else {
-            std.fmt.invalidFmtErr(fmt, self);
+            std.fmt.invalidFmtError(fmt, self);
         }
 
         var limbs: [128]Limb = undefined;

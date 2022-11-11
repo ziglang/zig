@@ -534,7 +534,7 @@ pub const Version = struct {
                 return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
             }
         } else {
-            std.fmt.invalidFmtErr(fmt, self);
+            std.fmt.invalidFmtError(fmt, self);
         }
     }
 };

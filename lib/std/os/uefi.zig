@@ -68,7 +68,7 @@ pub const Guid = extern struct {
                 fmt(std.mem.asBytes(&self.node)),
             });
         } else {
-            std.fmt.invalidFmtErr(f, self);
+            std.fmt.invalidFmtError(f, self);
         }
     }
 
