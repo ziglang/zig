@@ -23,15 +23,18 @@ pub const vtable = Allocator.VTable{
 pub const Error = Allocator.Error;
 
 const max_usize = math.maxInt(usize);
+const ushift = math.Log2Int(usize);
 const bigpage_size = 512 * 1024;
 const pages_per_bigpage = bigpage_size / wasm.page_size;
 const bigpage_count = max_usize / bigpage_size;
 
-//// This has a length of 1024 usizes.
-//var bigpages_used = [1]usize{0} ** (bigpage_count / @bitSizeOf(usize));
-
 /// We have a small size class for all sizes up to 512kb.
 const size_class_count = math.log2(bigpage_size);
+/// 0 - 1 bigpage
+/// 1 - 2 bigpages
+/// 2 - 4 bigpages
+/// etc.
+const big_size_class_count = math.log2(bigpage_count);
 
 const FreeList = struct {
     /// Each element is the address of a freed pointer.
@@ -46,20 +49,26 @@ const FreeList = struct {
     };
 };
 
-var next_addrs = [1]usize{0} ** size_class_count;
-var frees = [1]FreeList{FreeList.init} ** size_class_count;
-var bigpage_free_list: FreeList = .{
-    .ptr = &bigpage_free_buf,
-    .len = 0,
-    .cap = bigpage_free_buf.len,
+const Bucket = struct {
+    ptr: usize,
+    end: usize,
+
+    const init: Bucket = .{
+        .ptr = 0,
+        .end = 0,
+    };
 };
-var bigpage_free_buf: [16]usize = undefined;
+
+var next_addrs = [1]Bucket{Bucket.init} ** size_class_count;
+var frees = [1]FreeList{FreeList.init} ** size_class_count;
+var big_frees = [1]FreeList{FreeList.init} ** big_size_class_count;
 
 fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) Error![]u8 {
     _ = ctx;
     _ = len_align;
     _ = ra;
-    const slot_size = math.ceilPowerOfTwoAssert(usize, @max(len, alignment));
+    const aligned_len = @max(len, alignment);
+    const slot_size = math.ceilPowerOfTwoAssert(usize, aligned_len);
     const class = math.log2(slot_size);
     if (class < size_class_count) {
         const addr = a: {
@@ -69,55 +78,30 @@ fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize)
                 break :a free_list.ptr[free_list.len];
             }
 
-            // Ensure unused capacity in the corresponding free list.
             // This prevents memory allocation within free().
-            if (free_list.len >= free_list.cap) {
-                const old_bigpage_count = free_list.cap / bigpage_size;
-                if (bigpage_free_list.cap - bigpage_free_list.len < old_bigpage_count) {
-                    return error.OutOfMemory;
-                }
-                const new_bigpage_count = old_bigpage_count + 1;
-                const addr = try allocBigPages(new_bigpage_count);
-                const new_ptr = @intToPtr([*]usize, addr);
-                const old_ptr = free_list.ptr;
-                @memcpy(
-                    @ptrCast([*]u8, new_ptr),
-                    @ptrCast([*]u8, old_ptr),
-                    @sizeOf(usize) * free_list.len,
-                );
-                free_list.ptr = new_ptr;
-                free_list.cap = new_bigpage_count * (bigpage_size / @sizeOf(usize));
-
-                var i: usize = 0;
-                while (i < old_bigpage_count) : (i += 1) {
-                    bigpage_free_list.ptr[bigpage_free_list.len] = @ptrToInt(old_ptr) +
-                        i * bigpage_size;
-                    bigpage_free_list.len += 1;
-                }
-            }
+            try ensureFreeListCapacity(free_list);
 
             const next_addr = next_addrs[class];
-            if (next_addr % bigpage_size == 0) {
-                //std.debug.print("alloc big page len={d} class={d} slot_size={d}\n", .{
-                //    len, class, slot_size,
-                //});
+            if (next_addr.ptr == next_addr.end) {
                 const addr = try allocBigPages(1);
-                next_addrs[class] = addr + slot_size;
+                //std.debug.print("allocated fresh slot_size={d} class={d} addr=0x{x}\n", .{
+                //    slot_size, class, addr,
+                //});
+                next_addrs[class] = .{
+                    .ptr = addr + slot_size,
+                    .end = addr + bigpage_size,
+                };
                 break :a addr;
             } else {
-                //std.debug.print("easy! len={d} class={d} slot_size={d}\n", .{
-                //    len, class, slot_size,
-                //});
-                next_addrs[class] = next_addr + slot_size;
-                break :a next_addr;
+                next_addrs[class].ptr = next_addr.ptr + slot_size;
+                break :a next_addr.ptr;
             }
         };
         return @intToPtr([*]u8, addr)[0..len];
-    } else {
-        std.debug.panic("big alloc: len={d} align={d} slot_size={d} class={d}", .{
-            len, alignment, slot_size, class,
-        });
     }
+    const bigpages_needed = (aligned_len + (bigpage_size - 1)) / bigpage_size;
+    const addr = try allocBigPages(bigpages_needed);
+    return @intToPtr([*]u8, addr)[0..len];
 }
 
 fn resize(
@@ -145,29 +129,65 @@ fn free(
 ) void {
     _ = ctx;
     _ = return_address;
-    const class_size = @max(buf.len, buf_align);
-    const class = math.log2(class_size);
+    const aligned_len = @max(buf.len, buf_align);
+    const slot_size = math.ceilPowerOfTwoAssert(usize, aligned_len);
+    const class = math.log2(slot_size);
     if (class < size_class_count) {
         const free_list = &frees[class];
         assert(free_list.len < free_list.cap);
         free_list.ptr[free_list.len] = @ptrToInt(buf.ptr);
         free_list.len += 1;
     } else {
-        std.debug.panic("big free: len={d} align={d}", .{
-            buf.len, buf_align,
-        });
+        const bigpages_needed = (aligned_len + (bigpage_size - 1)) / bigpage_size;
+        const big_slot_size = math.ceilPowerOfTwoAssert(usize, bigpages_needed);
+        const big_class = math.log2(big_slot_size);
+        const free_list = &big_frees[big_class];
+        assert(free_list.len < free_list.cap);
+        free_list.ptr[free_list.len] = @ptrToInt(buf.ptr);
+        free_list.len += 1;
     }
 }
 
-inline fn allocBigPages(n: usize) !usize {
-    if (n == 1 and bigpage_free_list.len > 0) {
-        bigpage_free_list.len -= 1;
-        return bigpage_free_list.ptr[bigpage_free_list.len];
+fn allocBigPages(n: usize) !usize {
+    const slot_size = math.ceilPowerOfTwoAssert(usize, n);
+    const class = math.log2(slot_size);
+
+    const free_list = &big_frees[class];
+    if (free_list.len > 0) {
+        free_list.len -= 1;
+        return free_list.ptr[free_list.len];
     }
-    const page_index = @wasmMemoryGrow(0, n * pages_per_bigpage);
-    if (page_index <= 0)
-        return error.OutOfMemory;
-    return @intCast(u32, page_index) * wasm.page_size;
+
+    //std.debug.print("ensureFreeListCapacity slot_size={d} big_class={d}\n", .{
+    //    slot_size, class,
+    //});
+    // This prevents memory allocation within free().
+    try ensureFreeListCapacity(free_list);
+
+    const page_index = @wasmMemoryGrow(0, slot_size * pages_per_bigpage);
+    if (page_index <= 0) return error.OutOfMemory;
+    const addr = @intCast(u32, page_index) * wasm.page_size;
+    //std.debug.print("got 0x{x}..0x{x} from memory.grow\n", .{
+    //    addr, addr + wasm.page_size * slot_size * pages_per_bigpage,
+    //});
+    return addr;
+}
+
+fn ensureFreeListCapacity(free_list: *FreeList) Allocator.Error!void {
+    if (free_list.len < free_list.cap) return;
+    const old_bigpage_count = free_list.cap / bigpage_size;
+    free_list.cap = math.maxInt(usize); // Prevent recursive calls.
+    const new_bigpage_count = @max(old_bigpage_count * 2, 1);
+    const addr = try allocBigPages(new_bigpage_count);
+    //std.debug.print("allocated {d} big pages: 0x{x}\n", .{ new_bigpage_count, addr });
+    const new_ptr = @intToPtr([*]usize, addr);
+    @memcpy(
+        @ptrCast([*]u8, new_ptr),
+        @ptrCast([*]u8, free_list.ptr),
+        @sizeOf(usize) * free_list.len,
+    );
+    free_list.ptr = new_ptr;
+    free_list.cap = new_bigpage_count * (bigpage_size / @sizeOf(usize));
 }
 
 const test_ally = Allocator{
@@ -207,16 +227,10 @@ test "small allocations - free in reverse order" {
 }
 
 test "large allocations" {
-    std.debug.print("alloc ptr1\n", .{});
     const ptr1 = try test_ally.alloc(u64, 42768);
-    std.debug.print("alloc ptr2\n", .{});
     const ptr2 = try test_ally.alloc(u64, 52768);
-    std.debug.print("free ptr1\n", .{});
     test_ally.free(ptr1);
-    std.debug.print("alloc ptr3\n", .{});
     const ptr3 = try test_ally.alloc(u64, 62768);
-    std.debug.print("free ptr3\n", .{});
     test_ally.free(ptr3);
-    std.debug.print("free ptr2\n", .{});
     test_ally.free(ptr2);
 }
