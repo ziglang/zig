@@ -224,12 +224,6 @@ const MonomorphedFuncsContext = struct {
     }
 };
 
-pub const WipAnalysis = struct {
-    sema: *Sema,
-    block: *Sema.Block,
-    src: Module.LazySrcLoc,
-};
-
 pub const MemoizedCallSet = std.HashMapUnmanaged(
     MemoizedCall.Key,
     MemoizedCall.Result,
@@ -4642,7 +4636,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(&block_scope, ty_src, decl_tv.ty);
+    try sema.resolveTypeLayout(decl_tv.ty);
 
     const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
 
@@ -4810,14 +4804,14 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     decl.generation = mod.generation;
 
     const has_runtime_bits = is_extern or
-        (queue_linker_work and try sema.typeHasRuntimeBits(&block_scope, ty_src, decl.ty));
+        (queue_linker_work and try sema.typeHasRuntimeBits(decl.ty));
 
     if (has_runtime_bits) {
         log.debug("queue linker work for {*} ({s})", .{ decl, decl.name });
 
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(&block_scope, ty_src, decl.ty);
+        try sema.resolveTypeFully(decl.ty);
 
         try mod.comp.bin_file.allocateDeclIndexes(decl_index);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
@@ -5586,21 +5580,10 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     var runtime_param_index: usize = 0;
     var total_param_index: usize = 0;
     for (fn_info.param_body) |inst| {
-        const param: struct { name: u32, src: LazySrcLoc } = switch (zir_tags[inst]) {
-            .param, .param_comptime => blk: {
-                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
-                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index).data;
-                break :blk .{ .name = extra.name, .src = pl_tok.src() };
-            },
-
-            .param_anytype, .param_anytype_comptime => blk: {
-                const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
-                break :blk .{ .name = str_tok.start, .src = str_tok.src() };
-            },
-
+        switch (zir_tags[inst]) {
+            .param, .param_comptime, .param_anytype, .param_anytype_comptime => {},
             else => continue,
-        };
-
+        }
         const param_ty = if (func.comptime_args) |comptime_args| t: {
             const arg_tv = comptime_args[total_param_index];
 
@@ -5617,7 +5600,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
             continue;
         } else fn_ty_info.param_types[runtime_param_index];
 
-        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_ty) catch |err| switch (err) {
+        const opt_opv = sema.typeHasOnePossibleValue(param_ty) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -5707,8 +5690,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    const src = LazySrcLoc.nodeOffset(0);
-    sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
+    sema.resolveFnTypes(fn_ty_info) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
@@ -5726,7 +5708,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // the backends.
     for (sema.types_to_resolve.items) |inst_ref| {
         const ty = sema.getTmpAir().getRefType(inst_ref);
-        sema.resolveTypeFully(&inner_block, src, ty) catch |err| switch (err) {
+        sema.resolveTypeFully(ty) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,

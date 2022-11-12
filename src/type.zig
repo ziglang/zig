@@ -7,6 +7,7 @@ const Module = @import("Module.zig");
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
+const Sema = @import("Sema.zig");
 
 const file_struct = @This();
 
@@ -2325,7 +2326,7 @@ pub const Type = extern union {
     pub fn hasRuntimeBitsAdvanced(
         ty: Type,
         ignore_comptime_only: bool,
-        sema_kit: ?Module.WipAnalysis,
+        opt_sema: ?*Sema,
     ) Module.CompileError!bool {
         switch (ty.tag()) {
             .u1,
@@ -2405,8 +2406,8 @@ pub const Type = extern union {
                     return true;
                 } else if (ty.childType().zigTypeTag() == .Fn) {
                     return !ty.childType().fnInfo().is_generic;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(ty));
+                } else if (opt_sema) |sema| {
+                    return !(try sema.typeRequiresComptime(ty));
                 } else {
                     return !comptimeOnly(ty);
                 }
@@ -2444,8 +2445,8 @@ pub const Type = extern union {
                 }
                 if (ignore_comptime_only) {
                     return true;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(child_ty));
+                } else if (opt_sema) |sema| {
+                    return !(try sema.typeRequiresComptime(child_ty));
                 } else {
                     return !comptimeOnly(child_ty);
                 }
@@ -2458,13 +2459,13 @@ pub const Type = extern union {
                     // and then later if our guess was incorrect, we emit a compile error.
                     return true;
                 }
-                if (sema_kit) |sk| {
-                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (opt_sema) |sema| {
+                    _ = try sema.resolveTypeFields(ty);
                 }
                 assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |field| {
                     if (field.is_comptime) continue;
-                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
+                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
                         return true;
                 } else {
                     return false;
@@ -2473,7 +2474,7 @@ pub const Type = extern union {
 
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
-                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit);
+                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
@@ -2482,17 +2483,17 @@ pub const Type = extern union {
             .enum_numbered, .enum_nonexhaustive => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit);
+                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema);
             },
 
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
-                if (sema_kit) |sk| {
-                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (opt_sema) |sema| {
+                    _ = try sema.resolveTypeFields(ty);
                 }
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
                         return true;
                 } else {
                     return false;
@@ -2500,16 +2501,16 @@ pub const Type = extern union {
             },
             .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
+                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema)) {
                     return true;
                 }
 
-                if (sema_kit) |sk| {
-                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (opt_sema) |sema| {
+                    _ = try sema.resolveTypeFields(ty);
                 }
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
                         return true;
                 } else {
                     return false;
@@ -2517,9 +2518,9 @@ pub const Type = extern union {
             },
 
             .array, .vector => return ty.arrayLen() != 0 and
-                try ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit),
+                try ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema),
             .array_u8 => return ty.arrayLen() != 0,
-            .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit),
+            .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema),
 
             .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data != 0,
 
@@ -2528,7 +2529,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) return true;
+                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema)) return true;
                 }
                 return false;
             },
@@ -2721,7 +2722,7 @@ pub const Type = extern union {
         return ptrAlignmentAdvanced(ty, target, null) catch unreachable;
     }
 
-    pub fn ptrAlignmentAdvanced(ty: Type, target: Target, sema_kit: ?Module.WipAnalysis) !u32 {
+    pub fn ptrAlignmentAdvanced(ty: Type, target: Target, opt_sema: ?*Sema) !u32 {
         switch (ty.tag()) {
             .single_const_pointer,
             .single_mut_pointer,
@@ -2735,8 +2736,8 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             => {
                 const child_type = ty.cast(Payload.ElemType).?.data;
-                if (sema_kit) |sk| {
-                    const res = try child_type.abiAlignmentAdvanced(target, .{ .sema_kit = sk });
+                if (opt_sema) |sema| {
+                    const res = try child_type.abiAlignmentAdvanced(target, .{ .sema = sema });
                     return res.scalar;
                 }
                 return (child_type.abiAlignmentAdvanced(target, .eager) catch unreachable).scalar;
@@ -2753,14 +2754,14 @@ pub const Type = extern union {
                 const ptr_info = ty.castTag(.pointer).?.data;
                 if (ptr_info.@"align" != 0) {
                     return ptr_info.@"align";
-                } else if (sema_kit) |sk| {
-                    const res = try ptr_info.pointee_type.abiAlignmentAdvanced(target, .{ .sema_kit = sk });
+                } else if (opt_sema) |sema| {
+                    const res = try ptr_info.pointee_type.abiAlignmentAdvanced(target, .{ .sema = sema });
                     return res.scalar;
                 } else {
                     return (ptr_info.pointee_type.abiAlignmentAdvanced(target, .eager) catch unreachable).scalar;
                 }
             },
-            .optional => return ty.castTag(.optional).?.data.ptrAlignmentAdvanced(target, sema_kit),
+            .optional => return ty.castTag(.optional).?.data.ptrAlignmentAdvanced(target, opt_sema),
 
             else => unreachable,
         }
@@ -2819,22 +2820,22 @@ pub const Type = extern union {
     const AbiAlignmentAdvancedStrat = union(enum) {
         eager,
         lazy: Allocator,
-        sema_kit: Module.WipAnalysis,
+        sema: *Sema,
     };
 
     /// If you pass `eager` you will get back `scalar` and assert the type is resolved.
     /// In this case there will be no error, guaranteed.
     /// If you pass `lazy` you may get back `scalar` or `val`.
     /// If `val` is returned, a reference to `ty` has been captured.
-    /// If you pass `sema_kit` you will get back `scalar` and resolve the type if
+    /// If you pass `sema` you will get back `scalar` and resolve the type if
     /// necessary, possibly returning a CompileError.
     pub fn abiAlignmentAdvanced(
         ty: Type,
         target: Target,
         strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiAlignmentAdvanced {
-        const sema_kit = switch (strat) {
-            .sema_kit => |sk| sk,
+        const opt_sema = switch (strat) {
+            .sema => |sema| sema,
             else => null,
         };
         switch (ty.tag()) {
@@ -2939,7 +2940,7 @@ pub const Type = extern union {
 
             .vector => {
                 const len = ty.arrayLen();
-                const bits = try bitSizeAdvanced(ty.elemType(), target, sema_kit);
+                const bits = try bitSizeAdvanced(ty.elemType(), target, opt_sema);
                 const bytes = ((bits * len) + 7) / 8;
                 const alignment = std.math.ceilPowerOfTwoAssert(u64, bytes);
                 return AbiAlignmentAdvanced{ .scalar = @intCast(u32, alignment) };
@@ -2969,8 +2970,8 @@ pub const Type = extern union {
                 }
 
                 switch (strat) {
-                    .eager, .sema_kit => {
-                        if (!(try child_type.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                    .eager, .sema => {
+                        if (!(try child_type.hasRuntimeBitsAdvanced(false, opt_sema))) {
                             return AbiAlignmentAdvanced{ .scalar = 1 };
                         }
                         return child_type.abiAlignmentAdvanced(target, strat);
@@ -2988,8 +2989,8 @@ pub const Type = extern union {
                 const data = ty.castTag(.error_union).?.data;
                 const code_align = abiAlignment(Type.anyerror, target);
                 switch (strat) {
-                    .eager, .sema_kit => {
-                        if (!(try data.payload.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                    .eager, .sema => {
+                        if (!(try data.payload.hasRuntimeBitsAdvanced(false, opt_sema))) {
                             return AbiAlignmentAdvanced{ .scalar = code_align };
                         }
                         return AbiAlignmentAdvanced{ .scalar = @max(
@@ -3013,22 +3014,22 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                if (sema_kit) |sk| {
+                if (opt_sema) |sema| {
                     if (struct_obj.status == .field_types_wip) {
                         // We'll guess "pointer-aligned" and if we guess wrong, emit
                         // a compile error later.
                         return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
                     }
-                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                    _ = try sema.resolveTypeFields(ty);
                 }
                 if (!struct_obj.haveFieldTypes()) switch (strat) {
                     .eager => unreachable, // struct layout not resolved
-                    .sema_kit => unreachable, // handled above
+                    .sema => unreachable, // handled above
                     .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                 };
                 if (struct_obj.layout == .Packed) {
                     switch (strat) {
-                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
                         .lazy => |arena| {
                             if (!struct_obj.haveLayout()) {
                                 return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
@@ -3043,7 +3044,7 @@ pub const Type = extern union {
                 const fields = ty.structFields();
                 var big_align: u32 = 0;
                 for (fields.values()) |field| {
-                    if (!(try field.ty.hasRuntimeBitsAdvanced(false, sema_kit))) continue;
+                    if (!(try field.ty.hasRuntimeBitsAdvanced(false, opt_sema))) continue;
 
                     const field_align = if (field.abi_align != 0)
                         field.abi_align
@@ -3051,7 +3052,7 @@ pub const Type = extern union {
                         .scalar => |a| a,
                         .val => switch (strat) {
                             .eager => unreachable, // struct layout not resolved
-                            .sema_kit => unreachable, // handled above
+                            .sema => unreachable, // handled above
                             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                         },
                     };
@@ -3080,7 +3081,7 @@ pub const Type = extern union {
                         .scalar => |field_align| big_align = @max(big_align, field_align),
                         .val => switch (strat) {
                             .eager => unreachable, // field type alignment not resolved
-                            .sema_kit => unreachable, // passed to abiAlignmentAdvanced above
+                            .sema => unreachable, // passed to abiAlignmentAdvanced above
                             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                         },
                     }
@@ -3132,21 +3133,21 @@ pub const Type = extern union {
         union_obj: *Module.Union,
         have_tag: bool,
     ) Module.CompileError!AbiAlignmentAdvanced {
-        const sema_kit = switch (strat) {
-            .sema_kit => |sk| sk,
+        const opt_sema = switch (strat) {
+            .sema => |sema| sema,
             else => null,
         };
-        if (sema_kit) |sk| {
+        if (opt_sema) |sema| {
             if (union_obj.status == .field_types_wip) {
                 // We'll guess "pointer-aligned" and if we guess wrong, emit
                 // a compile error later.
                 return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
             }
-            _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+            _ = try sema.resolveTypeFields(ty);
         }
         if (!union_obj.haveFieldTypes()) switch (strat) {
             .eager => unreachable, // union layout not resolved
-            .sema_kit => unreachable, // handled above
+            .sema => unreachable, // handled above
             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
         };
         if (union_obj.fields.count() == 0) {
@@ -3160,7 +3161,7 @@ pub const Type = extern union {
         var max_align: u32 = 0;
         if (have_tag) max_align = union_obj.tag_ty.abiAlignment(target);
         for (union_obj.fields.values()) |field| {
-            if (!(try field.ty.hasRuntimeBitsAdvanced(false, sema_kit))) continue;
+            if (!(try field.ty.hasRuntimeBitsAdvanced(false, opt_sema))) continue;
 
             const field_align = if (field.abi_align != 0)
                 field.abi_align
@@ -3168,7 +3169,7 @@ pub const Type = extern union {
                 .scalar => |a| a,
                 .val => switch (strat) {
                     .eager => unreachable, // struct layout not resolved
-                    .sema_kit => unreachable, // handled above
+                    .sema => unreachable, // handled above
                     .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                 },
             };
@@ -3200,7 +3201,7 @@ pub const Type = extern union {
     /// In this case there will be no error, guaranteed.
     /// If you pass `lazy` you may get back `scalar` or `val`.
     /// If `val` is returned, a reference to `ty` has been captured.
-    /// If you pass `sema_kit` you will get back `scalar` and resolve the type if
+    /// If you pass `sema` you will get back `scalar` and resolve the type if
     /// necessary, possibly returning a CompileError.
     pub fn abiSizeAdvanced(
         ty: Type,
@@ -3243,7 +3244,7 @@ pub const Type = extern union {
                 .Packed => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     switch (strat) {
-                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
                         .lazy => |arena| {
                             if (!struct_obj.haveLayout()) {
                                 return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
@@ -3256,7 +3257,7 @@ pub const Type = extern union {
                 },
                 else => {
                     switch (strat) {
-                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
                         .lazy => |arena| {
                             if (ty.castTag(.@"struct")) |payload| {
                                 const struct_obj = payload.data;
@@ -3308,7 +3309,7 @@ pub const Type = extern union {
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
                     .val => switch (strat) {
-                        .sema_kit => unreachable,
+                        .sema => unreachable,
                         .eager => unreachable,
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
@@ -3319,7 +3320,7 @@ pub const Type = extern union {
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = (payload.len + 1) * elem_size },
                     .val => switch (strat) {
-                        .sema_kit => unreachable,
+                        .sema => unreachable,
                         .eager => unreachable,
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
@@ -3328,14 +3329,14 @@ pub const Type = extern union {
 
             .vector => {
                 const payload = ty.castTag(.vector).?.data;
-                const sema_kit = switch (strat) {
-                    .sema_kit => |sk| sk,
+                const opt_sema = switch (strat) {
+                    .sema => |sema| sema,
                     .eager => null,
                     .lazy => |arena| return AbiSizeAdvanced{
                         .val = try Value.Tag.lazy_size.create(arena, ty),
                     },
                 };
-                const elem_bits = try payload.elem_type.bitSizeAdvanced(target, sema_kit);
+                const elem_bits = try payload.elem_type.bitSizeAdvanced(target, opt_sema);
                 const total_bits = elem_bits * payload.len;
                 const total_bytes = (total_bits + 7) / 8;
                 const alignment = switch (try ty.abiAlignmentAdvanced(target, strat)) {
@@ -3446,7 +3447,7 @@ pub const Type = extern union {
                 const payload_size = switch (try child_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| elem_size,
                     .val => switch (strat) {
-                        .sema_kit => unreachable,
+                        .sema => unreachable,
                         .eager => unreachable,
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
@@ -3475,7 +3476,7 @@ pub const Type = extern union {
                 const payload_size = switch (try data.payload.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| elem_size,
                     .val => switch (strat) {
-                        .sema_kit => unreachable,
+                        .sema => unreachable,
                         .eager => unreachable,
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
@@ -3506,7 +3507,7 @@ pub const Type = extern union {
         have_tag: bool,
     ) Module.CompileError!AbiSizeAdvanced {
         switch (strat) {
-            .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+            .sema => |sema| try sema.resolveTypeLayout(ty),
             .lazy => |arena| {
                 if (!union_obj.haveLayout()) {
                     return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
@@ -3533,14 +3534,15 @@ pub const Type = extern union {
         return bitSizeAdvanced(ty, target, null) catch unreachable;
     }
 
-    /// If you pass `sema_kit`, any recursive type resolutions will happen if
+    /// If you pass `opt_sema`, any recursive type resolutions will happen if
     /// necessary, possibly returning a CompileError. Passing `null` instead asserts
     /// the type is fully resolved, and there will be no error, guaranteed.
     pub fn bitSizeAdvanced(
         ty: Type,
         target: Target,
-        sema_kit: ?Module.WipAnalysis,
+        opt_sema: ?*Sema,
     ) Module.CompileError!u64 {
+        const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
         switch (ty.tag()) {
             .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_void_no_args => unreachable, // represents machine code; not a pointer
@@ -3578,21 +3580,21 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 if (struct_obj.layout != .Packed) {
-                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                    return (try ty.abiSizeAdvanced(target, strat)).scalar * 8;
                 }
-                if (sema_kit) |sk| _ = try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
                 assert(struct_obj.haveLayout());
-                return try struct_obj.backing_int_ty.bitSizeAdvanced(target, sema_kit);
+                return try struct_obj.backing_int_ty.bitSizeAdvanced(target, opt_sema);
             },
 
             .tuple, .anon_struct => {
-                if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
                 if (ty.containerLayout() != .Packed) {
-                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                    return (try ty.abiSizeAdvanced(target, strat)).scalar * 8;
                 }
                 var total: u64 = 0;
                 for (ty.tupleFields().types) |field_ty| {
-                    total += try bitSizeAdvanced(field_ty, target, sema_kit);
+                    total += try bitSizeAdvanced(field_ty, target, opt_sema);
                 }
                 return total;
             },
@@ -3600,27 +3602,27 @@ pub const Type = extern union {
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return try bitSizeAdvanced(int_tag_ty, target, sema_kit);
+                return try bitSizeAdvanced(int_tag_ty, target, opt_sema);
             },
 
             .@"union", .union_safety_tagged, .union_tagged => {
-                if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
                 if (ty.containerLayout() != .Packed) {
-                    return (try ty.abiSizeAdvanced(target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                    return (try ty.abiSizeAdvanced(target, strat)).scalar * 8;
                 }
                 const union_obj = ty.cast(Payload.Union).?.data;
                 assert(union_obj.haveFieldTypes());
 
                 var size: u64 = 0;
                 for (union_obj.fields.values()) |field| {
-                    size = @max(size, try bitSizeAdvanced(field.ty, target, sema_kit));
+                    size = @max(size, try bitSizeAdvanced(field.ty, target, opt_sema));
                 }
                 return size;
             },
 
             .vector => {
                 const payload = ty.castTag(.vector).?.data;
-                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, sema_kit);
+                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, opt_sema);
                 return elem_bit_size * payload.len;
             },
             .array_u8 => return 8 * ty.castTag(.array_u8).?.data,
@@ -3630,7 +3632,7 @@ pub const Type = extern union {
                 const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 if (elem_size == 0 or payload.len == 0)
                     return @as(u64, 0);
-                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, sema_kit);
+                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, opt_sema);
                 return (payload.len - 1) * 8 * elem_size + elem_bit_size;
             },
             .array_sentinel => {
@@ -3639,7 +3641,7 @@ pub const Type = extern union {
                     payload.elem_type.abiAlignment(target),
                     payload.elem_type.abiSize(target),
                 );
-                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, sema_kit);
+                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, opt_sema);
                 return payload.len * 8 * elem_size + elem_bit_size;
             },
 
@@ -3706,7 +3708,7 @@ pub const Type = extern union {
             .optional, .error_union => {
                 // Optionals and error unions are not packed so their bitsize
                 // includes padding bits.
-                return (try abiSizeAdvanced(ty, target, if (sema_kit) |sk| .{ .sema_kit = sk } else .eager)).scalar * 8;
+                return (try abiSizeAdvanced(ty, target, strat)).scalar * 8;
             },
 
             .atomic_order,
