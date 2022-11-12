@@ -18,7 +18,7 @@ pub const Ghash = struct {
     pub const mac_length = 16;
     pub const key_length = 16;
 
-    const pc_count = if (builtin.mode != .ReleaseSmall) 16 else 2;
+    const pc_count = if (builtin.mode != .ReleaseSmall) 16 else 4;
     const agg_2_treshold = 5;
     const agg_4_treshold = 22;
     const agg_8_treshold = 84;
@@ -42,14 +42,11 @@ pub const Ghash = struct {
 
         var hx: [pc_count]Precomp = undefined;
         hx[0] = h;
-        if (block_count >= agg_2_treshold) {
-            hx[1] = gcmReduce(clsq128(hx[0])); // h^2
-        }
+        hx[1] = gcmReduce(clsq128(hx[0])); // h^2
+        hx[2] = gcmReduce(clmul128(hx[1], h)); // h^3
+        hx[3] = gcmReduce(clsq128(hx[1])); // h^4 = h^2^2
+
         if (builtin.mode != .ReleaseSmall) {
-            if (block_count >= agg_4_treshold) {
-                hx[2] = gcmReduce(clmul128(hx[1], h)); // h^3
-                hx[3] = gcmReduce(clsq128(hx[1])); // h^4 = h^2^2
-            }
             if (block_count >= agg_8_treshold) {
                 hx[4] = gcmReduce(clmul128(hx[3], h)); // h^5
                 hx[5] = gcmReduce(clsq128(hx[2])); // h^6 = h^3^2
