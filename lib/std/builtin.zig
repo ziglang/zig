@@ -38,12 +38,13 @@ pub const StackTrace = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.
         if (builtin.os.tag == .freestanding) return;
 
-        _ = fmt;
         _ = options;
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
@@ -534,7 +535,7 @@ pub const Version = struct {
                 return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
             }
         } else {
-            @compileError("Unknown format string: '" ++ fmt ++ "'");
+            std.fmt.invalidFmtError(fmt, self);
         }
     }
 };

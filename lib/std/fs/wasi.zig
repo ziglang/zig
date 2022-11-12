@@ -62,7 +62,7 @@ pub const PreopenType = union(PreopenTypeTag) {
     }
 
     pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         _ = options;
         try out_stream.print("PreopenType{{ ", .{});
         switch (self) {

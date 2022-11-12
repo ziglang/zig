@@ -3744,6 +3744,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
         var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
         var child_argv = std.ArrayList([]const u8).init(arena);
+        var reference_trace: ?u32 = null;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -3795,10 +3796,16 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         try child_argv.append(arg);
+                        reference_trace = 256;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                         try child_argv.append(arg);
+                        const num = arg["-freference-trace=".len..];
+                        reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                            fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         try child_argv.append(arg);
+                        reference_trace = null;
                     }
                 }
                 try child_argv.append(arg);
@@ -3932,6 +3939,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .thread_pool = &thread_pool,
             .use_stage1 = use_stage1,
             .cache_mode = .whole,
+            .reference_trace = reference_trace,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };

@@ -356,7 +356,7 @@ pub const Type = struct {
     returns: []const Valtype,
 
     pub fn format(self: Type, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         _ = opt;
         try writer.writeByte('(');
         for (self.params) |param, i| {

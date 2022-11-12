@@ -326,7 +326,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
                             const addr = bucket.page + slot_index * size_class;
-                            log.err("memory address 0x{x} leaked: {s}", .{
+                            log.err("memory address 0x{x} leaked: {}", .{
                                 @ptrToInt(addr), stack_trace,
                             });
                             leaks = true;
@@ -358,7 +358,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
                 const stack_trace = large_alloc.getStackTrace(.alloc);
-                log.err("memory address 0x{x} leaked: {s}", .{
+                log.err("memory address 0x{x} leaked: {}", .{
                     @ptrToInt(large_alloc.bytes.ptr), stack_trace,
                 });
                 leaks = true;
@@ -443,7 +443,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 .index = 0,
             };
             std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
-            log.err("Double free detected. Allocation: {s} First free: {s} Second free: {s}", .{
+            log.err("Double free detected. Allocation: {} First free: {} Second free: {}", .{
                 alloc_stack_trace, free_stack_trace, second_free_stack_trace,
             });
         }
@@ -533,7 +533,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {s} Free: {s}", .{
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
                     entry.value_ptr.getStackTrace(.alloc),
@@ -606,7 +606,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {s} Free: {s}", .{
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
                     entry.value_ptr.getStackTrace(.alloc),

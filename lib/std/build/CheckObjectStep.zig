@@ -187,7 +187,7 @@ const ComputeCompareExpected = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
         _ = options;
         try writer.print("{s} ", .{@tagName(value.op)});
         switch (value.value) {
@@ -360,7 +360,7 @@ fn make(step: *Step) !void {
                         std.debug.print(
                             \\
                             \\========= Comparison failed for action: ===========
-                            \\{s} {s}
+                            \\{s} {}
                             \\========= From parsed file: =======================
                             \\{s}
                             \\

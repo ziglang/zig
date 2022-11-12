@@ -68,7 +68,7 @@ pub const Guid = extern struct {
                 fmt(std.mem.asBytes(&self.node)),
             });
         } else {
-            @compileError("Unknown format character: '" ++ f ++ "'");
+            std.fmt.invalidFmtError(f, self);
         }
     }
 

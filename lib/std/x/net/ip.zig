@@ -47,8 +47,8 @@ pub const Address = union(enum) {
         opts: fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        if (layout.len != 0) std.fmt.invalidFmtError(layout, self);
         _ = opts;
-        _ = layout;
         switch (self) {
             .ipv4 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
             .ipv6 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),

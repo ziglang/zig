@@ -168,9 +168,7 @@ pub const IPv4 = extern struct {
         writer: anytype,
     ) !void {
         _ = opts;
-        if (comptime layout.len != 0 and layout[0] != 's') {
-            @compileError("Unsupported format specifier for IPv4 type '" ++ layout ++ "'.");
-        }
+        if (layout.len != 0) std.fmt.invalidFmtError(layout, self);
 
         try fmt.format(writer, "{}.{}.{}.{}", .{
             self.octets[0],
@@ -382,7 +380,7 @@ pub const IPv6 = extern struct {
             'x', 'X' => |specifier| specifier,
             's' => 'x',
             'S' => 'X',
-            else => @compileError("Unsupported format specifier for IPv6 type '" ++ layout ++ "'."),
+            else => std.fmt.invalidFmtError(layout, self),
         }};
 
         if (mem.startsWith(u8, &self.octets, &v4_mapped_prefix)) {

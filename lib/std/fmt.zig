@@ -454,7 +454,7 @@ fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
         fmt[1..];
 }
 
-fn invalidFmtErr(comptime fmt: []const u8, value: anytype) void {
+pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) void {
     @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
@@ -486,11 +486,11 @@ pub fn formatType(
             return formatValue(value, actual_fmt, options, writer);
         },
         .Void => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf("void", options, writer);
         },
         .Bool => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(if (value) "true" else "false", options, writer);
         },
         .Optional => {
@@ -514,14 +514,14 @@ pub fn formatType(
             }
         },
         .ErrorSet => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll("error.");
             return writer.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
-                if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+                if (actual_fmt.len != 0) invalidFmtError(fmt, value);
                 try writer.writeAll(".");
                 try writer.writeAll(@tagName(value));
                 return;
@@ -542,7 +542,7 @@ pub fn formatType(
             try writer.writeAll(")");
         },
         .Union => |info| {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
@@ -562,7 +562,7 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -618,7 +618,7 @@ pub fn formatType(
                         }
                         return;
                     }
-                    invalidFmtErr(fmt, value);
+                    invalidFmtError(fmt, value);
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
@@ -640,7 +640,7 @@ pub fn formatType(
                         else => {},
                     }
                 }
-                invalidFmtErr(fmt, value);
+                invalidFmtError(fmt, value);
             },
             .Slice => {
                 if (actual_fmt.len == 0)
@@ -703,20 +703,20 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .Fn => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return format(writer, "{s}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
         .Type => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(@typeName(value), options, writer);
         },
         .EnumLiteral => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatBuf(buffer, options, writer);
         },
         .Null => {
-            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf("null", options, writer);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
@@ -786,7 +786,7 @@ pub fn formatIntValue(
         radix = 8;
         case = .lower;
     } else {
-        invalidFmtErr(fmt, value);
+        invalidFmtError(fmt, value);
     }
 
     return formatInt(int_value, radix, case, options, writer);
@@ -815,7 +815,7 @@ fn formatFloatValue(
             error.NoSpaceLeft => unreachable,
         };
     } else {
-        invalidFmtErr(fmt, value);
+        invalidFmtError(fmt, value);
     }
 
     return formatBuf(buf_stream.getWritten(), options, writer);
