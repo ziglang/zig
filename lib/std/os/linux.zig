@@ -3551,7 +3551,7 @@ else
         fields: siginfo_fields_union,
     };
 
-// io_uring decleations, as they are ordered in linux/io_uring.h
+// io_uring declarations, as they are ordered in linux/io_uring.h
 
 /// IO submission data structure (Submission Queue Entry)
 pub const io_uring_sqe = extern struct {
@@ -4049,7 +4049,7 @@ pub const io_uring_probe = extern struct {
     ops_len: u8,
 
     resv: u16,
-    resv2: u32[3],
+    resv2: [3]u32,
 
     // Followed by up to `ops_len` io_uring_probe_op structures
 };
@@ -4067,7 +4067,7 @@ pub const io_uring_restriction = extern struct {
         sqe_flags: u8,
     },
     resv: u8,
-    resv2: u32[3],
+    resv2: [3]u32,
 };
 
 pub const io_uring_buf = extern struct {
