@@ -117,10 +117,10 @@ fn resize(
         }
     } else {
         const old_bigpages_needed = bigPagesNeeded(old_actual_len);
-        const old_big_slot_size = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
+        const old_big_slot_pages = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
         const new_bigpages_needed = bigPagesNeeded(new_actual_len);
-        const new_big_slot_size = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
-        if (old_big_slot_size == new_big_slot_size) return new_len;
+        const new_big_slot_pages = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
+        if (old_big_slot_pages == new_big_slot_pages) return new_len;
         if (new_actual_len >= old_actual_len) return null;
 
         const new_small_slot_size = math.ceilPowerOfTwoAssert(usize, new_actual_len);
@@ -129,7 +129,7 @@ fn resize(
             // TODO: push the big allocation into the free list
             _ = new_small_class;
         } else {
-            const new_big_class = math.log2(new_big_slot_size);
+            const new_big_class = math.log2(new_big_slot_pages);
             // TODO: push the upper area into the free list
             _ = new_big_class;
         }
