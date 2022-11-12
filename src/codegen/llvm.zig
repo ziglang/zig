@@ -1966,7 +1966,7 @@ pub const Object = struct {
 
                     for (tuple.types) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value) continue;
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
                         const field_size = field_ty.abiSize(target);
                         const field_align = field_ty.abiAlignment(target);
@@ -2901,7 +2901,7 @@ pub const DeclGen = struct {
 
                     for (tuple.types) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value) continue;
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
                         const field_align = field_ty.abiAlignment(target);
                         big_align = @max(big_align, field_align);
@@ -10207,7 +10207,7 @@ fn llvmFieldIndex(
         const tuple = ty.tupleFields();
         var llvm_field_index: c_uint = 0;
         for (tuple.types) |field_ty, i| {
-            if (tuple.values[i].tag() != .unreachable_value) continue;
+            if (tuple.values[i].tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
             const field_align = field_ty.abiAlignment(target);
             big_align = @max(big_align, field_align);
@@ -10771,7 +10771,7 @@ fn isByRef(ty: Type) bool {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
                 for (tuple.values) |field_val, i| {
-                    if (field_val.tag() != .unreachable_value) continue;
+                    if (field_val.tag() != .unreachable_value or !tuple.types[i].hasRuntimeBits()) continue;
 
                     count += 1;
                     if (count > max_fields_byval) return true;

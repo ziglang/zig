@@ -5759,7 +5759,7 @@ pub const Type = extern union {
 
                 for (tuple.types) |field_ty, i| {
                     const field_val = tuple.values[i];
-                    if (field_val.tag() != .unreachable_value) {
+                    if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) {
                         // comptime field
                         if (i == index) return offset;
                         continue;
