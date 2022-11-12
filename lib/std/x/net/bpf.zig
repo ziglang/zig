@@ -282,8 +282,7 @@ pub const Insn = extern struct {
         writer: anytype,
     ) !void {
         _ = opts;
-        if (comptime layout.len != 0 and layout[0] != 's')
-            std.fmt.invalidFmtError(layout, self);
+        if (layout.len != 0) std.fmt.invalidFmtError(layout, self);
 
         try std.fmt.format(
             writer,

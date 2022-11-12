@@ -167,19 +167,21 @@ pub const Target = struct {
                 _: std.fmt.FormatOptions,
                 out_stream: anytype,
             ) !void {
-                if (fmt.len > 0 and fmt[0] == 's') {
+                if (comptime std.mem.eql(u8, fmt, "s")) {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
                         try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
                     }
-                } else {
+                } else if (fmt.len == 0) {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
                         try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
                     }
+                } else {
+                    std.fmt.invalidFmtError(fmt, self);
                 }
             }
         };

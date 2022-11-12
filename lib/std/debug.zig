@@ -2123,7 +2123,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
+            if (fmt.len != 0) std.fmt.invalidFmtError(fmt, t);
             _ = options;
             if (enabled) {
                 try writer.writeAll("\n");
