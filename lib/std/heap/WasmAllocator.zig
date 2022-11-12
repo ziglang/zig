@@ -24,83 +24,59 @@ pub const Error = Allocator.Error;
 
 const max_usize = math.maxInt(usize);
 const ushift = math.Log2Int(usize);
-const bigpage_size = 512 * 1024;
+const bigpage_size = 64 * 1024;
 const pages_per_bigpage = bigpage_size / wasm.page_size;
 const bigpage_count = max_usize / bigpage_size;
 
-/// We have a small size class for all sizes up to 512kb.
-const size_class_count = math.log2(bigpage_size);
+/// Because of storing free list pointers, the minimum size class is 3.
+const min_class = math.log2(math.ceilPowerOfTwoAssert(usize, 1 + @sizeOf(usize)));
+const size_class_count = math.log2(bigpage_size) - min_class;
 /// 0 - 1 bigpage
 /// 1 - 2 bigpages
 /// 2 - 4 bigpages
 /// etc.
 const big_size_class_count = math.log2(bigpage_count);
 
-const FreeList = struct {
-    /// Each element is the address of a freed pointer.
-    ptr: [*]usize,
-    len: usize,
-    cap: usize,
-
-    const init: FreeList = .{
-        .ptr = undefined,
-        .len = 0,
-        .cap = 0,
-    };
-};
-
-const Bucket = struct {
-    ptr: usize,
-    end: usize,
-
-    const init: Bucket = .{
-        .ptr = 0,
-        .end = 0,
-    };
-};
-
-var next_addrs = [1]Bucket{Bucket.init} ** size_class_count;
-var frees = [1]FreeList{FreeList.init} ** size_class_count;
-var big_frees = [1]FreeList{FreeList.init} ** big_size_class_count;
+var next_addrs = [1]usize{0} ** size_class_count;
+/// For each size class, points to the freed pointer.
+var frees = [1]usize{0} ** size_class_count;
+/// For each big size class, points to the freed pointer.
+var big_frees = [1]usize{0} ** big_size_class_count;
 
 fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) Error![]u8 {
     _ = ctx;
     _ = len_align;
     _ = ra;
     if (alignment > wasm.page_size) return error.OutOfMemory; // calm down
-    const aligned_len = @max(len, alignment);
-    const slot_size = math.ceilPowerOfTwo(usize, aligned_len) catch return error.OutOfMemory;
-    const class = math.log2(slot_size);
+    // Make room for the freelist next pointer.
+    const actual_len = @max(len +| @sizeOf(usize), alignment);
+    const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return error.OutOfMemory;
+    const class = math.log2(slot_size) - min_class;
     if (class < size_class_count) {
         const addr = a: {
-            const free_list = &frees[class];
-            if (free_list.len > 0) {
-                free_list.len -= 1;
-                break :a free_list.ptr[free_list.len];
+            const top_free_ptr = frees[class];
+            if (top_free_ptr != 0) {
+                const node = @intToPtr(*usize, top_free_ptr + (slot_size - @sizeOf(usize)));
+                frees[class] = node.*;
+                break :a top_free_ptr;
             }
 
-            // This prevents memory allocation within free().
-            try ensureFreeListCapacity(free_list);
-
             const next_addr = next_addrs[class];
-            if (next_addr.ptr == next_addr.end) {
+            if (next_addr % wasm.page_size == 0) {
                 const addr = try allocBigPages(1);
                 //std.debug.print("allocated fresh slot_size={d} class={d} addr=0x{x}\n", .{
                 //    slot_size, class, addr,
                 //});
-                next_addrs[class] = .{
-                    .ptr = addr + slot_size,
-                    .end = addr + bigpage_size,
-                };
+                next_addrs[class] = addr + slot_size;
                 break :a addr;
             } else {
-                next_addrs[class].ptr = next_addr.ptr + slot_size;
-                break :a next_addr.ptr;
+                next_addrs[class] = next_addr + slot_size;
+                break :a next_addr;
             }
         };
         return @intToPtr([*]u8, addr)[0..len];
     }
-    const bigpages_needed = (aligned_len + (bigpage_size - 1)) / bigpage_size;
+    const bigpages_needed = bigPagesNeeded(actual_len);
     const addr = try allocBigPages(bigpages_needed);
     return @intToPtr([*]u8, addr)[0..len];
 }
@@ -113,39 +89,49 @@ fn resize(
     len_align: u29,
     ra: usize,
 ) ?usize {
+    _ = ctx;
+    _ = len_align;
+    _ = ra;
     // We don't want to move anything from one size class to another. But we can recover bytes
     // in between powers of two.
-    const old_aligned_len = @max(buf.len, buf_align);
-    const new_aligned_len = @max(new_len, buf_align);
-    const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_aligned_len);
-    const old_small_class = math.log2(old_small_slot_size);
+    const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
+    const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
+    const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
+    const old_small_class = math.log2(old_small_slot_size) - min_class;
     if (old_small_class < size_class_count) {
-        const new_small_slot_size = math.ceilPowerOfTwo(usize, new_aligned_len) catch return null;
-        //std.debug.print("resize: old_small_slot_size={d} new_small_slot_size={d}\n", .{
-        //    old_small_slot_size, new_small_slot_size,
-        //});
-        if (old_small_slot_size != new_small_slot_size) {
-            if (new_aligned_len >= old_aligned_len) {
-                return null;
-            }
-            // TODO this panic is a design flaw in the Allocator interface that
-            // should be addressed.
-            const new = alloc(ctx, new_len, buf_align, len_align, ra) catch @panic("out of memory");
-            @memcpy(new.ptr, buf.ptr, buf.len);
+        const new_small_slot_size = math.ceilPowerOfTwo(usize, new_actual_len) catch return null;
+        if (old_small_slot_size == new_small_slot_size) return new_len;
+        if (new_actual_len >= old_actual_len) return null;
+        const new_small_class = math.log2(new_small_slot_size) - min_class;
+        assert(new_small_class < old_small_class);
+        // Split the small allocation into frees.
+        var class = old_small_class - 1;
+        while (true) {
+            const slot_size = @as(usize, 1) << @intCast(ushift, class + min_class);
+            const upper_addr = @ptrToInt(buf.ptr) + slot_size;
+            const node = @intToPtr(*usize, upper_addr + (slot_size - @sizeOf(usize)));
+            node.* = frees[class];
+            frees[class] = upper_addr;
+            if (class == new_small_class) break;
+            class -= 1;
         }
     } else {
-        const old_bigpages_needed = (old_aligned_len + (bigpage_size - 1)) / bigpage_size;
+        const old_bigpages_needed = bigPagesNeeded(old_actual_len);
         const old_big_slot_size = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
-        const new_bigpages_needed = (new_aligned_len + (bigpage_size - 1)) / bigpage_size;
+        const new_bigpages_needed = bigPagesNeeded(new_actual_len);
         const new_big_slot_size = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
-        if (old_big_slot_size != new_big_slot_size) {
-            if (new_aligned_len >= old_aligned_len) {
-                return null;
-            }
-            // TODO this panic is a design flaw in the Allocator interface that
-            // should be addressed.
-            const new = alloc(ctx, new_len, buf_align, len_align, ra) catch @panic("out of memory");
-            @memcpy(new.ptr, buf.ptr, buf.len);
+        if (old_big_slot_size == new_big_slot_size) return new_len;
+        if (new_actual_len >= old_actual_len) return null;
+
+        const new_small_slot_size = math.ceilPowerOfTwoAssert(usize, new_actual_len);
+        if (new_small_slot_size < size_class_count) {
+            const new_small_class = math.log2(new_small_slot_size) - min_class;
+            // TODO: push the big allocation into the free list
+            _ = new_small_class;
+        } else {
+            const new_big_class = math.log2(new_big_slot_size);
+            // TODO: push the upper area into the free list
+            _ = new_big_class;
         }
     }
     return new_len;
@@ -159,65 +145,45 @@ fn free(
 ) void {
     _ = ctx;
     _ = return_address;
-    const aligned_len = @max(buf.len, buf_align);
-    const slot_size = math.ceilPowerOfTwoAssert(usize, aligned_len);
-    const class = math.log2(slot_size);
+    const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
+    const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
+    const class = math.log2(slot_size) - min_class;
+    const addr = @ptrToInt(buf.ptr);
     if (class < size_class_count) {
-        const free_list = &frees[class];
-        assert(free_list.len < free_list.cap);
-        free_list.ptr[free_list.len] = @ptrToInt(buf.ptr);
-        free_list.len += 1;
+        const node = @intToPtr(*usize, addr + (slot_size - @sizeOf(usize)));
+        node.* = frees[class];
+        frees[class] = addr;
     } else {
-        const bigpages_needed = (aligned_len + (bigpage_size - 1)) / bigpage_size;
-        const big_slot_size = math.ceilPowerOfTwoAssert(usize, bigpages_needed);
-        const big_class = math.log2(big_slot_size);
-        const free_list = &big_frees[big_class];
-        assert(free_list.len < free_list.cap);
-        free_list.ptr[free_list.len] = @ptrToInt(buf.ptr);
-        free_list.len += 1;
+        const bigpages_needed = bigPagesNeeded(actual_len);
+        const pow2_pages = math.ceilPowerOfTwoAssert(usize, bigpages_needed);
+        const big_slot_size_bytes = pow2_pages * bigpage_size;
+        const node = @intToPtr(*usize, addr + (big_slot_size_bytes - @sizeOf(usize)));
+        const big_class = math.log2(pow2_pages);
+        node.* = big_frees[big_class];
+        big_frees[big_class] = addr;
     }
+}
+
+inline fn bigPagesNeeded(byte_count: usize) usize {
+    return (byte_count + (bigpage_size + (@sizeOf(usize) - 1))) / bigpage_size;
 }
 
 fn allocBigPages(n: usize) !usize {
-    const slot_size = math.ceilPowerOfTwoAssert(usize, n);
-    const class = math.log2(slot_size);
+    const pow2_pages = math.ceilPowerOfTwoAssert(usize, n);
+    const slot_size_bytes = pow2_pages * bigpage_size;
+    const class = math.log2(pow2_pages);
 
-    const free_list = &big_frees[class];
-    if (free_list.len > 0) {
-        free_list.len -= 1;
-        return free_list.ptr[free_list.len];
+    const top_free_ptr = big_frees[class];
+    if (top_free_ptr != 0) {
+        const node = @intToPtr(*usize, top_free_ptr + (slot_size_bytes - @sizeOf(usize)));
+        big_frees[class] = node.*;
+        return top_free_ptr;
     }
 
-    //std.debug.print("ensureFreeListCapacity slot_size={d} big_class={d}\n", .{
-    //    slot_size, class,
-    //});
-    // This prevents memory allocation within free().
-    try ensureFreeListCapacity(free_list);
-
-    const page_index = @wasmMemoryGrow(0, slot_size * pages_per_bigpage);
+    const page_index = @wasmMemoryGrow(0, pow2_pages * pages_per_bigpage);
     if (page_index <= 0) return error.OutOfMemory;
     const addr = @intCast(u32, page_index) * wasm.page_size;
-    //std.debug.print("got 0x{x}..0x{x} from memory.grow\n", .{
-    //    addr, addr + wasm.page_size * slot_size * pages_per_bigpage,
-    //});
     return addr;
-}
-
-fn ensureFreeListCapacity(free_list: *FreeList) Allocator.Error!void {
-    if (free_list.len < free_list.cap) return;
-    const old_bigpage_count = free_list.cap / bigpage_size;
-    free_list.cap = math.maxInt(usize); // Prevent recursive calls.
-    const new_bigpage_count = @max(old_bigpage_count * 2, 1);
-    const addr = try allocBigPages(new_bigpage_count);
-    //std.debug.print("allocated {d} big pages: 0x{x}\n", .{ new_bigpage_count, addr });
-    const new_ptr = @intToPtr([*]usize, addr);
-    @memcpy(
-        @ptrCast([*]u8, new_ptr),
-        @ptrCast([*]u8, free_list.ptr),
-        @sizeOf(usize) * free_list.len,
-    );
-    free_list.ptr = new_ptr;
-    free_list.cap = new_bigpage_count * (bigpage_size / @sizeOf(usize));
 }
 
 const test_ally = Allocator{
@@ -315,8 +281,6 @@ test "large object - grow" {
     try std.testing.expect(slice1.ptr == old.ptr);
 
     slice1 = try test_ally.realloc(slice1, bigpage_size * 2);
-    try std.testing.expect(slice1.ptr == old.ptr);
-
     slice1 = try test_ally.realloc(slice1, bigpage_size * 2 + 1);
 }
 
@@ -369,4 +333,9 @@ test "objects of size 1024 and 2048" {
 
     test_ally.free(slice);
     test_ally.free(slice2);
+}
+
+test "standard allocator tests" {
+    try std.heap.testAllocator(test_ally);
+    try std.heap.testAllocatorAligned(test_ally);
 }

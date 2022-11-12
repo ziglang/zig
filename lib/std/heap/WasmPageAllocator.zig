@@ -1,3 +1,4 @@
+const WasmPageAllocator = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
@@ -193,4 +194,42 @@ fn free(
     const current_n = nPages(aligned_len);
     const base = nPages(@ptrToInt(buf.ptr));
     freePages(base, base + current_n);
+}
+
+test "internals" {
+    const page_allocator = std.heap.page_allocator;
+    const testing = std.testing;
+
+    const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
+    const initial = try page_allocator.alloc(u8, mem.page_size);
+    try testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
+
+    var inplace = try page_allocator.realloc(initial, 1);
+    try testing.expectEqual(initial.ptr, inplace.ptr);
+    inplace = try page_allocator.realloc(inplace, 4);
+    try testing.expectEqual(initial.ptr, inplace.ptr);
+    page_allocator.free(inplace);
+
+    const reuse = try page_allocator.alloc(u8, 1);
+    try testing.expectEqual(initial.ptr, reuse.ptr);
+    page_allocator.free(reuse);
+
+    // This segment may span conventional and extended which has really complex rules so we're just ignoring it for now.
+    const padding = try page_allocator.alloc(u8, conventional_memsize);
+    page_allocator.free(padding);
+
+    const ext = try page_allocator.alloc(u8, conventional_memsize);
+    try testing.expect(@ptrToInt(ext.ptr) >= conventional_memsize);
+
+    const use_small = try page_allocator.alloc(u8, 1);
+    try testing.expectEqual(initial.ptr, use_small.ptr);
+    page_allocator.free(use_small);
+
+    inplace = try page_allocator.realloc(ext, 1);
+    try testing.expectEqual(ext.ptr, inplace.ptr);
+    page_allocator.free(inplace);
+
+    const reuse_extended = try page_allocator.alloc(u8, conventional_memsize);
+    try testing.expectEqual(ext.ptr, reuse_extended.ptr);
+    page_allocator.free(reuse_extended);
 }

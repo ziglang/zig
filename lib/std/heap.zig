@@ -16,6 +16,7 @@ pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").Log
 pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
+pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 
@@ -565,43 +566,6 @@ test "raw_c_allocator" {
     }
 }
 
-test "WasmPageAllocator internals" {
-    if (comptime builtin.target.isWasm()) {
-        const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
-        const initial = try page_allocator.alloc(u8, mem.page_size);
-        try testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
-
-        var inplace = try page_allocator.realloc(initial, 1);
-        try testing.expectEqual(initial.ptr, inplace.ptr);
-        inplace = try page_allocator.realloc(inplace, 4);
-        try testing.expectEqual(initial.ptr, inplace.ptr);
-        page_allocator.free(inplace);
-
-        const reuse = try page_allocator.alloc(u8, 1);
-        try testing.expectEqual(initial.ptr, reuse.ptr);
-        page_allocator.free(reuse);
-
-        // This segment may span conventional and extended which has really complex rules so we're just ignoring it for now.
-        const padding = try page_allocator.alloc(u8, conventional_memsize);
-        page_allocator.free(padding);
-
-        const extended = try page_allocator.alloc(u8, conventional_memsize);
-        try testing.expect(@ptrToInt(extended.ptr) >= conventional_memsize);
-
-        const use_small = try page_allocator.alloc(u8, 1);
-        try testing.expectEqual(initial.ptr, use_small.ptr);
-        page_allocator.free(use_small);
-
-        inplace = try page_allocator.realloc(extended, 1);
-        try testing.expectEqual(extended.ptr, inplace.ptr);
-        page_allocator.free(inplace);
-
-        const reuse_extended = try page_allocator.alloc(u8, conventional_memsize);
-        try testing.expectEqual(extended.ptr, reuse_extended.ptr);
-        page_allocator.free(reuse_extended);
-    }
-}
-
 test "PageAllocator" {
     const allocator = page_allocator;
     try testAllocator(allocator);
@@ -875,4 +839,8 @@ test {
     _ = ScopedLoggingAllocator;
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
+    if (comptime builtin.target.isWasm()) {
+        _ = WasmAllocator;
+        _ = WasmPageAllocator;
+    }
 }
