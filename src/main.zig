@@ -152,8 +152,14 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = build_options.force_gpa or !builtin.link_libc;
+    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and builtin.os.tag != .wasi;
     const gpa = gpa: {
+        if (builtin.os.tag == .wasi) {
+            break :gpa Allocator{
+                .ptr = undefined,
+                .vtable = &std.heap.WasmAllocator.vtable,
+            };
+        }
         if (use_gpa) {
             break :gpa general_purpose_allocator.allocator();
         }
