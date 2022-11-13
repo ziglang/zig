@@ -3,6 +3,14 @@ export fn foo() void {
     x += 1;
     _ = x;
 }
+export fn bar() void {
+    var b: u32 = 1;
+    _ = blk: {
+        const a = 1;
+        b = a;
+        break :blk a;
+    };
+}
 
 // error
 // backend=stage2

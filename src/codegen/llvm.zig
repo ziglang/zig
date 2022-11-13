@@ -1966,7 +1966,7 @@ pub const Object = struct {
 
                     for (tuple.types) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value) continue;
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
                         const field_size = field_ty.abiSize(target);
                         const field_align = field_ty.abiAlignment(target);
@@ -2901,7 +2901,7 @@ pub const DeclGen = struct {
 
                     for (tuple.types) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value) continue;
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
                         const field_align = field_ty.abiAlignment(target);
                         big_align = @max(big_align, field_align);
@@ -3198,7 +3198,8 @@ pub const DeclGen = struct {
     /// There are other similar cases handled here as well.
     fn lowerPtrElemTy(dg: *DeclGen, elem_ty: Type) Allocator.Error!*llvm.Type {
         const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
-            .Opaque, .Fn => true,
+            .Opaque => true,
+            .Fn => !elem_ty.fnInfo().is_generic,
             .Array => elem_ty.childType().hasRuntimeBitsIgnoreComptime(),
             else => elem_ty.hasRuntimeBitsIgnoreComptime(),
         };
@@ -4145,7 +4146,9 @@ pub const DeclGen = struct {
         }
 
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
-        if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
+        if ((!is_fn_body and !decl.ty.hasRuntimeBits()) or
+            (is_fn_body and decl.ty.fnInfo().is_generic))
+        {
             return self.lowerPtrToVoid(tv.ty);
         }
 
@@ -8671,9 +8674,9 @@ pub const FuncGen = struct {
         const arena = arena_allocator.allocator();
 
         const mod = self.dg.module;
-        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{
-            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
-        });
+        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        defer self.gpa.free(fqn);
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
 
         var int_tag_type_buffer: Type.Payload.Bits = undefined;
         const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
@@ -8752,9 +8755,9 @@ pub const FuncGen = struct {
         const arena = arena_allocator.allocator();
 
         const mod = self.dg.module;
-        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{
-            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
-        });
+        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        defer self.gpa.free(fqn);
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
         const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
         const llvm_ret_ty = try self.dg.lowerType(slice_ty);
@@ -10204,7 +10207,7 @@ fn llvmFieldIndex(
         const tuple = ty.tupleFields();
         var llvm_field_index: c_uint = 0;
         for (tuple.types) |field_ty, i| {
-            if (tuple.values[i].tag() != .unreachable_value) continue;
+            if (tuple.values[i].tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
 
             const field_align = field_ty.abiAlignment(target);
             big_align = @max(big_align, field_align);
@@ -10216,7 +10219,7 @@ fn llvmFieldIndex(
                 llvm_field_index += 1;
             }
 
-            if (field_index == i) {
+            if (field_index <= i) {
                 ptr_pl_buf.* = .{
                     .data = .{
                         .pointee_type = field_ty,
@@ -10249,7 +10252,7 @@ fn llvmFieldIndex(
             llvm_field_index += 1;
         }
 
-        if (field_index == i) {
+        if (field_index <= i) {
             ptr_pl_buf.* = .{
                 .data = .{
                     .pointee_type = field.ty,
@@ -10768,7 +10771,7 @@ fn isByRef(ty: Type) bool {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
                 for (tuple.values) |field_val, i| {
-                    if (field_val.tag() != .unreachable_value) continue;
+                    if (field_val.tag() != .unreachable_value or !tuple.types[i].hasRuntimeBits()) continue;
 
                     count += 1;
                     if (count > max_fields_byval) return true;

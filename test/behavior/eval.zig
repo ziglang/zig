@@ -1499,3 +1499,11 @@ test "non-optional and optional array elements concatenated" {
     var index: usize = 0;
     try expect(array[index].? == 'A');
 }
+
+test "inline call in @TypeOf inherits is_inline property" {
+    const S = struct {
+        inline fn doNothing() void {}
+        const T = @TypeOf(doNothing());
+    };
+    try expect(S.T == void);
+}
