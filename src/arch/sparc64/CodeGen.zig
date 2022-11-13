@@ -596,10 +596,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .array_to_slice  => try self.airArrayToSlice(inst),
             .int_to_float    => try self.airIntToFloat(inst),
             .float_to_int    => try self.airFloatToInt(inst),
-            .cmpxchg_strong  => @panic("TODO try self.airCmpxchg(inst)"),
-            .cmpxchg_weak    => @panic("TODO try self.airCmpxchg(inst)"),
-            .atomic_rmw      => @panic("TODO try self.airAtomicRmw(inst)"),
-            .atomic_load     => @panic("TODO try self.airAtomicLoad(inst)"),
+            .cmpxchg_strong,
+            .cmpxchg_weak,
+            => try self.airCmpxchg(inst),
+            .atomic_rmw      => try self.airAtomicRmw(inst),
+            .atomic_load     => try self.airAtomicLoad(inst),
             .memcpy          => @panic("TODO try self.airMemcpy(inst)"),
             .memset          => try self.airMemset(inst),
             .set_union_tag   => try self.airSetUnionTag(inst),
@@ -1023,6 +1024,22 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, mcv, .{ .none, .none, .none });
 }
 
+fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
+    _ = self.air.instructions.items(.data)[inst].atomic_load;
+
+    return self.fail("TODO implement airAtomicLoad for {}", .{
+        self.target.cpu.arch,
+    });
+}
+
+fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
+    _ = self.air.instructions.items(.data)[inst].pl_op;
+
+    return self.fail("TODO implement airAtomicRmw for {}", .{
+        self.target.cpu.arch,
+    });
+}
+
 fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const lhs = try self.resolveInst(bin_op.lhs);
@@ -1332,6 +1349,16 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
+fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    _ = extra;
+
+    return self.fail("TODO implement airCmpxchg for {}", .{
+        self.target.cpu.arch,
+    });
+}
+
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const condition = try self.resolveInst(pl_op.operand);
@@ -1416,6 +1443,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         const else_value = else_values[else_idx];
         const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
+            log.debug("condBr put branch table (key = %{d}, value = {})", .{ else_key, then_entry.value });
             parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
             if (else_value == .dead) {
                 assert(then_entry.value == .dead);
@@ -2908,7 +2936,18 @@ fn binOpImmediate(
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
 
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (lhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -3035,7 +3074,18 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (lhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -3048,7 +3098,18 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move rhs %{d} to register: {} -> {}", .{ inst, rhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (rhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -3867,6 +3928,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
+            log.debug("getResolvedInstValue %{} => {}", .{ inst, mcv });
             assert(mcv != .dead);
             return mcv;
         }
@@ -4082,6 +4144,7 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     branch.inst_table.putAssumeCapacity(inst, .dead);
+    log.debug("%{} death: {} -> .dead", .{ inst, prev_value });
     switch (prev_value) {
         .register => |reg| {
             self.register_manager.freeReg(reg);
