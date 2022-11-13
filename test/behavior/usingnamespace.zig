@@ -75,3 +75,7 @@ test {
     const a = AA.b(42);
     try expect(a.x == AA.c().expected);
 }
+
+comptime {
+    _ = @import("usingnamespace/file_1.zig");
+}

@@ -405,3 +405,15 @@ test "null sentinel pointer passed as generic argument" {
     };
     try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
 }
+
+test "generic function passed as comptime argument" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
+            const result = try f(i32, a, b);
+            try expect(result == 11);
+        }
+    };
+    try S.doMath(std.math.add, 5, 6);
+}

@@ -323,3 +323,13 @@ test "zero sized struct in tuple handled correctly" {
     var s: State = undefined;
     try expect(s.do() == 0);
 }
+
+test "tuple type with void field and a runtime field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const T = std.meta.Tuple(&[_]type{ usize, void });
+    var t: T = .{ 5, {} };
+    try expect(t[0] == 5);
+}

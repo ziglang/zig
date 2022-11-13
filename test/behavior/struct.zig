@@ -1398,3 +1398,23 @@ test "under-aligned struct field" {
     const result = std.mem.readIntNative(u64, array[4..12]);
     try expect(result == 1234);
 }
+
+test "address of zero-bit field is equal to address of only field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    {
+        const A = struct { b: void = {}, u: u8 };
+        var a = A{ .u = 0 };
+        const a_ptr = @fieldParentPtr(A, "b", &a.b);
+        try std.testing.expectEqual(&a, a_ptr);
+    }
+    {
+        const A = struct { u: u8, b: void = {} };
+        var a = A{ .u = 0 };
+        const a_ptr = @fieldParentPtr(A, "b", &a.b);
+        try std.testing.expectEqual(&a, a_ptr);
+    }
+}

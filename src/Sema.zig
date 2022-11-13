@@ -1491,6 +1491,8 @@ fn analyzeBodyInner(
                     return err;
                 };
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
+
+                try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
                 defer block.runtime_index = old_runtime_index;
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
@@ -5658,14 +5660,14 @@ fn lookupInNamespace(
         const src_file = block.namespace.file_scope;
 
         const gpa = sema.gpa;
-        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .{};
+        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, bool) = .{};
         defer checked_namespaces.deinit(gpa);
 
         // Keep track of name conflicts for error notes.
         var candidates: std.ArrayListUnmanaged(Decl.Index) = .{};
         defer candidates.deinit(gpa);
 
-        try checked_namespaces.put(gpa, namespace, {});
+        try checked_namespaces.put(gpa, namespace, namespace.file_scope == src_file);
         var check_i: usize = 0;
 
         while (check_i < checked_namespaces.count()) : (check_i += 1) {
@@ -5674,7 +5676,7 @@ fn lookupInNamespace(
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 const decl = mod.declPtr(decl_index);
-                if (decl.is_pub or src_file == decl.getFileScope()) {
+                if (decl.is_pub or (src_file == decl.getFileScope() and checked_namespaces.values()[check_i])) {
                     try candidates.append(gpa, decl_index);
                 }
             }
@@ -5693,7 +5695,7 @@ fn lookupInNamespace(
                 try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index);
                 const ns_ty = sub_usingnamespace_decl.val.castTag(.ty).?.data;
                 const sub_ns = ns_ty.getNamespace().?;
-                try checked_namespaces.put(gpa, sub_ns, {});
+                try checked_namespaces.put(gpa, sub_ns, src_file == sub_usingnamespace_decl.getFileScope());
             }
         }
 
@@ -6331,6 +6333,7 @@ fn analyzeCall(
             .instructions = .{},
             .label = null,
             .inlining = &inlining,
+            .is_typeof = block.is_typeof,
             .is_comptime = is_comptime_call,
             .comptime_reason = comptime_reason,
             .error_return_trace_index = block.error_return_trace_index,
@@ -16530,9 +16533,6 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // This is only relevant at runtime.
     if (block.is_comptime or block.is_typeof) return;
 
-    // This is only relevant within functions.
-    if (sema.func == null) return;
-
     const save_index = inst_data.operand == .none or b: {
         const operand = try sema.resolveInst(inst_data.operand);
         const operand_ty = sema.typeOf(operand);
@@ -20179,8 +20179,8 @@ fn analyzeShuffle(
         .elem_type = elem_ty,
     });
 
-    if (maybe_a_len == null) a = try sema.addConstUndef(a_ty);
-    if (maybe_b_len == null) b = try sema.addConstUndef(b_ty);
+    if (maybe_a_len == null) a = try sema.addConstUndef(a_ty) else a = try sema.coerce(block, a_ty, a, a_src);
+    if (maybe_b_len == null) b = try sema.addConstUndef(b_ty) else b = try sema.coerce(block, b_ty, b, b_src);
 
     const operand_info = [2]std.meta.Tuple(&.{ u64, LazySrcLoc, Type }){
         .{ a_len, a_src, a_ty },
@@ -27502,9 +27502,6 @@ fn analyzeLoad(
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
-        }
-        if (block.is_typeof) {
-            return sema.addConstUndef(elem_ty);
         }
     }
 
