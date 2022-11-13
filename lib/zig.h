@@ -220,8 +220,6 @@ typedef uint8_t  zig_u8;
 typedef  int8_t  zig_i8;
 typedef uint16_t zig_u16;
 typedef  int16_t zig_i16;
-typedef uint16_t zig_u16;
-typedef  int16_t zig_i16;
 typedef uint32_t zig_u32;
 typedef  int32_t zig_i32;
 typedef uint64_t zig_u64;
