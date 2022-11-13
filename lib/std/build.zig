@@ -2207,6 +2207,11 @@ pub const LibExeObjStep = struct {
         self.filter = if (text) |t| self.builder.dupe(t) else null;
     }
 
+    pub fn setTestRunner(self: *LibExeObjStep, path: ?[]const u8) void {
+        assert(self.kind == .@"test" or self.kind == .test_exe);
+        self.test_runner = if (path) |p| self.builder.dupePath(p) else null;
+    }
+
     /// Handy when you have many C/C++ source files and want them all to have the same flags.
     pub fn addCSourceFiles(self: *LibExeObjStep, files: []const []const u8, flags: []const []const u8) void {
         const c_source_files = self.builder.allocator.create(CSourceFiles) catch unreachable;
