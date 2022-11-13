@@ -3021,6 +3021,10 @@ fn buildOutputType(
         });
         try test_exec_args.append(self_exe_path);
         try test_exec_args.append("run");
+        if (zig_lib_directory.path) |p| {
+            try test_exec_args.appendSlice(&.{ "-I", p });
+        }
+
         if (link_libc) try test_exec_args.append("-lc");
         if (!mem.eql(u8, target_arch_os_abi, "native")) {
             try test_exec_args.append("-target");

@@ -1812,6 +1812,9 @@ pub const TestContext = struct {
                                 "-lc",
                                 exe_path,
                             });
+                            if (zig_lib_directory.path) |p| {
+                                try argv.appendSlice(&.{ "-I", p });
+                            }
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                             .native => try argv.append(exe_path),
                             .bad_dl, .bad_os_or_cpu => continue :update, // Pass test.
