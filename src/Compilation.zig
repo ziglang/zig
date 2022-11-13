@@ -1042,6 +1042,11 @@ pub const InitOptions = struct {
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
+    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+    /// paths when consolidating CodeView streams into a single PDB file.
+    pdb_source_path: ?[]const u8 = null,
+    /// (Windows) PDB output path
+    pdb_out_path: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1892,6 +1897,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_undefined_symbols = .{},
+            .pdb_source_path = pdb_source_path,
+            .pdb_out_path = options.pdb_out_path,
         });
         errdefer bin_file.destroy();
         comp.* = .{

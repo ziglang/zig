@@ -223,6 +223,9 @@ pub const Options = struct {
     /// paths when consolidating CodeView streams into a single PDB file.
     pdb_source_path: ?[]const u8 = null,
 
+    /// (Windows) PDB output path
+    pdb_out_path: ?[]const u8 = null,
+
     /// (Windows) .def file to specify when linking
     module_definition_file: ?[]const u8 = null,
 

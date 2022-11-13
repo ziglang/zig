@@ -99,7 +99,7 @@ pub fn build(b: *Builder) !void {
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
     const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
-    const disable_zstd = b.option(bool, "disable-zstd", "Skip linking zstd") orelse false;
+    const disable_libcpp = b.option(bool, "disable-libcpp", "Skip building/linking libcpp") orelse false;
 
     if (!skip_install_lib_files) {
         b.installDirectory(InstallDirectoryOptions{
@@ -278,8 +278,8 @@ pub fn build(b: *Builder) !void {
             try addCmakeCfgOptionsToExe(b, cfg, test_cases, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
-            try addStaticLlvmOptionsToExe(exe, !disable_zstd);
-            try addStaticLlvmOptionsToExe(test_cases, !disable_zstd);
+            try addStaticLlvmOptionsToExe(exe);
+            try addStaticLlvmOptionsToExe(test_cases);
         }
         if (target.isWindows()) {
             inline for (.{ exe, test_cases }) |artifact| {
@@ -607,7 +607,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep, link_zstd: bool) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -629,10 +629,7 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep, link_zstd: bool) !vo
     }
 
     exe.linkSystemLibrary("z");
-
-    if (link_zstd) {
-        exe.linkSystemLibrary("zstd");
-    }
+    exe.linkSystemLibrary("zstd");
 
     if (exe.target.getOs().tag != .windows or exe.target.getAbi() != .msvc) {
         // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.

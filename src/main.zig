@@ -782,6 +782,7 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var reference_trace: ?u32 = null;
+    var pdb_out_path: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -1541,7 +1542,10 @@ fn buildOutputType(
                     .no_stack_protector => want_stack_protector = 0,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
-                    .nostdlib => ensure_libc_on_non_freestanding = false,
+                    .nostdlib => {
+                        ensure_libc_on_non_freestanding = false;
+                        ensure_libcpp_on_non_freestanding = false;
+                    },
                     .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
                     .shared => {
                         link_mode = .Dynamic;
@@ -2120,6 +2124,24 @@ fn buildOutputType(
                             next_arg,
                         });
                     };
+                } else if (mem.startsWith(u8, arg, "/subsystem:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    subsystem = try parseSubSystem(split_it.first());
+                } else if (mem.startsWith(u8, arg, "/implib:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    emit_implib = .{ .yes = split_it.first() };
+                    emit_implib_arg_provided = true;
+                } else if (mem.startsWith(u8, arg, "/pdb:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    pdb_out_path = split_it.first();
+                } else if (mem.startsWith(u8, arg, "/version:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    const version_arg = split_it.first();
+                    version = std.builtin.Version.parse(version_arg) catch |err| {
+                        fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+
+                    have_version = true;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -3069,6 +3091,7 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .reference_trace = reference_trace,
+        .pdb_out_path = pdb_out_path,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

@@ -92,6 +92,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB off CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_ENABLE_ZSTD on CACHE BOOL "Enable linking zstd")
+set(ZIG_ENABLE_LIBCPP on CACHE BOOL "Enable linking libcpp")
 set(ZIG_STATIC_ZSTD off CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache")
 
