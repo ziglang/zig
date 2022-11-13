@@ -478,9 +478,15 @@ const LineNumberProgram = struct {
             if (file_entry.dir_index >= self.include_dirs.len) return badDwarf();
             const dir_name = self.include_dirs[file_entry.dir_index].path;
 
-            const file_name = try fs.path.join(allocator, &[_][]const u8{
-                dir_name, file_entry.path,
-            });
+            // This will break when the system running this code has different
+            // path separators than what generated the debug info. This was deemed
+            // acceptable as this code is really only designed to be used in
+            // combination with std.debug
+            const parts = if (file_entry.dir_index > 0 and !fs.path.isAbsolute(dir_name))
+                &[_][]const u8{ self.include_dirs[0].path, dir_name, file_entry.path }
+            else
+                &[_][]const u8{ dir_name, file_entry.path };
+            const file_name = try fs.path.join(allocator, parts);
 
             return debug.LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
