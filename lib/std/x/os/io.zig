@@ -95,6 +95,21 @@ pub const Reactor = struct {
         };
     }
 
+    pub fn remove(self: Reactor, fd: os.fd_t) !void {
+        // directly from man epoll_ctl BUGS section
+        // In  kernel versions before 2.6.9, the EPOLL_CTL_DEL operation re‐
+        // quired a non-null pointer in event, even though this argument  is
+        // ignored.   Since Linux 2.6.9, event can be specified as NULL when
+        // using EPOLL_CTL_DEL.  Applications that need to  be  portable  to
+        // kernels before 2.6.9 should specify a non-null pointer in event.
+        var event = linux.epoll_event{
+            .events = 0,
+            .data = .{ .ptr = 0 },
+        };
+
+        return os.epoll_ctl(self.fd, linux.EPOLL.CTL_DEL, fd, &event);
+    }
+
     pub fn poll(self: Reactor, comptime max_num_events: comptime_int, closure: anytype, timeout_milliseconds: ?u64) !void {
         var events: [max_num_events]linux.epoll_event = undefined;
 
@@ -203,4 +218,7 @@ test "reactor/linux: drive async tcp client/listener pair" {
             }, event);
         }
     }, null);
+
+    try reactor.remove(client.socket.fd);
+    try reactor.remove(listener.socket.fd);
 }
