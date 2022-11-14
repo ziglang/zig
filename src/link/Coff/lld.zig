@@ -439,32 +439,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                                 try argv.append("-ENTRY:wWinMainCRTStartup");
                             }
                         } else {
-                            // If the crt isn't being linked, it won't provide the CRT startup methods that
-                            // call through to the user-provided entrypoint. Instead, choose the entry point
-                            // that the CRT methods would have called. Note that this differs from the behaviour
-                            // of link.exe (which still tries to use the CRT methods in this case), but this
-                            // fixes CMake compiler checks when using zig cc on Windows, as Windows-Clang.cmake
-                            // does not specify /entry:main
-
-                            // TODO: I think the correct thing to do in this case would be to inspect the object
-                            // being linked (like link.exe / lld-link does) and detect which symbols are available.
-                            // This would allow detection of the w variants, as well as the crt methods.
-                            if (resolved_subsystem) |subsystem| {
-                                switch (subsystem) {
-                                    .Console => {
-                                        // The default is to call mainCRTStartup/wmainCRTStartup, which calls main/wmain
-                                        try argv.append("-ENTRY:main");
-                                    },
-                                    .Windows => {
-                                        // The default is to call WinMainCRTStartup/wWinMainCRTStartup, which calls WinMain/wWinMain
-                                        try argv.append("-ENTRY:WinMain");
-                                    },
-                                    else => {}
-                                }
-                            }
-
-                            // when no /entry is specified, lld-link will infer it based on which functions
-                            // are present in the object being linked - see lld/COFF/Driver.cpp#LinkerDriver::findDefaultEntry
+                            try argv.append("-ENTRY:wWinMainCRTStartup");
                         }
                     }
                 }
