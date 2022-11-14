@@ -1523,6 +1523,21 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
     return syscall4(.timerfd_settime, @bitCast(usize, @as(isize, fd)), flags, @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
+// Flags for the 'setitimer' system call
+pub const ITIMER = enum(i32) {
+    REAL = 0,
+    VIRTUAL = 1,
+    PROF = 2,
+};
+
+pub fn getitimer(which: i32, curr_value: *itimerspec) usize {
+    return syscall2(.getitimer, @bitCast(usize, @as(isize, which)), @ptrToInt(curr_value));
+}
+
+pub fn setitimer(which: i32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall3(.setitimer, @bitCast(usize, @as(isize, which)), @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
 pub fn unshare(flags: usize) usize {
     return syscall1(.unshare, flags);
 }
