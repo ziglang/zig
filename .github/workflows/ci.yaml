@@ -5,18 +5,13 @@ on:
     branches:
       - master
 jobs:
-  # linux:
-  #   runs-on: [self-hosted, Linux, aarch64]
-  #   env: 
-  #     ARCH: "aarch64"
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-      
-  #     - name: Test
-  #       run: echo "Success!"
-      # - name: Run Build Script
-      #   run: sh ./ci/linux/build.sh
+  linux-aarch64:
+    runs-on: [self-hosted, Linux, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Run Build Script
+        run: sh ./ci/linux/build-aarch64.sh
   macos-x86_64:
     strategy:
       matrix:
