@@ -317,7 +317,6 @@ fn isMuslArchName(name: []const u8) bool {
 
 const Ext = enum {
     assembly,
-    normal,
     o3,
 };
 
