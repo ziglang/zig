@@ -158,7 +158,7 @@ test {
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
-    _ = @import("behavior/int_div.zig");
+    _ = @import("behavior/int_comparison_elision.zig");
     _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/math.zig");

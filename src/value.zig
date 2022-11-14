@@ -1756,17 +1756,8 @@ pub const Value = extern union {
                 const info = ty.intInfo(target);
 
                 var buffer: Value.BigIntSpace = undefined;
-                const operand_bigint = val.toBigInt(&buffer, target);
-
-                var limbs_buffer: [4]std.math.big.Limb = undefined;
-                var result_bigint = BigIntMutable{
-                    .limbs = &limbs_buffer,
-                    .positive = undefined,
-                    .len = undefined,
-                };
-                result_bigint.popCount(operand_bigint, info.bits);
-
-                return result_bigint.toConst().to(u64) catch unreachable;
+                const int = val.toBigInt(&buffer, target);
+                return @intCast(u64, int.popCount(info.bits));
             },
         }
     }
