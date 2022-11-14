@@ -48,7 +48,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
                     try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" }),
                 });
             },
-            .assembly => {},
+            .assembly_with_cpp => {},
             else => unreachable, // You can see the entire list of files just above.
         }
         try cflags.append("-I");

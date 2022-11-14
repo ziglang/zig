@@ -192,12 +192,30 @@ pub const CRTFile = struct {
     }
 };
 
+// supported languages for "zig clang -x <lang>".
+// Loosely based on llvm-project/clang/include/clang/Driver/Types.def
+pub const LangToExt = std.ComptimeStringMap(FileExt, .{
+    .{ "c", .c },
+    .{ "c-header", .h },
+    .{ "c++", .cpp },
+    .{ "c++-header", .h },
+    .{ "objective-c", .m },
+    .{ "objective-c-header", .h },
+    .{ "objective-c++", .mm },
+    .{ "objective-c++-header", .h },
+    .{ "assembler", .assembly },
+    .{ "assembler-with-cpp", .assembly_with_cpp },
+    .{ "cuda", .cu },
+});
+
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
     /// Same as extra_flags except they are not added to the Cache hash.
     cache_exempt_flags: []const []const u8 = &.{},
+    // this field is non-null iff language was explicitly set with "-x lang".
+    ext: ?FileExt = null,
 };
 
 const Job = union(enum) {
@@ -2612,6 +2630,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     for (comp.c_object_table.keys()) |key| {
         _ = try man.addFile(key.src.src_path, null);
+        man.hash.addOptional(key.src.ext);
         man.hash.addListOfBytes(key.src.extra_flags);
     }
 
@@ -3926,14 +3945,23 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             break :e o_ext;
         };
         const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, out_ext });
+        const ext = c_object.src.ext orelse classifyFileExt(c_object.src.src_path);
 
-        try argv.appendSlice(&[_][]const u8{
-            self_exe_path,
-            "clang",
-            c_object.src.src_path,
-        });
-
-        const ext = classifyFileExt(c_object.src.src_path);
+        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
+        // if "ext" is explicit, add "-x <lang>". Otherwise let clang do its thing.
+        if (c_object.src.ext != null) {
+            try argv.appendSlice(&[_][]const u8{ "-x", switch (ext) {
+                .assembly => "assembler",
+                .assembly_with_cpp => "assembler-with-cpp",
+                .c => "c",
+                .cpp => "c++",
+                .cu => "cuda",
+                .m => "objective-c",
+                .mm => "objective-c++",
+                else => fatal("language '{s}' is unsupported in this context", .{@tagName(ext)}),
+            } });
+        }
+        try argv.append(c_object.src.src_path);
 
         // When all these flags are true, it means that the entire purpose of
         // this compilation is to perform a single zig cc operation. This means
@@ -4395,7 +4423,7 @@ pub fn addCCArgs(
             }
         },
         .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig => {},
-        .assembly => {
+        .assembly, .assembly_with_cpp => {
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
             // all CPU features here.
@@ -4535,6 +4563,7 @@ pub const FileExt = enum {
     ll,
     bc,
     assembly,
+    assembly_with_cpp,
     shared_library,
     object,
     static_library,
@@ -4549,6 +4578,7 @@ pub const FileExt = enum {
             .ll,
             .bc,
             .assembly,
+            .assembly_with_cpp,
             .shared_library,
             .object,
             .static_library,
@@ -4586,10 +4616,6 @@ pub fn hasObjCExt(filename: []const u8) bool {
 
 pub fn hasObjCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".mm");
-}
-
-pub fn hasAsmExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".s") or mem.endsWith(u8, filename, ".S");
 }
 
 pub fn hasSharedLibraryExt(filename: []const u8) bool {
@@ -4632,8 +4658,10 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .ll;
     } else if (mem.endsWith(u8, filename, ".bc")) {
         return .bc;
-    } else if (hasAsmExt(filename)) {
+    } else if (mem.endsWith(u8, filename, ".s")) {
         return .assembly;
+    } else if (mem.endsWith(u8, filename, ".S")) {
+        return .assembly_with_cpp;
     } else if (mem.endsWith(u8, filename, ".h")) {
         return .h;
     } else if (mem.endsWith(u8, filename, ".zig")) {
