@@ -374,7 +374,7 @@ pub const State = struct {
 
     const Halves = struct { l: u32, r: u32 };
 
-    fn halfRound(state: State, i: u32, j: u32, n: usize) u32 {
+    fn halfRound(state: *const State, i: u32, j: u32, n: usize) u32 {
         var r = state.sboxes[0][@truncate(u8, j >> 24)];
         r +%= state.sboxes[1][@truncate(u8, j >> 16)];
         r ^= state.sboxes[2][@truncate(u8, j >> 8)];
@@ -382,7 +382,7 @@ pub const State = struct {
         return i ^ r ^ state.subkeys[n];
     }
 
-    fn encipher(state: State, halves: *Halves) void {
+    fn encipher(state: *const State, halves: *Halves) void {
         halves.l ^= state.subkeys[0];
         comptime var i = 1;
         inline while (i < 16) : (i += 2) {
@@ -393,7 +393,7 @@ pub const State = struct {
         halves.* = halves_last;
     }
 
-    fn encrypt(state: State, data: []u32) void {
+    fn encrypt(state: *const State, data: []u32) void {
         debug.assert(data.len % 2 == 0);
         var i: usize = 0;
         while (i < data.len) : (i += 2) {
