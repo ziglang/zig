@@ -38,7 +38,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
     }
     cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
-    if (builtin.os.tag != .wasi) {
+
+    if (builtin.os.tag != .wasi and
+        // https://github.com/ziglang/zig/issues/13550
+        (builtin.os.tag != .macos or builtin.cpu.arch != .aarch64))
+    {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
 
