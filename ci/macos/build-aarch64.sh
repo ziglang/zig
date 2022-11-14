@@ -25,7 +25,7 @@ git fetch --tags
 
 mkdir build
 cd build
-$HOME/local/bin/cmake .. \
+PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
