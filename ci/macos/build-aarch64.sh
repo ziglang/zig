@@ -13,17 +13,7 @@ TARGET="$ARCH-macos-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4560+828735ac0"
 PREFIX="$HOME/$CACHE_BASENAME"
-JOBS="-j2"
-
-rm -rf $PREFIX
-cd $HOME
-
-curl -O "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
-tar xf "$CACHE_BASENAME.tar.xz"
-
 ZIG="$PREFIX/bin/zig"
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cd $ZIGDIR
 
@@ -35,20 +25,18 @@ git fetch --tags
 
 mkdir build
 cd build
-cmake .. \
+$HOME/local/bin/cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
+  -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON \
+  -GNinja
 
-# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
-# so that installation and testing do not get affected by them.
-unset CC
-unset CXX
-
-make $JOBS install
+$HOME/local/bin/ninja install
 
 stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
