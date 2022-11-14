@@ -7,23 +7,14 @@ set -x
 set -e
 
 ZIGDIR="$(pwd)"
+ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4560+828735ac0"
-PREFIX="$HOME/$CACHE_BASENAME"
-JOBS="-j2"
-
-rm -rf $PREFIX
-cd $HOME
-
-wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
-tar xf "$CACHE_BASENAME.tar.xz"
-
+PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig" 
 
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-export PATH=$DEPS_LOCAL/bin:$PATH
+export PATH="$HOME/deps/wasmtime-v2.0.2-aarch64-linux:$PATH"
 
 mkdir build-release
 cd build-release
@@ -31,20 +22,18 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
+  -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -GNinja
 
-# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
-# so that installation and testing do not get affected by them.
-unset CC
-unset CXX
-
 ninja install
 
+# TODO: add -fqemu back to this line
+
 stage3-release/bin/zig build test docs \
-  -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
@@ -63,6 +52,3 @@ stage3-release/bin/zig test ../lib/std/std.zig \
 
 # # Look for HTML errors.
 # tidy --drop-empty-elements no -qe $RELEASE_STAGING/doc/langref.html
-
-# Explicit exit helps show last command duration.
-exit
