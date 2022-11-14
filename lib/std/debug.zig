@@ -884,8 +884,11 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
         defer allocator.free(path);
 
+        const unc_path = try std.fmt.allocPrint(allocator, "\\??\\{s}{s}", .{if (path[0] == '\\') "UNC" else "", path});
+        defer allocator.free(unc_path);
+
         di.debug_data = PdbOrDwarf{ .pdb = undefined };
-        di.debug_data.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
+        di.debug_data.pdb = pdb.Pdb.init(allocator, unc_path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1354,19 +1357,25 @@ pub const DebugInfo = struct {
 
                 var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
                 // openFileAbsoluteW requires the prefix to be present
-                mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+                mem.copy(u16, name_buffer[0..7], &[_]u16{ '\\', '?', '?', '\\', 'U', 'N', 'C' });
                 const len = windows.kernel32.K32GetModuleFileNameExW(
                     process_handle,
                     module,
-                    @ptrCast(windows.LPWSTR, &name_buffer[4]),
+                    @ptrCast(windows.LPWSTR, &name_buffer[7]),
                     windows.PATH_MAX_WIDE,
                 );
                 assert(len > 0);
+                var begin: usize = 0;
+                if (name_buffer[7] != '\\') {
+                    begin = 3;
+                    std.mem.copy(u16, name_buffer[3..7], &[_]u16{ '\\', '?', '?', '\\' });
+                }
+                var name_w16 = std.mem.collapseRepeats(u16, name_buffer[begin..len+7], '\\');
 
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                const coff_file = fs.openFileAbsoluteW(name_w16, .{}) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
