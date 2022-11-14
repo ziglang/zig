@@ -1723,7 +1723,8 @@ pub const TestContext = struct {
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
                                         std.mem.eql(u8, expected_msg, actual_msg.msg) and
-                                        case_msg.src.kind == .note)
+                                        case_msg.src.kind == .note and
+                                        actual_msg.count == case_msg.src.count)
                                     {
                                         handled_errors[i] = true;
                                         break;
@@ -1733,7 +1734,8 @@ pub const TestContext = struct {
                                     if (ex_tag != .plain) continue;
 
                                     if (std.mem.eql(u8, case_msg.plain.msg, plain.msg) and
-                                        case_msg.plain.kind == .note)
+                                        case_msg.plain.kind == .note and
+                                        case_msg.plain.count == plain.count)
                                     {
                                         handled_errors[i] = true;
                                         break;
