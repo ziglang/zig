@@ -687,7 +687,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(macho_file, .{
-            .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+            .type = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -906,7 +906,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = true,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
@@ -922,7 +922,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = false,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
@@ -949,7 +949,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = true,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => .got_page,
@@ -966,7 +966,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = false,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => .got_pageoff,

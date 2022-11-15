@@ -596,7 +596,7 @@ fn resolveRelocsArm64(
         const is_tlv = is_tlv: {
             const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
-            break :is_tlv header.@"type"() == macho.S_THREAD_LOCAL_VARIABLES;
+            break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
         };
         const target_addr = try getRelocTargetAddress(zld, rel, target, is_tlv);
 
@@ -877,7 +877,7 @@ fn resolveRelocsX86(
         const is_tlv = is_tlv: {
             const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
-            break :is_tlv header.@"type"() == macho.S_THREAD_LOCAL_VARIABLES;
+            break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
         };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});

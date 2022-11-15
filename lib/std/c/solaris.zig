@@ -24,20 +24,20 @@ pub const pthread_mutex_t = extern struct {
     flag1: u16 = 0,
     flag2: u8 = 0,
     ceiling: u8 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x4d58,
     lock: u64 = 0,
     data: u64 = 0,
 };
 pub const pthread_cond_t = extern struct {
     flag: [4]u8 = [_]u8{0} ** 4,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x4356,
     data: u64 = 0,
 };
 pub const pthread_rwlock_t = extern struct {
     readers: i32 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x5257,
     mutex: pthread_mutex_t = .{},
     readercv: pthread_cond_t = .{},
@@ -50,7 +50,7 @@ pub const pthread_key_t = c_int;
 
 pub const sem_t = extern struct {
     count: u32 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x534d,
     __pad1: [3]u64 = [_]u64{0} ** 3,
     __pad2: [2]u64 = [_]u64{0} ** 2,
@@ -1683,7 +1683,7 @@ pub const _SC = struct {
 pub const procfs = struct {
     pub const misc_header = extern struct {
         size: u32,
-        @"type": enum(u32) {
+        type: enum(u32) {
             Pathname,
             Socketname,
             Peersockname,
@@ -1851,7 +1851,7 @@ pub const lifreq = extern struct {
         ppa: u32,
     },
     /// One of the IFT types, e.g. IFT_ETHER.
-    @"type": u32,
+    type: u32,
     ifru: extern union {
         /// Address.
         addr: sockaddr.storage,

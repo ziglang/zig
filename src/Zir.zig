@@ -2367,7 +2367,7 @@ pub const Inst = struct {
             },
 
             .undef = .{
-                .ty = Type.initTag(.@"undefined"),
+                .ty = Type.initTag(.undefined),
                 .val = Value.initTag(.undef),
             },
             .zero = .{
@@ -2395,7 +2395,7 @@ pub const Inst = struct {
                 .val = Value.initTag(.unreachable_value),
             },
             .null_value = .{
-                .ty = Type.initTag(.@"null"),
+                .ty = Type.initTag(.null),
                 .val = Value.initTag(.null_value),
             },
             .bool_true = .{

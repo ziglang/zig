@@ -337,7 +337,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = packed struct {
-        @"void": void = {},
+        void: void = {},
         uint: u8 = 13,
         uint_bit_aligned: u3 = 2,
         iint_pos: i4 = 1,

@@ -10723,7 +10723,7 @@ fn ccAbiPromoteInt(
         else => {},
     }
     const int_info = switch (ty.zigTypeTag()) {
-        .Bool => Type.@"u1".intInfo(target),
+        .Bool => Type.u1.intInfo(target),
         .Int, .Enum, .ErrorSet => ty.intInfo(target),
         else => return null,
     };

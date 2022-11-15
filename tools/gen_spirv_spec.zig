@@ -193,7 +193,6 @@ fn renderOpcodes(
         try renderOperand(writer, .instruction, inst.opname, inst.operands, extended_structs);
     }
     try writer.writeAll("};\n}\n};\n");
-    _ = extended_structs;
 }
 
 fn renderOperandKinds(

@@ -1005,7 +1005,7 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         };
         const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         try atom.addRelocation(macho_file, .{
-            .@"type" = reloc_type,
+            .type = reloc_type,
             .target = .{ .sym_index = relocation.sym_index, .file = null },
             .offset = @intCast(u32, end_offset - 4),
             .addend = 0,
@@ -1015,7 +1015,7 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         try atom.addRelocation(coff_file, .{
-            .@"type" = switch (ops.flags) {
+            .type = switch (ops.flags) {
                 0b00 => .got,
                 0b01 => .direct,
                 0b10 => .import,
@@ -1145,7 +1145,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(macho_file, .{
-            .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+            .type = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -1157,7 +1157,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = coff_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(coff_file, .{
-            .@"type" = .direct,
+            .type = .direct,
             .target = target,
             .offset = offset,
             .addend = 0,

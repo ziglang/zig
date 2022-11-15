@@ -13,7 +13,7 @@ const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
-@"type": u4,
+type: u4,
 target: SymbolWithLoc,
 offset: u32,
 addend: i64,
@@ -23,22 +23,22 @@ dirty: bool = true,
 
 pub fn fmtType(self: Relocation, target: std.Target) []const u8 {
     switch (target.cpu.arch) {
-        .aarch64 => return @tagName(@intToEnum(macho.reloc_type_arm64, self.@"type")),
-        .x86_64 => return @tagName(@intToEnum(macho.reloc_type_x86_64, self.@"type")),
+        .aarch64 => return @tagName(@intToEnum(macho.reloc_type_arm64, self.type)),
+        .x86_64 => return @tagName(@intToEnum(macho.reloc_type_x86_64, self.type)),
         else => unreachable,
     }
 }
 
 pub fn getTargetAtom(self: Relocation, macho_file: *MachO) ?*Atom {
     switch (macho_file.base.options.target.cpu.arch) {
-        .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, self.@"type")) {
+        .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, self.type)) {
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
             .ARM64_RELOC_POINTER_TO_GOT,
             => return macho_file.getGotAtomForSymbol(self.target),
             else => {},
         },
-        .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, self.@"type")) {
+        .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, self.type)) {
             .X86_64_RELOC_GOT,
             .X86_64_RELOC_GOT_LOAD,
             => return macho_file.getGotAtomForSymbol(self.target),
@@ -79,7 +79,7 @@ fn resolveAarch64(
     target_addr: i64,
     base_offset: u64,
 ) !void {
-    const rel_type = @intToEnum(macho.reloc_type_arm64, self.@"type");
+    const rel_type = @intToEnum(macho.reloc_type_arm64, self.type);
     if (rel_type == .ARM64_RELOC_UNSIGNED) {
         var buffer: [@sizeOf(u64)]u8 = undefined;
         const code = blk: {
@@ -232,7 +232,7 @@ fn resolveX8664(
     target_addr: i64,
     base_offset: u64,
 ) !void {
-    const rel_type = @intToEnum(macho.reloc_type_x86_64, self.@"type");
+    const rel_type = @intToEnum(macho.reloc_type_x86_64, self.type);
     var buffer: [@sizeOf(u64)]u8 = undefined;
     const code = blk: {
         switch (rel_type) {

@@ -446,7 +446,7 @@ fn gen(self: *Self) !void {
             .data = .{
                 .arithmetic_2op = .{
                     .is_imm = true,
-                    .rs1 = .@"i7",
+                    .rs1 = .i7,
                     .rs2_or_imm = .{ .imm = 8 },
                 },
             },

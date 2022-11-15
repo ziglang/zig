@@ -2868,7 +2868,7 @@ fn deferStmt(
             .name = ident_name,
             .inst = remapped_err_code_ref,
             .token_src = payload_token,
-            .id_cat = .@"capture",
+            .id_cat = .capture,
         };
         try gz.addDbgVar(.dbg_var_val, ident_name, remapped_err_code_ref);
         break :blk &local_val_scope.base;
@@ -5353,7 +5353,7 @@ fn orelseCatchExpr(
         }
         const err_name = try astgen.identAsString(payload);
 
-        try astgen.detectLocalShadowing(scope, err_name, payload, err_str, .@"capture");
+        try astgen.detectLocalShadowing(scope, err_name, payload, err_str, .capture);
 
         err_val_scope = .{
             .parent = &else_scope.base,
@@ -5361,7 +5361,7 @@ fn orelseCatchExpr(
             .name = err_name,
             .inst = try else_scope.addUnNode(unwrap_code_op, operand, node),
             .token_src = payload,
-            .id_cat = .@"capture",
+            .id_cat = .capture,
         };
         break :blk &err_val_scope.base;
     };
@@ -5698,14 +5698,14 @@ fn ifExpr(
                 const token_name_str = tree.tokenSlice(token_name_index);
                 if (mem.eql(u8, "_", token_name_str))
                     break :s &then_scope.base;
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str, .@"capture");
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = payload_token,
-                    .id_cat = .@"capture",
+                    .id_cat = .capture,
                 };
                 try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
                 break :s &payload_val_scope.base;
@@ -5724,14 +5724,14 @@ fn ifExpr(
                 break :s &then_scope.base;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
             const ident_name = try astgen.identAsString(ident_token);
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .@"capture");
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
                 .name = ident_name,
                 .inst = payload_inst,
                 .token_src = ident_token,
-                .id_cat = .@"capture",
+                .id_cat = .capture,
             };
             try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
             break :s &payload_val_scope.base;
@@ -5775,14 +5775,14 @@ fn ifExpr(
                 const error_token_str = tree.tokenSlice(error_token);
                 if (mem.eql(u8, "_", error_token_str))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, error_token_str, .@"capture");
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, error_token_str, .capture);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = error_token,
-                    .id_cat = .@"capture",
+                    .id_cat = .capture,
                 };
                 try else_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
                 break :s &payload_val_scope.base;
@@ -6045,14 +6045,14 @@ fn whileExpr(
                     break :s &then_scope.base;
                 const payload_name_loc = payload_token + @boolToInt(payload_is_ref);
                 const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .@"capture");
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = indexToRef(payload_inst),
                     .token_src = payload_token,
-                    .id_cat = .@"capture",
+                    .id_cat = .capture,
                 };
                 dbg_var_name = ident_name;
                 dbg_var_inst = indexToRef(payload_inst);
@@ -6073,14 +6073,14 @@ fn whileExpr(
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .@"capture");
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
                 .name = ident_name,
                 .inst = indexToRef(payload_inst),
                 .token_src = ident_token,
-                .id_cat = .@"capture",
+                .id_cat = .capture,
             };
             dbg_var_name = ident_name;
             dbg_var_inst = indexToRef(payload_inst);
@@ -6154,14 +6154,14 @@ fn whileExpr(
                 const ident_bytes = tree.tokenSlice(error_token);
                 if (mem.eql(u8, ident_bytes, "_"))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, ident_bytes, .@"capture");
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, ident_bytes, .capture);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
                     .name = ident_name,
                     .inst = else_payload_inst,
                     .token_src = error_token,
-                    .id_cat = .@"capture",
+                    .id_cat = .capture,
                 };
                 try else_scope.addDbgVar(.dbg_var_val, ident_name, else_payload_inst);
                 break :s &payload_val_scope.base;
@@ -6326,14 +6326,14 @@ fn forExpr(
                 .lhs = array_ptr,
                 .rhs = index,
             });
-            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .@"capture");
+            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .capture);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
                 .name = name_str_index,
                 .inst = payload_inst,
                 .token_src = ident,
-                .id_cat = .@"capture",
+                .id_cat = .capture,
             };
             try then_scope.addDbgVar(.dbg_var_val, name_str_index, payload_inst);
             payload_sub_scope = &payload_val_scope.base;
@@ -6672,14 +6672,14 @@ fn switchExpr(
                     });
                 }
                 const capture_name = try astgen.identAsString(ident);
-                try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice, .@"capture");
+                try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice, .capture);
                 capture_val_scope = .{
                     .parent = &case_scope.base,
                     .gen_zir = &case_scope,
                     .name = capture_name,
                     .inst = indexToRef(capture_inst),
                     .token_src = payload_token,
-                    .id_cat = .@"capture",
+                    .id_cat = .capture,
                 };
                 dbg_var_name = capture_name;
                 dbg_var_inst = indexToRef(capture_inst);
@@ -10453,7 +10453,7 @@ const Scope = struct {
         @"local variable",
         @"loop index capture",
         @"switch tag capture",
-        @"capture",
+        capture,
     };
 
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.

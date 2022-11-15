@@ -185,7 +185,7 @@ const AbbrevEntryIterator = struct {
         self.pos += (math.cast(usize, creader.bytes_read) orelse return error.Overflow);
 
         if (kind == 0) {
-            return AbbrevEntry.@"null"();
+            return AbbrevEntry.null();
         }
 
         const abbrev_pos = lookup.get(kind) orelse return error.MalformedDwarf;

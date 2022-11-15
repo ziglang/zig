@@ -80,13 +80,13 @@ pub const Preopen = struct {
     fd: fd_t,
 
     /// Type of the preopen.
-    @"type": PreopenType,
+    type: PreopenType,
 
     /// Construct new `Preopen` instance.
     pub fn new(fd: fd_t, preopen_type: PreopenType) Preopen {
         return Preopen{
             .fd = fd,
-            .@"type" = preopen_type,
+            .type = preopen_type,
         };
     }
 };
@@ -125,7 +125,7 @@ pub const PreopenList = struct {
     /// Release all allocated memory.
     pub fn deinit(pm: Self) void {
         for (pm.buffer.items) |preopen| {
-            switch (preopen.@"type") {
+            switch (preopen.type) {
                 PreopenType.Dir => |path| pm.buffer.allocator.free(path),
             }
         }
@@ -161,7 +161,7 @@ pub const PreopenList = struct {
 
         // Clear contents if we're being called again
         for (self.toOwnedSlice()) |preopen| {
-            switch (preopen.@"type") {
+            switch (preopen.type) {
                 PreopenType.Dir => |path| self.buffer.allocator.free(path),
             }
         }
@@ -226,7 +226,7 @@ pub const PreopenList = struct {
         var best_match: ?PreopenUri = null;
 
         for (self.buffer.items) |preopen| {
-            if (preopen.@"type".getRelativePath(preopen_type)) |rel_path| {
+            if (preopen.type.getRelativePath(preopen_type)) |rel_path| {
                 if (best_match == null or rel_path.len <= best_match.?.relative_path.len) {
                     best_match = PreopenUri{
                         .base = preopen,
@@ -253,7 +253,7 @@ pub const PreopenList = struct {
     /// Otherwise, return `null`.
     pub fn find(self: Self, preopen_type: PreopenType) ?*const Preopen {
         for (self.buffer.items) |*preopen| {
-            if (preopen.@"type".eql(preopen_type)) {
+            if (preopen.type.eql(preopen_type)) {
                 return preopen;
             }
         }
@@ -280,7 +280,7 @@ test "extracting WASI preopens" {
     try preopens.populate(null);
 
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
-    try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
+    try std.testing.expect(preopen.type.eql(PreopenType{ .Dir = "." }));
 
     const po_type1 = PreopenType{ .Dir = "/" };
     try std.testing.expect(std.mem.eql(u8, po_type1.getRelativePath(.{ .Dir = "/" }).?, ""));

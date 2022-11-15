@@ -150,7 +150,7 @@ const MCValue = union(enum) {
     /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
     /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
     /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-    linker_load: struct { @"type": enum { got, direct, import }, sym_index: u32 },
+    linker_load: struct { type: enum { got, direct, import }, sym_index: u32 },
     /// The value is one of the stack variables.
     ///
     /// If the type is a pointer, it means the pointer address is in
@@ -4024,7 +4024,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             },
                             .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
                             .linker_load => |load_struct| {
-                                const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
+                                const tag: Mir.Inst.Tag = switch (load_struct.type) {
                                     .got => .load_memory_ptr_got,
                                     .direct => .load_memory_ptr_direct,
                                     .import => unreachable,
@@ -4347,7 +4347,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
-                        .@"type" = .got,
+                        .type = .got,
                         .sym_index = fn_owner_decl.link.macho.sym_index,
                     },
                 });
@@ -4385,7 +4385,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
-                        .@"type" = .got,
+                        .type = .got,
                         .sym_index = fn_owner_decl.link.coff.sym_index,
                     },
                 });
@@ -4406,7 +4406,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
-                        .@"type" = .import,
+                        .type = .import,
                         .sym_index = sym_index,
                     },
                 });
@@ -5534,7 +5534,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     },
                     .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
                     .linker_load => |load_struct| {
-                        const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
+                        const tag: Mir.Inst.Tag = switch (load_struct.type) {
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
@@ -5648,7 +5648,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .register_with_overflow => unreachable, // doesn't fit into a register
         .linker_load => |load_struct| {
-            const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
+            const tag: Mir.Inst.Tag = switch (load_struct.type) {
                 .got => .load_memory_got,
                 .direct => .load_memory_direct,
                 .import => .load_memory_import,
@@ -5842,7 +5842,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                     },
                     .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
                     .linker_load => |load_struct| {
-                        const tag: Mir.Inst.Tag = switch (load_struct.@"type") {
+                        const tag: Mir.Inst.Tag = switch (load_struct.type) {
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
@@ -6168,7 +6168,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         // the linker has enough info to perform relocations.
         assert(decl.link.macho.sym_index != 0);
         return MCValue{ .linker_load = .{
-            .@"type" = .got,
+            .type = .got,
             .sym_index = decl.link.macho.sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
@@ -6176,7 +6176,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         // the linker has enough info to perform relocations.
         assert(decl.link.coff.sym_index != 0);
         return MCValue{ .linker_load = .{
-            .@"type" = .got,
+            .type = .got,
             .sym_index = decl.link.coff.sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
@@ -6198,12 +6198,12 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         return MCValue{ .memory = vaddr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         return MCValue{ .linker_load = .{
-            .@"type" = .direct,
+            .type = .direct,
             .sym_index = local_sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         return MCValue{ .linker_load = .{
-            .@"type" = .direct,
+            .type = .direct,
             .sym_index = local_sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
