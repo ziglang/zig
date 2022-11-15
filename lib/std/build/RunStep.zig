@@ -207,7 +207,7 @@ pub fn runCommand(
     const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root;
 
     if (!std.process.can_spawn) {
-        const cmd = try std.mem.join(builder.addInstallDirectory, " ", argv);
+        const cmd = try std.mem.join(builder.allocator, " ", argv);
         std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
         builder.allocator.free(cmd);
         return ExecError.ExecNotSupported;
