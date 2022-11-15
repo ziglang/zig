@@ -22476,13 +22476,12 @@ fn fieldVal(
                     );
                 },
                 .Union => {
-                    const union_ty = try sema.resolveTypeFields(child_type);
-
-                    if (union_ty.getNamespace()) |namespace| {
+                    if (child_type.getNamespace()) |namespace| {
                         if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
                             return inst;
                         }
                     }
+                    const union_ty = try sema.resolveTypeFields(child_type);
                     if (union_ty.unionTagType()) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
                             const field_index = @intCast(u32, field_index_usize);
