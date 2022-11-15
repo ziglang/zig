@@ -435,7 +435,7 @@ pub const fpu_t = extern struct {
 pub const mcontext_t = extern struct {
     gregs: gregset_t,
     fp: greg_t,
-    @"i7": greg_t,
+    i7: greg_t,
     fpregs: fpu_t,
 };
 

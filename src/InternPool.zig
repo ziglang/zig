@@ -168,9 +168,9 @@ pub const Simple = enum(u32) {
     null_type,
     undefined_type,
     enum_literal_type,
-    @"undefined",
+    undefined,
     void_value,
-    @"null",
+    null,
     bool_true,
     bool_false,
 };

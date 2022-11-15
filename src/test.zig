@@ -213,7 +213,7 @@ const TestManifestConfigDefaults = struct {
 ///
 /// build test
 const TestManifest = struct {
-    @"type": Type,
+    type: Type,
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
@@ -294,7 +294,7 @@ const TestManifest = struct {
         };
 
         var manifest: TestManifest = .{
-            .@"type" = tt,
+            .type = tt,
             .config_map = std.StringHashMap([]const u8).init(arena),
         };
 
@@ -320,7 +320,7 @@ const TestManifest = struct {
         key: []const u8,
         comptime T: type,
     ) ConfigValueIterator(T) {
-        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.@"type", key);
+        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
             .inner = std.mem.split(u8, bytes, ","),
         };
@@ -1157,7 +1157,7 @@ pub const TestContext = struct {
 
                 for (cases.items) |case_index| {
                     const case = &ctx.cases.items[case_index];
-                    switch (manifest.@"type") {
+                    switch (manifest.type) {
                         .@"error" => {
                             const errors = try manifest.trailingAlloc(ctx.arena);
                             switch (strategy) {

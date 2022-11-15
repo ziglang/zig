@@ -279,7 +279,7 @@ pub const E = errno_t;
 pub const event_t = extern struct {
     userdata: userdata_t,
     @"error": errno_t,
-    @"type": eventtype_t,
+    type: eventtype_t,
     fd_readwrite: eventfdreadwrite_t,
 };
 

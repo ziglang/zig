@@ -104,7 +104,7 @@ pub const Type = extern union {
                 }
                 return true;
             },
-            .@"function" => {
+            .function => {
                 const fn_a = a.payload(.function);
                 const fn_b = b.payload(.function);
                 if (fn_a.return_type != fn_b.return_type)

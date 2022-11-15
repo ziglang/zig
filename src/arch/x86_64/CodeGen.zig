@@ -132,7 +132,7 @@ pub const MCValue = union(enum) {
     /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
     /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
     /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-    linker_load: struct { @"type": enum { got, direct, import }, sym_index: u32 },
+    linker_load: struct { type: enum { got, direct, import }, sym_index: u32 },
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     stack_offset: i32,
@@ -2671,7 +2671,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
                 fn_owner_decl.link.macho.sym_index
             else
                 fn_owner_decl.link.coff.sym_index;
-            const flags: u2 = switch (load_struct.@"type") {
+            const flags: u2 = switch (load_struct.type) {
                 .got => 0b00,
                 .direct => 0b01,
                 .import => 0b10,
@@ -4010,7 +4010,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
-                        .@"type" = .got,
+                        .type = .got,
                         .sym_index = fn_owner_decl.link.coff.sym_index,
                     },
                 });
@@ -4034,7 +4034,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
-                        .@"type" = .import,
+                        .type = .import,
                         .sym_index = sym_index,
                     },
                 });
@@ -4070,7 +4070,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const sym_index = fn_owner_decl.link.macho.sym_index;
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
-                        .@"type" = .got,
+                        .type = .got,
                         .sym_index = sym_index,
                     },
                 });
@@ -6925,13 +6925,13 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         assert(decl.link.macho.sym_index != 0);
         return MCValue{ .linker_load = .{
-            .@"type" = .got,
+            .type = .got,
             .sym_index = decl.link.macho.sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         assert(decl.link.coff.sym_index != 0);
         return MCValue{ .linker_load = .{
-            .@"type" = .got,
+            .type = .got,
             .sym_index = decl.link.coff.sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
@@ -6953,12 +6953,12 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         return MCValue{ .memory = vaddr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         return MCValue{ .linker_load = .{
-            .@"type" = .direct,
+            .type = .direct,
             .sym_index = local_sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         return MCValue{ .linker_load = .{
-            .@"type" = .direct,
+            .type = .direct,
             .sym_index = local_sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {

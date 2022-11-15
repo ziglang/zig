@@ -607,7 +607,7 @@ pub const DeclGen = struct {
         if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
                 // bool b = 0xaa; evals to true, but memcpy(&b, 0xaa, 1); evals to false.
-                .Bool => return dg.renderValue(writer, ty, Value.@"false", location),
+                .Bool => return dg.renderValue(writer, ty, Value.false, location),
                 .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val)}),
                 .Float => {
                     const bits = ty.floatBits(target);
@@ -1958,7 +1958,7 @@ pub const DeclGen = struct {
             try buffer.appendSlice("  }\n");
         }
         try buffer.appendSlice(" }\n while (");
-        try dg.renderValue(bw, Type.bool, Value.@"true", .Other);
+        try dg.renderValue(bw, Type.bool, Value.true, .Other);
         try buffer.appendSlice(") ");
         _ = try airBreakpoint(bw);
         try buffer.appendSlice("}\n");
@@ -3784,7 +3784,7 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
     const body = f.air.extra[loop.end..][0..loop.data.body_len];
     const writer = f.object.writer();
     try writer.writeAll("while (");
-    try f.object.dg.renderValue(writer, Type.bool, Value.@"true", .Other);
+    try f.object.dg.renderValue(writer, Type.bool, Value.true, .Other);
     try writer.writeAll(") ");
     try genBody(f, body);
     try writer.writeByte('\n');
@@ -4079,19 +4079,19 @@ fn airIsNull(
     var slice_ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime())
-        TypedValue{ .ty = Type.bool, .val = Value.@"true" }
+        TypedValue{ .ty = Type.bool, .val = Value.true }
     else if (optional_ty.isPtrLikeOptional())
         // operand is a regular pointer, test `operand !=/== NULL`
-        TypedValue{ .ty = optional_ty, .val = Value.@"null" }
+        TypedValue{ .ty = optional_ty, .val = Value.null }
     else if (payload_ty.zigTypeTag() == .ErrorSet)
         TypedValue{ .ty = payload_ty, .val = Value.zero }
     else if (payload_ty.isSlice() and optional_ty.optionalReprIsPayload()) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf);
-        break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.@"null" };
+        break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.null };
     } else rhs: {
         try writer.writeAll(".is_null");
-        break :rhs TypedValue{ .ty = Type.bool, .val = Value.@"true" };
+        break :rhs TypedValue{ .ty = Type.bool, .val = Value.true };
     };
     try writer.writeByte(' ');
     try writer.writeAll(operator);
@@ -4179,7 +4179,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try f.writeCValueDeref(writer, operand);
     try writer.writeAll(".is_null = ");
-    try f.object.dg.renderValue(writer, Type.bool, Value.@"false", .Initializer);
+    try f.object.dg.renderValue(writer, Type.bool, Value.false, .Initializer);
     try writer.writeAll(";\n");
 
     const inst_ty = f.air.typeOfIndex(inst);
@@ -4518,7 +4518,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = { .payload = ");
     try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else payload, .Initializer);
     try writer.writeAll(", .is_null = ");
-    try f.object.dg.renderValue(writer, Type.bool, Value.@"false", .Initializer);
+    try f.object.dg.renderValue(writer, Type.bool, Value.false, .Initializer);
     try writer.writeAll(" };\n");
     if (is_array) {
         try writer.writeAll("memcpy(");
@@ -4846,7 +4846,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     try f.writeCValue(writer, expected_value, .Initializer);
     if (is_struct) {
         try writer.writeAll(", .is_null = ");
-        try f.object.dg.renderValue(writer, Type.bool, Value.@"false", .Initializer);
+        try f.object.dg.renderValue(writer, Type.bool, Value.false, .Initializer);
         try writer.writeAll(" }");
     }
     try writer.writeAll(";\n");

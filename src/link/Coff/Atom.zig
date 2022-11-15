@@ -94,7 +94,7 @@ pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
 
 pub fn addRelocation(self: *Atom, coff_file: *Coff, reloc: Relocation) !void {
     const gpa = coff_file.base.allocator;
-    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
+    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.type), reloc.target.sym_index });
     const gop = try coff_file.relocs.getOrPut(gpa, self);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};

@@ -324,7 +324,7 @@ pub const BaseRelocation = packed struct {
     offset: u12,
 
     /// Stored in the high 4 bits of the WORD, a value that indicates the type of base relocation to be applied.
-    @"type": BaseRelocationType,
+    type: BaseRelocationType,
 };
 
 pub const BaseRelocationType = enum(u4) {
@@ -393,7 +393,7 @@ pub const DebugDirectoryEntry = extern struct {
     time_date_stamp: u32,
     major_version: u16,
     minor_version: u16,
-    @"type": DebugType,
+    type: DebugType,
     size_of_data: u32,
     address_of_raw_data: u32,
     pointer_to_raw_data: u32,
@@ -650,7 +650,7 @@ pub const Symbol = struct {
     name: [8]u8,
     value: u32,
     section_number: SectionNumber,
-    @"type": SymType,
+    type: SymType,
     storage_class: StorageClass,
     number_of_aux_symbols: u8,
 
@@ -1309,7 +1309,7 @@ pub const Symtab = struct {
             .name = raw[0..8].*,
             .value = mem.readIntLittle(u32, raw[8..12]),
             .section_number = @intToEnum(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
-            .@"type" = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
+            .type = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
             .storage_class = @intToEnum(StorageClass, raw[16]),
             .number_of_aux_symbols = raw[17],
         };

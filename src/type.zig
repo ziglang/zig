@@ -80,8 +80,8 @@ pub const Type = extern union {
             .comptime_int => return .ComptimeInt,
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
-            .@"null" => return .Null,
-            .@"undefined" => return .Undefined,
+            .null => return .Null,
+            .undefined => return .Undefined,
 
             .fn_noreturn_no_args => return .Fn,
             .fn_void_no_args => return .Fn,
@@ -556,9 +556,9 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
-            .@"null",
-            .@"undefined",
-            .@"anyopaque",
+            .null,
+            .undefined,
+            .anyopaque,
             .@"anyframe",
             .enum_literal,
             => |a_tag| {
@@ -962,12 +962,12 @@ pub const Type = extern union {
             .comptime_int => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeInt),
             .comptime_float => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeFloat),
             .noreturn => std.hash.autoHash(hasher, std.builtin.TypeId.NoReturn),
-            .@"null" => std.hash.autoHash(hasher, std.builtin.TypeId.Null),
-            .@"undefined" => std.hash.autoHash(hasher, std.builtin.TypeId.Undefined),
+            .null => std.hash.autoHash(hasher, std.builtin.TypeId.Null),
+            .undefined => std.hash.autoHash(hasher, std.builtin.TypeId.Undefined),
 
-            .@"anyopaque" => {
+            .anyopaque => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Opaque);
-                std.hash.autoHash(hasher, Tag.@"anyopaque");
+                std.hash.autoHash(hasher, Tag.anyopaque);
             },
 
             .@"anyframe" => {
@@ -1299,8 +1299,8 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
-            .@"null",
-            .@"undefined",
+            .null,
+            .undefined,
             .fn_noreturn_no_args,
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
@@ -1596,8 +1596,8 @@ pub const Type = extern union {
                 => return writer.writeAll(@tagName(t)),
 
                 .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
-                .@"null" => return writer.writeAll("@Type(.Null)"),
-                .@"undefined" => return writer.writeAll("@Type(.Undefined)"),
+                .null => return writer.writeAll("@Type(.Null)"),
+                .undefined => return writer.writeAll("@Type(.Undefined)"),
 
                 .empty_struct, .empty_struct_literal => return writer.writeAll("struct {}"),
 
@@ -1979,8 +1979,8 @@ pub const Type = extern union {
             => try writer.writeAll(@tagName(t)),
 
             .enum_literal => try writer.writeAll("@TypeOf(.enum_literal)"),
-            .@"null" => try writer.writeAll("@TypeOf(null)"),
-            .@"undefined" => try writer.writeAll("@TypeOf(undefined)"),
+            .null => try writer.writeAll("@TypeOf(null)"),
+            .undefined => try writer.writeAll("@TypeOf(undefined)"),
             .empty_struct_literal => try writer.writeAll("@TypeOf(.{})"),
 
             .empty_struct => {
@@ -2282,8 +2282,8 @@ pub const Type = extern union {
             .comptime_int => return Value.initTag(.comptime_int_type),
             .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
-            .@"null" => return Value.initTag(.null_type),
-            .@"undefined" => return Value.initTag(.undefined_type),
+            .null => return Value.initTag(.null_type),
+            .undefined => return Value.initTag(.undefined_type),
             .fn_noreturn_no_args => return Value.initTag(.fn_noreturn_no_args_type),
             .fn_void_no_args => return Value.initTag(.fn_void_no_args_type),
             .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
@@ -2420,8 +2420,8 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
-            .@"null",
-            .@"undefined",
+            .null,
+            .undefined,
             .enum_literal,
             .empty_struct,
             .empty_struct_literal,
@@ -2600,9 +2600,9 @@ pub const Type = extern union {
             .anyopaque,
             .anyerror,
             .noreturn,
-            .@"null",
+            .null,
             .@"anyframe",
-            .@"undefined",
+            .undefined,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -3109,8 +3109,8 @@ pub const Type = extern union {
             .type,
             .comptime_int,
             .comptime_float,
-            .@"null",
-            .@"undefined",
+            .null,
+            .undefined,
             .enum_literal,
             .type_info,
             => return AbiAlignmentAdvanced{ .scalar = 0 },
@@ -3231,8 +3231,8 @@ pub const Type = extern union {
             .type,
             .comptime_int,
             .comptime_float,
-            .@"null",
-            .@"undefined",
+            .null,
+            .undefined,
             .enum_literal,
             .single_const_pointer_to_comptime_int,
             .empty_struct_literal,
@@ -3554,8 +3554,8 @@ pub const Type = extern union {
             .comptime_int => unreachable,
             .comptime_float => unreachable,
             .noreturn => unreachable,
-            .@"null" => unreachable,
-            .@"undefined" => unreachable,
+            .null => unreachable,
+            .undefined => unreachable,
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
@@ -4157,7 +4157,7 @@ pub const Type = extern union {
             .optional_single_const_pointer => ty.castPointer().?.data,
 
             .anyframe_T => ty.castTag(.anyframe_T).?.data,
-            .@"anyframe" => Type.@"void",
+            .@"anyframe" => Type.void,
 
             else => unreachable,
         };
@@ -4975,7 +4975,7 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
                 if (child_ty.isNoReturn()) {
-                    return Value.@"null";
+                    return Value.null;
                 } else {
                     return null;
                 }
@@ -5057,8 +5057,8 @@ pub const Type = extern union {
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
             .noreturn => return Value.initTag(.unreachable_value),
-            .@"null" => return Value.initTag(.null_value),
-            .@"undefined" => return Value.initTag(.undef),
+            .null => return Value.initTag(.null_value),
+            .undefined => return Value.initTag(.undef),
 
             .int_unsigned, .int_signed => {
                 if (ty.cast(Payload.Bits).?.data == 0) {
@@ -5121,8 +5121,8 @@ pub const Type = extern union {
             .anyerror,
             .noreturn,
             .@"anyframe",
-            .@"null",
-            .@"undefined",
+            .null,
+            .undefined,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -5937,8 +5937,8 @@ pub const Type = extern union {
         comptime_float,
         noreturn,
         @"anyframe",
-        @"null",
-        @"undefined",
+        null,
+        undefined,
         enum_literal,
         atomic_order,
         atomic_rmw_op,
@@ -6062,8 +6062,8 @@ pub const Type = extern union {
                 .comptime_float,
                 .noreturn,
                 .enum_literal,
-                .@"null",
-                .@"undefined",
+                .null,
+                .undefined,
                 .fn_noreturn_no_args,
                 .fn_void_no_args,
                 .fn_naked_noreturn_no_args,
@@ -6420,7 +6420,7 @@ pub const Type = extern union {
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
-    pub const @"null" = initTag(.@"null");
+    pub const @"null" = initTag(.null);
 
     pub const err_int = Type.u16;
 
@@ -6559,7 +6559,7 @@ pub const Type = extern union {
         mod: *Module,
     ) Allocator.Error!Type {
         assert(error_set.zigTypeTag() == .ErrorSet);
-        if (error_set.eql(Type.@"anyerror", mod) and
+        if (error_set.eql(Type.anyerror, mod) and
             payload.eql(Type.void, mod))
         {
             return Type.initTag(.anyerror_void_error_union);

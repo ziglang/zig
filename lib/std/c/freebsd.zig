@@ -261,7 +261,7 @@ pub const Flock = extern struct {
     /// Lock owner.
     pid: pid_t,
     /// Lock type.
-    @"type": i16,
+    type: i16,
     /// Type of the start member.
     whence: i16,
     /// Remote system id or zero for local.
@@ -438,7 +438,7 @@ pub const kinfo_file = extern struct {
     /// A zero value is for the sentinel record at the end of an array.
     structsize: c_int,
     /// Descriptor type.
-    @"type": c_int,
+    type: c_int,
     /// Array index.
     fd: fd_t,
     /// Reference count.
@@ -456,7 +456,7 @@ pub const kinfo_file = extern struct {
             /// Socket domain.
             domain: c_int,
             /// Socket type.
-            @"type": c_int,
+            type: c_int,
             /// Socket protocol.
             protocol: c_int,
             /// Socket address.
@@ -478,7 +478,7 @@ pub const kinfo_file = extern struct {
         },
         file: extern struct {
             /// Vnode type.
-            @"type": i32,
+            type: i32,
             // Reserved for future use
             _spare1: [3]i32,
             _spare2: [30]u64,

@@ -3295,8 +3295,8 @@ pub const mmsghdr_const = extern struct {
 pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
-    @"u32": u32,
-    @"u64": u64,
+    u32: u32,
+    u64: u64,
 };
 
 pub const epoll_event = switch (builtin.zig_backend) {
@@ -5109,7 +5109,7 @@ pub const nlmsghdr = extern struct {
     len: u32,
 
     /// Message content
-    @"type": NetlinkMessageType,
+    type: NetlinkMessageType,
 
     /// Additional flags
     flags: u16,
@@ -5126,7 +5126,7 @@ pub const ifinfomsg = extern struct {
     __pad1: u8 = 0,
 
     /// ARPHRD_*
-    @"type": c_ushort,
+    type: c_ushort,
 
     /// Link index
     index: c_int,
@@ -5143,7 +5143,7 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    @"type": IFLA,
+    type: IFLA,
 
     pub const ALIGNTO = 4;
 };

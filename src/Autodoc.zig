@@ -660,8 +660,8 @@ const DocData = struct {
         comptimeExpr: usize, // index in `comptimeExprs`
         void: struct {},
         @"unreachable": struct {},
-        @"null": struct {},
-        @"undefined": struct {},
+        null: struct {},
+        undefined: struct {},
         @"struct": []FieldVal,
         bool: bool,
         @"anytype": struct {},
@@ -4217,7 +4217,7 @@ fn walkRef(
                 );
             },
             .undef => {
-                return DocData.WalkResult{ .expr = .@"undefined" };
+                return DocData.WalkResult{ .expr = .undefined };
             },
             .zero => {
                 return DocData.WalkResult{
@@ -4245,7 +4245,7 @@ fn walkRef(
                 };
             },
             .null_value => {
-                return DocData.WalkResult{ .expr = .@"null" };
+                return DocData.WalkResult{ .expr = .null };
             },
             .bool_true => {
                 return DocData.WalkResult{

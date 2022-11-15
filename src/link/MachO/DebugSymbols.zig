@@ -47,7 +47,7 @@ strtab: StringTable(.strtab) = .{},
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Reloc = struct {
-    @"type": enum {
+    type: enum {
         direct_load,
         got_load,
     },
@@ -188,7 +188,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     for (self.relocs.items) |*reloc| {
-        const sym = switch (reloc.@"type") {
+        const sym = switch (reloc.type) {
             .direct_load => self.base.getSymbol(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
                 const got_index = self.base.got_entries_table.get(.{
@@ -201,7 +201,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
 
-        const sym_name = switch (reloc.@"type") {
+        const sym_name = switch (reloc.type) {
             .direct_load => self.base.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
                 const got_index = self.base.got_entries_table.get(.{

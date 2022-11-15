@@ -337,7 +337,7 @@ fn populateMissingMetadata(self: *Coff) !void {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     });
@@ -635,7 +635,7 @@ fn allocateSymbol(self: *Coff) !u32 {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     };
@@ -730,7 +730,7 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     log.debug("allocated GOT atom at 0x{x}", .{sym.value});
 
     try atom.addRelocation(self, .{
-        .@"type" = .direct,
+        .type = .direct,
         .target = target,
         .offset = 0,
         .addend = 0,
@@ -1106,7 +1106,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
         sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
-        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+        sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(self);
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
@@ -1131,7 +1131,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
         sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
-        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+        sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom, code_len, required_alignment);
         errdefer self.freeAtom(atom);
@@ -1307,7 +1307,7 @@ pub fn updateDeclExports(
         try self.setSymbolName(sym, exp.options.name);
         sym.value = decl_sym.value;
         sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
-        sym.@"type" = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+        sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
         switch (exp.options.linkage) {
             .Strong => {
@@ -1337,7 +1337,7 @@ pub fn deleteExport(self: *Coff, exp: Export) void {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     };
@@ -1465,7 +1465,7 @@ pub fn getDeclVAddr(
     const atom = self.getAtomForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = decl.link.coff.sym_index, .file = null };
     try atom.addRelocation(self, .{
-        .@"type" = .direct,
+        .type = .direct,
         .target = target,
         .offset = @intCast(u32, reloc_info.offset),
         .addend = reloc_info.addend,
@@ -1537,7 +1537,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             }
             try gop.value_ptr.append(.{
                 .offset = @intCast(u12, rva - page),
-                .@"type" = .DIR64,
+                .type = .DIR64,
             });
         }
     }
@@ -1555,7 +1555,7 @@ fn writeBaseRelocations(self: *Coff) !void {
         )) {
             try entry.value_ptr.append(.{
                 .offset = 0,
-                .@"type" = .ABSOLUTE,
+                .type = .ABSOLUTE,
             });
         }
 

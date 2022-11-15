@@ -941,8 +941,8 @@ pub const Value = extern union {
             .comptime_int_type => Type.initTag(.comptime_int),
             .comptime_float_type => Type.initTag(.comptime_float),
             .noreturn_type => Type.initTag(.noreturn),
-            .null_type => Type.initTag(.@"null"),
-            .undefined_type => Type.initTag(.@"undefined"),
+            .null_type => Type.initTag(.null),
+            .undefined_type => Type.initTag(.undefined),
             .fn_noreturn_no_args_type => Type.initTag(.fn_noreturn_no_args),
             .fn_void_no_args_type => Type.initTag(.fn_void_no_args),
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
@@ -1437,12 +1437,12 @@ pub const Value = extern union {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         switch (ty.zigTypeTag()) {
-            .Void => return Value.@"void",
+            .Void => return Value.void,
             .Bool => {
                 if (buffer[0] == 0) {
-                    return Value.@"false";
+                    return Value.false;
                 } else {
-                    return Value.@"true";
+                    return Value.true;
                 }
             },
             .Int, .Enum => {
@@ -1542,16 +1542,16 @@ pub const Value = extern union {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         switch (ty.zigTypeTag()) {
-            .Void => return Value.@"void",
+            .Void => return Value.void,
             .Bool => {
                 const byte = switch (endian) {
                     .Big => buffer[buffer.len - bit_offset / 8 - 1],
                     .Little => buffer[bit_offset / 8],
                 };
                 if (((byte >> @intCast(u3, bit_offset % 8)) & 1) == 0) {
-                    return Value.@"false";
+                    return Value.false;
                 } else {
-                    return Value.@"true";
+                    return Value.true;
                 }
             },
             .Int, .Enum => {
@@ -5279,7 +5279,7 @@ pub const Value = extern union {
     pub const @"true" = initTag(.bool_true);
 
     pub fn makeBool(x: bool) Value {
-        return if (x) Value.@"true" else Value.@"false";
+        return if (x) Value.true else Value.false;
     }
 
     pub const RuntimeIndex = enum(u32) {

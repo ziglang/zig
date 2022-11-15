@@ -700,7 +700,7 @@ pub const PROT = struct {
 /// The format of the relocation entries referenced by the reloff and nreloc
 /// fields of the section structure for mach object files is described in the
 /// header file <reloc.h>.
-pub const @"section" = extern struct {
+pub const section = extern struct {
     /// name of this section
     sectname: [16]u8,
 
@@ -794,12 +794,12 @@ pub const section_64 = extern struct {
     }
 
     pub fn isZerofill(sect: section_64) bool {
-        const tt = sect.@"type"();
+        const tt = sect.type();
         return tt == S_ZEROFILL or tt == S_GB_ZEROFILL or tt == S_THREAD_LOCAL_ZEROFILL;
     }
 
     pub fn isSymbolStubs(sect: section_64) bool {
-        const tt = sect.@"type"();
+        const tt = sect.type();
         return tt == S_SYMBOL_STUBS;
     }
 
@@ -1804,7 +1804,7 @@ pub const CodeDirectory = extern struct {
 /// Structure of an embedded-signature SuperBlob
 pub const BlobIndex = extern struct {
     /// Type of entry
-    @"type": u32,
+    type: u32,
 
     /// Offset of entry
     offset: u32,

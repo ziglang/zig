@@ -13,7 +13,7 @@ const Atom = @import("Atom.zig");
 const Coff = @import("../Coff.zig");
 const SymbolWithLoc = Coff.SymbolWithLoc;
 
-@"type": enum {
+type: enum {
     // x86, x86_64
     /// RIP-relative displacement to a GOT pointer
     got,
@@ -47,7 +47,7 @@ dirty: bool = true,
 
 /// Returns an Atom which is the target node of this relocation edge (if any).
 pub fn getTargetAtom(self: Relocation, coff_file: *Coff) ?*Atom {
-    switch (self.@"type") {
+    switch (self.type) {
         .got,
         .got_page,
         .got_pageoff,
@@ -80,7 +80,7 @@ pub fn resolve(self: *Relocation, atom: *Atom, coff_file: *Coff) !void {
         source_vaddr,
         target_vaddr_with_addend,
         coff_file.getSymbolName(self.target),
-        @tagName(self.@"type"),
+        @tagName(self.type),
         file_offset + self.offset,
     });
 
@@ -121,7 +121,7 @@ fn resolveAarch64(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
         else => unreachable,
     }
 
-    switch (self.@"type") {
+    switch (self.type) {
         .got_page, .import_page, .page => {
             const source_page = @intCast(i32, ctx.source_vaddr >> 12);
             const target_page = @intCast(i32, ctx.target_vaddr >> 12);
@@ -198,7 +198,7 @@ fn resolveAarch64(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
 }
 
 fn resolveX86(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
-    switch (self.@"type") {
+    switch (self.type) {
         .got_page => unreachable,
         .got_pageoff => unreachable,
         .page => unreachable,
