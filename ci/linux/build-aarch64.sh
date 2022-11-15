@@ -16,18 +16,30 @@ ZIG="$PREFIX/bin/zig"
 
 export PATH="$HOME/deps/wasmtime-v2.0.2-aarch64-linux:$PATH"
 
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
 mkdir build-release
 cd build-release
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -GNinja
+
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
 
 ninja install
 
