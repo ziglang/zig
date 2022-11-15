@@ -29768,9 +29768,20 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 extra_index += body.len;
                 const init = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
                 const field = &struct_obj.fields.values()[i];
-                const coerced = try sema.coerce(&block_scope, field.ty, init, src);
-                const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse
-                    return sema.failWithNeededComptime(&block_scope, src, "struct field default value must be comptime-known");
+                const coerced = sema.coerce(&block_scope, field.ty, init, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const tree = try sema.getAstTree(&block_scope);
+                        const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                        _ = try sema.coerce(&block_scope, field.ty, init, init_src);
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
+                const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
+                    const tree = try sema.getAstTree(&block_scope);
+                    const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                    return sema.failWithNeededComptime(&block_scope, init_src, "struct field default value must be comptime-known");
+                };
                 field.default_val = try default_val.copy(decl_arena_allocator);
             }
         }
@@ -30554,10 +30565,48 @@ fn enumFieldSrcLoc(
     field_index: usize,
 ) LazySrcLoc {
     @setCold(true);
+    const field_node = containerFieldNode(decl, tree, node_offset, field_index) orelse
+        return LazySrcLoc.nodeOffset(0);
+    return decl.nodeSrcLoc(field_node);
+}
+
+fn containerFieldInitSrcLoc(
+    decl: *Decl,
+    tree: std.zig.Ast,
+    node_offset: i32,
+    field_index: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const node_tags = tree.nodes.items(.tag);
+    const field_node = containerFieldNode(decl, tree, node_offset, field_index) orelse
+        return LazySrcLoc.nodeOffset(0);
+    const node_data = tree.nodes.items(.data)[field_node];
+
+    const init_node = switch (node_tags[field_node]) {
+        .container_field_init => node_data.rhs,
+        .container_field => blk: {
+            const extra_data = tree.extraData(node_data.rhs, std.zig.Ast.Node.ContainerField);
+            break :blk extra_data.value_expr;
+        },
+        else => unreachable,
+    };
+
+    return decl.nodeSrcLoc(init_node);
+}
+
+fn containerFieldNode(
+    decl: *Decl,
+    tree: std.zig.Ast,
+    node_offset: i32,
+    field_index: usize,
+) ?std.zig.Ast.Node.Index {
+    @setCold(true);
     const enum_node = decl.relativeToNodeIndex(node_offset);
     const node_tags = tree.nodes.items(.tag);
     var buffer: [2]std.zig.Ast.Node.Index = undefined;
     const container_decl = switch (node_tags[enum_node]) {
+        .root => tree.containerDeclRoot(),
+
         .container_decl,
         .container_decl_trailing,
         => tree.containerDecl(enum_node),
@@ -30580,8 +30629,7 @@ fn enumFieldSrcLoc(
         .tagged_union_enum_tag_trailing,
         => tree.taggedUnionEnumTag(enum_node),
 
-        // Container was constructed with `@Type`.
-        else => return LazySrcLoc.nodeOffset(0),
+        else => return null,
     };
     var it_index: usize = 0;
     for (container_decl.ast.members) |member_node| {
@@ -30590,9 +30638,7 @@ fn enumFieldSrcLoc(
             .container_field_align,
             .container_field,
             => {
-                if (it_index == field_index) {
-                    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(member_node));
-                }
+                if (it_index == field_index) return member_node;
                 it_index += 1;
             },
 

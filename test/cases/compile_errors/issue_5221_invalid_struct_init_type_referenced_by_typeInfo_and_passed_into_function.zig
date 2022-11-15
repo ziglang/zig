@@ -1,4 +1,6 @@
-fn ignore(comptime param: anytype) void {_ = param;}
+fn ignore(comptime param: anytype) void {
+    _ = param;
+}
 
 export fn foo() void {
     const MyStruct = struct {
@@ -12,5 +14,5 @@ export fn foo() void {
 // backend=stage2
 // target=native
 //
-// :4:22: error: expected type '[]u8', found '*const [3:0]u8'
-// :4:22: note: cast discards const qualifier
+// :7:28: error: expected type '[]u8', found '*const [3:0]u8'
+// :7:28: note: cast discards const qualifier
