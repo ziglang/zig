@@ -27404,6 +27404,13 @@ fn analyzeRef(
     const operand_ty = sema.typeOf(operand);
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
+        switch (val.tag()) {
+            .extern_fn, .function => {
+                const decl_index = val.pointerDecl().?;
+                return sema.analyzeDeclRef(decl_index);
+            },
+            else => {},
+        }
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         return sema.analyzeDeclRef(try anon_decl.finish(
