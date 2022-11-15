@@ -6361,6 +6361,7 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
+                func_ty_info.param_types,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
@@ -6376,6 +6377,7 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
+                        func_ty_info.param_types,
                     );
                     return error.AnalysisFail;
                 },
@@ -6612,6 +6614,7 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
+    raw_param_types: []const Type,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6622,8 +6625,12 @@ fn analyzeInlineCallArg(
             const param_src = pl_tok.src();
             const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
             const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
-            const param_ty = try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+            const param_ty = param_ty: {
+                const raw_param_ty = raw_param_types[arg_i.*];
+                if (raw_param_ty.tag() != .generic_poison) break :param_ty raw_param_ty;
+                const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
+                break :param_ty try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+            };
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(param_ty)) {
