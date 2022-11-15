@@ -6431,13 +6431,27 @@ pub fn processExports(mod: *Module) !void {
     }
 }
 
-pub fn populateTestFunctions(mod: *Module) !void {
+pub fn populateTestFunctions(
+    mod: *Module,
+    main_progress_node: *std.Progress.Node,
+) !void {
     const gpa = mod.gpa;
     const builtin_pkg = mod.main_pkg.table.get("builtin").?;
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = root_decl.src_namespace;
     const decl_index = builtin_namespace.decls.getKeyAdapted(@as([]const u8, "test_functions"), DeclAdapter{ .mod = mod }).?;
+    {
+        // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
+        // was not referenced by start code.
+        mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        mod.sema_prog_node.activate();
+        defer {
+            mod.sema_prog_node.end();
+            mod.sema_prog_node = undefined;
+        }
+        try mod.ensureDeclAnalyzed(decl_index);
+    }
     const decl = mod.declPtr(decl_index);
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();

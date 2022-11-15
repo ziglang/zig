@@ -2361,7 +2361,7 @@ pub fn update(comp: *Compilation) !void {
                 // The `test_functions` decl has been intentionally postponed until now,
                 // at which point we must populate it with the list of test functions that
                 // have been discovered and not filtered out.
-                try module.populateTestFunctions();
+                try module.populateTestFunctions(main_progress_node);
             }
 
             // Process the deletion set. We use a while loop here because the
