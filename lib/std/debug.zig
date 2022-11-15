@@ -884,8 +884,14 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
         defer allocator.free(path);
 
-        const unc_path = try std.fmt.allocPrint(allocator, "\\??\\{s}{s}", .{if (path[0] == '\\') "UNC" else "", path});
+        var unc_path: []const u8 = undefined;
+        if (path[0] == '\\') {
+            unc_path = try std.fmt.allocPrint(allocator, "\\??\\UNC{s}", .{path});
+        } else {
+            unc_path = try std.fmt.allocPrint(allocator, "\\??\\{s}", .{path});
+        }
         defer allocator.free(unc_path);
+        // path normalized later in openFile
 
         di.debug_data = PdbOrDwarf{ .pdb = undefined };
         di.debug_data.pdb = pdb.Pdb.init(allocator, unc_path) catch |err| switch (err) {
@@ -1142,10 +1148,15 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     var path = line_info.file_name;
 
     if (native_os == .windows) {
-        var buffer: [std.fs.MAX_PATH_BYTES*2]u8 = undefined;
+        var buffer: [std.fs.MAX_PATH_BYTES * 2]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buffer);
         var resolved_path = try std.fs.path.resolve(fba.allocator(), &.{path});
-        path = try std.fmt.allocPrint(fba.allocator(), "\\??\\{s}{s}", .{if (resolved_path[0] == '\\') "UNC" else "", resolved_path});
+        if (resolved_path[0] == '\\') {
+            path = try std.fmt.allocPrint(fba.allocator(), "\\??\\UNC{s}", .{resolved_path});
+        } else {
+            path = try std.fmt.allocPrint(fba.allocator(), "\\??\\{s}", .{resolved_path});
+        }
+        // path normalized later in openFile
     }
 
     var f = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
@@ -1374,17 +1385,18 @@ pub const DebugInfo = struct {
                     windows.PATH_MAX_WIDE,
                 );
                 assert(len > 0);
-                var begin: usize = 0;
+                var name_start: usize = 0;
                 if (name_buffer[7] != '\\') {
-                    begin = 3;
+                    name_start = 3;
                     std.mem.copy(u16, name_buffer[3..7], &[_]u16{ '\\', '?', '?', '\\' });
                 }
-                var name_w16 = std.mem.collapseRepeats(u16, name_buffer[begin..len+7], '\\');
+                const name_len = try std.os.windows.normalizePath(u16, name_buffer[name_start .. len + 7]);
+                const name = name_buffer[name_start .. name_start + name_len];
 
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                const coff_file = fs.openFileAbsoluteW(name_w16, .{}) catch |err| switch (err) {
+                const coff_file = fs.openFileAbsoluteW(name, .{}) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
