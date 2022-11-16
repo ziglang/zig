@@ -205,6 +205,7 @@ set(ZIG_CPP_SOURCES
 )
 # Needed because we use cmake, not the zig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES
+    "${ZIG_CONFIG_ZIG_OUT}"
     "${CMAKE_SOURCE_DIR}/lib/std/array_hash_map.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/array_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/ascii.zig"
@@ -761,10 +762,83 @@ add_custom_command(
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-
 add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS ${ZIG2_LINK_FLAGS}
 )
 target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/lib")
+target_link_libraries(zig2 LINK_PUBLIC zigcpp)
+
+if(MSVC)
+  target_link_libraries(zig2 ntdll.lib)
+elseif(MINGW)
+  target_link_libraries(zig2 ntdll)
+endif()
+
+if(NOT MSVC)
+    target_link_libraries(zig2 LINK_PUBLIC ${LIBXML2})
+endif()
+
+if(ZIG_DIA_GUIDS_LIB)
+    target_link_libraries(zig2 LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+endif()
+
+if(MSVC OR MINGW)
+    target_link_libraries(zig2 LINK_PUBLIC version)
+endif()
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+  set(ZIG_RELEASE_ARG "")
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+  set(ZIG_RELEASE_ARG -Drelease)
+else()
+  set(ZIG_RELEASE_ARG -Drelease -Dstrip)
+endif()
+if(ZIG_NO_LIB)
+  set(ZIG_NO_LIB_ARG "-Dno-lib")
+else()
+  set(ZIG_NO_LIB_ARG "")
+endif()
+if(ZIG_SINGLE_THREADED)
+  set(ZIG_SINGLE_THREADED_ARG "-fsingle-threaded")
+else()
+  set(ZIG_SINGLE_THREADED_ARG "")
+endif()
+if(ZIG_STATIC)
+  set(ZIG_STATIC_ARG "-Duse-zig-libcxx")
+else()
+  set(ZIG_STATIC_ARG "")
+endif()
+
+set(ZIG_BUILD_ARGS
+  --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+  "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+  "-Denable-llvm"
+  ${ZIG_RELEASE_ARG}
+  ${ZIG_STATIC_ARG}
+  ${ZIG_NO_LIB_ARG}
+  ${ZIG_SINGLE_THREADED_ARG}
+  "-Dtarget=${ZIG_TARGET_TRIPLE}"
+  "-Dcpu=${ZIG_TARGET_MCPU}"
+  "-Dversion-string=${RESOLVED_ZIG_VERSION}"
+)
+
+add_custom_target(stage3 ALL
+  COMMAND zig2 build compile ${ZIG_BUILD_ARGS}
+  DEPENDS zig2
+  COMMENT STATUS "Building stage3"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+if(WIN32)
+  set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2.exe")
+else()
+  set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2")
+endif()
+
+install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
+install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")
+install(CODE "set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")")
+install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
+install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/install.cmake")
