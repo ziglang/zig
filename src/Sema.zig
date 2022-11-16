@@ -24307,7 +24307,10 @@ fn coerceExtra(
         },
         .Int, .ComptimeInt => switch (inst_ty.zigTypeTag()) {
             .Float, .ComptimeFloat => float: {
-                const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse {
+                if (is_undef) {
+                    return sema.addConstUndef(dest_ty);
+                }
+                const val = (try sema.resolveMaybeUndefVal(inst)) orelse {
                     if (dest_ty.zigTypeTag() == .ComptimeInt) {
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.failWithNeededComptime(block, inst_src, "value being casted to 'comptime_int' must be comptime-known");
@@ -24327,7 +24330,10 @@ fn coerceExtra(
                 return try sema.addConstant(dest_ty, result_val);
             },
             .Int, .ComptimeInt => {
-                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+                if (is_undef) {
+                    return sema.addConstUndef(dest_ty);
+                }
+                if (try sema.resolveMaybeUndefVal(inst)) |val| {
                     // comptime-known integer to other number
                     if (!(try sema.intFitsInType(val, dest_ty, null))) {
                         if (!opts.report_err) return error.NotCoercible;
@@ -24364,7 +24370,10 @@ fn coerceExtra(
                 return try sema.addConstant(dest_ty, result_val);
             },
             .Float => {
-                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+                if (is_undef) {
+                    return sema.addConstUndef(dest_ty);
+                }
+                if (try sema.resolveMaybeUndefVal(inst)) |val| {
                     const result_val = try val.floatCast(sema.arena, dest_ty, target);
                     if (!val.eql(result_val, dest_ty, sema.mod)) {
                         return sema.fail(
@@ -24389,7 +24398,10 @@ fn coerceExtra(
                 }
             },
             .Int, .ComptimeInt => int: {
-                const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse {
+                if (is_undef) {
+                    return sema.addConstUndef(dest_ty);
+                }
+                const val = (try sema.resolveMaybeUndefVal(inst)) orelse {
                     if (dest_ty.zigTypeTag() == .ComptimeFloat) {
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.failWithNeededComptime(block, inst_src, "value being casted to 'comptime_float' must be comptime-known");

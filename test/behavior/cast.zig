@@ -1429,3 +1429,11 @@ test "peer type resolution of function pointer and function body" {
     try expect(@TypeOf(a, b) == *const fn () u32);
     try expect(@TypeOf(b, a) == *const fn () u32);
 }
+
+test "cast typed undefined to int" {
+    comptime {
+        const a: u16 = undefined;
+        const b: u8 = a;
+        _ = b;
+    }
+}
