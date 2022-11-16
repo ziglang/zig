@@ -1507,3 +1507,18 @@ test "inline call in @TypeOf inherits is_inline property" {
     };
     try expect(S.T == void);
 }
+
+test "comptime function turns function value to function pointer" {
+    const S = struct {
+        fn fnPtr(function: anytype) *const @TypeOf(function) {
+            return &function;
+        }
+        fn Nil() u8 {
+            return 0;
+        }
+        const foo = &[_]*const fn () u8{
+            fnPtr(Nil),
+        };
+    };
+    comptime try expect(S.foo[0] == &S.Nil);
+}

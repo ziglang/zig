@@ -327,3 +327,20 @@ test "inline call preserves tail call" {
     S.foo();
     try expect(S.a == std.math.maxInt(u16));
 }
+
+test "inline call doesn't re-evaluate non generic struct" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(f: struct { a: u8, b: u8 }) !void {
+            try expect(f.a == 123);
+            try expect(f.b == 45);
+        }
+    };
+    const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
+    try @call(.{ .modifier = .always_inline }, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    comptime try @call(.{ .modifier = .always_inline }, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+}

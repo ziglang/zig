@@ -9117,7 +9117,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
         // https://github.com/ziglang/zig/issues/645
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
-                bigint_as_signed(&enum_field->value));
+                bigint_as_signed(&enum_field->value), false);
     }
 
     ZigType *tag_int_type = enum_type->data.enumeration.tag_int_type;
@@ -9728,10 +9728,10 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
     entry->llvm_type = get_llvm_type(g, g->err_tag_type);
     ZigList<ZigLLVMDIEnumerator *> err_enumerators = {};
     // reserve index 0 to indicate no error
-    err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, "(none)", 0));
+    err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, "(none)", 0, false));
     for (size_t i = 1; i < g->errors_by_index.length; i += 1) {
         ErrorTableEntry *error_entry = g->errors_by_index.at(i);
-        err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(&error_entry->name), i));
+        err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(&error_entry->name), i, false));
     }
 
     // create debug type for error sets

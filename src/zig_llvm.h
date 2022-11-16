@@ -176,7 +176,11 @@ ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugArrayType(struct ZigLLVMDIB
         int elem_count);
 
 ZIG_EXTERN_C struct ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(struct ZigLLVMDIBuilder *dibuilder,
-        const char *name, int64_t val);
+        const char *name, uint64_t val, bool isUnsigned);
+
+
+ZIG_EXTERN_C struct ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumeratorOfArbitraryPrecision(struct ZigLLVMDIBuilder *dibuilder,
+        const char *name, unsigned NumWords, const uint64_t Words[], unsigned int bits, bool isUnsigned);
 
 ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugEnumerationType(struct ZigLLVMDIBuilder *dibuilder,
         struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_number,

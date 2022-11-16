@@ -6361,6 +6361,7 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
+                func_ty_info.param_types,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
@@ -6376,6 +6377,7 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
+                        func_ty_info.param_types,
                     );
                     return error.AnalysisFail;
                 },
@@ -6612,6 +6614,7 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
+    raw_param_types: []const Type,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6622,8 +6625,12 @@ fn analyzeInlineCallArg(
             const param_src = pl_tok.src();
             const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
             const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
-            const param_ty = try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+            const param_ty = param_ty: {
+                const raw_param_ty = raw_param_types[arg_i.*];
+                if (raw_param_ty.tag() != .generic_poison) break :param_ty raw_param_ty;
+                const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
+                break :param_ty try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+            };
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(param_ty)) {
@@ -18754,7 +18761,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         const addr = val.toUnsignedInt(target);
         if (!ptr_ty.isAllowzeroPtr() and addr == 0)
             return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{ptr_ty.fmt(sema.mod)});
-        if (addr != 0 and addr % ptr_align != 0)
+        if (addr != 0 and ptr_align != 0 and addr % ptr_align != 0)
             return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(sema.mod)});
 
         const val_payload = try sema.arena.create(Value.Payload.U64);
@@ -22469,13 +22476,12 @@ fn fieldVal(
                     );
                 },
                 .Union => {
-                    const union_ty = try sema.resolveTypeFields(child_type);
-
-                    if (union_ty.getNamespace()) |namespace| {
+                    if (child_type.getNamespace()) |namespace| {
                         if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
                             return inst;
                         }
                     }
+                    const union_ty = try sema.resolveTypeFields(child_type);
                     if (union_ty.unionTagType()) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
                             const field_index = @intCast(u32, field_index_usize);
@@ -27397,6 +27403,13 @@ fn analyzeRef(
     const operand_ty = sema.typeOf(operand);
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
+        switch (val.tag()) {
+            .extern_fn, .function => {
+                const decl_index = val.pointerDecl().?;
+                return sema.analyzeDeclRef(decl_index);
+            },
+            else => {},
+        }
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         return sema.analyzeDeclRef(try anon_decl.finish(
