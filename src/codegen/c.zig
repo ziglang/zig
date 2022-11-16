@@ -1140,10 +1140,16 @@ pub const DeclGen = struct {
                 const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
+                var it = ty.unionFields().iterator();
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val, .Initializer);
-                } else try writer.writeByte('0');
+                } else while (it.next()) |field| {
+                    if (!field.value_ptr.ty.hasRuntimeBits()) continue;
+                    try writer.print(".{ } = ", .{fmtIdent(field.key_ptr.*)});
+                    try dg.renderValue(writer, field.value_ptr.ty, Value.undef, .Initializer);
+                    break;
+                } else try writer.writeAll(".empty_union = 0");
                 if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
                 try writer.writeByte('}');
             },
