@@ -1044,7 +1044,8 @@ pub const Struct = struct {
 
             .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
 
-            else => unreachable,
+            // This struct was generated using @Type
+            else => return s.srcLoc(mod),
         }
     }
 
@@ -1270,7 +1271,8 @@ pub const Union = struct {
             .tagged_union_enum_tag,
             .tagged_union_enum_tag_trailing,
             => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
-            else => unreachable,
+            // This union was generated using @Type
+            else => return u.srcLoc(mod),
         }
     }
 
