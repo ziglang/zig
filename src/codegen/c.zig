@@ -176,7 +176,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "register", {} },
     .{ "restrict", {} },
     .{ "return", {} },
-    .{ "short ", {} },
+    .{ "short", {} },
     .{ "signed", {} },
     .{ "size_t", {} },
     .{ "sizeof", {} },
