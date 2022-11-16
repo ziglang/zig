@@ -23,6 +23,7 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 base: link.File,
 llvm_object: *LlvmObject,
+ptx_file_name: []const u8,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
     if (!build_options.have_llvm) return error.PtxArchNotSupported;
@@ -46,6 +47,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
             .allocator = gpa,
         },
         .llvm_object = llvm_object,
+        .ptx_file_name = try std.mem.join(gpa, "", &[_][]const u8{ options.root_name, ".ptx" }),
     };
 
     return nvptx;
@@ -63,6 +65,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 pub fn deinit(self: *NvPtx) void {
     if (!build_options.have_llvm) return;
     self.llvm_object.destroy(self.base.allocator);
+    self.base.allocator.free(self.ptx_file_name);
 }
 
 pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -111,8 +114,9 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     // This is required by the LLVM PTX backend.
     comp.bin_file.options.emit = null;
     comp.emit_asm = .{
-        .directory = outfile.directory,
-        .basename = comp.bin_file.intermediary_basename.?,
+        // 'null' means using the default cache dir: zig-cache/o/...
+        .directory = null,
+        .basename = self.ptx_file_name,
     };
     defer {
         comp.bin_file.options.emit = outfile;
