@@ -128,7 +128,7 @@ pub const Block = struct {
     /// Shared among all child blocks.
     sema: *Sema,
     /// The namespace to use for lookups from this source block
-    /// When analyzing fields, this is different from src_decl.src_namepsace.
+    /// When analyzing fields, this is different from src_decl.src_namespace.
     namespace: *Namespace,
     /// The AIR instructions generated for this block.
     instructions: std.ArrayListUnmanaged(Air.Inst.Index),
@@ -31298,7 +31298,10 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 }
 
 pub fn typeHasRuntimeBits(sema: *Sema, ty: Type) CompileError!bool {
-    return ty.hasRuntimeBitsAdvanced(false, sema);
+    return ty.hasRuntimeBitsAdvanced(false, .{ .sema = sema }) catch |err| switch (err) {
+        error.NeedLazy => unreachable,
+        else => |e| return e,
+    };
 }
 
 fn typeAbiSize(sema: *Sema, ty: Type) !u64 {

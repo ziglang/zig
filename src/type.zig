@@ -2312,6 +2312,8 @@ pub const Type = extern union {
         }
     }
 
+    const RuntimeBitsError = Module.CompileError || error{NeedLazy};
+
     /// true if and only if the type takes up space in memory at runtime.
     /// There are two reasons a type will return false:
     /// * the type is a comptime-only type. For example, the type `type` itself.
@@ -2326,8 +2328,8 @@ pub const Type = extern union {
     pub fn hasRuntimeBitsAdvanced(
         ty: Type,
         ignore_comptime_only: bool,
-        opt_sema: ?*Sema,
-    ) Module.CompileError!bool {
+        strat: AbiAlignmentAdvancedStrat,
+    ) RuntimeBitsError!bool {
         switch (ty.tag()) {
             .u1,
             .u8,
@@ -2406,8 +2408,8 @@ pub const Type = extern union {
                     return true;
                 } else if (ty.childType().zigTypeTag() == .Fn) {
                     return !ty.childType().fnInfo().is_generic;
-                } else if (opt_sema) |sema| {
-                    return !(try sema.typeRequiresComptime(ty));
+                } else if (strat == .sema) {
+                    return !(try strat.sema.typeRequiresComptime(ty));
                 } else {
                     return !comptimeOnly(ty);
                 }
@@ -2445,8 +2447,8 @@ pub const Type = extern union {
                 }
                 if (ignore_comptime_only) {
                     return true;
-                } else if (opt_sema) |sema| {
-                    return !(try sema.typeRequiresComptime(child_ty));
+                } else if (strat == .sema) {
+                    return !(try strat.sema.typeRequiresComptime(child_ty));
                 } else {
                     return !comptimeOnly(child_ty);
                 }
@@ -2459,13 +2461,14 @@ pub const Type = extern union {
                     // and then later if our guess was incorrect, we emit a compile error.
                     return true;
                 }
-                if (opt_sema) |sema| {
-                    _ = try sema.resolveTypeFields(ty);
+                switch (strat) {
+                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                    .eager => assert(struct_obj.haveFieldTypes()),
+                    .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
                 }
-                assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |field| {
                     if (field.is_comptime) continue;
-                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
+                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat))
                         return true;
                 } else {
                     return false;
@@ -2474,7 +2477,7 @@ pub const Type = extern union {
 
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
-                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema);
+                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
@@ -2483,17 +2486,18 @@ pub const Type = extern union {
             .enum_numbered, .enum_nonexhaustive => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema);
+                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat);
             },
 
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
-                if (opt_sema) |sema| {
-                    _ = try sema.resolveTypeFields(ty);
+                switch (strat) {
+                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                    .eager => assert(union_obj.haveFieldTypes()),
+                    .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
                 }
-                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat))
                         return true;
                 } else {
                     return false;
@@ -2501,16 +2505,17 @@ pub const Type = extern union {
             },
             .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema)) {
+                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat)) {
                     return true;
                 }
 
-                if (opt_sema) |sema| {
-                    _ = try sema.resolveTypeFields(ty);
+                switch (strat) {
+                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                    .eager => assert(union_obj.haveFieldTypes()),
+                    .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
                 }
-                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat))
                         return true;
                 } else {
                     return false;
@@ -2518,9 +2523,9 @@ pub const Type = extern union {
             },
 
             .array, .vector => return ty.arrayLen() != 0 and
-                try ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema),
+                try ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only, strat),
             .array_u8 => return ty.arrayLen() != 0,
-            .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema),
+            .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, strat),
 
             .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data != 0,
 
@@ -2529,7 +2534,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, opt_sema)) return true;
+                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat)) return true;
                 }
                 return false;
             },
@@ -2665,11 +2670,11 @@ pub const Type = extern union {
     }
 
     pub fn hasRuntimeBits(ty: Type) bool {
-        return hasRuntimeBitsAdvanced(ty, false, null) catch unreachable;
+        return hasRuntimeBitsAdvanced(ty, false, .eager) catch unreachable;
     }
 
     pub fn hasRuntimeBitsIgnoreComptime(ty: Type) bool {
-        return hasRuntimeBitsAdvanced(ty, true, null) catch unreachable;
+        return hasRuntimeBitsAdvanced(ty, true, .eager) catch unreachable;
     }
 
     pub fn isFnOrHasRuntimeBits(ty: Type) bool {
@@ -2812,12 +2817,12 @@ pub const Type = extern union {
         }
     }
 
-    const AbiAlignmentAdvanced = union(enum) {
+    pub const AbiAlignmentAdvanced = union(enum) {
         scalar: u32,
         val: Value,
     };
 
-    const AbiAlignmentAdvancedStrat = union(enum) {
+    pub const AbiAlignmentAdvancedStrat = union(enum) {
         eager,
         lazy: Allocator,
         sema: *Sema,
@@ -2971,7 +2976,10 @@ pub const Type = extern union {
 
                 switch (strat) {
                     .eager, .sema => {
-                        if (!(try child_type.hasRuntimeBitsAdvanced(false, opt_sema))) {
+                        if (!(child_type.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                            else => |e| return e,
+                        })) {
                             return AbiAlignmentAdvanced{ .scalar = 1 };
                         }
                         return child_type.abiAlignmentAdvanced(target, strat);
@@ -2990,7 +2998,10 @@ pub const Type = extern union {
                 const code_align = abiAlignment(Type.anyerror, target);
                 switch (strat) {
                     .eager, .sema => {
-                        if (!(try data.payload.hasRuntimeBitsAdvanced(false, opt_sema))) {
+                        if (!(data.payload.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                            else => |e| return e,
+                        })) {
                             return AbiAlignmentAdvanced{ .scalar = code_align };
                         }
                         return AbiAlignmentAdvanced{ .scalar = @max(
@@ -3044,7 +3055,10 @@ pub const Type = extern union {
                 const fields = ty.structFields();
                 var big_align: u32 = 0;
                 for (fields.values()) |field| {
-                    if (!(try field.ty.hasRuntimeBitsAdvanced(false, opt_sema))) continue;
+                    if (!(field.ty.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                        error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                        else => |e| return e,
+                    })) continue;
 
                     const field_align = if (field.abi_align != 0)
                         field.abi_align
@@ -3161,7 +3175,10 @@ pub const Type = extern union {
         var max_align: u32 = 0;
         if (have_tag) max_align = union_obj.tag_ty.abiAlignment(target);
         for (union_obj.fields.values()) |field| {
-            if (!(try field.ty.hasRuntimeBitsAdvanced(false, opt_sema))) continue;
+            if (!(field.ty.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                else => |e| return e,
+            })) continue;
 
             const field_align = if (field.abi_align != 0)
                 field.abi_align

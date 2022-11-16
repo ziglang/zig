@@ -1911,7 +1911,11 @@ pub const Value = extern union {
 
             .lazy_align => {
                 const ty = lhs.castTag(.lazy_align).?.data;
-                if (try ty.hasRuntimeBitsAdvanced(false, opt_sema)) {
+                const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
+                if (ty.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                    error.NeedLazy => unreachable,
+                    else => |e| return e,
+                }) {
                     return .gt;
                 } else {
                     return .eq;
@@ -1919,7 +1923,11 @@ pub const Value = extern union {
             },
             .lazy_size => {
                 const ty = lhs.castTag(.lazy_size).?.data;
-                if (try ty.hasRuntimeBitsAdvanced(false, opt_sema)) {
+                const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
+                if (ty.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                    error.NeedLazy => unreachable,
+                    else => |e| return e,
+                }) {
                     return .gt;
                 } else {
                     return .eq;
