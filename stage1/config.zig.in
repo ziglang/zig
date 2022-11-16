@@ -11,3 +11,4 @@ pub const value_tracing = false;
 pub const have_stage1 = false;
 pub const skip_non_native = false;
 pub const only_c = true;
+pub const force_gpa = false;
