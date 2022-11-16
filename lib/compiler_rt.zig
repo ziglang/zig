@@ -1,8 +1,6 @@
 pub const panic = @import("compiler_rt/common.zig").panic;
 
 comptime {
-    _ = @import("compiler_rt/atomics.zig");
-
     _ = @import("compiler_rt/addf3.zig");
     _ = @import("compiler_rt/addhf3.zig");
     _ = @import("compiler_rt/addsf3.zig");
@@ -209,9 +207,13 @@ comptime {
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
 
-    _ = @import("compiler_rt/memcpy.zig");
-    _ = @import("compiler_rt/memset.zig");
-    _ = @import("compiler_rt/memmove.zig");
-    _ = @import("compiler_rt/memcmp.zig");
-    _ = @import("compiler_rt/bcmp.zig");
+    if (@import("builtin").object_format != .c) {
+        _ = @import("compiler_rt/atomics.zig");
+
+        _ = @import("compiler_rt/memcpy.zig");
+        _ = @import("compiler_rt/memset.zig");
+        _ = @import("compiler_rt/memmove.zig");
+        _ = @import("compiler_rt/memcmp.zig");
+        _ = @import("compiler_rt/bcmp.zig");
+    }
 }

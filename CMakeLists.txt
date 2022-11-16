@@ -702,29 +702,24 @@ if(MSVC)
   set(ZIG2_COMPILE_FLAGS "/std:c99")
   set(ZIG2_LINK_FLAGS "/STACK:16777216")
 else()
-  #set(ZIG1_COMPILE_FLAGS "-std=c99 -O2 -march=native")
-  set(ZIG1_COMPILE_FLAGS "-std=c99 -march=native")
+  set(ZIG1_COMPILE_FLAGS "-std=c99 -O2 -march=native")
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O2 -march=native")
   set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
 endif()
 
 add_executable(zig1 ${STAGE1_SOURCES})
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
-#target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/lib")
 target_link_libraries(zig1 LINK_PUBLIC m)
 
 
 set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  "${CMAKE_BINARY_DIR}/zig1-cache"
+  "${CMAKE_BINARY_DIR}"
+  zig2
   "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm"
   build-exe src/main.zig -ofmt=c -lc
-  --name zig2
-  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
-  --pkg-end
   -target x86_64-linux-musl # TODO: autodetect in zig1.c
-  --color on # TODO: autodetect in zig1.c
   -OReleaseFast
 )
  
@@ -739,12 +734,11 @@ add_custom_command(
 set(ZIG_COMPILER_RT_C_SOURCE "${CMAKE_BINARY_DIR}/compiler_rt.c")
 set(BUILD_COMPILER_RT_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  "${CMAKE_BINARY_DIR}/zig1-cache"
+  "${CMAKE_BINARY_DIR}"
+  compiler_rt
   "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm"
   build-obj lib/compiler_rt.zig -ofmt=c
-  --name compiler_rt
   -target x86_64-linux-musl # TODO: autodetect in zig1.c
-  --color on # TODO: autodetect in zig1.c
   -OReleaseFast
 )
  
@@ -757,13 +751,9 @@ add_custom_command(
 )
 
 
-add_executable(zig2 ${ZIG2_C_SOURCE})
+add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS ${ZIG2_LINK_FLAGS}
 )
-
-
-
-
-
+target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/lib")

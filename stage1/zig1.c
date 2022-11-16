@@ -10,10 +10,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <sys/random.h>
+#endif
 
 enum wasi_errno_t {
     WASI_ESUCCESS = 0,
@@ -131,13 +136,10 @@ static uint64_t rotr64(uint64_t n, unsigned c) {
 static void *arena_alloc(size_t n) {
     void *ptr = malloc(n);
     if (!ptr) panic("out of memory");
+#ifndef NDEBUG
+    memset(ptr, 0xaa, n); // to match the zig version
+#endif
     return ptr;
-}
-
-static void *arena_realloc(void *ptr, size_t new_n) {
-    void *new_ptr = realloc(ptr, new_n);
-    if (!new_ptr) panic("out of memory");
-    return new_ptr;
 }
 
 static int err_wrap(const char *prefix, int rc) {
@@ -152,7 +154,7 @@ static bool bs_isSet(const uint32_t *bitset, uint32_t index) {
     return (bitset[index >> 5] >> (index & 0x1f)) & 1;
 }
 static void bs_set(uint32_t *bitset, uint32_t index) {
-    bitset[index >> 5] |=  ((uint32_t)1 << (index & 0x1f));
+    bitset[index >> 5] |= ((uint32_t)1 << (index & 0x1f));
 }
 static void bs_unset(uint32_t *bitset, uint32_t index) {
     bitset[index >> 5] &= ~((uint32_t)1 << (index & 0x1f));
@@ -213,7 +215,7 @@ static const struct Preopen *find_preopen(int32_t wasi_fd) {
     return NULL;
 }
 
-static const size_t max_memory = 2ul * 1024ul * 1024ul * 1024ul; // 2 GiB
+static const uint32_t max_memory = 2ul * 1024ul * 1024ul * 1024ul; // 2 GiB
 
 static uint16_t read_u16_le(const char *ptr) {
     const uint8_t *u8_ptr = (const uint8_t *)ptr;
@@ -655,6 +657,7 @@ struct VirtualMachine {
     /// Points to one after the last stack item.
     uint32_t stack_top;
     struct ProgramCounter pc;
+    /// Actual memory usage of the WASI code. The capacity is max_memory.
     uint32_t memory_len;
     const char *mod_ptr;
     uint8_t *opcodes;
@@ -666,7 +669,7 @@ struct VirtualMachine {
     char *memory;
     struct Import *imports;
     uint32_t imports_len;
-    char **args;
+    const char **args;
     uint32_t *table;
 };
 
@@ -678,20 +681,154 @@ static int to_host_fd(int32_t wasi_fd) {
 
 static enum wasi_errno_t to_wasi_err(int err) {
     switch (err) {
+        case E2BIG: return WASI_E2BIG;
         case EACCES: return WASI_EACCES;
-        case EDQUOT: return WASI_EDQUOT;
-        case EIO: return WASI_EIO;
-        case EFBIG: return WASI_EFBIG;
-        case ENOSPC: return WASI_ENOSPC;
-        case EPIPE: return WASI_EPIPE;
+        case EADDRINUSE: return WASI_EADDRINUSE;
+        case EADDRNOTAVAIL: return WASI_EADDRNOTAVAIL;
+        case EAFNOSUPPORT: return WASI_EAFNOSUPPORT;
+        case EAGAIN: return WASI_EAGAIN;
+        case EALREADY: return WASI_EALREADY;
         case EBADF: return WASI_EBADF;
-        case ENOMEM: return WASI_ENOMEM;
-        case ENOENT: return WASI_ENOENT;
+        case EBADMSG: return WASI_EBADMSG;
+        case EBUSY: return WASI_EBUSY;
+        case ECANCELED: return WASI_ECANCELED;
+        case ECHILD: return WASI_ECHILD;
+        case ECONNABORTED: return WASI_ECONNABORTED;
+        case ECONNREFUSED: return WASI_ECONNREFUSED;
+        case ECONNRESET: return WASI_ECONNRESET;
+        case EDEADLK: return WASI_EDEADLK;
+        case EDESTADDRREQ: return WASI_EDESTADDRREQ;
+        case EDOM: return WASI_EDOM;
+        case EDQUOT: return WASI_EDQUOT;
         case EEXIST: return WASI_EEXIST;
+        case EFAULT: return WASI_EFAULT;
+        case EFBIG: return WASI_EFBIG;
+        case EHOSTUNREACH: return WASI_EHOSTUNREACH;
+        case EIDRM: return WASI_EIDRM;
+        case EILSEQ: return WASI_EILSEQ;
+        case EINPROGRESS: return WASI_EINPROGRESS;
+        case EINTR: return WASI_EINTR;
+        case EINVAL: return WASI_EINVAL;
+        case EIO: return WASI_EIO;
+        case EISCONN: return WASI_EISCONN;
+        case EISDIR: return WASI_EISDIR;
+        case ELOOP: return WASI_ELOOP;
+        case EMFILE: return WASI_EMFILE;
+        case EMLINK: return WASI_EMLINK;
+        case EMSGSIZE: return WASI_EMSGSIZE;
+        case EMULTIHOP: return WASI_EMULTIHOP;
+        case ENAMETOOLONG: return WASI_ENAMETOOLONG;
+        case ENETDOWN: return WASI_ENETDOWN;
+        case ENETRESET: return WASI_ENETRESET;
+        case ENETUNREACH: return WASI_ENETUNREACH;
+        case ENFILE: return WASI_ENFILE;
+        case ENOBUFS: return WASI_ENOBUFS;
+        case ENODEV: return WASI_ENODEV;
+        case ENOENT: return WASI_ENOENT;
+        case ENOEXEC: return WASI_ENOEXEC;
+        case ENOLCK: return WASI_ENOLCK;
+        case ENOLINK: return WASI_ENOLINK;
+        case ENOMEM: return WASI_ENOMEM;
+        case ENOMSG: return WASI_ENOMSG;
+        case ENOPROTOOPT: return WASI_ENOPROTOOPT;
+        case ENOSPC: return WASI_ENOSPC;
+        case ENOSYS: return WASI_ENOSYS;
+        case ENOTCONN: return WASI_ENOTCONN;
+        case ENOTDIR: return WASI_ENOTDIR;
+        case ENOTEMPTY: return WASI_ENOTEMPTY;
+        case ENOTRECOVERABLE: return WASI_ENOTRECOVERABLE;
+        case ENOTSOCK: return WASI_ENOTSOCK;
+        case EOPNOTSUPP: return WASI_EOPNOTSUPP;
+        case ENOTTY: return WASI_ENOTTY;
+        case ENXIO: return WASI_ENXIO;
+        case EOVERFLOW: return WASI_EOVERFLOW;
+        case EOWNERDEAD: return WASI_EOWNERDEAD;
+        case EPERM: return WASI_EPERM;
+        case EPIPE: return WASI_EPIPE;
+        case EPROTO: return WASI_EPROTO;
+        case EPROTONOSUPPORT: return WASI_EPROTONOSUPPORT;
+        case EPROTOTYPE: return WASI_EPROTOTYPE;
+        case ERANGE: return WASI_ERANGE;
+        case EROFS: return WASI_EROFS;
+        case ESPIPE: return WASI_ESPIPE;
+        case ESRCH: return WASI_ESRCH;
+        case ESTALE: return WASI_ESTALE;
+        case ETIMEDOUT: return WASI_ETIMEDOUT;
+        case ETXTBSY: return WASI_ETXTBSY;
+        case EXDEV: return WASI_EXDEV;
         default:
         fprintf(stderr, "unexpected errno: %s\n", strerror(err));
         abort();
     };
+}
+
+enum wasi_filetype_t {
+    wasi_filetype_t_UNKNOWN,
+    wasi_filetype_t_BLOCK_DEVICE,
+    wasi_filetype_t_CHARACTER_DEVICE,
+    wasi_filetype_t_DIRECTORY,
+    wasi_filetype_t_REGULAR_FILE,
+    wasi_filetype_t_SOCKET_DGRAM,
+    wasi_filetype_t_SOCKET_STREAM,
+    wasi_filetype_t_SYMBOLIC_LINK,
+};
+
+static const uint16_t WASI_O_CREAT = 0x0001;
+static const uint16_t WASI_O_DIRECTORY = 0x0002;
+static const uint16_t WASI_O_EXCL = 0x0004;
+static const uint16_t WASI_O_TRUNC = 0x0008;
+
+static const uint16_t WASI_FDFLAG_APPEND = 0x0001;
+static const uint16_t WASI_FDFLAG_DSYNC = 0x0002;
+static const uint16_t WASI_FDFLAG_NONBLOCK = 0x0004;
+static const uint16_t WASI_FDFLAG_SYNC = 0x0010;
+
+static const uint64_t WASI_RIGHT_FD_READ = 0x0000000000000002ull;
+static const uint64_t WASI_RIGHT_FD_WRITE = 0x0000000000000040ull;
+
+static enum wasi_filetype_t to_wasi_filetype(mode_t st_mode) {
+    switch (st_mode & S_IFMT) {
+        case S_IFBLK:
+            return wasi_filetype_t_BLOCK_DEVICE;
+        case S_IFCHR:
+            return wasi_filetype_t_CHARACTER_DEVICE;
+        case S_IFDIR:
+            return wasi_filetype_t_DIRECTORY;
+        case S_IFLNK:
+            return wasi_filetype_t_SYMBOLIC_LINK;
+        case S_IFREG:
+            return wasi_filetype_t_REGULAR_FILE;
+        default:
+            return wasi_filetype_t_UNKNOWN;
+    }
+}
+
+static uint64_t to_wasi_timestamp(struct timespec ts) {
+    return ts.tv_sec * 1000000000ull + ts.tv_nsec;
+}
+
+/// const filestat_t = extern struct {
+///     dev: device_t, u64
+///     ino: inode_t, u64
+///     filetype: filetype_t, u8
+///     nlink: linkcount_t, u64
+///     size: filesize_t, u64
+///     atim: timestamp_t, u64
+///     mtim: timestamp_t, u64
+///     ctim: timestamp_t, u64
+/// };
+static enum wasi_errno_t finish_wasi_stat(struct VirtualMachine *vm,
+        uint32_t buf, struct stat st)
+{
+    write_u64_le(vm->memory + buf + 0x00, 0); // device
+    write_u64_le(vm->memory + buf + 0x08, st.st_ino);
+    write_u64_le(vm->memory + buf + 0x10, to_wasi_filetype(st.st_mode));
+    write_u64_le(vm->memory + buf + 0x18, 1); // nlink
+    write_u64_le(vm->memory + buf + 0x20, st.st_size);
+    write_u64_le(vm->memory + buf + 0x28, to_wasi_timestamp(st.st_atim));
+    write_u64_le(vm->memory + buf + 0x30, to_wasi_timestamp(st.st_mtim));
+    write_u64_le(vm->memory + buf + 0x38, to_wasi_timestamp(st.st_ctim));
+    return WASI_ESUCCESS;
 }
 
 /// fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;
@@ -713,17 +850,19 @@ static enum wasi_errno_t wasi_args_sizes_get(struct VirtualMachine *vm,
 static enum wasi_errno_t wasi_args_get(struct VirtualMachine *vm,
     uint32_t argv, uint32_t argv_buf) 
 {
-    panic("TODO implement wasi_args_get");
-    //var argv_buf_i: usize = 0;
-    //for (vm->args) |arg, arg_i| {
-    //    // Write the arg to the buffer.
-    //    const argv_ptr = argv_buf + argv_buf_i;
-    //    const arg_len = mem.span(arg).len + 1;
-    //    mem.copy(u8, vm->memory[argv_buf + argv_buf_i ..], arg[0..arg_len]);
-    //    argv_buf_i += arg_len;
+    uint32_t argv_buf_i = 0;
+    uint32_t arg_i = 0;
+    for (;; arg_i += 1) {
+        const char *arg = vm->args[arg_i];
+        if (!arg) break;
+        // Write the arg to the buffer.
+        uint32_t argv_ptr = argv_buf + argv_buf_i;
+        uint32_t arg_len = strlen(arg) + 1;
+        memcpy(vm->memory + argv_buf + argv_buf_i, arg, arg_len);
+        argv_buf_i += arg_len;
 
-    //    write_u32_le(vm->memory[argv + 4 * arg_i ..][0..4], @intCast(u32, argv_ptr));
-    //}
+        write_u32_le(vm->memory + argv + 4 * arg_i , argv_ptr);
+    }
     return WASI_ESUCCESS;
 }
 
@@ -731,9 +870,15 @@ static enum wasi_errno_t wasi_args_get(struct VirtualMachine *vm,
 static enum wasi_errno_t wasi_random_get(struct VirtualMachine *vm,
     uint32_t buf, uint32_t buf_len) 
 {
-    panic("TODO implement wasi_random_get");
-    //const host_buf = vm->memory[buf..][0..buf_len];
-    //std.crypto.random.bytes(host_buf);
+#ifdef __linux__
+    if (getrandom(vm->memory + buf, buf_len, 0) != buf_len) {
+        panic("getrandom failed");
+    }
+#else
+    for (uint32_t i = 0; i < buf_len; i += 1) {
+        vm->memory[buf + i] = rand();
+    }
+#endif
     return WASI_ESUCCESS;
 }
 
@@ -745,10 +890,10 @@ static enum wasi_errno_t wasi_random_get(struct VirtualMachine *vm,
 static enum wasi_errno_t wasi_fd_prestat_get(struct VirtualMachine *vm,
     int32_t fd, uint32_t buf)
 {
-    panic("TODO implement wasi_fd_prestat_get");
-    //const preopen = findPreopen(fd) orelse return .BADF;
-    //write_u32_le(vm->memory[buf + 0 ..][0..4], 0);
-    //write_u32_le(vm->memory[buf + 4 ..][0..4], @intCast(u32, preopen.name.len));
+    const struct Preopen *preopen = find_preopen(fd);
+    if (!preopen) return WASI_EBADF;
+    write_u32_le(vm->memory + buf + 0, 0);
+    write_u32_le(vm->memory + buf + 4, preopen->name_len);
     return WASI_ESUCCESS;
 }
 
@@ -756,19 +901,18 @@ static enum wasi_errno_t wasi_fd_prestat_get(struct VirtualMachine *vm,
 static enum wasi_errno_t wasi_fd_prestat_dir_name(struct VirtualMachine *vm,
         int32_t fd, uint32_t path, uint32_t path_len)
 {
-    panic("TODO implement wasi_fd_prestat_dir_name");
-    //const preopen = findPreopen(fd) orelse return .BADF;
-    //assert(path_len == preopen.name.len);
-    //mem.copy(u8, vm->memory[path..], preopen.name);
+    const struct Preopen *preopen = find_preopen(fd);
+    if (!preopen) return WASI_EBADF;
+    if (path_len != preopen->name_len)
+        panic("wasi_fd_prestat_dir_name expects correct name_len");
+    memcpy(vm->memory + path, preopen->name, path_len);
     return WASI_ESUCCESS;
 }
 
 /// extern fn fd_close(fd: fd_t) errno_t;
 static enum wasi_errno_t wasi_fd_close(struct VirtualMachine *vm, int32_t fd) {
-    panic("TODO implement wasi_fd_close");
-    //_ = vm;
-    //const host_fd = toHostFd(fd);
-    //os.close(host_fd);
+    int host_fd = to_host_fd(fd);
+    close(host_fd);
     return WASI_ESUCCESS;
 }
 
@@ -779,20 +923,18 @@ static enum wasi_errno_t wasi_fd_read(
     uint32_t iovs_len, // usize
     uint32_t nread // *usize
 ) {
-    panic("TODO implement wasi_fd_read");
-    //const host_fd = toHostFd(fd);
-    //var i: u32 = 0;
-    //var total_read: usize = 0;
-    //while (i < iovs_len) : (i += 1) {
-    //    uint32_t ptr = read_u32_le(vm->memory + iovs + i * 8 + 0);
-    //    uint32_t len = read_u32_le(vm->memory + iovs + i * 8 + 4);
-    //    const buf = vm->memory[ptr..][0..len];
-    //    const read = os.read(host_fd, buf) catch |err| return toWasiError(err);
-    //    trace_log.debug("read {d} bytes out of {d}", .{ read, buf.len });
-    //    total_read += read;
-    //    if (read != buf.len) break;
-    //}
-    //write_u32_le(vm->memory[nread..][0..4], @intCast(u32, total_read));
+    int host_fd = to_host_fd(fd);
+    uint32_t i = 0;
+    size_t total_read = 0;
+    for (; i < iovs_len; i += 1) {
+        uint32_t ptr = read_u32_le(vm->memory + iovs + i * 8 + 0);
+        uint32_t len = read_u32_le(vm->memory + iovs + i * 8 + 4);
+        ssize_t amt_read = read(host_fd, vm->memory + ptr, len);
+        if (amt_read < 0) return to_wasi_err(errno);
+        total_read += amt_read;
+        if (amt_read != len) break;
+    }
+    write_u32_le(vm->memory + nread, total_read);
     return WASI_ESUCCESS;
 }
 
@@ -826,19 +968,18 @@ static enum wasi_errno_t wasi_fd_pwrite(
     uint64_t offset, // wasi.filesize_t,
     uint32_t written_ptr // *usize
 ) {
-    panic("TODO implement wasi_fd_pwrite");
-    //const host_fd = toHostFd(fd);
-    //var i: u32 = 0;
-    //var written: usize = 0;
-    //while (i < iovs_len) : (i += 1) {
-    //    uint32_t ptr = read_u32_le(vm->memory + iovs + i * 8 + 0);
-    //    uint32_t len = read_u32_le(vm->memory + iovs + i * 8 + 4);
-    //    const buf = vm->memory[ptr..][0..len];
-    //    const w = os.pwrite(host_fd, buf, offset + written) catch |err| return toWasiError(err);
-    //    written += w;
-    //    if (w != buf.len) break;
-    //}
-    //write_u32_le(vm->memory[written_ptr..][0..4], @intCast(u32, written));
+    int host_fd = to_host_fd(fd);
+    uint32_t i = 0;
+    size_t written = 0;
+    for (; i < iovs_len; i += 1) {
+        uint32_t ptr = read_u32_le(vm->memory + iovs + i * 8 + 0);
+        uint32_t len = read_u32_le(vm->memory + iovs + i * 8 + 4);
+        ssize_t w = pwrite(host_fd, vm->memory + ptr, len, offset + written);
+        if (w < 0) return to_wasi_err(errno);
+        written += w;
+        if (w != len) break;
+    }
+    write_u32_le(vm->memory + written_ptr, written);
     return WASI_ESUCCESS;
 }
 
@@ -865,29 +1006,34 @@ static enum wasi_errno_t wasi_path_open(
     uint16_t fs_flags, // wasi.fdflags_t,
     uint32_t fd
 ) {
-    panic("TODO implement wasi_path_open");
-    //const sub_path = vm->memory[path..][0..path_len];
-    //const host_fd = toHostFd(dirfd);
-    //var flags: u32 = @as(u32, if (oflags & wasi.O.CREAT != 0) os.O.CREAT else 0) |
-    //    @as(u32, if (oflags & wasi.O.DIRECTORY != 0) os.O.DIRECTORY else 0) |
-    //    @as(u32, if (oflags & wasi.O.EXCL != 0) os.O.EXCL else 0) |
-    //    @as(u32, if (oflags & wasi.O.TRUNC != 0) os.O.TRUNC else 0) |
-    //    @as(u32, if (fs_flags & wasi.FDFLAG.APPEND != 0) os.O.APPEND else 0) |
-    //    @as(u32, if (fs_flags & wasi.FDFLAG.DSYNC != 0) os.O.DSYNC else 0) |
-    //    @as(u32, if (fs_flags & wasi.FDFLAG.NONBLOCK != 0) os.O.NONBLOCK else 0) |
-    //    @as(u32, if (fs_flags & wasi.FDFLAG.SYNC != 0) os.O.SYNC else 0);
-    //if ((fs_rights_base & wasi.RIGHT.FD_READ != 0) and
-    //    (fs_rights_base & wasi.RIGHT.FD_WRITE != 0))
-    //{
-    //    flags |= os.O.RDWR;
-    //} else if (fs_rights_base & wasi.RIGHT.FD_WRITE != 0) {
-    //    flags |= os.O.WRONLY;
-    //} else if (fs_rights_base & wasi.RIGHT.FD_READ != 0) {
-    //    flags |= os.O.RDONLY; // no-op because O_RDONLY is 0
-    //}
-    //const mode = 0o644;
-    //const res_fd = os.openat(host_fd, sub_path, flags, mode) catch |err| return toWasiError(err);
-    //mem.writeIntLittle(i32, vm->memory[fd..][0..4], res_fd);
+    char sub_path[PATH_MAX];
+    memcpy(sub_path, vm->memory + path, path_len);
+    sub_path[path_len] = 0;
+
+    int host_fd = to_host_fd(dirfd);
+    uint32_t flags =
+        (((oflags & WASI_O_CREAT) != 0) ? O_CREAT : 0) |
+        (((oflags & WASI_O_DIRECTORY) != 0) ? O_DIRECTORY : 0) |
+        (((oflags & WASI_O_EXCL) != 0) ? O_EXCL : 0) |
+        (((oflags & WASI_O_TRUNC) != 0) ? O_TRUNC : 0) |
+        (((fs_flags & WASI_FDFLAG_APPEND) != 0) ? O_APPEND : 0) |
+        (((fs_flags & WASI_FDFLAG_DSYNC) != 0) ? O_DSYNC : 0) |
+        (((fs_flags & WASI_FDFLAG_NONBLOCK) != 0) ? O_NONBLOCK : 0) |
+        (((fs_flags & WASI_FDFLAG_SYNC) != 0) ? O_SYNC : 0);
+
+    if (((fs_rights_base & WASI_RIGHT_FD_READ) != 0) &&
+        ((fs_rights_base & WASI_RIGHT_FD_WRITE) != 0))
+    {
+        flags |= O_RDWR;
+    } else if ((fs_rights_base & WASI_RIGHT_FD_WRITE) != 0) {
+        flags |= O_WRONLY;
+    } else if ((fs_rights_base & WASI_RIGHT_FD_READ) != 0) {
+        flags |= O_RDONLY; // no-op because O_RDONLY is 0
+    }
+    mode_t mode = 0644;
+    int res_fd = openat(host_fd, sub_path, flags, mode);
+    if (res_fd == -1) return to_wasi_err(errno);
+    write_u32_le(vm->memory + fd, res_fd);
     return WASI_ESUCCESS;
 }
 
@@ -899,23 +1045,26 @@ static enum wasi_errno_t wasi_path_filestat_get(
     uint32_t path_len, // usize
     uint32_t buf // *filestat_t
 ) {
-    panic("TODO implement wasi_path_filestat_get");
-    //const sub_path = vm->memory[path..][0..path_len];
-    //const host_fd = toHostFd(fd);
-    //const dir: fs.Dir = .{ .fd = host_fd };
-    //const stat = dir.statFile(sub_path) catch |err| return toWasiError(err);
-    //return finishWasiStat(vm, buf, stat);
-    return WASI_ESUCCESS;
+    char sub_path[PATH_MAX];
+    memcpy(sub_path, vm->memory + path, path_len);
+    sub_path[path_len] = 0;
+
+    int host_fd = to_host_fd(fd);
+    struct stat st;
+    if (fstatat(host_fd, sub_path, &st, 0) == -1) return to_wasi_err(errno);
+    return finish_wasi_stat(vm, buf, st);
 }
 
 /// extern fn path_create_directory(fd: fd_t, path: [*]const u8, path_len: usize) errno_t;
-static enum wasi_errno_t wasi_path_create_directory(struct VirtualMachine *vm, int32_t fd, uint32_t path, uint32_t path_len) {
-    panic("TODO implement wasi_path_create_directory");
-    //const sub_path = vm->memory[path..][0..path_len];
-    //trace_log.debug("wasi_path_create_directory fd={d} path={s}", .{ fd, sub_path });
-    //const host_fd = toHostFd(fd);
-    //const dir: fs.Dir = .{ .fd = host_fd };
-    //dir.makeDir(sub_path) catch |err| return toWasiError(err);
+static enum wasi_errno_t wasi_path_create_directory(struct VirtualMachine *vm,
+        int32_t wasi_fd, uint32_t path, uint32_t path_len)
+{
+    char sub_path[PATH_MAX];
+    memcpy(sub_path, vm->memory + path, path_len);
+    sub_path[path_len] = 0;
+
+    int host_fd = to_host_fd(wasi_fd);
+    if (mkdirat(host_fd, sub_path, 0777) == -1) return to_wasi_err(errno);
     return WASI_ESUCCESS;
 }
 
@@ -928,35 +1077,33 @@ static enum wasi_errno_t wasi_path_rename(
     uint32_t new_path_ptr, // [*]const u8
     uint32_t new_path_len // usize
 ) {
-    panic("TODO implement wasi_path_rename");
-    //const old_path = vm->memory[old_path_ptr..][0..old_path_len];
-    //const new_path = vm->memory[new_path_ptr..][0..new_path_len];
-    //trace_log.debug("wasi_path_rename old_fd={d} old_path={s} new_fd={d} new_path={s}", .{
-    //    old_fd, old_path, new_fd, new_path,
-    //});
-    //const old_host_fd = toHostFd(old_fd);
-    //const new_host_fd = toHostFd(new_fd);
-    //os.renameat(old_host_fd, old_path, new_host_fd, new_path) catch |err| return toWasiError(err);
+    char old_path[PATH_MAX];
+    memcpy(old_path, vm->memory + old_path_ptr, old_path_len);
+    old_path[old_path_len] = 0;
+
+    char new_path[PATH_MAX];
+    memcpy(new_path, vm->memory + new_path_ptr, new_path_len);
+    new_path[new_path_len] = 0;
+
+    int old_host_fd = to_host_fd(old_fd);
+    int new_host_fd = to_host_fd(new_fd);
+    if (renameat(old_host_fd, old_path, new_host_fd, new_path) == -1) return to_wasi_err(errno);
     return WASI_ESUCCESS;
 }
 
 /// extern fn fd_filestat_get(fd: fd_t, buf: *filestat_t) errno_t;
 static enum wasi_errno_t wasi_fd_filestat_get(struct VirtualMachine *vm, int32_t fd, uint32_t buf) {
-    panic("TODO implement wasi_fd_filestat_get");
-    //const host_fd = toHostFd(fd);
-    //const file = fs.File{ .handle = host_fd };
-    //const stat = file.stat() catch |err| return toWasiError(err);
-    //return finishWasiStat(vm, buf, stat);
-    return WASI_ESUCCESS;
+    int host_fd = to_host_fd(fd);
+    struct stat st;
+    if (fstat(host_fd, &st) == -1) return to_wasi_err(errno);
+    return finish_wasi_stat(vm, buf, st);
 }
 
 static enum wasi_errno_t wasi_fd_filestat_set_size( struct VirtualMachine *vm,
         int32_t fd, uint64_t size)
 {
-    panic("TODO implement wasi_fd_filestat_set_size");
-    //_ = vm;
-    //const host_fd = toHostFd(fd);
-    //os.ftruncate(host_fd, size) catch |err| return toWasiError(err);
+    int host_fd = to_host_fd(fd);
+    if (ftruncate(host_fd, size) == -1) return to_wasi_err(errno);
     return WASI_ESUCCESS;
 }
 
@@ -968,14 +1115,13 @@ static enum wasi_errno_t wasi_fd_filestat_set_size( struct VirtualMachine *vm,
 ///     fs_rights_inheriting: rights_t, u64
 /// };
 static enum wasi_errno_t wasi_fd_fdstat_get(struct VirtualMachine *vm, int32_t fd, uint32_t buf) {
-    panic("TODO implement wasi_fd_fdstat_get");
-    //const host_fd = toHostFd(fd);
-    //const file = fs.File{ .handle = host_fd };
-    //const stat = file.stat() catch |err| return toWasiError(err);
-    //mem.writeIntLittle(u16, vm->memory[buf + 0x00 ..][0..2], @enumToInt(toWasiFileType(stat.kind)));
-    //mem.writeIntLittle(u16, vm->memory[buf + 0x02 ..][0..2], 0); // flags
-    //mem.writeIntLittle(u64, vm->memory[buf + 0x08 ..][0..8], math.maxInt(u64)); // rights_base
-    //mem.writeIntLittle(u64, vm->memory[buf + 0x10 ..][0..8], math.maxInt(u64)); // rights_inheriting
+    int host_fd = to_host_fd(fd);
+    struct stat st;
+    if (fstat(host_fd, &st) == -1) return to_wasi_err(errno);
+    write_u16_le(vm->memory + buf + 0x00, to_wasi_filetype(st.st_mode));
+    write_u16_le(vm->memory + buf + 0x02, 0); // flags
+    write_u64_le(vm->memory + buf + 0x08, UINT64_MAX); // rights_base
+    write_u64_le(vm->memory + buf + 0x10, UINT64_MAX); // rights_inheriting
     return WASI_ESUCCESS;
 }
 
@@ -983,30 +1129,23 @@ static enum wasi_errno_t wasi_fd_fdstat_get(struct VirtualMachine *vm, int32_t f
 static enum wasi_errno_t wasi_clock_time_get(struct VirtualMachine *vm,
         uint32_t clock_id, uint64_t precision, uint32_t timestamp)
 {
-    panic("TODO implement wasi_clock_time_get");
-    ////const host_clock_id = toHostClockId(clock_id);
-    //_ = precision;
-    //_ = clock_id;
-    //const wasi_ts = toWasiTimestamp(std.time.nanoTimestamp());
-    //mem.writeIntLittle(u64, vm->memory[timestamp..][0..8], wasi_ts);
+    if (clock_id != 1) panic("expected wasi_clock_time_get to use CLOCK_MONOTONIC");
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) return to_wasi_err(errno);
+    uint64_t wasi_ts = to_wasi_timestamp(ts);
+    write_u64_le(vm->memory + timestamp, wasi_ts);
     return WASI_ESUCCESS;
 }
 
 ///pub extern "wasi_snapshot_preview1" fn debug(string: [*:0]const u8, x: u64) void;
 void wasi_debug(struct VirtualMachine *vm, uint32_t text, uint64_t n) {
-    panic("TODO implement wasi_debug");
-    //const s = mem.sliceTo(vm->memory[text..], 0);
-    //trace_log.debug("wasi_debug: '{s}' number={d} {x}", .{ s, n, n });
+    fprintf(stderr, "wasi_debug: '%s' number=%lu %lx\n", vm->memory + text, n, n);
 }
 
 /// pub extern "wasi_snapshot_preview1" fn debug_slice(ptr: [*]const u8, len: usize) void;
 void wasi_debug_slice(struct VirtualMachine *vm, uint32_t ptr, uint32_t len) {
-    panic("TODO implement wasi_debug_slice");
-    //const s = vm->memory[ptr..][0..len];
-    //trace_log.debug("wasi_debug_slice: '{s}'", .{s});
+    fprintf(stderr, "wasi_debug_slice: '%.*s'\n", len, vm->memory + ptr);
 }
-
-
 
 struct Label {
     enum WasmOp opcode;
@@ -1049,6 +1188,9 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
     static uint32_t stack_types[1 << (12 - 3)];
 
     static struct Label labels[1 << 9];
+#ifndef NDEBUG
+    memset(labels, 0xaa, sizeof(struct Label) * (1 << 9)); // to match the zig version
+#endif
     uint32_t label_i = 0;
     labels[label_i].opcode = WasmOp_block;
     labels[label_i].stack_depth = stack_depth;
@@ -1060,6 +1202,9 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
         *code_i += 1;
         enum WasmPrefixedOp prefixed_opcode;
         if (opcode == WasmOp_prefixed) prefixed_opcode = read32_uleb128(mod_ptr, code_i);
+
+        //fprintf(stderr, "decodeCode opcode=0x%x pc=%u:%u\n", opcode, pc->opcode, pc->operand);
+        //struct ProgramCounter old_pc = *pc;
 
         uint32_t initial_stack_depth = stack_depth;
         if (unreachable_depth == 0) {
@@ -1549,11 +1694,16 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         label->type_info.param_count = 0;
                         label->type_info.param_types = 0;
                         label->type_info.result_count = block_type != -0x40;
-                        label->type_info.result_types = 0;
                         switch (block_type) {
-                            case -0x40: break;
-                            case -1: case -3: bs_unset(&label->type_info.param_types, 0); break;
-                            case -2: case -4:   bs_set(&label->type_info.param_types, 0); break;
+                            case -0x40:
+                            case -1:
+                            case -3:
+                                label->type_info.result_types = 0;
+                                break;
+                            case -2:
+                            case -4:
+                                label->type_info.result_types = UINT32_MAX;
+                                break;
                             default: panic("unexpected param type");
                         }
                     } else {
@@ -1584,7 +1734,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             break;
 
             case WasmOp_else:
-            {
+            if (unreachable_depth <= 1) {
                 struct Label *label = &labels[label_i];
                 assert(label->opcode == WasmOp_if);
                 label->opcode = WasmOp_else;
@@ -1596,9 +1746,12 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         break;
 
                         case 1:
-                        switch ((int)Label_operandType(label, 0)) {
-                            case false: opcodes[pc->opcode] = Op_br_32; break;
-                            case  true: opcodes[pc->opcode] = Op_br_64; break;
+                        //fprintf(stderr, "label_i=%u operand_type=%d\n",
+                        //        label_i, Label_operandType(label, 0));
+                        if (Label_operandType(label, 0)) {
+                            opcodes[pc->opcode] = Op_br_64;
+                        } else {
+                            opcodes[pc->opcode] = Op_br_32;
                         }
                         break;
 
@@ -1614,7 +1767,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 operands[label->extra.else_ref + 0] = pc->opcode;
                 operands[label->extra.else_ref + 1] = pc->operand;
                 stack_depth = label->stack_depth + label->type_info.param_count;
-            };
+            }
             break;
 
             case WasmOp_end:
@@ -1705,7 +1858,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         }
                         break;
 
-                        default: panic("unexpected opcode");
+                        default: panic("unreachable");
                     }
                     pc->opcode += 1;
                     operands[pc->operand + 0] = stack_depth - operand_count - label->stack_depth;
@@ -1748,11 +1901,6 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                     label->ref_list = pc->operand + 1;
                     pc->operand += 3;
                 }
-
-                opcodes[pc->opcode] = opcode;
-                pc->opcode += 1;
-                operands[pc->operand] = labels_len;
-                pc->operand += 1;
             }
             break;
 
@@ -1796,7 +1944,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             break;
 
             case WasmOp_return:
-            {
+            if (unreachable_depth <= 1) {
                 uint32_t operand_count = Label_operandCount(&labels[0]);
                 switch (operand_count) {
                     case 0:
@@ -2066,9 +2214,11 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             break;
 
             default:
-            opcodes[pc->opcode + 0] = Op_wasm;
-            opcodes[pc->opcode + 1] = opcode;
-            pc->opcode += 2;
+            if (unreachable_depth == 0) {
+                opcodes[pc->opcode + 0] = Op_wasm;
+                opcodes[pc->opcode + 1] = opcode;
+                pc->opcode += 2;
+            }
             break;
 
             case WasmOp_prefixed:
@@ -2125,6 +2275,13 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             default:
             break;
         }
+
+        //for (uint32_t i = old_pc.opcode; i < pc->opcode; i += 1) {
+        //    fprintf(stderr, "decoded opcode[%u] = %u\n", i, opcodes[i]);
+        //}
+        //for (uint32_t i = old_pc.operand; i < pc->operand; i += 1) {
+        //    fprintf(stderr, "decoded operand[%u] = %u\n", i, operands[i]);
+        //}
     }
 }
 
@@ -2184,7 +2341,7 @@ static float vm_pop_f32(struct VirtualMachine *vm) {
 }
 
 static double vm_pop_f64(struct VirtualMachine *vm) {
-    uint32_t integer = vm_pop_u64(vm);
+    uint64_t integer = vm_pop_u64(vm);
     double result;
     memcpy(&result, &integer, 8);
     return result;
@@ -2251,7 +2408,7 @@ static void vm_callImport(struct VirtualMachine *vm, struct Import import) {
             break;
             case ImpName_fd_readdir:
             {
-                panic("TODO implement fd_readdir");
+                panic("unexpected call to fd_readdir");
             }
             break;
             case ImpName_fd_write:
@@ -2422,8 +2579,12 @@ static void vm_call(struct VirtualMachine *vm, uint32_t fn_id) {
     uint32_t fn_idx = fn_id - vm->imports_len;
     struct Function *func = &vm->functions[fn_idx];
 
+    //struct TypeInfo *type_info = &vm->types[func->type_idx];
+    //fprintf(stderr, "enter fn_id: %u, param_count: %u, result_count: %u, locals_count: %u\n",
+    //    fn_id, type_info->param_count, type_info->result_count, func->locals_count);
+
     // Push zeroed locals to stack
-    memset(&vm->stack[vm->stack_top], 0, func->locals_count * sizeof(uint64_t));
+    memset(vm->stack + vm->stack_top, 0, func->locals_count * sizeof(uint64_t));
     vm->stack_top += func->locals_count;
 
     vm_push_u32(vm, vm->pc.opcode);
@@ -2504,6 +2665,10 @@ static void vm_run(struct VirtualMachine *vm) {
     for (;;) {
         enum Op op = opcodes[pc->opcode];
         pc->opcode += 1;
+        //if (vm->stack_top > 0) {
+        //    fprintf(stderr, "stack[%u]=%lx pc=%u:%u, op=%u\n", 
+        //        vm->stack_top - 1, vm->stack[vm->stack_top - 1], pc->opcode, pc->operand, op);
+        //}
         switch (op) {
             case Op_unreachable:
                 panic("unreachable reached");
@@ -2738,6 +2903,7 @@ static void vm_run(struct VirtualMachine *vm) {
             case Op_wasm:
                 {
                     enum WasmOp wasm_op = opcodes[pc->opcode];
+                    //fprintf(stderr, "op2=%x\n", wasm_op);
                     pc->opcode += 1;
                     switch (wasm_op) {
                         case WasmOp_unreachable:
@@ -2820,7 +2986,7 @@ static void vm_run(struct VirtualMachine *vm) {
                             {
                                 uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
                                 pc->operand += 1;
-                                vm_push_u32(vm, vm->memory[offset]);
+                                vm_push_u32(vm, (uint8_t)vm->memory[offset]);
                             }
                             break;
                         case WasmOp_i32_load16_s:
@@ -2850,7 +3016,7 @@ static void vm_run(struct VirtualMachine *vm) {
                             {
                                 uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
                                 pc->operand += 1;
-                                vm_push_u64(vm, vm->memory[offset]);
+                                vm_push_u64(vm, (uint8_t)vm->memory[offset]);
                             }
                             break;
                         case WasmOp_i64_load16_s:
@@ -2968,7 +3134,7 @@ static void vm_run(struct VirtualMachine *vm) {
                                 uint32_t page_count = vm_pop_u32(vm);
                                 uint32_t old_page_count = vm->memory_len / wasm_page_size;
                                 uint32_t new_len = vm->memory_len + page_count * wasm_page_size;
-                                if (new_len > vm->memory_len) {
+                                if (new_len > max_memory) {
                                     vm_push_i32(vm, -1);
                                 } else {
                                     vm->memory_len = new_len;
@@ -3294,21 +3460,21 @@ static void vm_run(struct VirtualMachine *vm) {
                             {
                                 uint32_t rhs = vm_pop_u32(vm);
                                 uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs << rhs);
+                                vm_push_u32(vm, lhs << (rhs & 0x1f));
                             }
                             break;
                         case WasmOp_i32_shr_s:
                             {
                                 uint32_t rhs = vm_pop_u32(vm);
                                 int32_t lhs = vm_pop_i32(vm);
-                                vm_push_i32(vm, lhs >> rhs);
+                                vm_push_i32(vm, lhs >> (rhs & 0x1f));
                             }
                             break;
                         case WasmOp_i32_shr_u:
                             {
                                 uint32_t rhs = vm_pop_u32(vm);
                                 uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs >> rhs);
+                                vm_push_u32(vm, lhs >> (rhs & 0x1f));
                             }
                             break;
                         case WasmOp_i32_rotl:
@@ -3421,35 +3587,35 @@ static void vm_run(struct VirtualMachine *vm) {
                             {
                                 uint64_t rhs = vm_pop_u64(vm);
                                 uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs << rhs);
+                                vm_push_u64(vm, lhs << (rhs & 0x3f));
                             }
                             break;
                         case WasmOp_i64_shr_s:
                             {
                                 uint64_t rhs = vm_pop_u64(vm);
                                 int64_t lhs = vm_pop_i64(vm);
-                                vm_push_i64(vm, lhs >> rhs);
+                                vm_push_i64(vm, lhs >> (rhs & 0x3f));
                             }
                             break;
                         case WasmOp_i64_shr_u:
                             {
                                 uint64_t rhs = vm_pop_u64(vm);
                                 uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs >> rhs);
+                                vm_push_u64(vm, lhs >> (rhs & 0x3f));
                             }
                             break;
                         case WasmOp_i64_rotl:
                             {
                                 uint64_t rhs = vm_pop_u64(vm);
                                 uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, rotl64(lhs, rhs ));
+                                vm_push_u64(vm, rotl64(lhs, rhs));
                             }
                             break;
                         case WasmOp_i64_rotr:
                             {
                                 uint64_t rhs = vm_pop_u64(vm);
                                 uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, rotr64(lhs, rhs ));
+                                vm_push_u64(vm, rotr64(lhs, rhs));
                             }
                             break;
 
@@ -3839,19 +4005,126 @@ static void vm_run(struct VirtualMachine *vm) {
     }
 }
 
+static size_t common_prefix(const char *a, const char *b) {
+    size_t i = 0;
+    for (; a[i] == b[i]; i += 1) {}
+    return i;
+}
+
 int main(int argc, char **argv) {
     char *memory = mmap( NULL, max_memory, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 
     const char *zig_lib_dir_path = argv[1];
-    const char *zig_cache_dir_path = argv[2];
-    const size_t vm_argv_start = 3;
-    const char *wasm_file = argv[vm_argv_start];
+    const char *cmake_binary_dir_path = argv[2];
+    const char *root_name = argv[3];
+    size_t argv_i = 4;
+    const char *wasm_file = argv[argv_i];
+
+    size_t cwd_path_len = common_prefix(zig_lib_dir_path, cmake_binary_dir_path);
+    const char *rel_cmake_bin_path = cmake_binary_dir_path + cwd_path_len;
+    size_t rel_cmake_bin_path_len = strlen(rel_cmake_bin_path);
+
+    const char *new_argv[30];
+    char new_argv_buf[PATH_MAX + 1024];
+    uint32_t new_argv_i = 0; 
+    uint32_t new_argv_buf_i = 0;
+
+    int cache_dir = -1;
+    {
+        char cache_dir_buf[PATH_MAX * 2];
+        size_t i = 0;
+        size_t cmake_binary_dir_path_len = strlen(cmake_binary_dir_path);
+
+        memcpy(cache_dir_buf + i, cmake_binary_dir_path, cmake_binary_dir_path_len);
+        i += cmake_binary_dir_path_len;
+
+        cache_dir_buf[i] = '/';
+        i += 1;
+
+        memcpy(cache_dir_buf + i, "zig1-cache", strlen("zig1-cache"));
+        i += strlen("zig1-cache");
+
+        cache_dir_buf[i] = 0;
+
+        mkdir(cache_dir_buf, 0777);
+        cache_dir = err_wrap("opening cache dir",
+                open(cache_dir_buf, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
+    }
+
+    // Construct a new argv for the WASI code which has absolute paths
+    // converted to relative paths, and has the target and terminal status
+    // autodetected.
+
+    // wasm file path
+    new_argv[new_argv_i] = argv[argv_i];
+    new_argv_i += 1;
+    argv_i += 1;
+
+    for(; argv[argv_i]; argv_i += 1) {
+        new_argv[new_argv_i] = argv[argv_i];
+        new_argv_i += 1;
+    }
+
+    {
+        new_argv[new_argv_i] = "--name";
+        new_argv_i += 1;
+
+        new_argv[new_argv_i] = root_name;
+        new_argv_i += 1;
+
+        char *emit_bin_arg = new_argv_buf + new_argv_buf_i;
+        memcpy(new_argv_buf + new_argv_buf_i, "-femit-bin=", strlen("-femit-bin="));
+        new_argv_buf_i += strlen("-femit-bin=");
+        memcpy(new_argv_buf + new_argv_buf_i, rel_cmake_bin_path, rel_cmake_bin_path_len);
+        new_argv_buf_i += rel_cmake_bin_path_len;
+        new_argv_buf[new_argv_buf_i] = '/';
+        new_argv_buf_i += 1;
+        memcpy(new_argv_buf + new_argv_buf_i, root_name, strlen(root_name));
+        new_argv_buf_i += strlen(root_name);
+        memcpy(new_argv_buf + new_argv_buf_i, ".c", 3);
+        new_argv_buf_i += 3;
+
+        new_argv[new_argv_i] = emit_bin_arg;
+        new_argv_i += 1;
+    }
+
+    {
+        new_argv[new_argv_i] = "--pkg-begin";
+        new_argv_i += 1;
+
+        new_argv[new_argv_i] = "build_options";
+        new_argv_i += 1;
+
+        char *build_options_path = new_argv_buf + new_argv_buf_i;
+        memcpy(new_argv_buf + new_argv_buf_i, rel_cmake_bin_path, rel_cmake_bin_path_len);
+        new_argv_buf_i += rel_cmake_bin_path_len;
+        new_argv_buf[new_argv_buf_i] = '/';
+        new_argv_buf_i += 1;
+        memcpy(new_argv_buf + new_argv_buf_i, "config.zig", strlen("config.zig"));
+        new_argv_buf_i += strlen("config.zig");
+        new_argv_buf[new_argv_buf_i] = 0;
+        new_argv_buf_i += 1;
+
+        new_argv[new_argv_i] = build_options_path;
+        new_argv_i += 1;
+
+        new_argv[new_argv_i] = "--pkg-end";
+        new_argv_i += 1;
+    }
+
+    if (isatty(STDERR_FILENO) != 0) {
+        new_argv[new_argv_i] = "--color";
+        new_argv_i += 1;
+
+        new_argv[new_argv_i] = "on";
+        new_argv_i += 1;
+    }
+
+    new_argv[new_argv_i] = NULL;
 
     const struct ByteSlice mod = read_file_alloc(wasm_file);
 
     int cwd = err_wrap("opening cwd", open(".", O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
-    mkdir(zig_cache_dir_path, 0666);
-    int cache_dir = err_wrap("opening cache dir", open(zig_cache_dir_path, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
     int zig_lib_dir = err_wrap("opening zig lib dir", open(zig_lib_dir_path, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
 
     add_preopen(0, "stdin", STDIN_FILENO);
@@ -3873,7 +4146,7 @@ int main(int argc, char **argv) {
     if (version != 1) panic("bad wasm version");
 
     uint32_t section_starts[13];
-    memset(&section_starts, 0, 4 * 13);
+    memset(&section_starts, 0, sizeof(uint32_t) * 13);
 
     while (i < mod.len) {
         uint8_t section_id = mod.ptr[i];
@@ -3895,6 +4168,7 @@ int main(int argc, char **argv) {
             i += 1;
 
             info->param_count = read32_uleb128(mod.ptr, &i);
+            if (info->param_count > 32) panic("found a type with over 32 parameters");
             info->param_types = 0;
             for (uint32_t param_i = 0; param_i < info->param_count; param_i += 1) {
                 int64_t param_type = read64_ileb128(mod.ptr, &i);
@@ -4133,7 +4407,7 @@ int main(int argc, char **argv) {
             uint32_t elem_count = read32_uleb128(mod.ptr, &i);
 
             table = arena_alloc(sizeof(uint32_t) * maximum);
-            memset(table, 0, maximum);
+            memset(table, 0, sizeof(uint32_t) * maximum);
 
             for (uint32_t elem_i = 0; elem_i < elem_count; elem_i += 1) {
                 table[elem_i + offset] = read32_uleb128(mod.ptr, &i);
@@ -4142,6 +4416,9 @@ int main(int argc, char **argv) {
     }
 
     struct VirtualMachine vm;
+#ifndef NDEBUG
+    memset(&vm, 0xaa, sizeof(struct VirtualMachine)); // to match the zig version
+#endif
     vm.stack = arena_alloc(sizeof(uint64_t) * 10000000),
     vm.mod_ptr = mod.ptr;
     vm.opcodes = arena_alloc(2000000);
@@ -4154,7 +4431,7 @@ int main(int argc, char **argv) {
     vm.memory_len = memory_len;
     vm.imports = imports;
     vm.imports_len = imports_len;
-    vm.args = argv + vm_argv_start;
+    vm.args = new_argv;
     vm.table = table;
 
     {
@@ -4171,18 +4448,19 @@ int main(int argc, char **argv) {
 
             struct TypeInfo *type_info = &vm.types[func->type_idx];
             func->locals_count = 0;
-            func->local_types = arena_alloc(sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
+            func->local_types = malloc(sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
             func->local_types[0] = type_info->param_types;
 
             for (uint32_t local_sets_count = read32_uleb128(mod.ptr, &code_i);
-                 local_sets_count > 0; local_sets_count -= 1) {
+                 local_sets_count > 0; local_sets_count -= 1)
+            {
                 uint32_t set_count = read32_uleb128(mod.ptr, &code_i);
                 int64_t local_type = read64_ileb128(mod.ptr, &code_i);
 
                 uint32_t i = type_info->param_count + func->locals_count;
                 func->locals_count += set_count;
                 if ((type_info->param_count + func->locals_count + 31) / 32 > (i + 31) / 32)
-                    func->local_types = arena_realloc(func->local_types, sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
+                    func->local_types = realloc(func->local_types, sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
                 for (; i < type_info->param_count + func->locals_count; i += 1)
                     switch (local_type) {
                         case -1: case -3: bs_unset(func->local_types, i); break;
@@ -4191,25 +4469,10 @@ int main(int argc, char **argv) {
                     }
             }
 
+            //fprintf(stderr, "set up func %u with pc %u:%u\n", func->type_idx, pc.opcode, pc.operand);
             func->entry_pc = pc;
             vm_decodeCode(&vm, func, &code_i, &pc);
             if (code_i != code_begin + size) panic("bad code size");
-        }
-
-        uint64_t opcode_counts[0x100];
-        memset(opcode_counts, 0, 0x100);
-        uint64_t prefixed_opcode_counts[0x100];
-        memset(prefixed_opcode_counts, 0, 0x100);
-        bool is_prefixed = false;
-        for (uint32_t opcode_i = 0; opcode_i < pc.opcode; opcode_i += 1) {
-            uint8_t opcode = vm.opcodes[opcode_i];
-            if (!is_prefixed) {
-                opcode_counts[opcode] += 1;
-                is_prefixed = opcode == WasmOp_prefixed;
-            } else {
-                prefixed_opcode_counts[opcode] += 1;
-                is_prefixed = false;
-            }
         }
     }
 
