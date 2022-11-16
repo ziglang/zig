@@ -49,12 +49,16 @@ test "isNan(inf * 0)" {
     try std.testing.expect(std.math.isNan(zero_times_inf));
 }
 test "runtime isNan(nan * 0)" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const nan_times_zero = std.math.nan(f64) * 0;
     try std.testing.expect(std.math.isNan(nan_times_zero));
     const zero_times_nan = 0 * std.math.nan(f64);
     try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "runtime isNan(inf * 0)" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const inf_times_zero = std.math.inf(f64) * 0;
     try std.testing.expect(std.math.isNan(inf_times_zero));
     const zero_times_inf = 0 * std.math.inf(f64);
