@@ -731,7 +731,6 @@ set(BUILD_ZIG2_ARGS
   zig2
   "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
   build-exe src/main.zig -ofmt=c -lc
-  -target x86_64-linux-musl # TODO: autodetect in zig1.c
   -OReleaseFast
 )
  
@@ -750,7 +749,6 @@ set(BUILD_COMPILER_RT_ARGS
   compiler_rt
   "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
   build-obj lib/compiler_rt.zig -ofmt=c
-  -target x86_64-linux-musl # TODO: autodetect in zig1.c
   -OReleaseFast
 )
  
