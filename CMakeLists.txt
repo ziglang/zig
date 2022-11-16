@@ -181,6 +181,16 @@ set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 
 set(STAGE1_SOURCES
     "${CMAKE_SOURCE_DIR}/stage1/zig1.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/huf_decompress.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_ddict.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_decompress.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_decompress_block.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/entropy_common.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/error_private.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/fse_decompress.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/pool.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/xxhash.c"
+    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/zstd_common.c"
 )
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
@@ -710,14 +720,15 @@ endif()
 add_executable(zig1 ${STAGE1_SOURCES})
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
 target_link_libraries(zig1 LINK_PUBLIC m)
-
+target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
+target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
 
 set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
   "${CMAKE_BINARY_DIR}"
   zig2
-  "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm"
+  "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
   build-exe src/main.zig -ofmt=c -lc
   -target x86_64-linux-musl # TODO: autodetect in zig1.c
   -OReleaseFast
@@ -736,7 +747,7 @@ set(BUILD_COMPILER_RT_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
   "${CMAKE_BINARY_DIR}"
   compiler_rt
-  "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm"
+  "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
   build-obj lib/compiler_rt.zig -ofmt=c
   -target x86_64-linux-musl # TODO: autodetect in zig1.c
   -OReleaseFast
