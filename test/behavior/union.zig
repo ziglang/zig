@@ -1388,3 +1388,25 @@ test "packed union in packed struct" {
     const a: S = .{ .nested = .{ .foo = 123 }, .bar = 5 };
     try expect(a.unpack() == 123);
 }
+
+test "Namespace-like union" {
+    const DepType = enum {
+        git,
+        http,
+        const DepType = @This();
+        const Version = union(DepType) {
+            git: Git,
+            http: void,
+            const Git = enum {
+                branch,
+                tag,
+                commit,
+                fn frozen(self: Git) bool {
+                    return self == .tag;
+                }
+            };
+        };
+    };
+    var a: DepType.Version.Git = .tag;
+    try expect(a.frozen());
+}

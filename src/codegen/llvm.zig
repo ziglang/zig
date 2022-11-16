@@ -1507,6 +1507,11 @@ pub const Object = struct {
                 };
                 const field_index_val = Value.initPayload(&buf_field_index.base);
 
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+                const int_info = ty.intInfo(target);
+                assert(int_info.bits != 0);
+
                 for (field_names) |field_name, i| {
                     const field_name_z = try gpa.dupeZ(u8, field_name);
                     defer gpa.free(field_name_z);
@@ -1514,9 +1519,25 @@ pub const Object = struct {
                     buf_field_index.data = @intCast(u32, i);
                     var buf_u64: Value.Payload.U64 = undefined;
                     const field_int_val = field_index_val.enumToInt(ty, &buf_u64);
-                    // See https://github.com/ziglang/zig/issues/645
-                    const field_int = field_int_val.toSignedInt();
-                    enumerators[i] = dib.createEnumerator(field_name_z, field_int);
+
+                    var bigint_space: Value.BigIntSpace = undefined;
+                    const bigint = field_int_val.toBigInt(&bigint_space, target);
+
+                    if (bigint.limbs.len == 1) {
+                        enumerators[i] = dib.createEnumerator(field_name_z, bigint.limbs[0], int_info.signedness == .unsigned);
+                        continue;
+                    }
+                    if (@sizeOf(usize) == @sizeOf(u64)) {
+                        enumerators[i] = dib.createEnumerator2(
+                            field_name_z,
+                            @intCast(c_uint, bigint.limbs.len),
+                            bigint.limbs.ptr,
+                            int_info.bits,
+                            int_info.signedness == .unsigned,
+                        );
+                        continue;
+                    }
+                    @panic("TODO implement bigint debug enumerators to llvm int for 32-bit compiler builds");
                 }
 
                 const di_file = try o.getDIFile(gpa, owner_decl.src_namespace.file_scope);
@@ -1524,8 +1545,6 @@ pub const Object = struct {
 
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
 
                 const enum_di_ty = dib.createEnumerationType(
                     di_scope,
@@ -2118,7 +2137,8 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                if (!ty.hasRuntimeBitsIgnoreComptime()) {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                if (!union_obj.haveFieldTypes() or !ty.hasRuntimeBitsIgnoreComptime()) {
                     const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -2128,7 +2148,6 @@ pub const Object = struct {
                 }
 
                 const layout = ty.unionGetLayout(target);
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
 
                 if (layout.payload_size == 0) {
                     const tag_di_ty = try o.lowerDebugType(union_obj.tag_ty, .full);

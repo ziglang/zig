@@ -167,7 +167,7 @@ pub inline fn rawFree(self: Allocator, buf: []u8, buf_align: u29, ret_addr: usiz
 /// Returns a pointer to undefined memory.
 /// Call `destroy` with the result to free the memory.
 pub fn create(self: Allocator, comptime T: type) Error!*T {
-    if (@sizeOf(T) == 0) return @as(*T, undefined);
+    if (@sizeOf(T) == 0) return @intToPtr(*T, std.math.maxInt(usize));
     const slice = try self.allocAdvancedWithRetAddr(T, null, 1, .exact, @returnAddress());
     return &slice[0];
 }

@@ -594,8 +594,16 @@ ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder, uint64_t
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(ZigLLVMDIBuilder *dibuilder, const char *name, int64_t val) {
-    DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name, val);
+ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(ZigLLVMDIBuilder *dibuilder, const char *name, uint64_t val, bool isUnsigned) {
+    DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name, val, isUnsigned);
+    return reinterpret_cast<ZigLLVMDIEnumerator*>(di_enumerator);
+}
+
+ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumeratorOfArbitraryPrecision(ZigLLVMDIBuilder *dibuilder,
+    const char *name, unsigned NumWords, const uint64_t Words[], unsigned int bits, bool isUnsigned)
+{
+    DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name,
+        APSInt(APInt(bits, makeArrayRef(Words, NumWords)), isUnsigned));
     return reinterpret_cast<ZigLLVMDIEnumerator*>(di_enumerator);
 }
 
