@@ -4825,7 +4825,7 @@ fn airCmpBuiltinCall(
     try f.writeCValue(writer, try f.resolveInst(bin_op.lhs), .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, try f.resolveInst(bin_op.rhs), .FunctionArgument);
-    try writer.print(") {s} {};\n", .{ operator, try f.fmtIntLiteral(Type.initTag(.i8), Value.zero) });
+    try writer.print(") {s} {};\n", .{ operator, try f.fmtIntLiteral(Type.initTag(.i32), Value.zero) });
     return local;
 }
 
