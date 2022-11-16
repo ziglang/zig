@@ -176,7 +176,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "register", {} },
     .{ "restrict", {} },
     .{ "return", {} },
-    .{ "short ", {} },
+    .{ "short", {} },
     .{ "signed", {} },
     .{ "size_t", {} },
     .{ "sizeof", {} },
@@ -1140,10 +1140,16 @@ pub const DeclGen = struct {
                 const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
+                var it = ty.unionFields().iterator();
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val, .Initializer);
-                } else try writer.writeByte('0');
+                } else while (it.next()) |field| {
+                    if (!field.value_ptr.ty.hasRuntimeBits()) continue;
+                    try writer.print(".{ } = ", .{fmtIdent(field.key_ptr.*)});
+                    try dg.renderValue(writer, field.value_ptr.ty, Value.undef, .Initializer);
+                    break;
+                } else try writer.writeAll(".empty_union = 0");
                 if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
                 try writer.writeByte('}');
             },
@@ -2658,12 +2664,14 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
     const ptr_ty = f.air.typeOf(bin_op.lhs);
+    const child_ty = ptr_ty.childType();
 
     const ptr = try f.resolveInst(bin_op.lhs);
+    if (!child_ty.hasRuntimeBitsIgnoreComptime()) return ptr;
     const index = try f.resolveInst(bin_op.rhs);
+
     const writer = f.object.writer();
     const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
-
     try writer.writeAll(" = &(");
     if (ptr_ty.ptrSize() == .One) {
         // It's a pointer to an array, so we need to de-reference.
@@ -2717,15 +2725,23 @@ fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
+    const slice_ty = f.air.typeOf(bin_op.lhs);
+    const child_ty = slice_ty.elemType2();
     const slice = try f.resolveInst(bin_op.lhs);
-    const index = try f.resolveInst(bin_op.rhs);
+
     const writer = f.object.writer();
     const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
-    try writer.writeAll(" = &");
+    try writer.writeAll(" = ");
+    if (child_ty.hasRuntimeBitsIgnoreComptime()) try writer.writeByte('&');
     try f.writeCValue(writer, slice, .Other);
-    try writer.writeAll(".ptr[");
-    try f.writeCValue(writer, index, .Other);
-    try writer.writeAll("];\n");
+    try writer.writeAll(".ptr");
+    if (child_ty.hasRuntimeBitsIgnoreComptime()) {
+        const index = try f.resolveInst(bin_op.rhs);
+        try writer.writeByte('[');
+        try f.writeCValue(writer, index, .Other);
+        try writer.writeByte(']');
+    }
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -4825,7 +4841,7 @@ fn airCmpBuiltinCall(
     try f.writeCValue(writer, try f.resolveInst(bin_op.lhs), .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, try f.resolveInst(bin_op.rhs), .FunctionArgument);
-    try writer.print(") {s} {};\n", .{ operator, try f.fmtIntLiteral(Type.initTag(.i8), Value.zero) });
+    try writer.print(") {s} {};\n", .{ operator, try f.fmtIntLiteral(Type.initTag(.i32), Value.zero) });
     return local;
 }
 
