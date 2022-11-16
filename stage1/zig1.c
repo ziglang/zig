@@ -22,6 +22,38 @@
 
 #include <zstd.h>
 
+#if defined(__APPLE__)
+#define ZIG_TRIPLE_OS "macos"
+#elif defined(_WIN32)
+#define ZIG_TRIPLE_OS "windows"
+#elif defined(__linux__)
+#define ZIG_TRIPLE_OS "linux"
+#elif defined(__FreeBSD__)
+#define ZIG_TRIPLE_OS "freebsd"
+#elif defined(__NetBSD__)
+#define ZIG_TRIPLE_OS "netbsd"
+#elif defined(__DragonFly__)
+#define ZIG_TRIPLE_OS "dragonfly"
+#elif defined(__OpenBSD__)
+#define ZIG_TRIPLE_OS "openbsd"
+#elif defined(__HAIKU__)
+#define ZIG_TRIPLE_OS "haiku"
+#elif defined(__sun)
+#define ZIG_TRIPLE_OS "solaris"
+#else
+#error please add more os definitions above this line
+#endif
+
+#if defined(__x86_64__)
+#define ZIG_TRIPLE_ARCH "x86_64"
+#elif defined(__aarch64__)
+#define ZIG_TRIPLE_ARCH "aarch64"
+#elif defined(__ARM_EABI__)
+#define ZIG_TRIPLE_ARCH "arm"
+#else
+#error please add more arch definitions above this line
+#endif
+
 enum wasi_errno_t {
     WASI_ESUCCESS = 0,
     WASI_E2BIG = 1,
@@ -4111,6 +4143,14 @@ int main(int argc, char **argv) {
         new_argv_i += 1;
 
         new_argv[new_argv_i] = "--pkg-end";
+        new_argv_i += 1;
+    }
+
+    {
+        new_argv[new_argv_i] = "-target";
+        new_argv_i += 1;
+
+        new_argv[new_argv_i] = ZIG_TRIPLE_ARCH "-" ZIG_TRIPLE_OS;
         new_argv_i += 1;
     }
 
