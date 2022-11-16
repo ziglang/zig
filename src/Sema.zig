@@ -26555,6 +26555,10 @@ fn beginComptimePtrLoad(
         .null_value => {
             return sema.fail(block, src, "attempt to use null value", .{});
         },
+        .opt_payload => blk: {
+            const opt_payload = ptr_val.castTag(.opt_payload).?.data;
+            break :blk try sema.beginComptimePtrLoad(block, src, opt_payload, null);
+        },
 
         .zero,
         .one,
