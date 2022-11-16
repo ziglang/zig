@@ -20,6 +20,8 @@
 #include <sys/random.h>
 #endif
 
+#include <zstd.h>
+
 enum wasi_errno_t {
     WASI_ESUCCESS = 0,
     WASI_E2BIG = 1,
@@ -4122,7 +4124,12 @@ int main(int argc, char **argv) {
 
     new_argv[new_argv_i] = NULL;
 
-    const struct ByteSlice mod = read_file_alloc(wasm_file);
+    const struct ByteSlice compressed_bytes = read_file_alloc(wasm_file);
+
+    const size_t max_uncompressed_size = 2500000;
+    char *mod_ptr = arena_alloc(max_uncompressed_size);
+    size_t mod_len = ZSTD_decompress(mod_ptr, max_uncompressed_size,
+            compressed_bytes.ptr, compressed_bytes.len);
 
     int cwd = err_wrap("opening cwd", open(".", O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
     int zig_lib_dir = err_wrap("opening zig lib dir", open(zig_lib_dir_path, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
@@ -4136,22 +4143,22 @@ int main(int argc, char **argv) {
 
     uint32_t i = 0;
 
-    if (mod.ptr[0] != 0 || mod.ptr[1] != 'a' || mod.ptr[2] != 's' || mod.ptr[3] != 'm') {
+    if (mod_ptr[0] != 0 || mod_ptr[1] != 'a' || mod_ptr[2] != 's' || mod_ptr[3] != 'm') {
         panic("bad magic");
     }
     i += 4;
 
-    uint32_t version = read_u32_le(mod.ptr + i);
+    uint32_t version = read_u32_le(mod_ptr + i);
     i += 4;
     if (version != 1) panic("bad wasm version");
 
     uint32_t section_starts[13];
     memset(&section_starts, 0, sizeof(uint32_t) * 13);
 
-    while (i < mod.len) {
-        uint8_t section_id = mod.ptr[i];
+    while (i < mod_len) {
+        uint8_t section_id = mod_ptr[i];
         i += 1;
-        uint32_t section_len = read32_uleb128(mod.ptr, &i);
+        uint32_t section_len = read32_uleb128(mod_ptr, &i);
         section_starts[section_id] = i;
         i += section_len;
     }
@@ -4160,18 +4167,18 @@ int main(int argc, char **argv) {
     struct TypeInfo *types;
     {
         i = section_starts[Section_type];
-        uint32_t types_len = read32_uleb128(mod.ptr, &i);
+        uint32_t types_len = read32_uleb128(mod_ptr, &i);
         types = arena_alloc(sizeof(struct TypeInfo) * types_len);
         for (size_t type_i = 0; type_i < types_len; type_i += 1) {
             struct TypeInfo *info = &types[type_i];
-            if (mod.ptr[i] != 0x60) panic("bad type byte");
+            if (mod_ptr[i] != 0x60) panic("bad type byte");
             i += 1;
 
-            info->param_count = read32_uleb128(mod.ptr, &i);
+            info->param_count = read32_uleb128(mod_ptr, &i);
             if (info->param_count > 32) panic("found a type with over 32 parameters");
             info->param_types = 0;
             for (uint32_t param_i = 0; param_i < info->param_count; param_i += 1) {
-                int64_t param_type = read64_ileb128(mod.ptr, &i);
+                int64_t param_type = read64_ileb128(mod_ptr, &i);
                 switch (param_type) {
                     case -1: case -3: bs_unset(&info->param_types, param_i); break;
                     case -2: case -4:   bs_set(&info->param_types, param_i); break;
@@ -4179,10 +4186,10 @@ int main(int argc, char **argv) {
                 }
             }
 
-            info->result_count = read32_uleb128(mod.ptr, &i);
+            info->result_count = read32_uleb128(mod_ptr, &i);
             info->result_types = 0;
             for (uint32_t result_i = 0; result_i < info->result_count; result_i += 1) {
-                int64_t result_type = read64_ileb128(mod.ptr, &i);
+                int64_t result_type = read64_ileb128(mod_ptr, &i);
                 switch (result_type) {
                     case -1: case -3: bs_unset(&info->result_types, result_i); break;
                     case -2: case -4:   bs_set(&info->result_types, result_i); break;
@@ -4197,18 +4204,18 @@ int main(int argc, char **argv) {
     uint32_t imports_len;
     {
         i = section_starts[Section_import];
-        imports_len = read32_uleb128(mod.ptr, &i);
+        imports_len = read32_uleb128(mod_ptr, &i);
         imports = arena_alloc(sizeof(struct Import) * imports_len);
         for (size_t imp_i = 0; imp_i < imports_len; imp_i += 1) {
             struct Import *imp = &imports[imp_i];
 
-            struct ByteSlice mod_name = read_name(mod.ptr, &i);
+            struct ByteSlice mod_name = read_name(mod_ptr, &i);
             if (mod_name.len == strlen("wasi_snapshot_preview1") &&
                 memcmp(mod_name.ptr, "wasi_snapshot_preview1", mod_name.len) == 0) {
                 imp->mod = ImpMod_wasi_snapshot_preview1;
             } else panic("unknown import module");
 
-            struct ByteSlice sym_name = read_name(mod.ptr, &i);
+            struct ByteSlice sym_name = read_name(mod_ptr, &i);
             if (sym_name.len == strlen("args_get") &&
                 memcmp(sym_name.ptr, "args_get", sym_name.len) == 0) {
                 imp->name = ImpName_args_get;
@@ -4292,9 +4299,9 @@ int main(int argc, char **argv) {
                 imp->name = ImpName_random_get;
             } else panic("unknown import name");
 
-            uint32_t desc = read32_uleb128(mod.ptr, &i);
+            uint32_t desc = read32_uleb128(mod_ptr, &i);
             if (desc != 0) panic("external kind not function");
-            imp->type_idx = read32_uleb128(mod.ptr, &i);
+            imp->type_idx = read32_uleb128(mod_ptr, &i);
         }
     }
 
@@ -4302,11 +4309,11 @@ int main(int argc, char **argv) {
     uint32_t start_fn_idx;
     {
         i = section_starts[Section_export];
-        uint32_t count = read32_uleb128(mod.ptr, &i);
+        uint32_t count = read32_uleb128(mod_ptr, &i);
         for (; count > 0; count -= 1) {
-            struct ByteSlice name = read_name(mod.ptr, &i);
-            uint32_t desc = read32_uleb128(mod.ptr, &i);
-            start_fn_idx = read32_uleb128(mod.ptr, &i);
+            struct ByteSlice name = read_name(mod_ptr, &i);
+            uint32_t desc = read32_uleb128(mod_ptr, &i);
+            start_fn_idx = read32_uleb128(mod_ptr, &i);
             if (desc == 0 && name.len == strlen("_start") &&
                 memcmp(name.ptr, "_start", name.len) == 0)
             {
@@ -4321,11 +4328,11 @@ int main(int argc, char **argv) {
     uint32_t functions_len;
     {
         i = section_starts[Section_function];
-        functions_len = read32_uleb128(mod.ptr, &i);
+        functions_len = read32_uleb128(mod_ptr, &i);
         functions = arena_alloc(sizeof(struct Function) * functions_len);
         for (size_t func_i = 0; func_i < functions_len; func_i += 1) {
             struct Function *func = &functions[func_i];
-            func->type_idx = read32_uleb128(mod.ptr, &i);
+            func->type_idx = read32_uleb128(mod_ptr, &i);
         }
     }
 
@@ -4333,18 +4340,18 @@ int main(int argc, char **argv) {
     uint64_t *globals;
     {
         i = section_starts[Section_global];
-        uint32_t globals_len = read32_uleb128(mod.ptr, &i);
+        uint32_t globals_len = read32_uleb128(mod_ptr, &i);
         globals = arena_alloc(sizeof(uint64_t) * globals_len);
         for (size_t glob_i = 0; glob_i < globals_len; glob_i += 1) {
             uint64_t *global = &globals[glob_i];
-            uint32_t content_type = read32_uleb128(mod.ptr, &i);
-            uint32_t mutability = read32_uleb128(mod.ptr, &i);
+            uint32_t content_type = read32_uleb128(mod_ptr, &i);
+            uint32_t mutability = read32_uleb128(mod_ptr, &i);
             if (mutability != 1) panic("expected mutable global");
             if (content_type != 0x7f) panic("unexpected content type");
-            uint8_t opcode = mod.ptr[i];
+            uint8_t opcode = mod_ptr[i];
             i += 1;
             if (opcode != WasmOp_i32_const) panic("expected i32_const op");
-            uint32_t init = read32_ileb128(mod.ptr, &i);
+            uint32_t init = read32_ileb128(mod_ptr, &i);
             *global = (uint32_t)init;
         }
     }
@@ -4353,26 +4360,26 @@ int main(int argc, char **argv) {
     uint32_t memory_len;
     {
         i = section_starts[Section_memory];
-        uint32_t memories_len = read32_uleb128(mod.ptr, &i);
+        uint32_t memories_len = read32_uleb128(mod_ptr, &i);
         if (memories_len != 1) panic("unexpected memory count");
-        uint32_t flags = read32_uleb128(mod.ptr, &i);
+        uint32_t flags = read32_uleb128(mod_ptr, &i);
         (void)flags;
-        memory_len = read32_uleb128(mod.ptr, &i) * wasm_page_size;
+        memory_len = read32_uleb128(mod_ptr, &i) * wasm_page_size;
 
         i = section_starts[Section_data];
-        uint32_t datas_count = read32_uleb128(mod.ptr, &i);
+        uint32_t datas_count = read32_uleb128(mod_ptr, &i);
         for (; datas_count > 0; datas_count -= 1) {
-            uint32_t mode = read32_uleb128(mod.ptr, &i);
+            uint32_t mode = read32_uleb128(mod_ptr, &i);
             if (mode != 0) panic("expected mode 0");
-            enum WasmOp opcode = mod.ptr[i];
+            enum WasmOp opcode = mod_ptr[i];
             i += 1;
             if (opcode != WasmOp_i32_const) panic("expected opcode i32_const");
-            uint32_t offset = read32_uleb128(mod.ptr, &i);
-            enum WasmOp end = mod.ptr[i];
+            uint32_t offset = read32_uleb128(mod_ptr, &i);
+            enum WasmOp end = mod_ptr[i];
             if (end != WasmOp_end) panic("expected end opcode");
             i += 1;
-            uint32_t bytes_len = read32_uleb128(mod.ptr, &i);
-            memcpy(memory + offset, mod.ptr + i, bytes_len);
+            uint32_t bytes_len = read32_uleb128(mod_ptr, &i);
+            memcpy(memory + offset, mod_ptr + i, bytes_len);
             i += bytes_len;
         }
     }
@@ -4380,37 +4387,37 @@ int main(int argc, char **argv) {
     uint32_t *table = NULL;
     {
         i = section_starts[Section_table];
-        uint32_t table_count = read32_uleb128(mod.ptr, &i);
+        uint32_t table_count = read32_uleb128(mod_ptr, &i);
         if (table_count > 1) {
             panic("expected only one table section");
         } else if (table_count == 1) {
-            uint32_t element_type = read32_uleb128(mod.ptr, &i);
+            uint32_t element_type = read32_uleb128(mod_ptr, &i);
             (void)element_type;
-            uint32_t has_max = read32_uleb128(mod.ptr, &i);
+            uint32_t has_max = read32_uleb128(mod_ptr, &i);
             if (has_max != 1) panic("expected has_max==1");
-            uint32_t initial = read32_uleb128(mod.ptr, &i);
+            uint32_t initial = read32_uleb128(mod_ptr, &i);
             (void)initial;
-            uint32_t maximum = read32_uleb128(mod.ptr, &i);
+            uint32_t maximum = read32_uleb128(mod_ptr, &i);
 
             i = section_starts[Section_element];
-            uint32_t element_section_count = read32_uleb128(mod.ptr, &i);
+            uint32_t element_section_count = read32_uleb128(mod_ptr, &i);
             if (element_section_count != 1) panic("expected one element section");
-            uint32_t flags = read32_uleb128(mod.ptr, &i);
+            uint32_t flags = read32_uleb128(mod_ptr, &i);
             (void)flags;
-            enum WasmOp opcode = mod.ptr[i];
+            enum WasmOp opcode = mod_ptr[i];
             i += 1;
             if (opcode != WasmOp_i32_const) panic("expected op i32_const");
-            uint32_t offset = read32_uleb128(mod.ptr, &i);
-            enum WasmOp end = mod.ptr[i];
+            uint32_t offset = read32_uleb128(mod_ptr, &i);
+            enum WasmOp end = mod_ptr[i];
             if (end != WasmOp_end) panic("expected op end");
             i += 1;
-            uint32_t elem_count = read32_uleb128(mod.ptr, &i);
+            uint32_t elem_count = read32_uleb128(mod_ptr, &i);
 
             table = arena_alloc(sizeof(uint32_t) * maximum);
             memset(table, 0, sizeof(uint32_t) * maximum);
 
             for (uint32_t elem_i = 0; elem_i < elem_count; elem_i += 1) {
-                table[elem_i + offset] = read32_uleb128(mod.ptr, &i);
+                table[elem_i + offset] = read32_uleb128(mod_ptr, &i);
             }
         }
     }
@@ -4420,7 +4427,7 @@ int main(int argc, char **argv) {
     memset(&vm, 0xaa, sizeof(struct VirtualMachine)); // to match the zig version
 #endif
     vm.stack = arena_alloc(sizeof(uint64_t) * 10000000),
-    vm.mod_ptr = mod.ptr;
+    vm.mod_ptr = mod_ptr;
     vm.opcodes = arena_alloc(2000000);
     vm.operands = arena_alloc(sizeof(uint32_t) * 2000000);
     vm.stack_top = 0;
@@ -4436,14 +4443,14 @@ int main(int argc, char **argv) {
 
     {
         uint32_t code_i = section_starts[Section_code];
-        uint32_t codes_len = read32_uleb128(mod.ptr, &code_i);
+        uint32_t codes_len = read32_uleb128(mod_ptr, &code_i);
         if (codes_len != functions_len) panic("code/function length mismatch");
         struct ProgramCounter pc;
         pc.opcode = 0;
         pc.operand = 0;
         for (uint32_t func_i = 0; func_i < functions_len; func_i += 1) {
             struct Function *func = &functions[func_i];
-            uint32_t size = read32_uleb128(mod.ptr, &code_i);
+            uint32_t size = read32_uleb128(mod_ptr, &code_i);
             uint32_t code_begin = code_i;
 
             struct TypeInfo *type_info = &vm.types[func->type_idx];
@@ -4451,11 +4458,11 @@ int main(int argc, char **argv) {
             func->local_types = malloc(sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
             func->local_types[0] = type_info->param_types;
 
-            for (uint32_t local_sets_count = read32_uleb128(mod.ptr, &code_i);
+            for (uint32_t local_sets_count = read32_uleb128(mod_ptr, &code_i);
                  local_sets_count > 0; local_sets_count -= 1)
             {
-                uint32_t set_count = read32_uleb128(mod.ptr, &code_i);
-                int64_t local_type = read64_ileb128(mod.ptr, &code_i);
+                uint32_t set_count = read32_uleb128(mod_ptr, &code_i);
+                int64_t local_type = read64_ileb128(mod_ptr, &code_i);
 
                 uint32_t i = type_info->param_count + func->locals_count;
                 func->locals_count += set_count;
