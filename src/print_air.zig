@@ -400,9 +400,13 @@ const Writer = struct {
     }
 
     fn writeTyPlBin(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const data = w.air.instructions.items(.data);
+        const ty_pl = data[inst].ty_pl;
         const extra = w.air.extraData(Air.Bin, ty_pl.payload).data;
 
+        const inst_ty = w.air.getRefType(data[inst].ty_pl.ty);
+        try w.writeType(s, inst_ty);
+        try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 1, extra.rhs);
