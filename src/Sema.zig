@@ -18778,8 +18778,8 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ptr_ty = try sema.resolveType(block, src, extra.lhs);
-    const elem_ty = ptr_ty.elemType2();
     try sema.checkPtrType(block, type_src, ptr_ty);
+    const elem_ty = ptr_ty.elemType2();
     const target = sema.mod.getTarget();
     const ptr_align = try ptr_ty.ptrAlignmentAdvanced(target, sema);
 
