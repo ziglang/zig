@@ -3277,7 +3277,7 @@ test "default struct initialization fields" {
       Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
       </p>
       <ul>
-        <li>Fields remain in the order declared.</li>
+        <li>Fields remain in the order declared, least to most significant.</li>
         <li>There is no padding between fields.</li>
         <li>Zig supports arbitrary width {#link|Integers#} and although normally, integers with fewer
         than 8 bits will still use 1 byte of memory, in packed structs, they use
@@ -3320,16 +3320,19 @@ fn doTheTest() !void {
     try expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
+    try expect(divided.half1 == 0x34);
+    try expect(divided.quarter3 == 0x2);
+    try expect(divided.quarter4 == 0x1);
+
+    var ordered = @bitCast([2]u8, full);
     switch (native_endian) {
         .Big => {
-            try expect(divided.half1 == 0x12);
-            try expect(divided.quarter3 == 0x3);
-            try expect(divided.quarter4 == 0x4);
+            try expect(ordered[0] == 0x12);
+            try expect(ordered[1] == 0x34);
         },
         .Little => {
-            try expect(divided.half1 == 0x34);
-            try expect(divided.quarter3 == 0x2);
-            try expect(divided.quarter4 == 0x1);
+            try expect(ordered[0] == 0x34);
+            try expect(ordered[1] == 0x12);
         },
     }
 }
