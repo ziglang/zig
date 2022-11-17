@@ -4633,7 +4633,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, undefined);
+    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, "global variable initializer must be comptime-known");
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
