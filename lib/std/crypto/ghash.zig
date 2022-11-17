@@ -146,7 +146,7 @@ pub const Ghash = struct {
 
     // Software carryless multiplication of two 64-bit integers.
     fn clmulSoft(x_: u128, y_: u128, comptime half: Selector) u128 {
-        const x = @truncate(u64, if (half == .hi) x_ >> 64 else x_);
+        const x = @truncate(u64, if (half == .hi or half == .hi_lo) x_ >> 64 else x_);
         const y = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
 
         const x0 = x & 0x1111111111111110;
