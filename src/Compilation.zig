@@ -2042,10 +2042,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             for (mingw.always_link_libs) |name| {
                 try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
             }
-
-            // LLD might drop some symbols as unused during LTO and GCing, therefore,
-            // we force mark them for resolution here.
-            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, "_tls_index", {});
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
@@ -2065,6 +2061,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
         if (build_options.have_llvm and comp.bin_file.options.tsan) {
             try comp.work_queue.writeItem(.libtsan);
+        }
+
+        if (comp.getTarget().isMinGW() and !comp.bin_file.options.single_threaded) {
+            // LLD might drop some symbols as unused during LTO and GCing, therefore,
+            // we force mark them for resolution here.
+
+            var tls_index_sym = switch (comp.getTarget().cpu.arch) {
+                .x86 => "__tls_index",
+                else => "_tls_index",
+            };
+
+            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
         }
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
