@@ -2578,14 +2578,86 @@ test "big.int regression test for realloc with alias" {
 }
 
 test "big int popcount" {
-    var a = try Managed.initSet(testing.allocator, -1);
+    var a = try Managed.init(testing.allocator);
     defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, -1);
+
+    try a.set(0);
+    try popCountTest(&a, 0, 0);
+    try popCountTest(&a, 567, 0);
+    try a.set(-0);
+    try popCountTest(&a, 0, 0);
+
+    try a.set(1);
+    try popCountTest(&a, 1, 1);
+    try popCountTest(&a, 13, 1);
+    try popCountTest(&a, 432, 1);
+
+    try a.set(255);
+    try popCountTest(&a, 8, 8);
+    try a.set(-128);
+    try popCountTest(&a, 8, 1);
+
+    try a.set(-2);
+    try popCountTest(&a, 16, 15);
+    try popCountTest(&a, 15, 14);
+
+    try a.set(-2047);
+    try popCountTest(&a, 12, 2);
+    try popCountTest(&a, 24, 14);
+
+    try a.set(maxInt(u5000));
+    try popCountTest(&a, 5000, 5000);
+    try a.set(minInt(i5000));
+    try popCountTest(&a, 5000, 1);
+
+    // Check -1 at various bit counts that cross Limb size multiples.
+    const limb_bits = @bitSizeOf(Limb);
+    try a.set(-1);
+    try popCountTest(&a, 1, 1); // i1
+    try popCountTest(&a, 2, 2);
+    try popCountTest(&a, 16, 16);
+    try popCountTest(&a, 543, 543);
+    try popCountTest(&a, 544, 544);
+    try popCountTest(&a, limb_bits - 1, limb_bits - 1);
+    try popCountTest(&a, limb_bits, limb_bits);
+    try popCountTest(&a, limb_bits + 1, limb_bits + 1);
+    try popCountTest(&a, limb_bits * 2 - 1, limb_bits * 2 - 1);
+    try popCountTest(&a, limb_bits * 2, limb_bits * 2);
+    try popCountTest(&a, limb_bits * 2 + 1, limb_bits * 2 + 1);
+
+    // Check very large numbers.
+    try a.setString(16, "ff00000100000100" ++ ("0000000000000000" ** 62));
+    try popCountTest(&a, 4032, 10);
+    try popCountTest(&a, 6000, 10);
+    a.negate();
+    try popCountTest(&a, 4033, 48);
+    try popCountTest(&a, 4133, 148);
+
+    // Check when most significant limb is full of 1s.
+    const limb_size = @bitSizeOf(Limb);
+    try a.set(maxInt(Limb));
+    try popCountTest(&a, limb_size, limb_size);
+    try popCountTest(&a, limb_size + 1, limb_size);
+    try popCountTest(&a, limb_size * 10 + 2, limb_size);
+    a.negate();
+    try popCountTest(&a, limb_size * 2 - 2, limb_size - 1);
+    try popCountTest(&a, limb_size * 2 - 1, limb_size);
+    try popCountTest(&a, limb_size * 2, limb_size + 1);
+    try popCountTest(&a, limb_size * 2 + 1, limb_size + 2);
+    // TODO: These produce incorrect pop count for Mutable
+    // https://github.com/ziglang/zig/issues/13571
+    // try popCountTest(&a, limb_size * 2 + 2, limb_size + 3);
+    // try popCountTest(&a, limb_size * 2 + 3, limb_size + 4);
+    // try popCountTest(&a, limb_size * 2 + 4, limb_size + 5);
+}
+
+fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
+    var b = try Managed.init(testing.allocator);
     defer b.deinit();
+    try b.popCount(val, bit_count);
 
-    try a.popCount(&b, 16);
-
-    try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
+    try testing.expectEqual(std.math.Order.eq, b.toConst().orderAgainstScalar(expected));
+    try testing.expectEqual(expected, val.toConst().popCount(bit_count));
 }
 
 test "big int conversion read/write twos complement" {

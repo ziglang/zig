@@ -1959,6 +1959,52 @@ pub const Const = struct {
         return bits;
     }
 
+    /// @popCount with two's complement semantics.
+    ///
+    /// This returns the number of 1 bits set when the value would be represented in
+    /// two's complement with the given integer width (bit_count).
+    /// This includes the leading sign bit, which will be set for negative values.
+    ///
+    /// Asserts that bit_count is enough to represent value in two's compliment
+    /// and that the final result fits in a usize.
+    /// Asserts that there are no trailing empty limbs on the most significant end,
+    /// i.e. that limb count matches `calcLimbLen()` and zero is not negative.
+    pub fn popCount(self: Const, bit_count: usize) usize {
+        var sum: usize = 0;
+        if (self.positive) {
+            for (self.limbs) |limb| {
+                sum += @popCount(limb);
+            }
+        } else {
+            assert(self.fitsInTwosComp(.signed, bit_count));
+            assert(self.limbs[self.limbs.len - 1] != 0);
+
+            var remaining_bits = bit_count;
+            var carry: u1 = 1;
+            var add_res: Limb = undefined;
+
+            // All but the most significant limb.
+            for (self.limbs[0 .. self.limbs.len - 1]) |limb| {
+                carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &add_res));
+                sum += @popCount(add_res);
+                remaining_bits -= limb_bits; // Asserted not to undeflow by fitsInTwosComp
+            }
+
+            // The most significant limb may have fewer than @bitSizeOf(Limb) meaningful bits,
+            // which we can detect with @clz().
+            // There may also be fewer limbs than needed to fill bit_count.
+            const limb = self.limbs[self.limbs.len - 1];
+            const leading_zeroes = @clz(limb);
+            // The most significant limb is asserted not to be all 0s (above),
+            // so ~limb cannot be all 1s, and ~limb + 1 cannot overflow.
+            sum += @popCount(~limb + carry);
+            sum -= leading_zeroes; // All leading zeroes were flipped and added to sum, so undo those
+            const remaining_ones = remaining_bits - (limb_bits - leading_zeroes); // All bits not covered by limbs
+            sum += remaining_ones;
+        }
+        return sum;
+    }
+
     pub fn fitsInTwosComp(self: Const, signedness: Signedness, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
