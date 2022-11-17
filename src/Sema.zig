@@ -1897,10 +1897,15 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
     }
     i -= Air.Inst.Ref.typed_value_map.len;
 
+    const air_tags = sema.air_instructions.items(.tag);
     if (try sema.typeHasOnePossibleValue(sema.typeOf(inst))) |opv| {
+        if (air_tags[i] == .constant) {
+            const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
+            const val = sema.air_values.items[ty_pl.payload];
+            if (val.tag() == .variable) return val;
+        }
         return opv;
     }
-    const air_tags = sema.air_instructions.items(.tag);
     switch (air_tags[i]) {
         .constant => {
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
