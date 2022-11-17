@@ -23,7 +23,13 @@ pub const Ghash = struct {
     const agg_8_treshold = 84;
     const agg_16_treshold = 328;
 
-    const mul_algorithm = if (builtin.cpu.arch == .x86) .karatsuba else .textbook;
+    // Before the Haswell architecture, the carryless multiplication instruction was
+    // extremely slow. Even with 128-bit operands, using Karatsuba multiplication was
+    // thus faster than a schoolbook multiplication.
+    // This is no longer the case -- Modern CPUs, including ARM-based ones, have a fast
+    // carryless multiplication instruction; using 4 multiplications is now faster than
+    // 3 multiplications with extra shifts and additions.
+    const mul_algorithm = if (builtin.cpu.arch == .x86) .karatsuba else .schoolbook;
 
     hx: [pc_count]Precomp,
     acc: u128 = 0,
@@ -74,59 +80,67 @@ pub const Ghash = struct {
 
     // Carryless multiplication of two 64-bit integers for x86_64.
     inline fn clmulPclmul(x: u128, y: u128, comptime half: Selector) u128 {
-        if (half == .hi) {
-            const product = asm (
-                \\ vpclmulqdq $0x11, %[x], %[y], %[out]
-                : [out] "=x" (-> @Vector(2, u64)),
-                : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                  [y] "x" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
-        } else if (half == .lo) {
-            const product = asm (
-                \\ vpclmulqdq $0x00, %[x], %[y], %[out]
-                : [out] "=x" (-> @Vector(2, u64)),
-                : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                  [y] "x" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
-        } else {
-            const product = asm (
-                \\ vpclmulqdq $0x10, %[x], %[y], %[out]
-                : [out] "=x" (-> @Vector(2, u64)),
-                : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                  [y] "x" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
+        switch (half) {
+            .hi => {
+                const product = asm (
+                    \\ vpclmulqdq $0x11, %[x], %[y], %[out]
+                    : [out] "=x" (-> @Vector(2, u64)),
+                    : [x] "x" (@bitCast(@Vector(2, u64), x)),
+                      [y] "x" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
+            .lo => {
+                const product = asm (
+                    \\ vpclmulqdq $0x00, %[x], %[y], %[out]
+                    : [out] "=x" (-> @Vector(2, u64)),
+                    : [x] "x" (@bitCast(@Vector(2, u64), x)),
+                      [y] "x" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
+            .hi_lo => {
+                const product = asm (
+                    \\ vpclmulqdq $0x10, %[x], %[y], %[out]
+                    : [out] "=x" (-> @Vector(2, u64)),
+                    : [x] "x" (@bitCast(@Vector(2, u64), x)),
+                      [y] "x" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
         }
     }
 
     // Carryless multiplication of two 64-bit integers for ARM crypto.
     inline fn clmulPmull(x: u128, y: u128, comptime half: Selector) u128 {
-        if (half == .hi) {
-            const product = asm (
-                \\ pmull2 %[out].1q, %[x].2d, %[y].2d
-                : [out] "=w" (-> @Vector(2, u64)),
-                : [x] "w" (@bitCast(@Vector(2, u64), x)),
-                  [y] "w" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
-        } else if (half == .lo) {
-            const product = asm (
-                \\ pmull %[out].1q, %[x].1d, %[y].1d
-                : [out] "=w" (-> @Vector(2, u64)),
-                : [x] "w" (@bitCast(@Vector(2, u64), x)),
-                  [y] "w" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
-        } else {
-            const product = asm (
-                \\ pmull %[out].1q, %[x].1d, %[y].1d
-                : [out] "=w" (-> @Vector(2, u64)),
-                : [x] "w" (@bitCast(@Vector(2, u64), x >> 64)),
-                  [y] "w" (@bitCast(@Vector(2, u64), y)),
-            );
-            return @bitCast(u128, product);
+        switch (half) {
+            .hi => {
+                const product = asm (
+                    \\ pmull2 %[out].1q, %[x].2d, %[y].2d
+                    : [out] "=w" (-> @Vector(2, u64)),
+                    : [x] "w" (@bitCast(@Vector(2, u64), x)),
+                      [y] "w" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
+            .lo => {
+                const product = asm (
+                    \\ pmull %[out].1q, %[x].1d, %[y].1d
+                    : [out] "=w" (-> @Vector(2, u64)),
+                    : [x] "w" (@bitCast(@Vector(2, u64), x)),
+                      [y] "w" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
+            .hi_lo => {
+                const product = asm (
+                    \\ pmull %[out].1q, %[x].1d, %[y].1d
+                    : [out] "=w" (-> @Vector(2, u64)),
+                    : [x] "w" (@bitCast(@Vector(2, u64), x >> 64)),
+                      [y] "w" (@bitCast(@Vector(2, u64), y)),
+                );
+                return @bitCast(u128, product);
+            },
         }
     }
 
