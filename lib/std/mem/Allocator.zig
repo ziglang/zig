@@ -9,8 +9,26 @@ const builtin = @import("builtin");
 
 pub const Error = error{OutOfMemory};
 
-// The type erased pointer to the allocator implementation
-ptr: *anyopaque,
+// The type erased pointer to the allocator implementation. Stored in a union to
+// allow the pointer to be either const or not without using tricks like
+// @ptrToInt, which could hurt optimisation. We use a packed union to avoid safe
+// builds from storing a tag with the union, which would increase the size of an
+// Allocator and potentially hurt runtime performance.
+pub const ImplPtr = packed union {
+    c: *const anyopaque,
+    m: *anyopaque,
+
+    inline fn convert(self: ImplPtr, comptime Ptr: type) Ptr {
+        const alignment = std.meta.alignment(Ptr);
+
+        return if (comptime std.meta.trait.isConstPtr(Ptr))
+            @ptrCast(Ptr, @alignCast(alignment, self.c))
+        else
+            @ptrCast(Ptr, @alignCast(alignment, self.m));
+    }
+};
+
+ptr: ImplPtr,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -23,7 +41,7 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    alloc: std.meta.FnPtr(fn (ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8),
+    alloc: std.meta.FnPtr(fn (ptr: ImplPtr, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8),
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
     /// length returned by `alloc` or `resize`. `buf_align` must equal the same value
@@ -42,14 +60,14 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    resize: std.meta.FnPtr(fn (ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize),
+    resize: std.meta.FnPtr(fn (ptr: ImplPtr, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize),
 
     /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`.
     /// `buf_align` must equal the same value that was passed as the `ptr_align` parameter to the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    free: std.meta.FnPtr(fn (ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void),
+    free: std.meta.FnPtr(fn (ptr: ImplPtr, buf: []u8, buf_align: u29, ret_addr: usize) void),
 };
 
 pub fn init(
@@ -64,21 +82,18 @@ pub fn init(
     assert(ptr_info == .Pointer); // Must be a pointer
     assert(ptr_info.Pointer.size == .One); // Must be a single-item pointer
 
-    const alignment = ptr_info.Pointer.alignment;
+    const impl_ptr: ImplPtr = if (ptr_info.Pointer.is_const) .{ .c = pointer } else .{ .m = pointer };
 
     const gen = struct {
-        fn allocImpl(ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
-            const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
-            return @call(.{ .modifier = .always_inline }, allocFn, .{ self, len, ptr_align, len_align, ret_addr });
+        fn allocImpl(ptr: ImplPtr, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
+            return @call(.{ .modifier = .always_inline }, allocFn, .{ ptr.convert(Ptr), len, ptr_align, len_align, ret_addr });
         }
-        fn resizeImpl(ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
+        fn resizeImpl(ptr: ImplPtr, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
             assert(new_len != 0);
-            const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
-            return @call(.{ .modifier = .always_inline }, resizeFn, .{ self, buf, buf_align, new_len, len_align, ret_addr });
+            return @call(.{ .modifier = .always_inline }, resizeFn, .{ ptr.convert(Ptr), buf, buf_align, new_len, len_align, ret_addr });
         }
-        fn freeImpl(ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void {
-            const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
-            @call(.{ .modifier = .always_inline }, freeFn, .{ self, buf, buf_align, ret_addr });
+        fn freeImpl(ptr: ImplPtr, buf: []u8, buf_align: u29, ret_addr: usize) void {
+            @call(.{ .modifier = .always_inline }, freeFn, .{ ptr.convert(Ptr), buf, buf_align, ret_addr });
         }
 
         const vtable = VTable{
@@ -89,16 +104,16 @@ pub fn init(
     };
 
     return .{
-        .ptr = pointer,
+        .ptr = impl_ptr,
         .vtable = &gen.vtable,
     };
 }
 
 /// Set resizeFn to `NoResize(AllocatorType).noResize` if in-place resize is not supported.
-pub fn NoResize(comptime AllocatorType: type) type {
+pub fn NoResize(comptime AllocatorType: ?type) type {
     return struct {
         pub fn noResize(
-            self: *AllocatorType,
+            self: if (AllocatorType) |T| *T else ImplPtr,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
@@ -115,10 +130,10 @@ pub fn NoResize(comptime AllocatorType: type) type {
 }
 
 /// Set freeFn to `NoOpFree(AllocatorType).noOpFree` if free is a no-op.
-pub fn NoOpFree(comptime AllocatorType: type) type {
+pub fn NoOpFree(comptime AllocatorType: ?type) type {
     return struct {
         pub fn noOpFree(
-            self: *AllocatorType,
+            self: if (AllocatorType) |T| *T else ImplPtr,
             buf: []u8,
             buf_align: u29,
             ret_addr: usize,
@@ -132,10 +147,10 @@ pub fn NoOpFree(comptime AllocatorType: type) type {
 }
 
 /// Set freeFn to `PanicFree(AllocatorType).panicFree` if free is not a supported operation.
-pub fn PanicFree(comptime AllocatorType: type) type {
+pub fn PanicFree(comptime AllocatorType: ?type) type {
     return struct {
         pub fn panicFree(
-            self: *AllocatorType,
+            self: if (AllocatorType) |T| *T else ImplPtr,
             buf: []u8,
             buf_align: u29,
             ret_addr: usize,

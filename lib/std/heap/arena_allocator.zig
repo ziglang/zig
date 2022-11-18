@@ -15,12 +15,50 @@ pub const ArenaAllocator = struct {
         buffer_list: std.SinglyLinkedList([]u8) = @as(std.SinglyLinkedList([]u8), .{}),
         end_index: usize = 0,
 
-        pub fn promote(self: State, child_allocator: Allocator) ArenaAllocator {
+        pub fn promote(self: *State, child_allocator: Allocator) Promoted {
             return .{
                 .child_allocator = child_allocator,
                 .state = self,
             };
         }
+
+        pub const Promoted = struct {
+            child_allocator: Allocator,
+            state: *State,
+
+            pub fn allocator(self: *const Promoted) Allocator {
+                return Allocator.init(self, Promoted.alloc, Promoted.resize, Promoted.free);
+            }
+
+            pub fn deinit(self: Promoted) void {
+                self.arena().deinit();
+            }
+
+            fn arena(self: Promoted) ArenaAllocator {
+                return .{
+                    .child_allocator = self.child_allocator,
+                    .state = self.state.*,
+                };
+            }
+
+            fn alloc(self: *const Promoted, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
+                var ar = self.arena();
+                defer self.state.* = ar.state;
+                return ar.alloc(n, ptr_align, len_align, ra);
+            }
+
+            fn resize(self: *const Promoted, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ra: usize) ?usize {
+                var ar = self.arena();
+                defer self.state.* = ar.state;
+                return ar.resize(buf, buf_align, new_len, len_align, ra);
+            }
+
+            fn free(self: *const Promoted, buf: []u8, buf_align: u29, ra: usize) void {
+                var ar = self.arena();
+                defer self.state.* = ar.state;
+                ar.free(buf, buf_align, ra);
+            }
+        };
     };
 
     pub fn allocator(self: *ArenaAllocator) Allocator {
@@ -30,7 +68,10 @@ pub const ArenaAllocator = struct {
     const BufNode = std.SinglyLinkedList([]u8).Node;
 
     pub fn init(child_allocator: Allocator) ArenaAllocator {
-        return (State{}).promote(child_allocator);
+        return .{
+            .child_allocator = child_allocator,
+            .state = .{},
+        };
     }
 
     pub fn deinit(self: ArenaAllocator) void {

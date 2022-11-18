@@ -5519,9 +5519,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     const decl = mod.declPtr(decl_index);
 
     // Use the Decl's arena for captured values.
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    const decl_arena_allocator = decl.value_arena.?.promote(gpa).allocator();
 
     var sema: Sema = .{
         .mod = mod,

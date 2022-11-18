@@ -32,7 +32,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn alloc(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         len: usize,
         ptr_align: u29,
         len_align: u29,
@@ -52,7 +52,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         new_len: usize,
@@ -66,7 +66,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn free(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         ret_addr: usize,
@@ -103,7 +103,7 @@ const raw_pool_allocator_table = Allocator.VTable{
 };
 
 fn uefi_alloc(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     len: usize,
     ptr_align: u29,
     len_align: u29,
@@ -124,7 +124,7 @@ fn uefi_alloc(
 }
 
 fn uefi_resize(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     buf: []u8,
     old_align: u29,
     new_len: usize,
@@ -142,7 +142,7 @@ fn uefi_resize(
 }
 
 fn uefi_free(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     buf: []u8,
     buf_align: u29,
     ret_addr: usize,

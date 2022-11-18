@@ -97,7 +97,7 @@ const CAllocator = struct {
     }
 
     fn alloc(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         len: usize,
         alignment: u29,
         len_align: u29,
@@ -123,7 +123,7 @@ const CAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         new_len: usize,
@@ -145,7 +145,7 @@ const CAllocator = struct {
     }
 
     fn free(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         return_address: usize,
@@ -185,7 +185,7 @@ const raw_c_allocator_vtable = Allocator.VTable{
 };
 
 fn rawCAlloc(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     len: usize,
     ptr_align: u29,
     len_align: u29,
@@ -199,7 +199,7 @@ fn rawCAlloc(
 }
 
 fn rawCResize(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     buf: []u8,
     old_align: u29,
     new_len: usize,
@@ -215,7 +215,7 @@ fn rawCResize(
 }
 
 fn rawCFree(
-    _: *anyopaque,
+    _: Allocator.ImplPtr,
     buf: []u8,
     old_align: u29,
     ret_addr: usize,
@@ -257,7 +257,7 @@ const PageAllocator = struct {
         .free = free,
     };
 
-    fn alloc(_: *anyopaque, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: Allocator.ImplPtr, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
         _ = ra;
         assert(n > 0);
         if (n > maxInt(usize) - (mem.page_size - 1)) {
@@ -358,7 +358,7 @@ const PageAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf_unaligned: []u8,
         buf_align: u29,
         new_size: usize,
@@ -409,7 +409,7 @@ const PageAllocator = struct {
         return null;
     }
 
-    fn free(_: *anyopaque, buf_unaligned: []u8, buf_align: u29, return_address: usize) void {
+    fn free(_: Allocator.ImplPtr, buf_unaligned: []u8, buf_align: u29, return_address: usize) void {
         _ = buf_align;
         _ = return_address;
 
@@ -521,7 +521,7 @@ const WasmPageAllocator = struct {
         return mem.alignForward(memsize, mem.page_size) / mem.page_size;
     }
 
-    fn alloc(_: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: Allocator.ImplPtr, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
         _ = ra;
         if (len > maxInt(usize) - (mem.page_size - 1)) {
             return error.OutOfMemory;
@@ -579,7 +579,7 @@ const WasmPageAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         new_len: usize,
@@ -600,7 +600,7 @@ const WasmPageAllocator = struct {
     }
 
     fn free(
-        _: *anyopaque,
+        _: Allocator.ImplPtr,
         buf: []u8,
         buf_align: u29,
         return_address: usize,
