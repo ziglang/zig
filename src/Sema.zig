@@ -13896,9 +13896,25 @@ fn analyzeArithmetic(
                 // because there is a possible value for which the addition would
                 // overflow (max_int), causing illegal behavior.
                 // For floats: either operand being undef makes the result undef.
+                // If either of the operands are inf, and the other operand is zero,
+                // the result is nan.
+                // If either of the operands are nan, the result is nan.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
-                        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                        if (lhs_val.isNan()) {
+                            return sema.addConstant(resolved_type, lhs_val);
+                        }
+                        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) lz: {
+                            if (maybe_rhs_val) |rhs_val| {
+                                if (rhs_val.isNan()) {
+                                    return sema.addConstant(resolved_type, rhs_val);
+                                }
+                                if (rhs_val.isInf()) {
+                                    return sema.addConstant(resolved_type, try Value.Tag.float_32.create(sema.arena, std.math.nan_f32));
+                                }
+                            } else if (resolved_type.isAnyFloat()) {
+                                break :lz;
+                            }
                             const zero_val = if (is_vector) b: {
                                 break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
                             } else Value.zero;
@@ -13918,7 +13934,17 @@ fn analyzeArithmetic(
                             return sema.addConstUndef(resolved_type);
                         }
                     }
-                    if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    if (rhs_val.isNan()) {
+                        return sema.addConstant(resolved_type, rhs_val);
+                    }
+                    if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) rz: {
+                        if (maybe_lhs_val) |lhs_val| {
+                            if (lhs_val.isInf()) {
+                                return sema.addConstant(resolved_type, try Value.Tag.float_32.create(sema.arena, std.math.nan_f32));
+                            }
+                        } else if (resolved_type.isAnyFloat()) {
+                            break :rz;
+                        }
                         const zero_val = if (is_vector) b: {
                             break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
                         } else Value.zero;
@@ -28175,8 +28201,10 @@ fn cmpNumeric(
             else => return Air.Inst.Ref.bool_false,
         };
         if (lhs_val.isInf()) switch (op) {
-            .gt, .neq => return Air.Inst.Ref.bool_true,
-            .lt, .lte, .eq, .gte => return Air.Inst.Ref.bool_false,
+            .neq => return Air.Inst.Ref.bool_true,
+            .eq => return Air.Inst.Ref.bool_false,
+            .gt, .gte => return if (lhs_val.isNegativeInf()) Air.Inst.Ref.bool_false else Air.Inst.Ref.bool_true,
+            .lt, .lte => return if (lhs_val.isNegativeInf()) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false,
         };
         if (!rhs_is_signed) {
             switch (lhs_val.orderAgainstZero()) {
@@ -28193,14 +28221,17 @@ fn cmpNumeric(
             }
         }
         if (lhs_is_float) {
-            var bigint = try float128IntPartToBigInt(sema.gpa, lhs_val.toFloat(f128));
-            defer bigint.deinit();
             if (lhs_val.floatHasFraction()) {
                 switch (op) {
                     .eq => return Air.Inst.Ref.bool_false,
                     .neq => return Air.Inst.Ref.bool_true,
                     else => {},
                 }
+            }
+
+            var bigint = try float128IntPartToBigInt(sema.gpa, lhs_val.toFloat(f128));
+            defer bigint.deinit();
+            if (lhs_val.floatHasFraction()) {
                 if (lhs_is_signed) {
                     try bigint.addScalar(&bigint, -1);
                 } else {
@@ -28228,8 +28259,10 @@ fn cmpNumeric(
             else => return Air.Inst.Ref.bool_false,
         };
         if (rhs_val.isInf()) switch (op) {
-            .lt, .neq => return Air.Inst.Ref.bool_true,
-            .gt, .lte, .eq, .gte => return Air.Inst.Ref.bool_false,
+            .neq => return Air.Inst.Ref.bool_true,
+            .eq => return Air.Inst.Ref.bool_false,
+            .gt, .gte => return if (rhs_val.isNegativeInf()) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false,
+            .lt, .lte => return if (rhs_val.isNegativeInf()) Air.Inst.Ref.bool_false else Air.Inst.Ref.bool_true,
         };
         if (!lhs_is_signed) {
             switch (rhs_val.orderAgainstZero()) {
@@ -28246,14 +28279,17 @@ fn cmpNumeric(
             }
         }
         if (rhs_is_float) {
-            var bigint = try float128IntPartToBigInt(sema.gpa, rhs_val.toFloat(f128));
-            defer bigint.deinit();
             if (rhs_val.floatHasFraction()) {
                 switch (op) {
                     .eq => return Air.Inst.Ref.bool_false,
                     .neq => return Air.Inst.Ref.bool_true,
                     else => {},
                 }
+            }
+
+            var bigint = try float128IntPartToBigInt(sema.gpa, rhs_val.toFloat(f128));
+            defer bigint.deinit();
+            if (rhs_val.floatHasFraction()) {
                 if (rhs_is_signed) {
                     try bigint.addScalar(&bigint, -1);
                 } else {
