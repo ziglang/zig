@@ -4288,29 +4288,42 @@ fn zirValidateArrayInit(
     const array_ty = sema.typeOf(array_ptr).childType();
     const array_len = array_ty.arrayLen();
 
-    if (instrs.len != array_len and array_ty.isTuple()) {
-        const struct_obj = array_ty.castTag(.tuple).?.data;
-        var root_msg: ?*Module.ErrorMsg = null;
-        errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+    if (instrs.len != array_len) switch (array_ty.zigTypeTag()) {
+        .Struct => {
+            const struct_obj = array_ty.castTag(.tuple).?.data;
+            var root_msg: ?*Module.ErrorMsg = null;
+            errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-        for (struct_obj.values) |default_val, i| {
-            if (i < instrs.len) continue;
+            for (struct_obj.values) |default_val, i| {
+                if (i < instrs.len) continue;
 
-            if (default_val.tag() == .unreachable_value) {
-                const template = "missing tuple field with index {d}";
-                if (root_msg) |msg| {
-                    try sema.errNote(block, init_src, msg, template, .{i});
-                } else {
-                    root_msg = try sema.errMsg(block, init_src, template, .{i});
+                if (default_val.tag() == .unreachable_value) {
+                    const template = "missing tuple field with index {d}";
+                    if (root_msg) |msg| {
+                        try sema.errNote(block, init_src, msg, template, .{i});
+                    } else {
+                        root_msg = try sema.errMsg(block, init_src, template, .{i});
+                    }
                 }
             }
-        }
 
-        if (root_msg) |msg| {
-            root_msg = null;
-            return sema.failWithOwnedErrorMsg(msg);
-        }
-    }
+            if (root_msg) |msg| {
+                root_msg = null;
+                return sema.failWithOwnedErrorMsg(msg);
+            }
+        },
+        .Array => {
+            return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        },
+        .Vector => {
+            return sema.fail(block, init_src, "expected {d} vector elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        },
+        else => unreachable,
+    };
 
     if ((is_comptime or block.is_comptime) and
         (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
