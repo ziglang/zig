@@ -994,6 +994,7 @@ pub const InitOptions = struct {
     reference_trace: ?u32 = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
+    test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -1581,12 +1582,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             errdefer std_pkg.destroy(gpa);
 
             const root_pkg = if (options.is_test) root_pkg: {
-                const test_pkg = try Package.createWithDir(
-                    gpa,
-                    options.zig_lib_directory,
-                    null,
-                    "test_runner.zig",
-                );
+                const test_pkg = if (options.test_runner_path) |test_runner|
+                    try Package.create(gpa, null, test_runner)
+                else
+                    try Package.createWithDir(
+                        gpa,
+                        options.zig_lib_directory,
+                        null,
+                        "test_runner.zig",
+                    );
                 errdefer test_pkg.destroy(gpa);
 
                 break :root_pkg test_pkg;

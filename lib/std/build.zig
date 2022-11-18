@@ -1509,6 +1509,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     test_evented_io: bool = false,
+    test_runner: ?[]const u8,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// Symbols to be exported when compiling to wasm
@@ -1771,6 +1772,7 @@ pub const LibExeObjStep = struct {
             .exec_cmd_args = null,
             .name_prefix = "",
             .filter = null,
+            .test_runner = null,
             .disable_stack_probing = false,
             .disable_sanitize_c = false,
             .sanitize_thread = false,
@@ -2202,6 +2204,11 @@ pub const LibExeObjStep = struct {
     pub fn setFilter(self: *LibExeObjStep, text: ?[]const u8) void {
         assert(self.kind == .@"test" or self.kind == .test_exe);
         self.filter = if (text) |t| self.builder.dupe(t) else null;
+    }
+
+    pub fn setTestRunner(self: *LibExeObjStep, path: ?[]const u8) void {
+        assert(self.kind == .@"test" or self.kind == .test_exe);
+        self.test_runner = if (path) |p| self.builder.dupePath(p) else null;
     }
 
     /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -2667,6 +2674,11 @@ pub const LibExeObjStep = struct {
         if (self.name_prefix.len != 0) {
             try zig_args.append("--test-name-prefix");
             try zig_args.append(self.name_prefix);
+        }
+
+        if (self.test_runner) |test_runner| {
+            try zig_args.append("--test-runner");
+            try zig_args.append(builder.pathFromRoot(test_runner));
         }
 
         for (builder.debug_log_scopes) |log_scope| {
