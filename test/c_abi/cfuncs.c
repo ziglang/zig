@@ -770,3 +770,66 @@ void c_ptr_size_float_struct(Vector2 vec) {
 Vector2 c_ret_ptr_size_float_struct(void) {
     return (Vector2){3, 4};
 }
+
+/// Tests for Double + Char struct
+struct DC { double v1; char v2; };
+
+int c_assert_DC(struct DC lv){
+  if (lv.v1 != -0.25) return 1;
+  if (lv.v2 != 15) return 2;
+  return 0;
+}
+struct DC c_ret_DC(){
+    struct DC lv = { .v1 = -0.25, .v2 = 15 };
+    return lv;
+}
+int zig_assert_DC(struct DC);
+int c_send_DC(){
+    return zig_assert_DC(c_ret_DC());
+}
+struct DC zig_ret_DC();
+int c_assert_ret_DC(){
+    return c_assert_DC(zig_ret_DC());
+}
+
+/// Tests for Char + Float + Float struct
+struct CFF { char v1; float v2; float v3; };
+
+int c_assert_CFF(struct CFF lv){
+  if (lv.v1 != 39) return 1;
+  if (lv.v2 != 0.875) return 2;
+  if (lv.v3 != 1.0) return 3;
+  return 0;
+}
+struct CFF c_ret_CFF(){
+    struct CFF lv = { .v1 = 39, .v2 = 0.875, .v3 = 1.0 };
+    return lv;
+}
+int zig_assert_CFF(struct CFF);
+int c_send_CFF(){
+    return zig_assert_CFF(c_ret_CFF());
+}
+struct CFF zig_ret_CFF();
+int c_assert_ret_CFF(){
+    return c_assert_CFF(zig_ret_CFF());
+}
+
+struct PD { void* v1; double v2; };
+
+int c_assert_PD(struct PD lv){
+  if (lv.v1 != 0) return 1;
+  if (lv.v2 != 0.5) return 2;
+  return 0;
+}
+struct PD c_ret_PD(){
+    struct PD lv = { .v1 = 0, .v2 = 0.5 };
+    return lv;
+}
+int zig_assert_PD(struct PD);
+int c_send_PD(){
+    return zig_assert_PD(c_ret_PD());
+}
+struct PD zig_ret_PD();
+int c_assert_ret_PD(){
+    return c_assert_PD(zig_ret_PD());
+}

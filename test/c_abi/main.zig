@@ -1,8 +1,16 @@
+//! Tests for the C ABI.
+//! Those tests are passing back and forth struct and values across C ABI
+//! by combining Zig code here and its mirror in cfunc.c
+//! To run all the tests on the tier 1 architecture you can use:
+//! zig build test-c-abi -fqemu
+//! To run the tests on a specific architecture:
+//! zig test -fno-stage1 -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
 const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
-const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
+const expectEqual = std.testing.expectEqual;
+const has_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
 extern fn run_c_tests() void;
@@ -830,4 +838,163 @@ test "C ABI pointer sized float struct" {
     var x = c_ret_ptr_size_float_struct();
     try expect(x.x == 3);
     try expect(x.y == 4);
+}
+
+//=== Helpers for struct test ===//
+pub inline fn expectOk(c_err: c_int) !void {
+    if (c_err != 0) {
+        std.debug.print("ABI mismatch on field v{d}.\n", .{c_err});
+        return error.TestExpectedEqual;
+    }
+}
+
+/// Tests for Double + Char struct
+const DC = extern struct { v1: f64, v2: u8 };
+test "DC: Zig passes to C" {
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
+}
+test "DC: Zig returns to C" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_ret_DC());
+}
+test "DC: C passes to Zig" {
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_send_DC());
+}
+test "DC: C returns to Zig" {
+    if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectEqual(c_ret_DC(), .{ .v1 = -0.25, .v2 = 15 });
+}
+
+pub extern fn c_assert_DC(lv: DC) c_int;
+pub extern fn c_assert_ret_DC() c_int;
+pub extern fn c_send_DC() c_int;
+pub extern fn c_ret_DC() DC;
+pub export fn zig_assert_DC(lv: DC) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != -0.25) err = 1;
+    if (lv.v2 != 15) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_DC() DC {
+    return .{ .v1 = -0.25, .v2 = 15 };
+}
+
+/// Tests for Char + Float + FloatRect struct
+const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
+
+test "CFF: Zig passes to C" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
+}
+test "CFF: Zig returns to C" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_ret_CFF());
+}
+test "CFF: C passes to Zig" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    try expectOk(c_send_CFF());
+}
+test "CFF: C returns to Zig" {
+    // segfault on aarch64 and mips
+    if (builtin.target.cpu.arch == .aarch64) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
+}
+pub extern fn c_assert_CFF(lv: CFF) c_int;
+pub extern fn c_assert_ret_CFF() c_int;
+pub extern fn c_send_CFF() c_int;
+pub extern fn c_ret_CFF() CFF;
+pub export fn zig_assert_CFF(lv: CFF) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != 39) err = 1;
+    if (lv.v2 != 0.875) err = 2;
+    if (lv.v3 != 1.0) err = 3;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_CFF() CFF {
+    return .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 };
+}
+
+/// Tests for Pointer + Double struct
+const PD = extern struct { v1: ?*anyopaque, v2: f64 };
+
+test "PD: Zig passes to C" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
+}
+test "PD: Zig returns to C" {
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_assert_ret_PD());
+}
+test "PD: C passes to Zig" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag != .windows)
+        return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectOk(c_send_PD());
+}
+test "PD: C returns to Zig" {
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
+}
+pub extern fn c_assert_PD(lv: PD) c_int;
+pub extern fn c_assert_ret_PD() c_int;
+pub extern fn c_send_PD() c_int;
+pub extern fn c_ret_PD() PD;
+pub export fn zig_c_assert_PD(lv: PD) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != null) err = 1;
+    if (lv.v2 != 0.5) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
+}
+pub export fn zig_ret_PD() PD {
+    return .{ .v1 = null, .v2 = 0.5 };
+}
+pub export fn zig_assert_PD(lv: PD) c_int {
+    var err: c_int = 0;
+    if (lv.v1 != null) err = 1;
+    if (lv.v2 != 0.5) err = 2;
+    if (err != 0) std.debug.print("Received {}", .{lv});
+    return err;
 }
