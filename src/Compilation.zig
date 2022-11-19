@@ -1456,23 +1456,27 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             else => @as(u8, 3),
         };
 
-        // We put everything into the cache hash that *cannot be modified during an incremental update*.
-        // For example, one cannot change the target between updates, but one can change source files,
-        // so the target goes into the cache hash, but source files do not. This is so that we can
-        // find the same binary and incrementally update it even if there are modified source files.
-        // We do this even if outputting to the current directory because we need somewhere to store
-        // incremental compilation metadata.
+        // We put everything into the cache hash that *cannot be modified
+        // during an incremental update*. For example, one cannot change the
+        // target between updates, but one can change source files, so the
+        // target goes into the cache hash, but source files do not. This is so
+        // that we can find the same binary and incrementally update it even if
+        // there are modified source files. We do this even if outputting to
+        // the current directory because we need somewhere to store incremental
+        // compilation metadata.
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
+        cache.addPrefix(options.zig_lib_directory);
+        cache.addPrefix(options.local_cache_directory);
         errdefer cache.manifest_dir.close();
 
         // This is shared hasher state common to zig source and all C source files.
         cache.hash.addBytes(build_options.version);
         cache.hash.add(builtin.zig_backend);
-        cache.hash.addBytes(options.zig_lib_directory.path orelse ".");
         cache.hash.add(options.optimize_mode);
         cache.hash.add(options.target.cpu.arch);
         cache.hash.addBytes(options.target.cpu.model.name);
@@ -2265,8 +2269,9 @@ pub fn update(comp: *Compilation) !void {
         const is_hit = man.hit() catch |err| {
             // TODO properly bubble these up instead of emitting a warning
             const i = man.failed_file_index orelse return err;
-            const file_path = man.files.items[i].path orelse return err;
-            std.log.warn("{s}: {s}", .{ @errorName(err), file_path });
+            const pp = man.files.items[i].prefixed_path orelse return err;
+            const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+            std.log.warn("{s}: {s}{s}", .{ @errorName(err), prefix, pp.sub_path });
             return err;
         };
         if (is_hit) {

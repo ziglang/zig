@@ -653,6 +653,9 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         .gpa = comp.gpa,
         .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
+    cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
+    cache.addPrefix(comp.zig_lib_directory);
+    cache.addPrefix(comp.global_cache_directory);
     defer cache.manifest_dir.close();
 
     var man = cache.obtain();
