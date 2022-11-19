@@ -5044,7 +5044,7 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
             var split = std.mem.split(u8, line, "error: ");
             _ = split.first();
 
-            const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });            
+            const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
             errdefer comp.gpa.free(duped_msg);
 
             current_err = try comp.lld_errors.addOne(comp.gpa);
