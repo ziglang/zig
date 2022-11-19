@@ -99,7 +99,6 @@ test "negative f128 floatToInt at compile-time" {
 
 test "@sqrt" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -114,15 +113,6 @@ fn testSqrt() !void {
     try expect(@sqrt(@as(f64, 25)) == 5);
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), 1.0488088481701516, epsilon));
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.0)), 1.4142135623730950, epsilon));
-
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
-        var result = @sqrt(v);
-        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 3.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 4.4)), result[3], epsilon));
-    }
 
     if (builtin.zig_backend == .stage1) {
         if (has_f80_rt) {
@@ -143,6 +133,26 @@ fn testSqrt() !void {
         //try expect(@sqrt(a) == 7);
         //}
     }
+}
+
+test "@sqrt with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testSqrtWithVectors();
+    try testSqrtWithVectors();
+}
+
+fn testSqrtWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+    var result = @sqrt(v);
+    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 3.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 4.4)), result[3], epsilon));
 }
 
 test "more @sqrt f16 tests" {
@@ -176,7 +186,6 @@ test "@sin" {
         return error.SkipZigTest;
     }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -193,15 +202,27 @@ fn testSin() !void {
         try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2.0)), 1, eps));
         try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4.0)), 0.7071067811865475, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
-        var result = @sin(v);
-        try expect(math.approxEqAbs(f32, @sin(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @sin(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @sin(@as(f32, 3.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @sin(@as(f32, 4.4)), result[3], epsilon));
-    }
+test "@sin with vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testSinWithVectors();
+    try testSinWithVectors();
+}
+
+fn testSinWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+    var result = @sin(v);
+    try expect(math.approxEqAbs(f32, @sin(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @sin(@as(f32, 2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @sin(@as(f32, 3.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @sin(@as(f32, 4.4)), result[3], epsilon));
 }
 
 test "@cos" {
@@ -210,7 +231,6 @@ test "@cos" {
         return error.SkipZigTest;
     }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -227,20 +247,31 @@ fn testCos() !void {
         try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2.0)), 0, eps));
         try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4.0)), 0.7071067811865475, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
-        var result = @cos(v);
-        try expect(math.approxEqAbs(f32, @cos(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @cos(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @cos(@as(f32, 3.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @cos(@as(f32, 4.4)), result[3], epsilon));
-    }
+test "@cos with vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testCosWithVectors();
+    try testCosWithVectors();
+}
+
+fn testCosWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+    var result = @cos(v);
+    try expect(math.approxEqAbs(f32, @cos(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @cos(@as(f32, 2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @cos(@as(f32, 3.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @cos(@as(f32, 4.4)), result[3], epsilon));
 }
 
 test "@exp" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -256,20 +287,30 @@ fn testExp() !void {
         try expect(math.approxEqAbs(ty, @exp(@as(ty, 2)), 7.389056098930650, eps));
         try expect(math.approxEqAbs(ty, @exp(@as(ty, 5)), 148.4131591025766, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
-        var result = @exp(v);
-        try expect(math.approxEqAbs(f32, @exp(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @exp(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @exp(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @exp(@as(f32, 0.4)), result[3], epsilon));
-    }
+test "@exp with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testExpWithVectors();
+    try testExpWithVectors();
+}
+
+fn testExpWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+    var result = @exp(v);
+    try expect(math.approxEqAbs(f32, @exp(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @exp(@as(f32, 2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @exp(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @exp(@as(f32, 0.4)), result[3], epsilon));
 }
 
 test "@exp2" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -285,15 +326,26 @@ fn testExp2() !void {
         try expect(math.approxEqAbs(ty, @exp2(@as(ty, 1.5)), 2.8284271247462, eps));
         try expect(math.approxEqAbs(ty, @exp2(@as(ty, 4.5)), 22.627416997969, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
-        var result = @exp2(v);
-        try expect(math.approxEqAbs(f32, @exp2(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @exp2(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @exp2(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @exp2(@as(f32, 0.4)), result[3], epsilon));
-    }
+test "@exp2" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testExp2WithVectors();
+    try testExp2WithVectors();
+}
+
+fn testExp2WithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+    var result = @exp2(v);
+    try expect(math.approxEqAbs(f32, @exp2(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @exp2(@as(f32, 2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @exp2(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @exp2(@as(f32, 0.4)), result[3], epsilon));
 }
 
 test "@log" {
@@ -348,7 +400,6 @@ test "@log2" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     comptime try testLog2();
     try testLog2();
@@ -361,15 +412,26 @@ fn testLog2() !void {
         try expect(math.approxEqAbs(ty, @log2(@as(ty, 6)), 2.5849625007212, eps));
         try expect(math.approxEqAbs(ty, @log2(@as(ty, 10)), 3.3219280948874, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
-        var result = @log2(v);
-        try expect(@log2(@as(f32, 1.1)) == result[0]);
-        try expect(@log2(@as(f32, 2.2)) == result[1]);
-        try expect(@log2(@as(f32, 0.3)) == result[2]);
-        try expect(@log2(@as(f32, 0.4)) == result[3]);
-    }
+test "@log2 with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    comptime try testLog2WithVectors();
+    try testLog2WithVectors();
+}
+
+fn testLog2WithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+    var result = @log2(v);
+    try expect(@log2(@as(f32, 1.1)) == result[0]);
+    try expect(@log2(@as(f32, 2.2)) == result[1]);
+    try expect(@log2(@as(f32, 0.3)) == result[2]);
+    try expect(@log2(@as(f32, 0.4)) == result[3]);
 }
 
 test "@log10" {
@@ -377,7 +439,6 @@ test "@log10" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     comptime try testLog10();
     try testLog10();
@@ -390,20 +451,30 @@ fn testLog10() !void {
         try expect(math.approxEqAbs(ty, @log10(@as(ty, 15)), 1.176091259056, eps));
         try expect(math.approxEqAbs(ty, @log10(@as(ty, 50)), 1.698970004336, eps));
     }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
-        var result = @log10(v);
-        try expect(@log10(@as(f32, 1.1)) == result[0]);
-        try expect(@log10(@as(f32, 2.2)) == result[1]);
-        try expect(@log10(@as(f32, 0.3)) == result[2]);
-        try expect(@log10(@as(f32, 0.4)) == result[3]);
-    }
+test "@log10 with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    comptime try testLog10WithVectors();
+    try testLog10WithVectors();
+}
+
+fn testLog10WithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+    var result = @log10(v);
+    try expect(@log10(@as(f32, 1.1)) == result[0]);
+    try expect(@log10(@as(f32, 2.2)) == result[1]);
+    try expect(@log10(@as(f32, 0.3)) == result[2]);
+    try expect(@log10(@as(f32, 0.4)) == result[3]);
 }
 
 test "@fabs" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -428,20 +499,30 @@ fn testFabs() !void {
     //     try expect(@fabs(a) == 2.5);
     //     try expect(@fabs(b) == 2.5);
     // }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
-        var result = @fabs(v);
-        try expect(math.approxEqAbs(f32, @fabs(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @fabs(@as(f32, -2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @fabs(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @fabs(@as(f32, -0.4)), result[3], epsilon));
-    }
+test "@fabs with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testFabsWithVectors();
+    try testFabsWithVectors();
+}
+
+fn testFabsWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+    var result = @fabs(v);
+    try expect(math.approxEqAbs(f32, @fabs(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @fabs(@as(f32, -2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @fabs(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @fabs(@as(f32, -0.4)), result[3], epsilon));
 }
 
 test "@floor" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -461,20 +542,30 @@ fn testFloor() !void {
     //     var a: f80 = 3.5;
     //     try expect(@floor(a) == 3);
     // }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
-        var result = @floor(v);
-        try expect(math.approxEqAbs(f32, @floor(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @floor(@as(f32, -2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @floor(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @floor(@as(f32, -0.4)), result[3], epsilon));
-    }
+test "@floor with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testFloorWithVectors();
+    try testFloorWithVectors();
+}
+
+fn testFloorWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+    var result = @floor(v);
+    try expect(math.approxEqAbs(f32, @floor(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @floor(@as(f32, -2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @floor(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @floor(@as(f32, -0.4)), result[3], epsilon));
 }
 
 test "@ceil" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -494,20 +585,30 @@ fn testCeil() !void {
     //     var a: f80 = 3.5;
     //     try expect(@ceil(a) == 4);
     // }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
-        var result = @ceil(v);
-        try expect(math.approxEqAbs(f32, @ceil(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @ceil(@as(f32, -2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @ceil(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @ceil(@as(f32, -0.4)), result[3], epsilon));
-    }
+test "@ceil with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testCeilWithVectors();
+    try testCeilWithVectors();
+}
+
+fn testCeilWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+    var result = @ceil(v);
+    try expect(math.approxEqAbs(f32, @ceil(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @ceil(@as(f32, -2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @ceil(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @ceil(@as(f32, -0.4)), result[3], epsilon));
 }
 
 test "@trunc" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -527,15 +628,26 @@ fn testTrunc() !void {
     //     var a: f80 = -3.5;
     //     try expect(@trunc(a) == -3);
     // }
+}
 
-    {
-        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
-        var result = @trunc(v);
-        try expect(math.approxEqAbs(f32, @trunc(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @trunc(@as(f32, -2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @trunc(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @trunc(@as(f32, -0.4)), result[3], epsilon));
-    }
+test "@trunc with vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try testTruncWithVectors();
+    try testTruncWithVectors();
+}
+
+fn testTruncWithVectors() !void {
+    var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+    var result = @trunc(v);
+    try expect(math.approxEqAbs(f32, @trunc(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @trunc(@as(f32, -2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @trunc(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @trunc(@as(f32, -0.4)), result[3], epsilon));
 }
 
 test "negation f16" {
