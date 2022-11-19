@@ -1567,6 +1567,7 @@ pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
     InvalidName,
+    NameTooLong,
     Unexpected,
 };
 
@@ -1600,6 +1601,7 @@ pub fn CreateProcessW(
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
+            .FILENAME_EXCED_RANGE => return error.NameTooLong,
             else => |err| return unexpectedError(err),
         }
     }
