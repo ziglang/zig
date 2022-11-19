@@ -514,7 +514,7 @@ pub const AllErrors = struct {
                     }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
-                        try note.renderToWriter(ttyconf, stderr, "error", .Red, indent + 4);
+                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent + 4);
                     }
                 },
             }
@@ -5029,7 +5029,7 @@ pub fn lockAndSetMiscFailure(
     return setMiscFailure(comp, tag, format, args);
 }
 
-fn parseLddStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []const u8) Allocator.Error!void {
+fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []const u8) Allocator.Error!void {
     var context_lines = std.ArrayList([]const u8).init(comp.gpa);
     defer context_lines.deinit();
 
@@ -5041,7 +5041,10 @@ fn parseLddStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
                 err.context_lines = context_lines.toOwnedSlice();
             }
 
-            const duped_msg = try comp.gpa.dupe(u8, line);
+            var split = std.mem.split(u8, line, "error: ");
+            _ = split.first();
+
+            const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });            
             errdefer comp.gpa.free(duped_msg);
 
             current_err = try comp.lld_errors.addOne(comp.gpa);
@@ -5069,7 +5072,7 @@ pub fn lockAndParseLldStderr(comp: *Compilation, comptime prefix: []const u8, st
     comp.mutex.lock();
     defer comp.mutex.unlock();
 
-    comp.parseLddStderr(prefix, stderr) catch comp.setAllocFailure();
+    comp.parseLldStderr(prefix, stderr) catch comp.setAllocFailure();
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
