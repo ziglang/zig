@@ -39,6 +39,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
         .extra_data = .{},
         .scratch = .{},
         .tok_i = 0,
+        .current_block_indent_defining_token = 0,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
@@ -75,6 +76,7 @@ const Parser = struct {
     nodes: Ast.NodeList,
     extra_data: std.ArrayListUnmanaged(Node.Index),
     scratch: std.ArrayListUnmanaged(Node.Index),
+    current_block_indent_defining_token: TokenIndex,
 
     const SmallSpan = union(enum) {
         zero_or_one: Node.Index,
@@ -251,6 +253,8 @@ const Parser = struct {
     ///
     /// ComptimeDecl <- KEYWORD_comptime Block
     fn parseContainerMembers(p: *Parser) !Members {
+        p.current_block_indent_defining_token = 0;
+
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -2044,15 +2048,64 @@ const Parser = struct {
     /// Block <- LBRACE Statement* RBRACE
     fn parseBlock(p: *Parser) !Node.Index {
         const lbrace = p.eatToken(.l_brace) orelse return null_node;
+
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        const parent_block_tok = p.current_block_indent_defining_token;
+        defer p.current_block_indent_defining_token = parent_block_tok;
+        const parent_indent = p.tokenColumn(parent_block_tok);
+
+        var prev_tok = lbrace;
+        var sibling: ?struct { indent: u32, tok: TokenIndex } = null;
         while (true) {
             if (p.token_tags[p.tok_i] == .r_brace) break;
+
+            // In the case that this statement opens a block (if, while, comptime, etc.),
+            // track the first token so the error message points to the offending position.
+            const stmt_tok = p.tok_i;
+            p.current_block_indent_defining_token = stmt_tok;
+
             const statement = try p.expectStatementRecoverable();
             if (statement == 0) break;
+
+            if (!p.tokensOnSameLine(prev_tok, stmt_tok)) {
+                const col = p.tokenColumn(stmt_tok);
+                if (sibling) |sib| {
+                    // Indentation mismatched with siblings
+                    if (col != sib.indent) {
+                        try p.warnMsg(.{
+                            .tag = .mismatched_indentation,
+                            .token = stmt_tok,
+                        });
+                        try p.warnMsg(.{
+                            .tag = .previous_indentation,
+                            .is_note = true,
+                            .token = sib.tok,
+                        });
+                    }
+                } else if (col < parent_indent) {
+                    // New block outdented from parent
+                    try p.warnMsg(.{
+                        .tag = .outdented_block,
+                        .token = stmt_tok,
+                    });
+                    try p.warnMsg(.{
+                        .tag = .previous_indentation,
+                        .is_note = true,
+                        .token = parent_block_tok,
+                    });
+                } else {
+                    // First statement on a new line defines the sibling indent level
+                    sibling = .{ .indent = p.tokenColumn(stmt_tok), .tok = stmt_tok };
+                }
+            }
+            prev_tok = stmt_tok;
+
             try p.scratch.append(p.gpa, statement);
         }
         _ = try p.expectToken(.r_brace);
+
         const semicolon = (p.token_tags[p.tok_i - 2] == .semicolon);
         const statements = p.scratch.items[scratch_top..];
         switch (statements.len) {
@@ -3808,6 +3861,17 @@ const Parser = struct {
 
     fn tokensOnSameLine(p: *Parser, token1: TokenIndex, token2: TokenIndex) bool {
         return std.mem.indexOfScalar(u8, p.source[p.token_starts[token1]..p.token_starts[token2]], '\n') == null;
+    }
+
+    fn tokenColumn(p: *Parser, token: TokenIndex) u32 {
+        var i = p.token_starts[token];
+        while (i > 0) : (i -= 1) {
+            if (p.source[i] == '\n') {
+                i += 1;
+                break;
+            }
+        }
+        return p.token_starts[token] - i;
     }
 
     fn eatToken(p: *Parser, tag: Token.Tag) ?TokenIndex {
