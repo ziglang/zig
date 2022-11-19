@@ -51,6 +51,7 @@ whole_cache_manifest: ?*Cache.Manifest = null,
 whole_cache_manifest_mutex: std.Thread.Mutex = .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
+lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 anon_work_queue: std.fifo.LinearFifo(Job, .Dynamic),
@@ -335,6 +336,21 @@ pub const MiscError = struct {
     }
 };
 
+pub const LldError = struct {
+    /// Allocated with gpa.
+    msg: []const u8,
+    context_lines: []const []const u8 = &.{},
+
+    pub fn deinit(self: *LldError, gpa: Allocator) void {
+        for (self.context_lines) |line| {
+            gpa.free(line);
+        }
+
+        gpa.free(self.context_lines);
+        gpa.free(self.msg);
+    }
+};
+
 /// To support incremental compilation, errors are stored in various places
 /// so that they can be created and destroyed appropriately. This structure
 /// is used to collect all the errors from the various places into one
@@ -498,7 +514,7 @@ pub const AllErrors = struct {
                     }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
-                        try note.renderToWriter(ttyconf, stderr, "error", .Red, indent + 4);
+                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent + 4);
                     }
                 },
             }
@@ -2166,6 +2182,11 @@ pub fn destroy(self: *Compilation) void {
     }
     self.failed_c_objects.deinit(gpa);
 
+    for (self.lld_errors.items) |*lld_error| {
+        lld_error.deinit(gpa);
+    }
+    self.lld_errors.deinit(gpa);
+
     self.clearMiscFailures();
 
     self.cache_parent.manifest_dir.close();
@@ -2465,6 +2486,10 @@ pub fn update(comp: *Compilation) !void {
             try comp.flush(main_progress_node);
         }
 
+        if (comp.totalErrorCount() != 0) {
+            return;
+        }
+
         // Failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
             log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
@@ -2494,7 +2519,7 @@ fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     // This is needed before reading the error flags.
     comp.bin_file.flush(comp, prog_node) catch |err| switch (err) {
         error.FlushFailure => {}, // error reported through link_error_flags
-        error.LLDReportedFailure => {}, // error reported through log.err
+        error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
         else => |e| return e,
     };
     comp.link_error_flags = comp.bin_file.errorFlags();
@@ -2727,7 +2752,7 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
-        @boolToInt(self.alloc_failure_occurred);
+        @boolToInt(self.alloc_failure_occurred) + self.lld_errors.items.len;
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
@@ -2814,6 +2839,21 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 },
             });
         }
+    }
+    for (self.lld_errors.items) |lld_error| {
+        const notes = try arena_allocator.alloc(AllErrors.Message, lld_error.context_lines.len);
+        for (lld_error.context_lines) |context_line, i| {
+            notes[i] = .{ .plain = .{
+                .msg = try arena_allocator.dupe(u8, context_line),
+            } };
+        }
+
+        try errors.append(.{
+            .plain = .{
+                .msg = try arena_allocator.dupe(u8, lld_error.msg),
+                .notes = notes,
+            },
+        });
     }
     for (self.misc_failures.values()) |*value| {
         try AllErrors.addPlainWithChildren(&arena, &errors, value.msg, value.children);
@@ -4987,6 +5027,52 @@ pub fn lockAndSetMiscFailure(
     defer comp.mutex.unlock();
 
     return setMiscFailure(comp, tag, format, args);
+}
+
+fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []const u8) Allocator.Error!void {
+    var context_lines = std.ArrayList([]const u8).init(comp.gpa);
+    defer context_lines.deinit();
+
+    var current_err: ?*LldError = null;
+    var lines = mem.split(u8, stderr, std.cstr.line_sep);
+    while (lines.next()) |line| {
+        if (mem.startsWith(u8, line, prefix ++ ":")) {
+            if (current_err) |err| {
+                err.context_lines = context_lines.toOwnedSlice();
+            }
+
+            var split = std.mem.split(u8, line, "error: ");
+            _ = split.first();
+
+            const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
+            errdefer comp.gpa.free(duped_msg);
+
+            current_err = try comp.lld_errors.addOne(comp.gpa);
+            current_err.?.* = .{ .msg = duped_msg };
+        } else if (current_err != null) {
+            const context_prefix = ">>> ";
+            var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
+            if (mem.startsWith(u8, trimmed, context_prefix)) {
+                trimmed = trimmed[context_prefix.len..];
+            }
+
+            if (trimmed.len > 0) {
+                const duped_line = try comp.gpa.dupe(u8, trimmed);
+                try context_lines.append(duped_line);
+            }
+        }
+    }
+
+    if (current_err) |err| {
+        err.context_lines = context_lines.toOwnedSlice();
+    }
+}
+
+pub fn lockAndParseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []const u8) void {
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
+
+    comp.parseLldStderr(prefix, stderr) catch comp.setAllocFailure();
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
