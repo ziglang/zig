@@ -232,6 +232,12 @@ pub const Lock = struct {
     manifest_file: fs.File,
 
     pub fn release(lock: *Lock) void {
+        if (builtin.os.tag == .windows) {
+            // Windows does not guarantee that locks are immediately unlocked when 
+            // the file handle is closed. See: LockFileEx documentation.
+            lock.manifest_file.unlock();
+        }
+
         lock.manifest_file.close();
         lock.* = undefined;
     }
@@ -554,7 +560,10 @@ pub const Manifest = struct {
             return false;
         }
 
-        try self.downgradeToSharedLock();
+        if (self.want_shared_lock) {
+            try self.downgradeToSharedLock();
+        }
+
         return true;
     }
 
