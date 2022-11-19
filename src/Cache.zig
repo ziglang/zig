@@ -233,7 +233,7 @@ pub const Lock = struct {
 
     pub fn release(lock: *Lock) void {
         if (builtin.os.tag == .windows) {
-            // Windows does not guarantee that locks are immediately unlocked when 
+            // Windows does not guarantee that locks are immediately unlocked when
             // the file handle is closed. See: LockFileEx documentation.
             lock.manifest_file.unlock();
         }
