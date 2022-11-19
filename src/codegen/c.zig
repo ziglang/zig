@@ -740,14 +740,24 @@ pub const DeclGen = struct {
                         try writer.writeByte(')');
                     }
 
-                    try writer.writeByte('{');
-                    const c_len = ty.arrayLenIncludingSentinel();
-                    var index: usize = 0;
-                    while (index < c_len) : (index += 1) {
-                        if (index > 0) try writer.writeAll(", ");
-                        try dg.renderValue(writer, ty.childType(), val, .Initializer);
+                    const ai = ty.arrayInfo();
+                    if (ai.elem_type.eql(Type.u8, dg.module)) {
+                        try writer.writeByte('"');
+                        const c_len = ty.arrayLenIncludingSentinel();
+                        var index: usize = 0;
+                        while (index < c_len) : (index += 1)
+                            try writeStringLiteralChar(writer, 0xaa);
+                        return writer.writeByte('"');
+                    } else {
+                        try writer.writeByte('{');
+                        const c_len = ty.arrayLenIncludingSentinel();
+                        var index: usize = 0;
+                        while (index < c_len) : (index += 1) {
+                            if (index > 0) try writer.writeAll(", ");
+                            try dg.renderValue(writer, ty.childType(), val, .Initializer);
+                        }
+                        return writer.writeByte('}');
                     }
-                    return writer.writeByte('}');
                 },
                 .ComptimeInt,
                 .ComptimeFloat,
@@ -931,25 +941,48 @@ pub const DeclGen = struct {
                         }
                         try writer.writeByte('}');
                     },
+                    .bytes => {
+                        try writer.print("{s}", .{fmtStringLiteral(val.castTag(.bytes).?.data)});
+                    },
+                    .str_lit => {
+                        const str_lit = val.castTag(.str_lit).?.data;
+                        const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                        try writer.print("{s}", .{fmtStringLiteral(bytes)});
+                    },
                     else => {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.gpa);
                         defer arena.deinit();
                         const arena_allocator = arena.allocator();
 
-                        try writer.writeByte('{');
                         const ai = ty.arrayInfo();
-                        var index: usize = 0;
-                        while (index < ai.len) : (index += 1) {
-                            if (index != 0) try writer.writeByte(',');
-                            const elem_val = try val.elemValue(dg.module, arena_allocator, index);
-                            try dg.renderValue(writer, ai.elem_type, elem_val, .Initializer);
+                        if (ai.elem_type.eql(Type.u8, dg.module)) {
+                            try writer.writeByte('"');
+                            var index: usize = 0;
+                            while (index < ai.len) : (index += 1) {
+                                const elem_val = try val.elemValue(dg.module, arena_allocator, index);
+                                const elem_val_u8 = @intCast(u8, elem_val.toUnsignedInt(target));
+                                try writeStringLiteralChar(writer, elem_val_u8);
+                            }
+                            if (ai.sentinel) |s| {
+                                const s_u8 = @intCast(u8, s.toUnsignedInt(target));
+                                try writeStringLiteralChar(writer, s_u8);
+                            }
+                            try writer.writeByte('"');
+                        } else {
+                            try writer.writeByte('{');
+                            var index: usize = 0;
+                            while (index < ai.len) : (index += 1) {
+                                if (index != 0) try writer.writeByte(',');
+                                const elem_val = try val.elemValue(dg.module, arena_allocator, index);
+                                try dg.renderValue(writer, ai.elem_type, elem_val, .Initializer);
+                            }
+                            if (ai.sentinel) |s| {
+                                if (index != 0) try writer.writeByte(',');
+                                try dg.renderValue(writer, ai.elem_type, s, .Initializer);
+                            }
+                            try writer.writeByte('}');
                         }
-                        if (ai.sentinel) |s| {
-                            if (index != 0) try writer.writeByte(',');
-                            try dg.renderValue(writer, ai.elem_type, s, .Initializer);
-                        }
-                        try writer.writeByte('}');
                     },
                 }
             },
@@ -5618,7 +5651,17 @@ fn formatStringLiteral(
 ) @TypeOf(writer).Error!void {
     if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
     try writer.writeByte('\"');
-    for (str) |c| switch (c) {
+    for (str) |c|
+        try writeStringLiteralChar(writer, c);
+    try writer.writeByte('\"');
+}
+
+fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
+    return .{ .data = str };
+}
+
+fn writeStringLiteralChar(writer: anytype, c: u8) !void {
+    switch (c) {
         7 => try writer.writeAll("\\a"),
         8 => try writer.writeAll("\\b"),
         '\t' => try writer.writeAll("\\t"),
@@ -5631,11 +5674,7 @@ fn formatStringLiteral(
             ' '...'~' => try writer.writeByte(c),
             else => try writer.print("\\{o:0>3}", .{c}),
         },
-    };
-    try writer.writeByte('\"');
-}
-fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
-    return .{ .data = str };
+    }
 }
 
 fn undefPattern(comptime IntType: type) IntType {
