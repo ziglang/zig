@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 2.8.12)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -713,8 +714,8 @@ if(MSVC)
   set(ZIG2_COMPILE_FLAGS "/std:c99")
   set(ZIG2_LINK_FLAGS "/STACK:16777216")
 else()
-  set(ZIG1_COMPILE_FLAGS "-std=c99 -O1 -march=native")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O1 -march=native")
+  set(ZIG1_COMPILE_FLAGS "-std=c99 -O1")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O1")
   set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
 endif()
 
