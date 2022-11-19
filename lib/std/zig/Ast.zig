@@ -375,6 +375,16 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
                 }),
             }
         },
+
+        .mismatched_indentation => {
+            return stream.writeAll("statement indentation mismatched with siblings");
+        },
+        .outdented_block => {
+            return stream.writeAll("block is outdented from surrounding block");
+        },
+        .previous_indentation => {
+            return stream.writeAll("previous indentation level set here");
+        },
     }
 }
 
@@ -2608,6 +2618,9 @@ pub const Error = struct {
         c_style_container,
         expected_var_const,
         wrong_equal_var_decl,
+        mismatched_indentation,
+        outdented_block,
+        previous_indentation,
 
         zig_style_container,
         previous_field,

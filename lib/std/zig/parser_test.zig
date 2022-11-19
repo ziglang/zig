@@ -2431,7 +2431,7 @@ test "zig fmt: add comma on last switch prong" {
         \\    InitArg.None,
         \\    InitArg.Enum => { }
         \\}
-        \\ switch (self.init_arg_expr) {
+        \\switch (self.init_arg_expr) {
         \\     InitArg.Type => |t| { },
         \\     InitArg.None,
         \\     InitArg.Enum => { }//line comment
@@ -5981,6 +5981,115 @@ test "ampersand" {
     , &.{});
 }
 
+test "misleading indentation" {
+    try testError(
+        \\fn f() void {
+        \\    if (x)
+        \\        gotoFail();
+        \\        gotoFail();
+        \\}
+    , &[_]Error{
+        .mismatched_indentation,
+        .previous_indentation,
+    });
+    try testError(
+        \\fn f() void {
+        \\  ok();
+        \\no = 2;
+        \\}
+    , &[_]Error{
+        .mismatched_indentation,
+        .previous_indentation,
+    });
+    try testError(
+        \\fn f() void {
+        \\  ok();
+        \\    { no = 1; }
+        \\}
+    , &[_]Error{
+        .mismatched_indentation,
+        .previous_indentation,
+    });
+    try testError(
+        \\comptime {
+        \\    ok = 1;
+        \\     no = 2;
+        \\}
+    , &[_]Error{
+        .mismatched_indentation,
+        .previous_indentation,
+    });
+    try testError(
+        \\fn f() void {
+        \\    if (x) {
+        \\   no = 1;
+        \\    }
+        \\}
+    , &[_]Error{
+        .outdented_block,
+        .previous_indentation,
+    });
+    try testError(
+        \\fn f() void {
+        \\    {    {
+        \\       _ = 1;
+        \\    }    }
+        \\}
+    , &[_]Error{
+        .outdented_block,
+        .previous_indentation,
+    });
+    // Nested in a sub-container
+    try testError(
+        \\fn f() void {
+        \\    const T = struct {
+        \\        fn g() void {
+        \\            ok = 1;
+        \\           no = 2;
+        \\        }
+        \\    };
+        \\}
+    , &[_]Error{
+        .mismatched_indentation,
+        .previous_indentation,
+    });
+}
+
+test "acceptable indentation" {
+    // Same line as { do not define indentation level
+    try testNoError(
+        \\fn f() void { _ = 1; _ = 2; }
+    );
+    try testNoError(
+        \\fn f() void { _ = 1;
+        \\  _ = 2; _ = 3;
+        \\  { _ = 4; }
+        \\}
+    );
+    try testNoError(
+        \\fn f() void {
+        \\if (x) {
+        \\_ = 1;
+        \\}
+        \\}
+    );
+    // Container level decls do not matter
+    try testNoError(
+        \\const x = true;
+        \\ const y = false;
+    );
+    // Containers have independent indentation levels
+    try testNoError(
+        \\fn f() void {
+        \\    const T = struct {
+        \\        fn g() void {
+        \\ _ = 1;
+        \\        }
+        \\    };
+        \\}
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
@@ -6053,4 +6162,10 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     for (expected_errors) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
+}
+
+fn testNoError(source: [:0]const u8) !void {
+    var fba = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    var b: bool = undefined;
+    _ = try testParse(source, fba.allocator(), &b);
 }
