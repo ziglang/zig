@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -859,9 +860,16 @@ static enum wasi_errno_t finish_wasi_stat(struct VirtualMachine *vm,
     write_u64_le(vm->memory + buf + 0x10, to_wasi_filetype(st.st_mode));
     write_u64_le(vm->memory + buf + 0x18, 1); // nlink
     write_u64_le(vm->memory + buf + 0x20, st.st_size);
+#if defined(__APPLE__)
+    write_u64_le(vm->memory + buf + 0x28, to_wasi_timestamp(st.st_atimespec));
+    write_u64_le(vm->memory + buf + 0x30, to_wasi_timestamp(st.st_mtimespec));
+    write_u64_le(vm->memory + buf + 0x38, to_wasi_timestamp(st.st_ctimespec));
+#else
     write_u64_le(vm->memory + buf + 0x28, to_wasi_timestamp(st.st_atim));
     write_u64_le(vm->memory + buf + 0x30, to_wasi_timestamp(st.st_mtim));
     write_u64_le(vm->memory + buf + 0x38, to_wasi_timestamp(st.st_ctim));
+#endif
+
     return WASI_ESUCCESS;
 }
 
@@ -1173,7 +1181,7 @@ static enum wasi_errno_t wasi_clock_time_get(struct VirtualMachine *vm,
 
 ///pub extern "wasi_snapshot_preview1" fn debug(string: [*:0]const u8, x: u64) void;
 void wasi_debug(struct VirtualMachine *vm, uint32_t text, uint64_t n) {
-    fprintf(stderr, "wasi_debug: '%s' number=%lu %lx\n", vm->memory + text, n, n);
+    fprintf(stderr, "wasi_debug: '%s' number=%" PRIu64" %" PRIx64 "\n", vm->memory + text, n, n);
 }
 
 /// pub extern "wasi_snapshot_preview1" fn debug_slice(ptr: [*]const u8, len: usize) void;
@@ -4082,7 +4090,7 @@ int main(int argc, char **argv) {
 
         mkdir(cache_dir_buf, 0777);
         cache_dir = err_wrap("opening cache dir",
-                open(cache_dir_buf, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
+                open(cache_dir_buf, O_DIRECTORY|O_RDONLY|O_CLOEXEC));
     }
 
     // Construct a new argv for the WASI code which has absolute paths
@@ -4171,8 +4179,8 @@ int main(int argc, char **argv) {
     size_t mod_len = ZSTD_decompress(mod_ptr, max_uncompressed_size,
             compressed_bytes.ptr, compressed_bytes.len);
 
-    int cwd = err_wrap("opening cwd", open(".", O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
-    int zig_lib_dir = err_wrap("opening zig lib dir", open(zig_lib_dir_path, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_PATH));
+    int cwd = err_wrap("opening cwd", open(".", O_DIRECTORY|O_RDONLY|O_CLOEXEC));
+    int zig_lib_dir = err_wrap("opening zig lib dir", open(zig_lib_dir_path, O_DIRECTORY|O_RDONLY|O_CLOEXEC));
 
     add_preopen(0, "stdin", STDIN_FILENO);
     add_preopen(1, "stdout", STDOUT_FILENO);
