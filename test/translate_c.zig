@@ -1216,9 +1216,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
-        "pub const FOO = 0.12345;",
-        "pub const BAR = 0.12345;",
-        "pub const baz = 1e1;",
+        "pub const FOO = @as(f64, 0.12345);",
+        "pub const BAR = @as(f64, 0.12345);",
+        "pub const baz = @as(f64, 1e1);",
         "pub const BAZ = @as(f32, 42e-3);",
         "pub const foobar = -@as(c_longdouble, 73.0);",
     });
@@ -1230,10 +1230,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define BAZ -0x.0a5dp+12
         \\#define FOOBAZ 0xfE.P-1l
     , &[_][]const u8{
-        "pub const FOO = 0xf7p38;",
+        "pub const FOO = @as(f64, 0xf7p38);",
         "pub const BAR = -@as(f32, 0x8F.BP5);",
-        "pub const FOOBAR = 0x0P+0;",
-        "pub const BAZ = -0x0.0a5dp+12;",
+        "pub const FOOBAR = @as(f64, 0x0P+0);",
+        "pub const BAZ = -@as(f64, 0x0.0a5dp+12);",
         "pub const FOOBAZ = @as(c_longdouble, 0xfE.0P-1);",
     });
 
