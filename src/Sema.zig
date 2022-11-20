@@ -4111,6 +4111,7 @@ fn validateStructInit(
                     .{fqn},
                 );
             }
+            root_msg = null;
             return sema.failWithOwnedErrorMsg(msg);
         }
 
@@ -4230,7 +4231,6 @@ fn validateStructInit(
     }
 
     if (root_msg) |msg| {
-        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -4241,6 +4241,7 @@ fn validateStructInit(
                 .{fqn},
             );
         }
+        root_msg = null;
         return sema.failWithOwnedErrorMsg(msg);
     }
 
@@ -17098,7 +17099,6 @@ fn finishStructInit(
     }
 
     if (root_msg) |msg| {
-        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -17109,6 +17109,7 @@ fn finishStructInit(
                 .{fqn},
             );
         }
+        root_msg = null;
         return sema.failWithOwnedErrorMsg(msg);
     }
 
@@ -27225,8 +27226,8 @@ fn coerceTupleToStruct(
     }
 
     if (root_msg) |msg| {
-        root_msg = null;
         try sema.addDeclaredHereNote(msg, struct_ty);
+        root_msg = null;
         return sema.failWithOwnedErrorMsg(msg);
     }
 
@@ -27331,8 +27332,8 @@ fn coerceTupleToTuple(
     }
 
     if (root_msg) |msg| {
-        root_msg = null;
         try sema.addDeclaredHereNote(msg, tuple_ty);
+        root_msg = null;
         return sema.failWithOwnedErrorMsg(msg);
     }
 
