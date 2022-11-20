@@ -833,3 +833,12 @@ struct PD zig_ret_PD();
 int c_assert_ret_PD(){
     return c_assert_PD(zig_ret_PD());
 }
+
+struct ByRef {
+    int val;
+    int arr[15];
+};
+struct ByRef c_modify_by_ref_param(struct ByRef in) {
+    in.val = 42;
+    return in;
+}

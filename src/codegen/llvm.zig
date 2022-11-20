@@ -988,6 +988,25 @@ pub const Object = struct {
                         args.appendAssumeCapacity(load_inst);
                     }
                 },
+                .byref_mut => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param = llvm_func.getParam(llvm_arg_i);
+                    const alignment = param_ty.abiAlignment(target);
+
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "noundef");
+                    llvm_arg_i += 1;
+
+                    try args.ensureUnusedCapacity(1);
+
+                    if (isByRef(param_ty)) {
+                        args.appendAssumeCapacity(param);
+                    } else {
+                        const load_inst = builder.buildLoad(param_llvm_ty, param, "");
+                        load_inst.setAlignment(alignment);
+                        args.appendAssumeCapacity(load_inst);
+                    }
+                },
                 .abi_sized_int => {
                     assert(!it.byval_attr);
                     const param_ty = fn_info.param_types[it.zig_index - 1];
@@ -2583,6 +2602,9 @@ pub const DeclGen = struct {
                     const alignment = param_ty.abiAlignment(target);
                     dg.addByRefParamAttrs(llvm_fn, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
                 },
+                .byref_mut => {
+                    dg.addArgAttr(llvm_fn, it.llvm_index - 1, "noundef");
+                },
                 // No attributes needed for these.
                 .no_bits,
                 .abi_sized_int,
@@ -3101,7 +3123,7 @@ pub const DeclGen = struct {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 try llvm_params.append(try dg.lowerType(param_ty));
             },
-            .byref => {
+            .byref, .byref_mut => {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 const raw_llvm_ty = try dg.lowerType(param_ty);
                 try llvm_params.append(raw_llvm_ty.pointerType(0));
@@ -4721,6 +4743,27 @@ pub const FuncGen = struct {
                     const alignment = param_ty.abiAlignment(target);
                     const param_llvm_ty = llvm_arg.typeOf();
                     const arg_ptr = self.buildAlloca(param_llvm_ty, alignment);
+                    const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
+                    store_inst.setAlignment(alignment);
+                    try llvm_args.append(arg_ptr);
+                }
+            },
+            .byref_mut => {
+                const arg = args[it.zig_index - 1];
+                const param_ty = self.air.typeOf(arg);
+                const llvm_arg = try self.resolveInst(arg);
+
+                const alignment = param_ty.abiAlignment(target);
+                const param_llvm_ty = try self.dg.lowerType(param_ty);
+                const arg_ptr = self.buildAlloca(param_llvm_ty, alignment);
+                if (isByRef(param_ty)) {
+                    const load_inst = self.builder.buildLoad(param_llvm_ty, llvm_arg, "");
+                    load_inst.setAlignment(alignment);
+
+                    const store_inst = self.builder.buildStore(load_inst, arg_ptr);
+                    store_inst.setAlignment(alignment);
+                    try llvm_args.append(arg_ptr);
+                } else {
                     const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
                     store_inst.setAlignment(alignment);
                     try llvm_args.append(arg_ptr);
@@ -10384,6 +10427,7 @@ const ParamTypeIterator = struct {
         no_bits,
         byval,
         byref,
+        byref_mut,
         abi_sized_int,
         multiple_llvm_types,
         slice,
@@ -10547,7 +10591,7 @@ const ParamTypeIterator = struct {
                         it.zig_index += 1;
                         it.llvm_index += 1;
                         switch (aarch64_c_abi.classifyType(ty, it.target)) {
-                            .memory => return .byref,
+                            .memory => return .byref_mut,
                             .float_array => |len| return Lowering{ .float_array = len },
                             .byval => return .byval,
                             .integer => {
@@ -10578,9 +10622,7 @@ const ParamTypeIterator = struct {
                             return .as_u16;
                         }
                         switch (riscv_c_abi.classifyType(ty, it.target)) {
-                            .memory => {
-                                return .byref;
-                            },
+                            .memory => return .byref_mut,
                             .byval => return .byval,
                             .integer => return .abi_sized_int,
                             .double_integer => return Lowering{ .i64_array = 2 },

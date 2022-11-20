@@ -988,3 +988,16 @@ pub export fn zig_assert_PD(lv: PD) c_int {
     if (err != 0) std.debug.print("Received {}", .{lv});
     return err;
 }
+
+const ByRef = extern struct {
+    val: c_int,
+    arr: [15]c_int,
+};
+extern fn c_modify_by_ref_param(ByRef) ByRef;
+
+test "C function modifies by ref param" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
+    try expect(res.val == 42);
+}
