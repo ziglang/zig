@@ -86,7 +86,7 @@ const State128L = struct {
 /// The 128L variant of AEGIS has a 128 bit key, a 128 bit nonce, and processes 256 bit message blocks.
 /// It was designed to fully exploit the parallelism and built-in AES support of recent Intel and ARM CPUs.
 ///
-/// https://competitions.cr.yp.to/round3/aegisv11.pdf
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 pub const Aegis128L = struct {
     pub const tag_length = 16;
     pub const nonce_length = 16;
@@ -248,7 +248,7 @@ const State256 = struct {
 ///
 /// The 256 bit variant of AEGIS has a 256 bit key, a 256 bit nonce, and processes 128 bit message blocks.
 ///
-/// https://competitions.cr.yp.to/round3/aegisv11.pdf
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 pub const Aegis256 = struct {
     pub const tag_length = 16;
     pub const nonce_length = 32;
