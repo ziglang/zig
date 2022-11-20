@@ -1001,3 +1001,34 @@ test "C function modifies by ref param" {
     const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
     try expect(res.val == 42);
 }
+
+const ByVal = extern struct {
+    origin: extern struct {
+        x: c_ulong,
+        y: c_ulong,
+        z: c_ulong,
+    },
+    size: extern struct {
+        width: c_ulong,
+        height: c_ulong,
+        depth: c_ulong,
+    },
+};
+
+extern fn c_func_ptr_byval(*anyopaque, *anyopaque, ByVal, c_ulong, *anyopaque, c_ulong) void;
+test "C function that takes byval struct called via function pointer" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    var fn_ptr = &c_func_ptr_byval;
+    fn_ptr(
+        @intToPtr(*anyopaque, 1),
+        @intToPtr(*anyopaque, 2),
+        ByVal{
+            .origin = .{ .x = 9, .y = 10, .z = 11 },
+            .size = .{ .width = 12, .height = 13, .depth = 14 },
+        },
+        @as(c_ulong, 3),
+        @intToPtr(*anyopaque, 4),
+        @as(c_ulong, 5),
+    );
+}
