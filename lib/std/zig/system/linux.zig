@@ -204,7 +204,7 @@ const ArmCpuinfoImpl = struct {
             E{ .part = 0xd09, .m32 = &A32.cortex_a73, .m64 = &A64.cortex_a73 },
             E{ .part = 0xd0a, .m32 = &A32.cortex_a75, .m64 = &A64.cortex_a75 },
             E{ .part = 0xd0b, .m32 = &A32.cortex_a76, .m64 = &A64.cortex_a76 },
-            E{ .part = 0xd0c, .m32 = &A32.neoverse_n1, .m64 = null },
+            E{ .part = 0xd0c, .m32 = &A32.neoverse_n1, .m64 = &A64.neoverse_n1 },
             E{ .part = 0xd0d, .m32 = &A32.cortex_a77, .m64 = &A64.cortex_a77 },
             E{ .part = 0xd13, .m32 = &A32.cortex_r52, .m64 = null },
             E{ .part = 0xd20, .m32 = &A32.cortex_m23, .m64 = null },
