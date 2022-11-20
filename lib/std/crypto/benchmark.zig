@@ -54,6 +54,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 
 const macs = [_]Crypto{
     Crypto{ .ty = crypto.onetimeauth.Ghash, .name = "ghash" },
+    Crypto{ .ty = crypto.onetimeauth.Polyval, .name = "polyval" },
     Crypto{ .ty = crypto.onetimeauth.Poly1305, .name = "poly1305" },
     Crypto{ .ty = crypto.auth.hmac.HmacMd5, .name = "hmac-md5" },
     Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
