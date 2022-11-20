@@ -121,7 +121,7 @@ string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_INCLUDE_DIR_ESCAPED "${ZIG_LIBC_
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
-set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
+set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_OMIT_STAGE2 off CACHE BOOL "omit the stage2 backend from stage1")
@@ -1036,8 +1036,8 @@ set(BUILD_ZIG2_ARGS
     "-femit-bin=${ZIG2_OBJECT}"
     -fcompiler-rt
     ${ZIG_SINGLE_THREADED_ARG}
-    -target "${ZIG_TARGET_TRIPLE}"
-    -mcpu "${ZIG_TARGET_MCPU}"
+    -target native
+    -mcpu native
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
     --pkg-end
