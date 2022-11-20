@@ -2572,7 +2572,12 @@ pub const Value = extern union {
             },
             .Float, .ComptimeFloat => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128))),
             .Bool, .Int, .ComptimeInt, .Pointer, .Fn => switch (val.tag()) {
-                .slice => val.castTag(.slice).?.data.ptr.hashPtr(hasher, mod.getTarget()),
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    slice.ptr.hashUncoerced(ptr_ty, hasher, mod);
+                },
                 else => val.hashPtr(hasher, mod.getTarget()),
             },
             .Array, .Vector => {
