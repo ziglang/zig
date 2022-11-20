@@ -178,24 +178,6 @@ pub const Aegis128L = struct {
             return error.AuthenticationFailed;
         }
     }
-
-    pub const mac_length = tag_length;
-
-    pub fn create(mac: *[16]u8, msg: []const u8, key: *const [key_length]u8) void {
-        const npub = [_]u8{0} ** nonce_length;
-        var state = State128L.init(key.*, npub);
-        var i: usize = 0;
-        while (i + 32 <= msg.len) : (i += 32) {
-            state.absorb(msg[i..][0..32]);
-        }
-        if (msg.len % 32 != 0) {
-            var pad = [_]u8{0} ** 32;
-            mem.set(u8, pad[0..], 0);
-            mem.copy(u8, pad[0 .. msg.len % 32], msg[i .. i + msg.len % 32]);
-            state.absorb(&pad);
-        }
-        mac.* = state.mac(msg.len, 0);
-    }
 };
 
 const State256 = struct {
