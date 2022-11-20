@@ -1416,8 +1416,9 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
 
             .div_float => try self.divFloat(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
-            .div_trunc => try self.div(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
-            .div_floor => try self.div(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+            .div_trunc => try self.divTrunc(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+
+            .div_floor => try self.divFloor(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
             .div_exact => try self.divExact(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
@@ -1567,12 +1568,12 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                     const dest = blk: {
                         if (rhs_immediate_ok) {
-                            break :blk try self.binOpImmediateNew(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, null);
+                            break :blk try self.binOpImmediate(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, null);
                         } else if (lhs_immediate_ok) {
                             // swap lhs and rhs
-                            break :blk try self.binOpImmediateNew(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, null);
+                            break :blk try self.binOpImmediate(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, null);
                         } else {
-                            break :blk try self.binOpRegisterNew(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, null);
+                            break :blk try self.binOpRegister(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, null);
                         }
                     };
 
@@ -1625,7 +1626,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         .unsigned => .mul,
                     };
 
-                    const dest = try self.binOpRegisterNew(base_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, null);
+                    const dest = try self.binOpRegister(base_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, null);
                     const dest_reg = dest.register;
                     const dest_reg_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
                     defer self.register_manager.unlockReg(dest_reg_lock);
@@ -3123,7 +3124,7 @@ fn allocRegs(
 /// instructions which are binary operations acting on two registers
 ///
 /// Returns the destination register
-fn binOpRegisterNew(
+fn binOpRegister(
     self: *Self,
     mir_tag: Mir.Inst.Tag,
     lhs_bind: ReadArg.Bind,
@@ -3196,7 +3197,7 @@ fn binOpRegisterNew(
 /// an immediate
 ///
 /// Returns the destination register
-fn binOpImmediateNew(
+fn binOpImmediate(
     self: *Self,
     mir_tag: Mir.Inst.Tag,
     lhs_bind: ReadArg.Bind,
@@ -3265,11 +3266,11 @@ fn addSub(
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
     switch (lhs_ty.zigTypeTag()) {
         .Float => return self.fail("TODO ARM binary operations on floats", .{}),
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Int => {
-            const mod = self.bin_file.options.module.?;
             assert(lhs_ty.eql(rhs_ty, mod));
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
@@ -3298,12 +3299,12 @@ fn addSub(
                 };
 
                 if (rhs_immediate_ok) {
-                    return try self.binOpImmediateNew(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, maybe_inst);
+                    return try self.binOpImmediate(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, maybe_inst);
                 } else if (lhs_immediate_ok) {
                     // swap lhs and rhs
-                    return try self.binOpImmediateNew(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, maybe_inst);
+                    return try self.binOpImmediate(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, maybe_inst);
                 } else {
-                    return try self.binOpRegisterNew(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                    return try self.binOpRegister(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
                 }
             } else {
                 return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -3321,18 +3322,18 @@ fn mul(
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
     switch (lhs_ty.zigTypeTag()) {
         .Float => return self.fail("TODO ARM binary operations on floats", .{}),
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Int => {
-            const mod = self.bin_file.options.module.?;
             assert(lhs_ty.eql(rhs_ty, mod));
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
                 // TODO add optimisations for multiplication
                 // with immediates, for example a * 2 can be
                 // lowered to a << 1
-                return try self.binOpRegisterNew(.mul, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                return try self.binOpRegister(.mul, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
             } else {
                 return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
             }
@@ -3361,22 +3362,19 @@ fn divFloat(
     }
 }
 
-fn div(
+fn divTrunc(
     self: *Self,
-    tag: Air.Inst.Tag,
     lhs_bind: ReadArg.Bind,
     rhs_bind: ReadArg.Bind,
     lhs_ty: Type,
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
-    _ = tag;
-
+    const mod = self.bin_file.options.module.?;
     switch (lhs_ty.zigTypeTag()) {
         .Float => return self.fail("TODO ARM binary operations on floats", .{}),
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Int => {
-            const mod = self.bin_file.options.module.?;
             assert(lhs_ty.eql(rhs_ty, mod));
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
@@ -3390,7 +3388,50 @@ fn div(
                         if (rhs_immediate) |imm| {
                             if (std.math.isPowerOfTwo(imm)) {
                                 const shift = std.math.log2_int(u32, imm);
-                                return try self.binOpImmediateNew(.lsr, lhs_bind, shift, lhs_ty, false, maybe_inst);
+                                return try self.binOpImmediate(.lsr, lhs_bind, shift, lhs_ty, false, maybe_inst);
+                            } else {
+                                return self.fail("TODO ARM integer division by constants", .{});
+                            }
+                        } else {
+                            return self.fail("TODO ARM integer division", .{});
+                        }
+                    },
+                }
+            } else {
+                return self.fail("TODO ARM integer division for integers > u32/i32", .{});
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn divFloor(
+    self: *Self,
+    lhs_bind: ReadArg.Bind,
+    rhs_bind: ReadArg.Bind,
+    lhs_ty: Type,
+    rhs_ty: Type,
+    maybe_inst: ?Air.Inst.Index,
+) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
+    switch (lhs_ty.zigTypeTag()) {
+        .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+        .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .Int => {
+            assert(lhs_ty.eql(rhs_ty, mod));
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 32) {
+                switch (int_info.signedness) {
+                    .signed => {
+                        return self.fail("TODO ARM signed integer division", .{});
+                    },
+                    .unsigned => {
+                        const rhs_immediate = try rhs_bind.resolveToImmediate(self);
+
+                        if (rhs_immediate) |imm| {
+                            if (std.math.isPowerOfTwo(imm)) {
+                                const shift = std.math.log2_int(u32, imm);
+                                return try self.binOpImmediate(.lsr, lhs_bind, shift, lhs_ty, false, maybe_inst);
                             } else {
                                 return self.fail("TODO ARM integer division by constants", .{});
                             }
@@ -3436,11 +3477,11 @@ fn rem(
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
     switch (lhs_ty.zigTypeTag()) {
         .Float => return self.fail("TODO ARM binary operations on floats", .{}),
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Int => {
-            const mod = self.bin_file.options.module.?;
             assert(lhs_ty.eql(rhs_ty, mod));
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
@@ -3522,28 +3563,26 @@ fn wrappingArithmetic(
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
-    const base_tag: Air.Inst.Tag = switch (tag) {
-        .addwrap => .add,
-        .subwrap => .sub,
-        .mulwrap => .mul,
-        else => unreachable,
-    };
-
-    // Generate an add/sub/mul
-    const result = try self.addSub(base_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
-
-    // Truncate if necessary
     switch (lhs_ty.zigTypeTag()) {
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Int => {
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
-                const result_reg = result.register;
+                // Generate an add/sub/mul
+                const result: MCValue = switch (tag) {
+                    .addwrap => try self.addSub(.add, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .subwrap => try self.addSub(.sub, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .mulwrap => try self.mul(lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    else => unreachable,
+                };
 
+                // Truncate if necessary
+                const result_reg = result.register;
                 if (int_info.bits < 32) {
                     try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
-                    return result;
-                } else return result;
+                }
+
+                return result;
             } else {
                 return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
             }
@@ -3582,12 +3621,12 @@ fn bitwise(
                 };
 
                 if (rhs_immediate_ok) {
-                    return try self.binOpImmediateNew(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, maybe_inst);
+                    return try self.binOpImmediate(mir_tag, lhs_bind, rhs_immediate.?, lhs_ty, false, maybe_inst);
                 } else if (lhs_immediate_ok) {
                     // swap lhs and rhs
-                    return try self.binOpImmediateNew(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, maybe_inst);
+                    return try self.binOpImmediate(mir_tag, rhs_bind, lhs_immediate.?, rhs_ty, true, maybe_inst);
                 } else {
-                    return try self.binOpRegisterNew(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                    return try self.binOpRegister(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
                 }
             } else {
                 return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -3623,9 +3662,9 @@ fn shiftExact(
                 };
 
                 if (rhs_immediate) |imm| {
-                    return try self.binOpImmediateNew(mir_tag, lhs_bind, imm, lhs_ty, false, maybe_inst);
+                    return try self.binOpImmediate(mir_tag, lhs_bind, imm, lhs_ty, false, maybe_inst);
                 } else {
-                    return try self.binOpRegisterNew(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                    return try self.binOpRegister(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
                 }
             } else {
                 return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -3644,34 +3683,34 @@ fn shiftNormal(
     rhs_ty: Type,
     maybe_inst: ?Air.Inst.Index,
 ) InnerError!MCValue {
-    const base_tag: Air.Inst.Tag = switch (tag) {
-        .shl => .shl_exact,
-        .shr => .shr_exact,
-        else => unreachable,
-    };
+    switch (lhs_ty.zigTypeTag()) {
+        .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .Int => {
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 32) {
+                // Generate a shl_exact/shr_exact
+                const result: MCValue = switch (tag) {
+                    .shl => try self.shiftExact(.shl_exact, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .shr => try self.shiftExact(.shr_exact, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    else => unreachable,
+                };
 
-    // Generate a shl_exact/shr_exact
-    const result = try self.shiftExact(base_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                // Truncate if necessary
+                switch (tag) {
+                    .shr => return result,
+                    .shl => {
+                        const result_reg = result.register;
+                        if (int_info.bits < 32) {
+                            try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                        }
 
-    // Truncate if necessary
-    switch (tag) {
-        .shr => return result,
-        .shl => switch (lhs_ty.zigTypeTag()) {
-            .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
-            .Int => {
-                const int_info = lhs_ty.intInfo(self.target.*);
-                if (int_info.bits <= 32) {
-                    const result_reg = result.register;
-
-                    if (int_info.bits < 32) {
-                        try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
                         return result;
-                    } else return result;
-                } else {
-                    return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    },
+                    else => unreachable,
                 }
-            },
-            else => unreachable,
+            } else {
+                return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+            }
         },
         else => unreachable,
     }
@@ -3698,12 +3737,12 @@ fn booleanOp(
             };
 
             if (rhs_immediate) |imm| {
-                return try self.binOpImmediateNew(mir_tag, lhs_bind, imm, lhs_ty, false, maybe_inst);
+                return try self.binOpImmediate(mir_tag, lhs_bind, imm, lhs_ty, false, maybe_inst);
             } else if (lhs_immediate) |imm| {
                 // swap lhs and rhs
-                return try self.binOpImmediateNew(mir_tag, rhs_bind, imm, rhs_ty, true, maybe_inst);
+                return try self.binOpImmediate(mir_tag, rhs_bind, imm, rhs_ty, true, maybe_inst);
             } else {
-                return try self.binOpRegisterNew(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
+                return try self.binOpRegister(mir_tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst);
             }
         },
         else => unreachable,
