@@ -222,6 +222,7 @@ pub const Manifest = struct {
 
         try self.files.ensureUnusedCapacity(self.cache.gpa, 1);
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        errdefer self.cache.gpa.free(resolved_path);
 
         const idx = self.files.items.len;
         self.files.addOneAssumeCapacity().* = .{
