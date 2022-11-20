@@ -507,3 +507,48 @@ pub const RegisterClass = struct {
         break :blk set;
     };
 };
+
+const testing = std.testing;
+const Module = @import("../../Module.zig");
+const Value = @import("../../value.zig").Value;
+const builtin = @import("builtin");
+
+fn _field(comptime tag: Type.Tag, offset: u32) Module.Struct.Field {
+    return .{
+        .ty = Type.initTag(tag),
+        .default_val = Value.initTag(.unreachable_value),
+        .abi_align = 0,
+        .offset = offset,
+        .is_comptime = false,
+    };
+}
+
+test "C_C_D" {
+    var fields = Module.Struct.Fields{};
+    // const C_C_D = extern struct { v1: i8, v2: i8, v3: f64 };
+    try fields.ensureTotalCapacity(testing.allocator, 3);
+    defer fields.deinit(testing.allocator);
+    fields.putAssumeCapacity("v1", _field(.i8, 0));
+    fields.putAssumeCapacity("v2", _field(.i8, 1));
+    fields.putAssumeCapacity("v3", _field(.f64, 4));
+
+    var C_C_D_struct = Module.Struct{
+        .fields = fields,
+        .namespace = undefined,
+        .owner_decl = undefined,
+        .zir_index = undefined,
+        .layout = .Extern,
+        .status = .fully_resolved,
+        .known_non_opv = true,
+    };
+    var C_C_D = Type.Payload.Struct{ .data = &C_C_D_struct };
+
+    try testing.expectEqual(
+        [_]Class{ .integer, .sse, .none, .none, .none, .none, .none, .none },
+        classifySystemV(Type.initPayload(&C_C_D.base), builtin.target, .ret),
+    );
+    try testing.expectEqual(
+        [_]Class{ .integer, .sse, .none, .none, .none, .none, .none, .none },
+        classifySystemV(Type.initPayload(&C_C_D.base), builtin.target, .arg),
+    );
+}
