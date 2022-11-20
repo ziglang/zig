@@ -222,7 +222,15 @@ pub const ChildProcess = struct {
         }
 
         windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
-            error.PermissionDenied => return error.AlreadyTerminated,
+            error.PermissionDenied => {
+                // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
+                // indicates that the process has already exited, but there may be
+                // some rare edge cases where our process handle no longer has the
+                // PROCESS_TERMINATE access right, so let's do another check to make
+                // sure the process is really no longer running:
+                windows.WaitForSingleObjectEx(self.handle, 0, false) catch return err;
+                return error.AlreadyTerminated;
+            },
             else => return err,
         };
         try self.waitUnwrappedWindows();
