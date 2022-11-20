@@ -221,7 +221,10 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        try windows.TerminateProcess(self.id, exit_code);
+        windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
+            error.PermissionDenied => return error.AlreadyTerminated,
+            else => return err,
+        };
         try self.waitUnwrappedWindows();
         return self.term.?;
     }
@@ -231,7 +234,10 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.id, os.SIG.TERM);
+        os.kill(self.id, os.SIG.TERM) catch |err| switch (err) {
+            error.ProcessNotFound => return error.AlreadyTerminated,
+            else => return err,
+        };
         try self.waitUnwrapped();
         return self.term.?;
     }
