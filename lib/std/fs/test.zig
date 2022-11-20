@@ -1095,7 +1095,9 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
     const allocator = testing.allocator;
 
-    const file_paths: [1][]const u8 = .{"zig-test-absolute-paths.txt"};
+    const cwd = try std.process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+    const file_paths: [2][]const u8 = .{ cwd, "zig-test-absolute-paths.txt" };
     const filename = try fs.path.resolve(allocator, &file_paths);
     defer allocator.free(filename);
 
