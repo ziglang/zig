@@ -657,6 +657,20 @@ test "std.meta.tags" {
 pub fn FieldEnum(comptime T: type) type {
     const field_infos = fields(T);
 
+    if (field_infos.len == 0) {
+        // TODO simplify when stage1 is removed
+        if (@import("builtin").zig_backend == .stage1) @compileError("stage1 doesn't allow empty enums");
+        return @Type(.{
+            .Enum = .{
+                .layout = .Auto,
+                .tag_type = u0,
+                .fields = &.{},
+                .decls = &.{},
+                .is_exhaustive = true,
+            },
+        });
+    }
+
     if (@typeInfo(T) == .Union) {
         if (@typeInfo(T).Union.tag_type) |tag_type| {
             for (std.enums.values(tag_type)) |v, i| {
@@ -728,6 +742,9 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
 }
 
 test "std.meta.FieldEnum" {
+    if (comptime @import("builtin").zig_backend != .stage1) {
+        try expectEqualEnum(enum {}, FieldEnum(struct {}));
+    }
     try expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
