@@ -383,7 +383,6 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 "-OPT:REF",
                 "-SAFESEH:NO",
                 "-MERGE:.rdata=.data",
-                "-ALIGN:32",
                 "-NODEFAULTLIB",
                 "-SECTION:.xdata,D",
             }),
