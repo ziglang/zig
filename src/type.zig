@@ -4494,6 +4494,7 @@ pub const Type = extern union {
             .mut_slice,
             .tuple,
             .empty_struct_literal,
+            .@"struct",
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
@@ -5571,11 +5572,7 @@ pub const Type = extern union {
 
     pub fn structFieldCount(ty: Type) usize {
         switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.count();
-            },
+            .@"struct" => return ty.castTag(.@"struct").?.data.fields.count(),
             .empty_struct, .empty_struct_literal => return 0,
             .tuple => return ty.castTag(.tuple).?.data.types.len,
             .anon_struct => return ty.castTag(.anon_struct).?.data.types.len,
@@ -6178,6 +6175,7 @@ pub const Type = extern union {
     pub fn isTuple(ty: Type) bool {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal => true,
+            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
             else => false,
         };
     }
@@ -6192,10 +6190,26 @@ pub const Type = extern union {
     pub fn isTupleOrAnonStruct(ty: Type) bool {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal, .anon_struct => true,
+            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
             else => false,
         };
     }
 
+    pub fn isSimpleTuple(ty: Type) bool {
+        return switch (ty.tag()) {
+            .tuple, .empty_struct_literal => true,
+            else => false,
+        };
+    }
+
+    pub fn isSimpleTupleOrAnonStruct(ty: Type) bool {
+        return switch (ty.tag()) {
+            .tuple, .empty_struct_literal, .anon_struct => true,
+            else => false,
+        };
+    }
+
+    // Only allowed for simple tuple types
     pub fn tupleFields(ty: Type) Payload.Tuple.Data {
         return switch (ty.tag()) {
             .tuple => ty.castTag(.tuple).?.data,

@@ -1791,7 +1791,7 @@ pub const DeclGen = struct {
             },
             .Struct, .Union => |tag| if (tag == .Struct and t.containerLayout() == .Packed)
                 try dg.renderType(w, t.castTag(.@"struct").?.data.backing_int_ty, kind)
-            else if (t.isTupleOrAnonStruct()) {
+            else if (t.isSimpleTupleOrAnonStruct()) {
                 const ExpectedContents = struct { types: [8]Type, values: [8]Value };
                 var stack align(@alignOf(ExpectedContents)) =
                     std.heap.stackFallback(@sizeOf(ExpectedContents), dg.gpa);

@@ -1951,7 +1951,7 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                if (ty.isTupleOrAnonStruct()) {
+                if (ty.isSimpleTupleOrAnonStruct()) {
                     const tuple = ty.tupleFields();
 
                     var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
@@ -2885,7 +2885,7 @@ pub const DeclGen = struct {
                 // reference, we need to copy it here.
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                if (t.isTupleOrAnonStruct()) {
+                if (t.isSimpleTupleOrAnonStruct()) {
                     const tuple = t.tupleFields();
                     const llvm_struct_ty = dg.context.structCreateNamed("");
                     gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
@@ -3579,7 +3579,7 @@ pub const DeclGen = struct {
                 const field_vals = tv.val.castTag(.aggregate).?.data;
                 const gpa = dg.gpa;
 
-                if (tv.ty.isTupleOrAnonStruct()) {
+                if (tv.ty.isSimpleTupleOrAnonStruct()) {
                     const tuple = tv.ty.tupleFields();
                     var llvm_fields: std.ArrayListUnmanaged(*llvm.Value) = .{};
                     defer llvm_fields.deinit(gpa);
@@ -10247,7 +10247,7 @@ fn llvmFieldIndex(
     var offset: u64 = 0;
     var big_align: u32 = 0;
 
-    if (ty.isTupleOrAnonStruct()) {
+    if (ty.isSimpleTupleOrAnonStruct()) {
         const tuple = ty.tupleFields();
         var llvm_field_index: c_uint = 0;
         for (tuple.types) |field_ty, i| {
@@ -10810,7 +10810,7 @@ fn isByRef(ty: Type) bool {
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout() == .Packed) return false;
-            if (ty.isTupleOrAnonStruct()) {
+            if (ty.isSimpleTupleOrAnonStruct()) {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
                 for (tuple.values) |field_val, i| {

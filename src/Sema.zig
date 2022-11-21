@@ -2519,6 +2519,7 @@ fn zirStructDecl(
         .layout = small.layout,
         .status = .none,
         .known_non_opv = undefined,
+        .is_tuple = small.is_tuple,
         .namespace = .{
             .parent = block.namespace,
             .ty = struct_ty,
@@ -4291,13 +4292,12 @@ fn zirValidateArrayInit(
 
     if (instrs.len != array_len) switch (array_ty.zigTypeTag()) {
         .Struct => {
-            const struct_obj = array_ty.castTag(.tuple).?.data;
             var root_msg: ?*Module.ErrorMsg = null;
             errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-            for (struct_obj.values) |default_val, i| {
-                if (i < instrs.len) continue;
-
+            var i = instrs.len;
+            while (i < array_len) : (i += 1) {
+                const default_val = array_ty.structFieldDefaultValue(i);
                 if (default_val.tag() == .unreachable_value) {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
@@ -7230,7 +7230,7 @@ fn instantiateGenericCall(
 }
 
 fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
-    if (!ty.isTuple()) return;
+    if (!ty.isSimpleTuple()) return;
     const tuple = ty.tupleFields();
     for (tuple.values) |field_val, i| {
         try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
@@ -7295,7 +7295,7 @@ fn zirElemTypeIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const indexable_ty = try sema.resolveType(block, .unneeded, bin.lhs);
     assert(indexable_ty.isIndexable()); // validated by a previous instruction
     if (indexable_ty.zigTypeTag() == .Struct) {
-        const elem_type = indexable_ty.tupleFields().types[@enumToInt(bin.rhs)];
+        const elem_type = indexable_ty.structFieldType(@enumToInt(bin.rhs));
         return sema.addType(elem_type);
     } else {
         const elem_type = indexable_ty.elemType2();
@@ -11827,9 +11827,9 @@ fn analyzeTupleCat(
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
 
-    const lhs_tuple = lhs_ty.tupleFields();
-    const rhs_tuple = rhs_ty.tupleFields();
-    const dest_fields = lhs_tuple.types.len + rhs_tuple.types.len;
+    const lhs_len = lhs_ty.structFieldCount();
+    const rhs_len = rhs_ty.structFieldCount();
+    const dest_fields = lhs_len + rhs_len;
 
     if (dest_fields == 0) {
         return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
@@ -11841,20 +11841,23 @@ fn analyzeTupleCat(
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
-        for (lhs_tuple.types) |ty, i| {
-            types[i] = ty;
-            values[i] = lhs_tuple.values[i];
+        var i: u32 = 0;
+        while (i < lhs_len) : (i += 1) {
+            types[i] = lhs_ty.structFieldType(i);
+            const default_val = lhs_ty.structFieldDefaultValue(i);
+            values[i] = default_val;
             const operand_src = lhs_src; // TODO better source location
-            if (values[i].tag() == .unreachable_value) {
+            if (default_val.tag() == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
-        const offset = lhs_tuple.types.len;
-        for (rhs_tuple.types) |ty, i| {
-            types[i + offset] = ty;
-            values[i + offset] = rhs_tuple.values[i];
+        i = 0;
+        while (i < rhs_len) : (i += 1) {
+            types[i + lhs_len] = rhs_ty.structFieldType(i);
+            const default_val = rhs_ty.structFieldDefaultValue(i);
+            values[i + lhs_len] = default_val;
             const operand_src = rhs_src; // TODO better source location
-            if (rhs_tuple.values[i].tag() == .unreachable_value) {
+            if (default_val.tag() == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
@@ -11874,14 +11877,15 @@ fn analyzeTupleCat(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
-    for (lhs_tuple.types) |_, i| {
+    var i: u32 = 0;
+    while (i < lhs_len) : (i += 1) {
         const operand_src = lhs_src; // TODO better source location
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, @intCast(u32, i), lhs_ty);
     }
-    const offset = lhs_tuple.types.len;
-    for (rhs_tuple.types) |_, i| {
+    i = 0;
+    while (i < rhs_len) : (i += 1) {
         const operand_src = rhs_src; // TODO better source location
-        element_refs[i + offset] =
+        element_refs[i + lhs_len] =
             try sema.tupleFieldValByIndex(block, operand_src, rhs, @intCast(u32, i), rhs_ty);
     }
 
@@ -12107,12 +12111,11 @@ fn analyzeTupleMul(
     factor: u64,
 ) CompileError!Air.Inst.Ref {
     const operand_ty = sema.typeOf(operand);
-    const operand_tuple = operand_ty.tupleFields();
     const src = LazySrcLoc.nodeOffset(src_node);
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
 
-    const tuple_len = operand_tuple.types.len;
+    const tuple_len = operand_ty.structFieldCount();
     const final_len_u64 = std.math.mul(u64, tuple_len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
 
@@ -12126,18 +12129,19 @@ fn analyzeTupleMul(
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
-        for (operand_tuple.types) |ty, i| {
-            types[i] = ty;
-            values[i] = operand_tuple.values[i];
+        var i: u32 = 0;
+        while (i < tuple_len) : (i += 1) {
+            types[i] = operand_ty.structFieldType(i);
+            values[i] = operand_ty.structFieldDefaultValue(i);
             const operand_src = lhs_src; // TODO better source location
             if (values[i].tag() == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
-        var i: usize = 1;
+        i = 0;
         while (i < factor) : (i += 1) {
-            mem.copy(Type, types[tuple_len * i ..], operand_tuple.types);
-            mem.copy(Value, values[tuple_len * i ..], operand_tuple.values);
+            mem.copy(Type, types[tuple_len * i ..], types[0..tuple_len]);
+            mem.copy(Value, values[tuple_len * i ..], values[0..tuple_len]);
         }
         break :rs runtime_src;
     };
@@ -12155,11 +12159,12 @@ fn analyzeTupleMul(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
-    for (operand_tuple.types) |_, i| {
+    var i: u32 = 0;
+    while (i < tuple_len) : (i += 1) {
         const operand_src = lhs_src; // TODO better source location
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, operand, @intCast(u32, i), operand_ty);
     }
-    var i: usize = 1;
+    i = 1;
     while (i < factor) : (i += 1) {
         mem.copy(Air.Inst.Ref, element_refs[tuple_len * i ..], element_refs[0..tuple_len]);
     }
@@ -15593,7 +15598,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const layout = struct_ty.containerLayout();
 
             const struct_field_vals = fv: {
-                if (struct_ty.isTupleOrAnonStruct()) {
+                if (struct_ty.isSimpleTupleOrAnonStruct()) {
                     const tuple = struct_ty.tupleFields();
                     const field_types = tuple.types;
                     const struct_field_vals = try fields_anon_decl.arena().alloc(Value, field_types.len);
@@ -17063,10 +17068,12 @@ fn finishStructInit(
             }
         }
     } else if (struct_ty.isTuple()) {
-        const struct_obj = struct_ty.castTag(.tuple).?.data;
-        for (struct_obj.values) |default_val, i| {
+        var i: u32 = 0;
+        const len = struct_ty.structFieldCount();
+        while (i < len) : (i += 1) {
             if (field_inits[i] != .none) continue;
 
+            const default_val = struct_ty.structFieldDefaultValue(i);
             if (default_val.tag() == .unreachable_value) {
                 const template = "missing tuple field with index {d}";
                 if (root_msg) |msg| {
@@ -17075,7 +17082,7 @@ fn finishStructInit(
                     root_msg = try sema.errMsg(block, init_src, template, .{i});
                 }
             } else {
-                field_inits[i] = try sema.addConstant(struct_obj.types[i], default_val);
+                field_inits[i] = try sema.addConstant(struct_ty.structFieldType(i), default_val);
             }
         }
     } else {
@@ -17297,7 +17304,7 @@ fn zirArrayInit(
         const resolved_arg = try sema.resolveInst(arg);
         const arg_src = src; // TODO better source location
         const elem_ty = if (array_ty.zigTypeTag() == .Struct)
-            array_ty.tupleFields().types[i]
+            array_ty.structFieldType(i)
         else
             array_ty.elemType2();
         resolved_args[i] = try sema.coerce(block, elem_ty, resolved_arg, arg_src);
@@ -17337,12 +17344,11 @@ fn zirArrayInit(
         const alloc = try block.addTy(.alloc, alloc_ty);
 
         if (array_ty.isTuple()) {
-            const types = array_ty.tupleFields().types;
             for (resolved_args) |arg, i| {
                 const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .mutable = true,
                     .@"addrspace" = target_util.defaultAddressSpace(target, .local),
-                    .pointee_type = types[i],
+                    .pointee_type = array_ty.structFieldType(i),
                 });
                 const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
@@ -18015,10 +18021,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 return sema.fail(block, src, "non-packed struct does not support backing integer type", .{});
             }
 
-            return if (is_tuple_val.toBool())
-                try sema.reifyTuple(block, src, fields_val)
-            else
-                try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy);
+            return try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy, is_tuple_val.toBool());
         },
         .Enum => {
             const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
@@ -18432,84 +18435,6 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
     }
 }
 
-fn reifyTuple(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    fields_val: Value,
-) CompileError!Air.Inst.Ref {
-    const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(sema.mod));
-    if (fields_len == 0) return sema.addType(Type.initTag(.empty_struct_literal));
-
-    const types = try sema.arena.alloc(Type, fields_len);
-    const values = try sema.arena.alloc(Value, fields_len);
-
-    var used_fields: std.AutoArrayHashMapUnmanaged(u32, void) = .{};
-    defer used_fields.deinit(sema.gpa);
-    try used_fields.ensureTotalCapacity(sema.gpa, fields_len);
-
-    var i: usize = 0;
-    while (i < fields_len) : (i += 1) {
-        const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-        const field_struct_val = elem_val.castTag(.aggregate).?.data;
-        // TODO use reflection instead of magic numbers here
-        // name: []const u8
-        const name_val = field_struct_val[0];
-        // field_type: type,
-        const field_type_val = field_struct_val[1];
-        //default_value: ?*const anyopaque,
-        const default_value_val = field_struct_val[2];
-
-        const field_name = try name_val.toAllocatedBytes(
-            Type.initTag(.const_slice_u8),
-            sema.arena,
-            sema.mod,
-        );
-
-        const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
-            return sema.fail(
-                block,
-                src,
-                "tuple cannot have non-numeric field '{s}': {}",
-                .{ field_name, err },
-            );
-        };
-
-        if (field_index >= fields_len) {
-            return sema.fail(
-                block,
-                src,
-                "tuple field {} exceeds tuple field count",
-                .{field_index},
-            );
-        }
-
-        const gop = used_fields.getOrPutAssumeCapacity(field_index);
-        if (gop.found_existing) {
-            // TODO: better source location
-            return sema.fail(block, src, "duplicate tuple field {}", .{field_index});
-        }
-
-        const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
-            const payload_val = if (opt_val.pointerDecl()) |opt_decl|
-                sema.mod.declPtr(opt_decl).val
-            else
-                opt_val;
-            break :blk try payload_val.copy(sema.arena);
-        } else Value.initTag(.unreachable_value);
-
-        var buffer: Value.ToTypeBuffer = undefined;
-        types[field_index] = try field_type_val.toType(&buffer).copy(sema.arena);
-        values[field_index] = default_val;
-    }
-
-    const ty = try Type.Tag.tuple.create(sema.arena, .{
-        .types = types,
-        .values = values,
-    });
-    return sema.addType(ty);
-}
-
 fn reifyStruct(
     sema: *Sema,
     block: *Block,
@@ -18519,6 +18444,7 @@ fn reifyStruct(
     backing_int_val: Value,
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
+    is_tuple: bool,
 ) CompileError!Air.Inst.Ref {
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
@@ -18542,6 +18468,7 @@ fn reifyStruct(
         .layout = layout,
         .status = .have_field_types,
         .known_non_opv = false,
+        .is_tuple = is_tuple,
         .namespace = .{
             .parent = block.namespace,
             .ty = struct_ty,
@@ -23201,6 +23128,7 @@ fn structFieldVal(
         },
         .@"struct" => {
             const struct_obj = struct_ty.castTag(.@"struct").?.data;
+            if (struct_obj.is_tuple) return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
 
             const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
                 return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
@@ -23273,11 +23201,10 @@ fn tupleFieldValByIndex(
     field_index: u32,
     tuple_ty: Type,
 ) CompileError!Air.Inst.Ref {
-    const tuple = tuple_ty.tupleFields();
-    const field_ty = tuple.types[field_index];
+    const field_ty = tuple_ty.structFieldType(field_index);
 
-    if (tuple.values[field_index].tag() != .unreachable_value) {
-        return sema.addConstant(field_ty, tuple.values[field_index]);
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_value| {
+        return sema.addConstant(field_ty, default_value);
     }
 
     if (try sema.resolveMaybeUndefVal(tuple_byval)) |tuple_val| {
@@ -23625,19 +23552,20 @@ fn tupleFieldPtr(
 ) CompileError!Air.Inst.Ref {
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
     const tuple_ty = tuple_ptr_ty.childType();
-    const tuple_fields = tuple_ty.tupleFields();
+    _ = try sema.resolveTypeFields(tuple_ty);
+    const field_count = tuple_ty.structFieldCount();
 
-    if (tuple_fields.types.len == 0) {
+    if (field_count == 0) {
         return sema.fail(block, tuple_ptr_src, "indexing into empty tuple is not allowed", .{});
     }
 
-    if (field_index >= tuple_fields.types.len) {
+    if (field_index >= field_count) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
-            field_index, tuple_fields.types.len,
+            field_index, field_count,
         });
     }
 
-    const field_ty = tuple_fields.types[field_index];
+    const field_ty = tuple_ty.structFieldType(field_index);
     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = field_ty,
         .mutable = tuple_ptr_ty.ptrIsMutable(),
@@ -23680,24 +23608,23 @@ fn tupleField(
     field_index_src: LazySrcLoc,
     field_index: u32,
 ) CompileError!Air.Inst.Ref {
-    const tuple_ty = sema.typeOf(tuple);
-    const tuple_fields = tuple_ty.tupleFields();
+    const tuple_ty = try sema.resolveTypeFields(sema.typeOf(tuple));
+    const field_count = tuple_ty.structFieldCount();
 
-    if (tuple_fields.types.len == 0) {
+    if (field_count == 0) {
         return sema.fail(block, tuple_src, "indexing into empty tuple is not allowed", .{});
     }
 
-    if (field_index >= tuple_fields.types.len) {
+    if (field_index >= field_count) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
-            field_index, tuple_fields.types.len,
+            field_index, field_count,
         });
     }
 
-    const field_ty = tuple_fields.types[field_index];
-    const field_val = tuple_fields.values[field_index];
+    const field_ty = tuple_ty.structFieldType(field_index);
 
-    if (field_val.tag() != .unreachable_value) {
-        return sema.addConstant(field_ty, field_val); // comptime field
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_value| {
+        return sema.addConstant(field_ty, default_value); // comptime field
     }
 
     if (try sema.resolveMaybeUndefVal(tuple)) |tuple_val| {
@@ -24277,7 +24204,7 @@ fn coerceExtra(
 
                     // empty tuple to zero-length slice
                     // note that this allows coercing to a mutable slice.
-                    if (inst_child_ty.tupleFields().types.len == 0) {
+                    if (inst_child_ty.structFieldCount() == 0) {
                         const slice_val = try Value.Tag.slice.create(sema.arena, .{
                             .ptr = Value.undef,
                             .len = Value.zero,
@@ -25587,9 +25514,9 @@ fn storePtr2(
     // fields.
     const operand_ty = sema.typeOf(uncasted_operand);
     if (operand_ty.isTuple() and elem_ty.zigTypeTag() == .Array) {
-        const tuple = operand_ty.tupleFields();
-        for (tuple.types) |_, i_usize| {
-            const i = @intCast(u32, i_usize);
+        const field_count = operand_ty.structFieldCount();
+        var i: u32 = 0;
+        while (i < field_count) : (i += 1) {
             const elem_src = operand_src; // TODO better source location
             const elem = try sema.tupleField(block, operand_src, uncasted_operand, elem_src, i);
             const elem_index = try sema.addIntUnsigned(Type.usize, i);
@@ -26681,7 +26608,7 @@ fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_resul
     const inst_info = inst_ty.ptrInfo().data;
     const len0 = (inst_info.pointee_type.zigTypeTag() == .Array and (inst_info.pointee_type.arrayLenIncludingSentinel() == 0 or
         (inst_info.pointee_type.arrayLen() == 0 and dest_info.sentinel == null and dest_info.size != .C and dest_info.size != .Many))) or
-        (inst_info.pointee_type.isTuple() and inst_info.pointee_type.tupleFields().types.len == 0);
+        (inst_info.pointee_type.isTuple() and inst_info.pointee_type.structFieldCount() == 0);
 
     const ok_cv_qualifiers =
         ((inst_info.mutable or !dest_info.mutable) or len0) and
@@ -27166,18 +27093,18 @@ fn coerceTupleToStruct(
     mem.set(Air.Inst.Ref, field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
-    const tuple = inst_ty.tupleFields();
     var runtime_src: ?LazySrcLoc = null;
-    for (tuple.types) |_, i_usize| {
-        const i = @intCast(u32, i_usize);
+    const field_count = struct_ty.structFieldCount();
+    var field_i: u32 = 0;
+    while (field_i < field_count) : (field_i += 1) {
         const field_src = inst_src; // TODO better source location
         const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
-            payload.data.names[i]
+            payload.data.names[field_i]
         else
-            try std.fmt.allocPrint(sema.arena, "{d}", .{i});
+            try std.fmt.allocPrint(sema.arena, "{d}", .{field_i});
         const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const field = fields.values()[field_index];
-        const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, i);
+        const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, field_i);
         const coerced = try sema.coerce(block, field.ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
         if (field.is_comptime) {
@@ -27186,7 +27113,7 @@ fn coerceTupleToStruct(
             };
 
             if (!init_val.eql(field.default_val, field.ty, sema.mod)) {
-                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, i);
+                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, field_i);
             }
         }
         if (runtime_src == null) {
@@ -27255,15 +27182,14 @@ fn coerceTupleToTuple(
     mem.set(Air.Inst.Ref, field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
-    const tuple = inst_ty.tupleFields();
     var runtime_src: ?LazySrcLoc = null;
-    for (tuple.types) |_, i_usize| {
-        const i = @intCast(u32, i_usize);
+    var field_i: u32 = 0;
+    while (field_i < field_count) : (field_i += 1) {
         const field_src = inst_src; // TODO better source location
         const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
-            payload.data.names[i]
+            payload.data.names[field_i]
         else
-            try std.fmt.allocPrint(sema.arena, "{d}", .{i});
+            try std.fmt.allocPrint(sema.arena, "{d}", .{field_i});
 
         if (mem.eql(u8, field_name, "len")) {
             return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});
@@ -27271,9 +27197,9 @@ fn coerceTupleToTuple(
 
         const field_index = try sema.tupleFieldIndex(block, tuple_ty, field_name, field_src);
 
-        const field_ty = tuple_ty.structFieldType(i);
-        const default_val = tuple_ty.structFieldDefaultValue(i);
-        const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, i);
+        const field_ty = tuple_ty.structFieldType(field_i);
+        const default_val = tuple_ty.structFieldDefaultValue(field_i);
+        const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, field_i);
         const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
         if (default_val.tag() != .unreachable_value) {
@@ -27282,7 +27208,7 @@ fn coerceTupleToTuple(
             };
 
             if (!init_val.eql(default_val, field_ty, sema.mod)) {
-                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, i);
+                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, field_i);
             }
         }
         if (runtime_src == null) {
@@ -29665,6 +29591,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         block_scope.params.deinit(gpa);
     }
 
+    struct_obj.fields = .{};
     try struct_obj.fields.ensureTotalCapacity(decl_arena_allocator, fields_len);
 
     const Field = struct {
@@ -29699,8 +29626,11 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const has_type_body = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
-            const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-            extra_index += 1;
+            var field_name_zir: ?[:0]const u8 = null;
+            if (!small.is_tuple) {
+                field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+                extra_index += 1;
+            }
             extra_index += 1; // doc_comment
 
             fields[field_i] = .{};
@@ -29713,7 +29643,10 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             extra_index += 1;
 
             // This string needs to outlive the ZIR code.
-            const field_name = try decl_arena_allocator.dupe(u8, field_name_zir);
+            const field_name = if (field_name_zir) |some|
+                try decl_arena_allocator.dupe(u8, some)
+            else
+                try std.fmt.allocPrint(decl_arena_allocator, "{d}", .{field_i});
 
             const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
             if (gop.found_existing) {
