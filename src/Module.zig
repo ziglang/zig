@@ -6138,7 +6138,7 @@ fn queryFieldSrc(
                 .name => .{
                     .file_scope = file_scope,
                     .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = field.ast.name_token },
+                    .lazy = .{ .token_abs = field.ast.main_token },
                 },
                 .type => .{
                     .file_scope = file_scope,

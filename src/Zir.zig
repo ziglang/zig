@@ -3166,7 +3166,7 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
     /// 9. fields: { // for every fields_len
-    ///        field_name: u32,
+    ///        field_name: u32, // if !is_tuple
     ///        doc_comment: u32, // 0 if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
@@ -3186,9 +3186,10 @@ pub const Inst = struct {
             has_backing_int: bool,
             known_non_opv: bool,
             known_comptime_only: bool,
+            is_tuple: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            _: u6 = undefined,
+            _: u5 = undefined,
         };
     };
 
