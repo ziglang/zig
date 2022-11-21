@@ -1118,3 +1118,12 @@ test "ambiguous reference error ignores current declaration" {
     };
     try expect(S.b.foo == 666);
 }
+
+test "pointer to zero sized global is mutable" {
+    const S = struct {
+        const Thing = struct {};
+
+        var thing: Thing = undefined;
+    };
+    try expect(@TypeOf(&S.thing) == *S.Thing);
+}

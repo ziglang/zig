@@ -1300,7 +1300,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--no-gc-sections")) {
                         linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        debug_compile_errors = true;
+                        if (!crash_report.is_enabled) {
+                            std.log.warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
+                        } else {
+                            debug_compile_errors = true;
+                        }
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
                         verbose_link = true;
                     } else if (mem.eql(u8, arg, "--verbose-cc")) {

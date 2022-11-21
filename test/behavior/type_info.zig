@@ -565,3 +565,10 @@ test "typeInfo resolves usingnamespace declarations" {
     try expect(@typeInfo(B).Struct.decls.len == 2);
     //a
 }
+
+test "value from struct @typeInfo default_value can be loaded at comptime" {
+    comptime {
+        const a = @typeInfo(@TypeOf(.{ .foo = @as(u8, 1) })).Struct.fields[0].default_value;
+        try expect(@ptrCast(*const u8, a).* == 1);
+    }
+}

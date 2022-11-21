@@ -1044,7 +1044,8 @@ pub const Struct = struct {
 
             .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
 
-            else => unreachable,
+            // This struct was generated using @Type
+            else => return s.srcLoc(mod),
         }
     }
 
@@ -1270,7 +1271,8 @@ pub const Union = struct {
             .tagged_union_enum_tag,
             .tagged_union_enum_tag_trailing,
             => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
-            else => unreachable,
+            // This union was generated using @Type
+            else => return u.srcLoc(mod),
         }
     }
 
@@ -4631,7 +4633,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, undefined);
+    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, "global variable initializer must be comptime-known");
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),

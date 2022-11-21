@@ -833,3 +833,41 @@ struct PD zig_ret_PD();
 int c_assert_ret_PD(){
     return c_assert_PD(zig_ret_PD());
 }
+
+struct ByRef {
+    int val;
+    int arr[15];
+};
+struct ByRef c_modify_by_ref_param(struct ByRef in) {
+    in.val = 42;
+    return in;
+}
+
+struct ByVal {
+    struct {
+        unsigned long x;
+        unsigned long y;
+        unsigned long z;
+    } origin;
+    struct {
+        unsigned long width;
+        unsigned long height;
+        unsigned long depth;
+    } size;
+};
+
+void c_func_ptr_byval(void *a, void *b, struct ByVal in, unsigned long c, void *d, unsigned long e) {
+    assert_or_panic((intptr_t)a == 1);
+    assert_or_panic((intptr_t)b == 2);
+
+    assert_or_panic(in.origin.x == 9);
+    assert_or_panic(in.origin.y == 10);
+    assert_or_panic(in.origin.z == 11);
+    assert_or_panic(in.size.width == 12);
+    assert_or_panic(in.size.height == 13);
+    assert_or_panic(in.size.depth == 14);
+
+    assert_or_panic(c == 3);
+    assert_or_panic((intptr_t)d == 4);
+    assert_or_panic(e == 5);
+}

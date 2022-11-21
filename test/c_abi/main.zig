@@ -917,8 +917,6 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
-    // segfault on aarch64 and mips
-    if (builtin.target.cpu.arch == .aarch64) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -989,4 +987,48 @@ pub export fn zig_assert_PD(lv: PD) c_int {
     if (lv.v2 != 0.5) err = 2;
     if (err != 0) std.debug.print("Received {}", .{lv});
     return err;
+}
+
+const ByRef = extern struct {
+    val: c_int,
+    arr: [15]c_int,
+};
+extern fn c_modify_by_ref_param(ByRef) ByRef;
+
+test "C function modifies by ref param" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
+    try expect(res.val == 42);
+}
+
+const ByVal = extern struct {
+    origin: extern struct {
+        x: c_ulong,
+        y: c_ulong,
+        z: c_ulong,
+    },
+    size: extern struct {
+        width: c_ulong,
+        height: c_ulong,
+        depth: c_ulong,
+    },
+};
+
+extern fn c_func_ptr_byval(*anyopaque, *anyopaque, ByVal, c_ulong, *anyopaque, c_ulong) void;
+test "C function that takes byval struct called via function pointer" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    var fn_ptr = &c_func_ptr_byval;
+    fn_ptr(
+        @intToPtr(*anyopaque, 1),
+        @intToPtr(*anyopaque, 2),
+        ByVal{
+            .origin = .{ .x = 9, .y = 10, .z = 11 },
+            .size = .{ .width = 12, .height = 13, .depth = 14 },
+        },
+        @as(c_ulong, 3),
+        @intToPtr(*anyopaque, 4),
+        @as(c_ulong, 5),
+    );
 }

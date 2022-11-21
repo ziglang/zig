@@ -88,8 +88,8 @@ pub const Context = opaque {
 };
 
 pub const Value = opaque {
-    pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
-    extern fn LLVMAddAttributeAtIndex(*Value, Idx: AttributeIndex, A: *Attribute) void;
+    pub const addAttributeAtIndex = ZigLLVMAddAttributeAtIndex;
+    extern fn ZigLLVMAddAttributeAtIndex(*Value, Idx: AttributeIndex, A: *Attribute) void;
 
     pub const removeEnumAttributeAtIndex = LLVMRemoveEnumAttributeAtIndex;
     extern fn LLVMRemoveEnumAttributeAtIndex(F: *Value, Idx: AttributeIndex, KindID: c_uint) void;
