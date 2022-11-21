@@ -31,6 +31,9 @@ const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.cache);
 
 pub fn addPrefix(cache: *Cache, directory: Compilation.Directory) void {
+    if (directory.path) |p| {
+        log.debug("Cache.addPrefix {d} {s}", .{ cache.prefixes_len, p });
+    }
     cache.prefixes_buffer[cache.prefixes_len] = directory;
     cache.prefixes_len += 1;
 }

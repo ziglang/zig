@@ -2744,11 +2744,14 @@ fn buildOutputType(
     }
 
     const self_exe_path = try introspect.findZigExePath(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
-        .path = lib_dir,
-        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
-        },
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |unresolved_lib_dir| l: {
+        const lib_dir = try fs.path.resolve(arena, &.{unresolved_lib_dir});
+        break :l .{
+            .path = lib_dir,
+            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
+            },
+        };
     } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
