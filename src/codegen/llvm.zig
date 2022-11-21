@@ -988,6 +988,25 @@ pub const Object = struct {
                         args.appendAssumeCapacity(load_inst);
                     }
                 },
+                .byref_mut => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param = llvm_func.getParam(llvm_arg_i);
+                    const alignment = param_ty.abiAlignment(target);
+
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "noundef");
+                    llvm_arg_i += 1;
+
+                    try args.ensureUnusedCapacity(1);
+
+                    if (isByRef(param_ty)) {
+                        args.appendAssumeCapacity(param);
+                    } else {
+                        const load_inst = builder.buildLoad(param_llvm_ty, param, "");
+                        load_inst.setAlignment(alignment);
+                        args.appendAssumeCapacity(load_inst);
+                    }
+                },
                 .abi_sized_int => {
                     assert(!it.byval_attr);
                     const param_ty = fn_info.param_types[it.zig_index - 1];
@@ -2583,6 +2602,9 @@ pub const DeclGen = struct {
                     const alignment = param_ty.abiAlignment(target);
                     dg.addByRefParamAttrs(llvm_fn, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
                 },
+                .byref_mut => {
+                    dg.addArgAttr(llvm_fn, it.llvm_index - 1, "noundef");
+                },
                 // No attributes needed for these.
                 .no_bits,
                 .abi_sized_int,
@@ -3101,7 +3123,7 @@ pub const DeclGen = struct {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 try llvm_params.append(try dg.lowerType(param_ty));
             },
-            .byref => {
+            .byref, .byref_mut => {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 const raw_llvm_ty = try dg.lowerType(param_ty);
                 try llvm_params.append(raw_llvm_ty.pointerType(0));
@@ -4678,9 +4700,9 @@ pub const FuncGen = struct {
             break :blk ret_ptr;
         };
 
-        if (fn_info.return_type.isError() and
-            self.dg.module.comp.bin_file.options.error_return_tracing)
-        {
+        const err_return_tracing = fn_info.return_type.isError() and
+            self.dg.module.comp.bin_file.options.error_return_tracing;
+        if (err_return_tracing) {
             try llvm_args.append(self.err_ret_trace.?);
         }
 
@@ -4721,6 +4743,27 @@ pub const FuncGen = struct {
                     const alignment = param_ty.abiAlignment(target);
                     const param_llvm_ty = llvm_arg.typeOf();
                     const arg_ptr = self.buildAlloca(param_llvm_ty, alignment);
+                    const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
+                    store_inst.setAlignment(alignment);
+                    try llvm_args.append(arg_ptr);
+                }
+            },
+            .byref_mut => {
+                const arg = args[it.zig_index - 1];
+                const param_ty = self.air.typeOf(arg);
+                const llvm_arg = try self.resolveInst(arg);
+
+                const alignment = param_ty.abiAlignment(target);
+                const param_llvm_ty = try self.dg.lowerType(param_ty);
+                const arg_ptr = self.buildAlloca(param_llvm_ty, alignment);
+                if (isByRef(param_ty)) {
+                    const load_inst = self.builder.buildLoad(param_llvm_ty, llvm_arg, "");
+                    load_inst.setAlignment(alignment);
+
+                    const store_inst = self.builder.buildStore(load_inst, arg_ptr);
+                    store_inst.setAlignment(alignment);
+                    try llvm_args.append(arg_ptr);
+                } else {
                     const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
                     store_inst.setAlignment(alignment);
                     try llvm_args.append(arg_ptr);
@@ -4847,6 +4890,66 @@ pub const FuncGen = struct {
             "",
         );
 
+        if (callee_ty.zigTypeTag() == .Pointer) {
+            // Add argument attributes for function pointer calls.
+            it = iterateParamTypes(self.dg, fn_info);
+            it.llvm_index += @boolToInt(sret);
+            it.llvm_index += @boolToInt(err_return_tracing);
+            while (it.next()) |lowering| switch (lowering) {
+                .byval => {
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index];
+                    if (!isByRef(param_ty)) {
+                        self.dg.addByValParamAttrs(call, param_ty, param_index, fn_info, it.llvm_index - 1);
+                    }
+                },
+                .byref => {
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index];
+                    const param_llvm_ty = try self.dg.lowerType(param_ty);
+                    const alignment = param_ty.abiAlignment(target);
+                    self.dg.addByRefParamAttrs(call, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
+                },
+                .byref_mut => {
+                    self.dg.addArgAttr(call, it.llvm_index - 1, "noundef");
+                },
+                // No attributes needed for these.
+                .no_bits,
+                .abi_sized_int,
+                .multiple_llvm_types,
+                .as_u16,
+                .float_array,
+                .i32_array,
+                .i64_array,
+                => continue,
+
+                .slice => {
+                    assert(!it.byval_attr);
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const ptr_info = param_ty.ptrInfo().data;
+                    const llvm_arg_i = it.llvm_index - 2;
+
+                    if (math.cast(u5, it.zig_index - 1)) |i| {
+                        if (@truncate(u1, fn_info.noalias_bits >> i) != 0) {
+                            self.dg.addArgAttr(call, llvm_arg_i, "noalias");
+                        }
+                    }
+                    if (param_ty.zigTypeTag() != .Optional) {
+                        self.dg.addArgAttr(call, llvm_arg_i, "nonnull");
+                    }
+                    if (!ptr_info.mutable) {
+                        self.dg.addArgAttr(call, llvm_arg_i, "readonly");
+                    }
+                    if (ptr_info.@"align" != 0) {
+                        self.dg.addArgAttrInt(call, llvm_arg_i, "align", ptr_info.@"align");
+                    } else {
+                        const elem_align = @max(ptr_info.pointee_type.abiAlignment(target), 1);
+                        self.dg.addArgAttrInt(call, llvm_arg_i, "align", elem_align);
+                    }
+                },
+            };
+        }
+
         if (return_type.isNoReturn() and attr != .AlwaysTail) {
             _ = self.builder.buildUnreachable();
             return null;
@@ -4876,7 +4979,7 @@ pub const FuncGen = struct {
             // In this case the function return type is honoring the calling convention by having
             // a different LLVM type than the usual one. We solve this here at the callsite
             // by bitcasting a pointer to our canonical type, then loading it if necessary.
-            const alignment = return_type.abiAlignment(target);
+            const alignment = self.dg.object.target_data.abiAlignmentOfType(abi_ret_ty);
             const rp = self.buildAlloca(llvm_ret_ty, alignment);
             const ptr_abi_ty = abi_ret_ty.pointerType(0);
             const casted_ptr = self.builder.buildBitCast(rp, ptr_abi_ty, "");
@@ -10384,6 +10487,7 @@ const ParamTypeIterator = struct {
         no_bits,
         byval,
         byref,
+        byref_mut,
         abi_sized_int,
         multiple_llvm_types,
         slice,
@@ -10425,6 +10529,7 @@ const ParamTypeIterator = struct {
                 it.llvm_index += 1;
                 var buf: Type.Payload.ElemType = undefined;
                 if (ty.isSlice() or (ty.zigTypeTag() == .Optional and ty.optionalChild(&buf).isSlice())) {
+                    it.llvm_index += 1;
                     return .slice;
                 } else if (isByRef(ty)) {
                     return .byref;
@@ -10547,7 +10652,7 @@ const ParamTypeIterator = struct {
                         it.zig_index += 1;
                         it.llvm_index += 1;
                         switch (aarch64_c_abi.classifyType(ty, it.target)) {
-                            .memory => return .byref,
+                            .memory => return .byref_mut,
                             .float_array => |len| return Lowering{ .float_array = len },
                             .byval => return .byval,
                             .integer => {
@@ -10578,9 +10683,7 @@ const ParamTypeIterator = struct {
                             return .as_u16;
                         }
                         switch (riscv_c_abi.classifyType(ty, it.target)) {
-                            .memory => {
-                                return .byref;
-                            },
+                            .memory => return .byref_mut,
                             .byval => return .byval,
                             .integer => return .abi_sized_int,
                             .double_integer => return Lowering{ .i64_array = 2 },
