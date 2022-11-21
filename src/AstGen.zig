@@ -2071,6 +2071,11 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 if (break_tag == .break_inline) {
                     _ = try parent_gz.addUnNode(.check_comptime_control_flow, Zir.indexToRef(continue_block), node);
                 }
+
+                // As our last action before the continue, "pop" the error trace if needed
+                if (!gen_zir.force_comptime)
+                    _ = try parent_gz.addRestoreErrRetIndex(.{ .block = continue_block }, .always);
+
                 _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
             },

@@ -152,6 +152,57 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
+        .name = "continue in while loop",
+        .source = 
+        \\fn foo() !void {
+        \\    return error.UhOh;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 3) : (i += 1) {
+        \\        foo() catch continue;
+        \\    }
+        \\    return error.UnrelatedError;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\source.zig:10:5: [address] in main (test)
+            \\    return error.UnrelatedError;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: UnrelatedError
+            \\source.zig:10:5: [address] in [function]
+            \\    return error.UnrelatedError;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: UnrelatedError
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return + handled catch/if-else",
         .source = 
         \\fn foo() !void {
