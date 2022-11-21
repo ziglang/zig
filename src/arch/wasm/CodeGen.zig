@@ -1119,12 +1119,13 @@ fn genFunc(func: *CodeGen) InnerError!void {
     try func.addTag(.dbg_prologue_end);
 
     try func.branches.append(func.gpa, .{});
+    // clean up outer branch
+    defer {
+        var outer_branch = func.branches.pop();
+        outer_branch.deinit(func.gpa);
+    }
     // Generate MIR for function body
     try func.genBody(func.air.getMainBody());
-
-    // clean up outer branch
-    var outer_branch = func.branches.pop();
-    outer_branch.deinit(func.gpa);
 
     // In case we have a return value, but the last instruction is a noreturn (such as a while loop)
     // we emit an unreachable instruction to tell the stack validator that part will never be reached.
@@ -1607,10 +1608,18 @@ fn isByRef(ty: Type, target: std.Target) bool {
 
         .Array,
         .Vector,
-        .Struct,
         .Frame,
         .Union,
         => return ty.hasRuntimeBitsIgnoreComptime(),
+        .Struct => {
+            if (ty.castTag(.@"struct")) |struct_ty| {
+                const struct_obj = struct_ty.data;
+                if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
+                    return isByRef(struct_obj.backing_int_ty, target);
+                }
+            }
+            return ty.hasRuntimeBitsIgnoreComptime();
+        },
         .Int => return ty.intInfo(target).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
@@ -2134,7 +2143,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const len = @intCast(u32, ty.abiSize(func.target));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Struct, .Array, .Union, .Vector => {
+        .Struct, .Array, .Union, .Vector => if (isByRef(ty, func.target)) {
             const len = @intCast(u32, ty.abiSize(func.target));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
@@ -2688,6 +2697,18 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         } else {
             const is_pl = val.tag() == .opt_payload;
             return WValue{ .imm32 = if (is_pl) @as(u32, 1) else 0 };
+        },
+        .Struct => {
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            assert(struct_obj.layout == .Packed);
+            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0);
+            var payload: Value.Payload.U64 = .{
+                .base = .{ .tag = .int_u64 },
+                .data = std.mem.readIntLittle(u64, &buf),
+            };
+            const int_val = Value.initPayload(&payload.base);
+            return func.lowerConstant(int_val, struct_obj.backing_int_ty);
         },
         else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
     }
