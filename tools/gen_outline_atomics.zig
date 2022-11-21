@@ -76,21 +76,16 @@ fn writeFunction(
         .ldeor => try generateLd(arena, n, order, .ldeor),
         .ldset => try generateLd(arena, n, order, .ldset),
     };
-    const fn_sig = if (op != .cas)
-        try std.fmt.allocPrint(arena, "fn {[name]s}(val: u{[n]d}, ptr: *u{[n]d}) callconv(.C) u{[n]d} {{", .{
-            .name = name,
-            .n = n.toBits(),
-        })
-    else
-        try std.fmt.allocPrint(arena, "fn {[name]s}(expected: u{[n]d}, desired: u{[n]d}, ptr: *u{[n]d}) callconv(.C) u{[n]d} {{", .{
-            .name = name,
-            .n = n.toBits(),
-        });
+    const fn_sig = try std.fmt.allocPrint(
+        arena,
+        "fn {[name]s}() align(16) callconv(.Naked) void {{",
+        .{ .name = name },
+    );
     try w.writeAll(fn_sig);
     try w.writeAll(
         \\
         \\    @setRuntimeSafety(false);
-        \\    return asm volatile (
+        \\    asm volatile (
         \\
     );
     var iter = std.mem.split(u8, body, "\n");
@@ -99,32 +94,15 @@ fn writeFunction(
         try w.writeAll(line);
         try w.writeAll("\n");
     }
-    const constraints = if (op != .cas)
-        try std.fmt.allocPrint(arena,
-            \\        : [ret] "={{{[reg]s}0}}" (-> u{[ty]d}),
-            \\        : [val] "{{{[reg]s}0}}" (val),
-            \\          [ptr] "{{x1}}" (ptr),
-            \\          [__aarch64_have_lse_atomics] "{{w16}}" (__aarch64_have_lse_atomics),
-            \\        : "w15", "w16", "w17", "memory"
-            \\
-        , .{ .reg = n.register(), .ty = n.toBits() })
-    else
-        try std.fmt.allocPrint(arena,
-            \\        : [ret] "={{{[reg]s}0}}" (-> u{[ty]d}),
-            \\        : [expected] "{{{[reg]s}0}}" (expected),
-            \\          [desired] "{{{[reg]s}1}}" (desired),
-            \\          [ptr] "{{x2}}" (ptr),
-            \\          [__aarch64_have_lse_atomics] "{{w16}}" (__aarch64_have_lse_atomics),
-            \\        : "w15", "w16", "w17", "memory"
-            \\
-        , .{ .reg = n.register(), .ty = n.toBits() });
-
-    try w.writeAll(constraints);
     try w.writeAll(
+        \\        :
+        \\        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        : "w15", "w16", "w17", "memory"
         \\    );
+        \\    unreachable;
+        \\}
         \\
     );
-    try w.writeAll("}\n");
 }
 
 const N = enum(u8) {
@@ -185,11 +163,11 @@ const Ordering = enum {
     acq_rel,
 
     const Defines = struct {
-        suff: [:0]const u8,
-        a: [:0]const u8,
-        l: [:0]const u8,
-        m: [:0]const u8,
-        n: [:0]const u8,
+        suff: []const u8,
+        a: []const u8,
+        l: []const u8,
+        m: []const u8,
+        n: []const u8,
     };
     fn defines(self: @This()) Defines {
         const suff = switch (self) {
@@ -224,15 +202,6 @@ const Ordering = enum {
         };
         return .{ .suff = suff, .a = a, .l = l, .m = m, .n = n };
     }
-
-    fn capName(self: @This()) [:0]const u8 {
-        return switch (self) {
-            .relax => "Relax",
-            .acq => "Acq",
-            .rel => "Rel",
-            .acq_rel => "AcqRel",
-        };
-    }
 };
 
 const LdName = enum { ldadd, ldclr, ldeor, ldset };
@@ -244,14 +213,14 @@ fn generateCas(arena: Allocator, n: N, order: Ordering) ![]const u8 {
     const reg = n.register();
 
     if (@enumToInt(n) < 16) {
-        const cas = try std.fmt.allocPrint(arena, ".inst 0x08a07c41 + {s} + {s}\n", .{ s_def.b, o_def.m });
+        const cas = try std.fmt.allocPrint(arena, ".inst 0x08a07c41 + {s} + {s}", .{ s_def.b, o_def.m });
         const ldxr = try std.fmt.allocPrint(arena, "ld{s}xr{s}", .{ o_def.a, s_def.s });
         const stxr = try std.fmt.allocPrint(arena, "st{s}xr{s}", .{ o_def.l, s_def.s });
 
         return try std.fmt.allocPrint(arena,
             \\        cbz     w16, 8f
             \\        {[cas]s}
-            \\        cbz     wzr, 1f
+            \\        ret
             \\8:
             \\        {[uxt]s}    {[reg]s}16, {[reg]s}0
             \\0:
@@ -261,6 +230,7 @@ fn generateCas(arena: Allocator, n: N, order: Ordering) ![]const u8 {
             \\        {[stxr]s}   w17, {[reg]s}1, [x2]
             \\        cbnz   w17, 0b
             \\1:
+            \\        ret
         , .{
             .cas = cas,
             .uxt = s_def.uxt,
@@ -269,14 +239,14 @@ fn generateCas(arena: Allocator, n: N, order: Ordering) ![]const u8 {
             .reg = reg,
         });
     } else {
-        const casp = try std.fmt.allocPrint(arena, ".inst 0x48207c82 + {s}\n", .{o_def.m});
+        const casp = try std.fmt.allocPrint(arena, ".inst 0x48207c82 + {s}", .{o_def.m});
         const ldxp = try std.fmt.allocPrint(arena, "ld{s}xp", .{o_def.a});
         const stxp = try std.fmt.allocPrint(arena, "st{s}xp", .{o_def.l});
 
         return try std.fmt.allocPrint(arena,
             \\        cbz     w16, 8f
             \\        {[casp]s}
-            \\        cbz     wzr, 1f
+            \\        ret
             \\8:
             \\        mov    x16, x0
             \\        mov    x17, x1
@@ -288,6 +258,7 @@ fn generateCas(arena: Allocator, n: N, order: Ordering) ![]const u8 {
             \\        {[stxp]s}   w15, x2, x3, [x4]
             \\        cbnz   w15, 0b
             \\1:
+            \\        ret
         , .{
             .casp = casp,
             .ldxp = ldxp,
@@ -304,7 +275,7 @@ fn generateSwp(arena: Allocator, n: N, order: Ordering) ![]const u8 {
     return try std.fmt.allocPrint(arena,
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + {[b]s} + {[n]s}
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    {[reg]s}16, {[reg]s}0
         \\0:
@@ -312,6 +283,7 @@ fn generateSwp(arena: Allocator, n: N, order: Ordering) ![]const u8 {
         \\        st{[l]s}xr{[s]s}   w17, {[reg]s}16, [x1]
         \\        cbnz   w17, 0b
         \\1:
+        \\        ret
     , .{
         .b = s_def.b,
         .n = o_def.n,
@@ -343,7 +315,7 @@ fn generateLd(arena: Allocator, n: N, order: Ordering, ld: LdName) ![]const u8 {
     return try std.fmt.allocPrint(arena,
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + {[op_n]s} + {[b]s} + {[n]s}
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    {[reg]s}16, {[reg]s}0
         \\0:
@@ -352,6 +324,7 @@ fn generateLd(arena: Allocator, n: N, order: Ordering, ld: LdName) ![]const u8 {
         \\        st{[l]s}xr{[s]s}   w15, {[reg]s}17, [x1]
         \\        cbnz   w15, 0b
         \\1:
+        \\        ret
     , .{
         .op_n = op_n,
         .b = s_def.b,

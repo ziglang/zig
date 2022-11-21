@@ -10,13 +10,12 @@ const always_has_lse = std.Target.aarch64.featureSetHas(builtin.cpu.features, .l
 /// which ARM is concerned would have too much overhead.
 var __aarch64_have_lse_atomics: u8 = @boolToInt(always_has_lse);
 
-fn __aarch64_cas1_relax(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_cas1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x00000000 + 0x000000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxtb    w16, w0
         \\0:
@@ -26,20 +25,19 @@ fn __aarch64_cas1_relax(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_swp1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x00000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -47,19 +45,19 @@ fn __aarch64_swp1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldadd1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x00000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -68,19 +66,19 @@ fn __aarch64_ldadd1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldclr1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x00000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -89,19 +87,19 @@ fn __aarch64_ldclr1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldeor1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x00000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -110,19 +108,19 @@ fn __aarch64_ldeor1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldset1_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x00000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -131,20 +129,19 @@ fn __aarch64_ldset1_relax(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas1_acq(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_cas1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x00000000 + 0x400000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxtb    w16, w0
         \\0:
@@ -154,20 +151,19 @@ fn __aarch64_cas1_acq(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_swp1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x00000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -175,19 +171,19 @@ fn __aarch64_swp1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldadd1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x00000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -196,19 +192,19 @@ fn __aarch64_ldadd1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldclr1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x00000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -217,19 +213,19 @@ fn __aarch64_ldclr1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldeor1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x00000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -238,19 +234,19 @@ fn __aarch64_ldeor1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldset1_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x00000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -259,20 +255,19 @@ fn __aarch64_ldset1_acq(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas1_rel(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_cas1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x00000000 + 0x008000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxtb    w16, w0
         \\0:
@@ -282,20 +277,19 @@ fn __aarch64_cas1_rel(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_swp1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x00000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -303,19 +297,19 @@ fn __aarch64_swp1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldadd1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x00000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -324,19 +318,19 @@ fn __aarch64_ldadd1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldclr1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x00000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -345,19 +339,19 @@ fn __aarch64_ldclr1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldeor1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x00000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -366,19 +360,19 @@ fn __aarch64_ldeor1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldset1_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x00000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -387,20 +381,19 @@ fn __aarch64_ldset1_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas1_acq_rel(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_cas1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x00000000 + 0x408000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxtb    w16, w0
         \\0:
@@ -410,20 +403,19 @@ fn __aarch64_cas1_acq_rel(expected: u8, desired: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_swp1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x00000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -431,19 +423,19 @@ fn __aarch64_swp1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldadd1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x00000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -452,19 +444,19 @@ fn __aarch64_ldadd1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldclr1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x00000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -473,19 +465,19 @@ fn __aarch64_ldclr1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldeor1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x00000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -494,19 +486,19 @@ fn __aarch64_ldeor1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
+fn __aarch64_ldset1_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x00000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -515,20 +507,19 @@ fn __aarch64_ldset1_acq_rel(val: u8, ptr: *u8) callconv(.C) u8 {
         \\        stlxrb   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u8),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas2_relax(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_cas2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x40000000 + 0x000000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxth    w16, w0
         \\0:
@@ -538,20 +529,19 @@ fn __aarch64_cas2_relax(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16
         \\        stxrh   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_swp2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x40000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -559,19 +549,19 @@ fn __aarch64_swp2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldadd2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x40000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -580,19 +570,19 @@ fn __aarch64_ldadd2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldclr2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x40000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -601,19 +591,19 @@ fn __aarch64_ldclr2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldeor2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x40000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -622,19 +612,19 @@ fn __aarch64_ldeor2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldset2_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x40000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -643,20 +633,19 @@ fn __aarch64_ldset2_relax(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas2_acq(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_cas2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x40000000 + 0x400000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxth    w16, w0
         \\0:
@@ -666,20 +655,19 @@ fn __aarch64_cas2_acq(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_swp2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x40000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -687,19 +675,19 @@ fn __aarch64_swp2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldadd2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x40000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -708,19 +696,19 @@ fn __aarch64_ldadd2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldclr2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x40000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -729,19 +717,19 @@ fn __aarch64_ldclr2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldeor2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x40000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -750,19 +738,19 @@ fn __aarch64_ldeor2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldset2_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x40000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -771,20 +759,19 @@ fn __aarch64_ldset2_acq(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas2_rel(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_cas2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x40000000 + 0x008000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxth    w16, w0
         \\0:
@@ -794,20 +781,19 @@ fn __aarch64_cas2_rel(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_swp2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x40000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -815,19 +801,19 @@ fn __aarch64_swp2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldadd2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x40000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -836,19 +822,19 @@ fn __aarch64_ldadd2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldclr2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x40000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -857,19 +843,19 @@ fn __aarch64_ldclr2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldeor2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x40000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -878,19 +864,19 @@ fn __aarch64_ldeor2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldset2_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x40000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -899,20 +885,19 @@ fn __aarch64_ldset2_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas2_acq_rel(expected: u16, desired: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_cas2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x40000000 + 0x408000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        uxth    w16, w0
         \\0:
@@ -922,20 +907,19 @@ fn __aarch64_cas2_acq_rel(expected: u16, desired: u16, ptr: *u16) callconv(.C) u
         \\        stlxrh   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_swp2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x40000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -943,19 +927,19 @@ fn __aarch64_swp2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldadd2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x40000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -964,19 +948,19 @@ fn __aarch64_ldadd2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldclr2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x40000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -985,19 +969,19 @@ fn __aarch64_ldclr2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldeor2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x40000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1006,19 +990,19 @@ fn __aarch64_ldeor2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
+fn __aarch64_ldset2_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x40000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1027,20 +1011,19 @@ fn __aarch64_ldset2_acq_rel(val: u16, ptr: *u16) callconv(.C) u16 {
         \\        stlxrh   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u16),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas4_relax(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_cas4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x80000000 + 0x000000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1050,20 +1033,19 @@ fn __aarch64_cas4_relax(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32
         \\        stxr   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_swp4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x80000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1071,19 +1053,19 @@ fn __aarch64_swp4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldadd4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x80000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1092,19 +1074,19 @@ fn __aarch64_ldadd4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldclr4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x80000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1113,19 +1095,19 @@ fn __aarch64_ldclr4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldeor4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x80000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1134,19 +1116,19 @@ fn __aarch64_ldeor4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldset4_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x80000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1155,20 +1137,19 @@ fn __aarch64_ldset4_relax(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas4_acq(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_cas4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x80000000 + 0x400000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1178,20 +1159,19 @@ fn __aarch64_cas4_acq(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_swp4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x80000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1199,19 +1179,19 @@ fn __aarch64_swp4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldadd4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x80000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1220,19 +1200,19 @@ fn __aarch64_ldadd4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldclr4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x80000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1241,19 +1221,19 @@ fn __aarch64_ldclr4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldeor4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x80000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1262,19 +1242,19 @@ fn __aarch64_ldeor4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldset4_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x80000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1283,20 +1263,19 @@ fn __aarch64_ldset4_acq(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas4_rel(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_cas4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x80000000 + 0x008000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1306,20 +1285,19 @@ fn __aarch64_cas4_rel(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_swp4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x80000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1327,19 +1305,19 @@ fn __aarch64_swp4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldadd4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x80000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1348,19 +1326,19 @@ fn __aarch64_ldadd4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldclr4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x80000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1369,19 +1347,19 @@ fn __aarch64_ldclr4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldeor4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x80000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1390,19 +1368,19 @@ fn __aarch64_ldeor4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldset4_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x80000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1411,20 +1389,19 @@ fn __aarch64_ldset4_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas4_acq_rel(expected: u32, desired: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_cas4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0x80000000 + 0x408000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1434,20 +1411,19 @@ fn __aarch64_cas4_acq_rel(expected: u32, desired: u32, ptr: *u32) callconv(.C) u
         \\        stlxr   w17, w1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [expected] "{w0}" (expected),
-          [desired] "{w1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_swp4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0x80000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1455,19 +1431,19 @@ fn __aarch64_swp4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w17, w16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldadd4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0x80000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1476,19 +1452,19 @@ fn __aarch64_ldadd4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldclr4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0x80000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1497,19 +1473,19 @@ fn __aarch64_ldclr4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldeor4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0x80000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1518,19 +1494,19 @@ fn __aarch64_ldeor4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
+fn __aarch64_ldset4_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0x80000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    w16, w0
         \\0:
@@ -1539,20 +1515,19 @@ fn __aarch64_ldset4_acq_rel(val: u32, ptr: *u32) callconv(.C) u32 {
         \\        stlxr   w15, w17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={w0}" (-> u32),
-        : [val] "{w0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas8_relax(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_cas8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0xc0000000 + 0x000000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1562,20 +1537,19 @@ fn __aarch64_cas8_relax(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64
         \\        stxr   w17, x1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_swp8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0xc0000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1583,19 +1557,19 @@ fn __aarch64_swp8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w17, x16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldadd8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0xc0000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1604,19 +1578,19 @@ fn __aarch64_ldadd8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldclr8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0xc0000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1625,19 +1599,19 @@ fn __aarch64_ldclr8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldeor8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0xc0000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1646,19 +1620,19 @@ fn __aarch64_ldeor8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldset8_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0xc0000000 + 0x000000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1667,20 +1641,19 @@ fn __aarch64_ldset8_relax(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas8_acq(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_cas8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0xc0000000 + 0x400000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1690,20 +1663,19 @@ fn __aarch64_cas8_acq(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w17, x1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_swp8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0xc0000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1711,19 +1683,19 @@ fn __aarch64_swp8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w17, x16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldadd8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0xc0000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1732,19 +1704,19 @@ fn __aarch64_ldadd8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldclr8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0xc0000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1753,19 +1725,19 @@ fn __aarch64_ldclr8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldeor8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0xc0000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1774,19 +1746,19 @@ fn __aarch64_ldeor8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldset8_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0xc0000000 + 0x800000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1795,20 +1767,19 @@ fn __aarch64_ldset8_acq(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas8_rel(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_cas8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0xc0000000 + 0x008000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1818,20 +1789,19 @@ fn __aarch64_cas8_rel(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w17, x1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_swp8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0xc0000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1839,19 +1809,19 @@ fn __aarch64_swp8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w17, x16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldadd8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0xc0000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1860,19 +1830,19 @@ fn __aarch64_ldadd8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldclr8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0xc0000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1881,19 +1851,19 @@ fn __aarch64_ldclr8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldeor8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0xc0000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1902,19 +1872,19 @@ fn __aarch64_ldeor8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldset8_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0xc0000000 + 0x400000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1923,20 +1893,19 @@ fn __aarch64_ldset8_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas8_acq_rel(expected: u64, desired: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_cas8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x08a07c41 + 0xc0000000 + 0x408000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1946,20 +1915,19 @@ fn __aarch64_cas8_acq_rel(expected: u64, desired: u64, ptr: *u64) callconv(.C) u
         \\        stlxr   w17, x1, [x2]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_swp8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_swp8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38208020 + 0xc0000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1967,19 +1935,19 @@ fn __aarch64_swp8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w17, x16, [x1]
         \\        cbnz   w17, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldadd8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldadd8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x0000 + 0xc0000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -1988,19 +1956,19 @@ fn __aarch64_ldadd8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldclr8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldclr8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x1000 + 0xc0000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -2009,19 +1977,19 @@ fn __aarch64_ldclr8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldeor8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldeor8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x2000 + 0xc0000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -2030,19 +1998,19 @@ fn __aarch64_ldeor8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_ldset8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
+fn __aarch64_ldset8_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x38200020 + 0x3000 + 0xc0000000 + 0xc00000
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\0:
@@ -2051,20 +2019,19 @@ fn __aarch64_ldset8_acq_rel(val: u64, ptr: *u64) callconv(.C) u64 {
         \\        stlxr   w15, x17, [x1]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u64),
-        : [val] "{x0}" (val),
-          [ptr] "{x1}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas16_relax(expected: u128, desired: u128, ptr: *u128) callconv(.C) u128 {
+fn __aarch64_cas16_relax() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x48207c82 + 0x000000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\        mov    x17, x1
@@ -2076,21 +2043,19 @@ fn __aarch64_cas16_relax(expected: u128, desired: u128, ptr: *u128) callconv(.C)
         \\        stxp   w15, x2, x3, [x4]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u128),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas16_acq(expected: u128, desired: u128, ptr: *u128) callconv(.C) u128 {
+fn __aarch64_cas16_acq() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x48207c82 + 0x400000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\        mov    x17, x1
@@ -2102,21 +2067,19 @@ fn __aarch64_cas16_acq(expected: u128, desired: u128, ptr: *u128) callconv(.C) u
         \\        stxp   w15, x2, x3, [x4]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u128),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas16_rel(expected: u128, desired: u128, ptr: *u128) callconv(.C) u128 {
+fn __aarch64_cas16_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x48207c82 + 0x008000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\        mov    x17, x1
@@ -2128,21 +2091,19 @@ fn __aarch64_cas16_rel(expected: u128, desired: u128, ptr: *u128) callconv(.C) u
         \\        stlxp   w15, x2, x3, [x4]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u128),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
-fn __aarch64_cas16_acq_rel(expected: u128, desired: u128, ptr: *u128) callconv(.C) u128 {
+fn __aarch64_cas16_acq_rel() align(16) callconv(.Naked) void {
     @setRuntimeSafety(false);
-    return asm volatile (
+    asm volatile (
         \\        cbz     w16, 8f
         \\        .inst 0x48207c82 + 0x408000
-        \\
-        \\        cbz     wzr, 1f
+        \\        ret
         \\8:
         \\        mov    x16, x0
         \\        mov    x17, x1
@@ -2154,13 +2115,12 @@ fn __aarch64_cas16_acq_rel(expected: u128, desired: u128, ptr: *u128) callconv(.
         \\        stlxp   w15, x2, x3, [x4]
         \\        cbnz   w15, 0b
         \\1:
-        : [ret] "={x0}" (-> u128),
-        : [expected] "{x0}" (expected),
-          [desired] "{x1}" (desired),
-          [ptr] "{x2}" (ptr),
-          [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
+        \\        ret
+        :
+        : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
         : "w15", "w16", "w17", "memory"
     );
+    unreachable;
 }
 
 comptime {
