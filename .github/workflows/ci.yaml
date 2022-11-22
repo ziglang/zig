@@ -1,55 +1,37 @@
-name: push_ci
-run-name: Push CI
-on:
-  push:
-    branches:
-      - master
+name: ci
+on: [push, pull_request]
 jobs:
-  aarch64-linux:
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Build and Test
-        run: sh ./ci/linux/build-aarch64.sh
   x86_64-linux-debug:
-    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-debug.sh
+      # The following step is required by the build-tarballs job.
+      # If this job is being deleted / commented out, make sure
+      # to have another job provide this information.
+      - name: Get Version
+        id: version
+        run: echo "version=$(stage3/bin/zig version)" >> $GITHUB_OUTPUT
   x86_64-linux-release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-release.sh
   x86_64-macos:
-    strategy:
-      matrix:
-        version: ["11", "12"]
-    runs-on: "macos-${{ matrix.version }}"
+    runs-on: "macos-11"
     env: 
       ARCH: "x86_64"
-      MACOS_VERSION: ${{ matrix.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      
-      - name: Run Build Script
+      - name: Build and Test
         run: ./ci/macos/build-x86_64.sh
-  aarch64-macos:
-    runs-on: [self-hosted, macOS, aarch64]
-    env: 
-      ARCH: "aarch64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      
-      - name: Run Build Script
-        run: ./ci/macos/build-aarch64.sh
   x86_64-windows:
     runs-on: windows-latest
     env: 
@@ -57,14 +39,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      
-      - name: Run Build Script
+      - name: Build and Test
         run: ./ci/windows/build.ps1
-  build-tarballs:
-    needs: [aarch64-linux, x86_64-macos, aarch64-macos, x86_64-windows, x86_64-linux-debug, x86_64-linux-release]
+  aarch64-linux:
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Build Tarballs
-        run: sh ./ci/linux/build-tarballs.sh
+      - name: Build and Test
+        run: sh ./ci/linux/build-aarch64.sh
+  aarch64-macos:
+    runs-on: [self-hosted, macOS, aarch64]
+    env: 
+      ARCH: "aarch64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: ./ci/macos/build-aarch64.sh

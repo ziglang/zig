@@ -3,8 +3,6 @@
 set -x
 set -e
 
-echo "Running on Version:" $MACOS_VERSION
-
 # Script assumes the presence of the following:
 # s3cmd 
 
