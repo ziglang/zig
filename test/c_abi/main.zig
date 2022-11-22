@@ -808,6 +808,10 @@ extern fn c_ret_big_vec() BigVec;
 
 test "big simd vector" {
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    if (true) {
+        // https://github.com/ziglang/zig/issues/13629
+        return error.SkipZigTest;
+    }
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
