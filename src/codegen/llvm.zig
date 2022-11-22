@@ -9839,62 +9839,80 @@ pub const FuncGen = struct {
         const usize_llvm_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
         const usize_alignment = @intCast(c_uint, Type.usize.abiSize(target));
 
-        switch (target.cpu.arch) {
-            .x86_64 => {
-                const array_llvm_ty = usize_llvm_ty.arrayType(6);
-                const array_ptr = fg.valgrind_client_request_array orelse a: {
-                    const array_ptr = fg.buildAlloca(array_llvm_ty, usize_alignment);
-                    fg.valgrind_client_request_array = array_ptr;
-                    break :a array_ptr;
-                };
-                const array_elements = [_]*llvm.Value{ request, a1, a2, a3, a4, a5 };
-                const zero = usize_llvm_ty.constInt(0, .False);
-                for (array_elements) |elem, i| {
-                    const indexes = [_]*llvm.Value{
-                        zero, usize_llvm_ty.constInt(@intCast(c_uint, i), .False),
-                    };
-                    const elem_ptr = fg.builder.buildInBoundsGEP(array_llvm_ty, array_ptr, &indexes, indexes.len, "");
-                    const store_inst = fg.builder.buildStore(elem, elem_ptr);
-                    store_inst.setAlignment(usize_alignment);
-                }
+        const array_llvm_ty = usize_llvm_ty.arrayType(6);
+        const array_ptr = fg.valgrind_client_request_array orelse a: {
+            const array_ptr = fg.buildAlloca(array_llvm_ty, usize_alignment);
+            fg.valgrind_client_request_array = array_ptr;
+            break :a array_ptr;
+        };
+        const array_elements = [_]*llvm.Value{ request, a1, a2, a3, a4, a5 };
+        const zero = usize_llvm_ty.constInt(0, .False);
+        for (array_elements) |elem, i| {
+            const indexes = [_]*llvm.Value{
+                zero, usize_llvm_ty.constInt(@intCast(c_uint, i), .False),
+            };
+            const elem_ptr = fg.builder.buildInBoundsGEP(array_llvm_ty, array_ptr, &indexes, indexes.len, "");
+            const store_inst = fg.builder.buildStore(elem, elem_ptr);
+            store_inst.setAlignment(usize_alignment);
+        }
 
-                const asm_template =
-                    \\rolq $$3,  %rdi ; rolq $$13, %rdi
-                    \\rolq $$61, %rdi ; rolq $$51, %rdi
-                    \\xchgq %rbx,%rbx
-                ;
-
-                const asm_constraints = "={rdx},{rax},0,~{cc},~{memory}";
-
-                const array_ptr_as_usize = fg.builder.buildPtrToInt(array_ptr, usize_llvm_ty, "");
-                const args = [_]*llvm.Value{ array_ptr_as_usize, default_value };
-                const param_types = [_]*llvm.Type{ usize_llvm_ty, usize_llvm_ty };
-                const fn_llvm_ty = llvm.functionType(usize_llvm_ty, &param_types, args.len, .False);
-                const asm_fn = llvm.getInlineAsm(
-                    fn_llvm_ty,
-                    asm_template,
-                    asm_template.len,
-                    asm_constraints,
-                    asm_constraints.len,
-                    .True, // has side effects
-                    .False, // alignstack
-                    .ATT,
-                    .False,
-                );
-
-                const call = fg.builder.buildCall(
-                    fn_llvm_ty,
-                    asm_fn,
-                    &args,
-                    args.len,
-                    .C,
-                    .Auto,
-                    "",
-                );
-                return call;
+        const arch_specific: struct {
+            template: [:0]const u8,
+            constraints: [:0]const u8,
+        } = switch (target.cpu.arch) {
+            .x86 => .{
+                .template = 
+                \\roll $$3,  %edi ; roll $$13, %edi
+                \\roll $$61, %edi ; roll $$51, %edi
+                \\xchgl %ebx,%ebx
+                ,
+                .constraints = "={edx},{eax},0,~{cc},~{memory}",
+            },
+            .x86_64 => .{
+                .template = 
+                \\rolq $$3,  %rdi ; rolq $$13, %rdi
+                \\rolq $$61, %rdi ; rolq $$51, %rdi
+                \\xchgq %rbx,%rbx
+                ,
+                .constraints = "={rdx},{rax},0,~{cc},~{memory}",
+            },
+            .aarch64, .aarch64_32, .aarch64_be => .{
+                .template = 
+                \\ror x12, x12, #3  ;  ror x12, x12, #13
+                \\ror x12, x12, #51 ;  ror x12, x12, #61
+                \\orr x10, x10, x10
+                ,
+                .constraints = "={x3},{x4},0,~{cc},~{memory}",
             },
             else => unreachable,
-        }
+        };
+
+        const array_ptr_as_usize = fg.builder.buildPtrToInt(array_ptr, usize_llvm_ty, "");
+        const args = [_]*llvm.Value{ array_ptr_as_usize, default_value };
+        const param_types = [_]*llvm.Type{ usize_llvm_ty, usize_llvm_ty };
+        const fn_llvm_ty = llvm.functionType(usize_llvm_ty, &param_types, args.len, .False);
+        const asm_fn = llvm.getInlineAsm(
+            fn_llvm_ty,
+            arch_specific.template.ptr,
+            arch_specific.template.len,
+            arch_specific.constraints.ptr,
+            arch_specific.constraints.len,
+            .True, // has side effects
+            .False, // alignstack
+            .ATT,
+            .False, // can throw
+        );
+
+        const call = fg.builder.buildCall(
+            fn_llvm_ty,
+            asm_fn,
+            &args,
+            args.len,
+            .C,
+            .Auto,
+            "",
+        );
+        return call;
     }
 };
 

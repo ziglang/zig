@@ -211,7 +211,12 @@ pub fn isSingleThreaded(target: std.Target) bool {
 /// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
     switch (target.cpu.arch) {
-        .x86_64 => {
+        .x86,
+        .x86_64,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        => {
             return target.os.tag == .linux or target.os.tag == .solaris or
                 (target.os.tag == .windows and target.abi != .msvc);
         },
