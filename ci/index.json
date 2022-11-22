@@ -33,6 +33,11 @@
       "tarball": "https://ziglang.org/builds/{{X86_64_LINUX_TARBALL}}",
       "shasum": "{{X86_64_LINUX_SHASUM}}",
       "size": "{{X86_64_LINUX_BYTESIZE}}"
+    },
+    "aarch64-linux": {
+      "tarball": "https://ziglang.org/builds/{{AARCH64_LINUX_TARBALL}}",
+      "shasum": "{{AARCH64_LINUX_SHASUM}}",
+      "size": "{{AARCH64_LINUX_BYTESIZE}}"
     }
   },
   "0.10.0": {
