@@ -186,7 +186,7 @@ static Error target_parse_triple(struct ZigTarget *target, const char *zig_tripl
     if (zig_triple == nullptr) {
         get_native_target(target);
 
-        if (mcpu == nullptr) {
+        if (mcpu == nullptr || strcmp(mcpu, "native") == 0) {
             target->llvm_cpu_name = ZigLLVMGetHostCPUName();
             target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
         } else if (strcmp(mcpu, "baseline") == 0) {
