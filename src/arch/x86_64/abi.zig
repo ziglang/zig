@@ -60,7 +60,7 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
     }
 }
 
-pub const Context = enum { ret, arg };
+pub const Context = enum { ret, arg, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
@@ -138,7 +138,18 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             const elem_ty = ty.childType();
             if (ctx == .arg) {
                 const bit_size = ty.bitSize(target);
-                if (bit_size > 128) return memory_class;
+                if (bit_size > 128) {
+                    const has_avx512 = target.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx512f));
+                    if (has_avx512 and bit_size <= 512) return .{
+                        .integer, .integer, .integer, .integer,
+                        .integer, .integer, .integer, .integer,
+                    };
+                    if (has_avx512 and bit_size <= 256) return .{
+                        .integer, .integer, .integer, .integer,
+                        .none,    .none,    .none,    .none,
+                    };
+                    return memory_class;
+                }
                 if (bit_size > 80) return .{
                     .integer, .integer, .none, .none,
                     .none,    .none,    .none, .none,
@@ -181,7 +192,8 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .none,
             };
-            if (bits <= 512) return .{
+            // LLVM always returns vectors byval
+            if (bits <= 512 or ctx == .ret) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .sseup,
             };
@@ -219,7 +231,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                     }
                 }
                 const field_size = field.ty.abiSize(target);
-                const field_class_array = classifySystemV(field.ty, target, .arg);
+                const field_class_array = classifySystemV(field.ty, target, .other);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -333,7 +345,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                     }
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field.ty, target, .arg);
+                const field_class = classifySystemV(field.ty, target, .other);
                 for (result) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
