@@ -24206,7 +24206,10 @@ fn coerceExtra(
                             inst_ty.childType().isAnonStruct() and
                             sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
-                            return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+                            return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src) catch |err| switch (err) {
+                                error.NotCoercible => break :pointer,
+                                else => |e| return e,
+                            };
                         }
                     },
                     .Array => {
@@ -24519,12 +24522,15 @@ fn coerceExtra(
             },
             else => {},
         },
-        .Struct => {
+        .Struct => blk: {
             if (inst == .empty_struct) {
                 return sema.structInitEmpty(block, dest_ty, dest_ty_src, inst_src);
             }
             if (inst_ty.isTupleOrAnonStruct()) {
-                return sema.coerceTupleToStruct(block, dest_ty, inst, inst_src);
+                return sema.coerceTupleToStruct(block, dest_ty, inst, inst_src) catch |err| switch (err) {
+                    error.NotCoercible => break :blk,
+                    else => |e| return e,
+                };
             }
         },
         else => {},
@@ -27215,6 +27221,8 @@ fn coerceTupleToTuple(
 
     const inst_ty = sema.typeOf(inst);
     const inst_field_count = inst_ty.structFieldCount();
+    if (inst_field_count > dest_field_count) return error.NotCoercible;
+
     var runtime_src: ?LazySrcLoc = null;
     var field_i: u32 = 0;
     while (field_i < inst_field_count) : (field_i += 1) {
