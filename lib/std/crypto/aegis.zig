@@ -42,6 +42,12 @@ const State128L = struct {
         blocks[4] = blocks[4].xorBlocks(d2);
     }
 
+    fn absorb(state: *State128L, src: *const [32]u8) void {
+        const msg0 = AesBlock.fromBytes(src[0..16]);
+        const msg1 = AesBlock.fromBytes(src[16..32]);
+        state.update(msg0, msg1);
+    }
+
     fn enc(state: *State128L, dst: *[32]u8, src: *const [32]u8) void {
         const blocks = &state.blocks;
         const msg0 = AesBlock.fromBytes(src[0..16]);
@@ -86,11 +92,14 @@ const State128L = struct {
 /// The 128L variant of AEGIS has a 128 bit key, a 128 bit nonce, and processes 256 bit message blocks.
 /// It was designed to fully exploit the parallelism and built-in AES support of recent Intel and ARM CPUs.
 ///
-/// https://competitions.cr.yp.to/round3/aegisv11.pdf
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 pub const Aegis128L = struct {
     pub const tag_length = 16;
     pub const nonce_length = 16;
     pub const key_length = 16;
+    pub const block_length = 32;
+
+    const State = State128L;
 
     /// c: ciphertext: output buffer should be of size m.len
     /// tag: authentication tag: output MAC
@@ -105,12 +114,12 @@ pub const Aegis128L = struct {
         var dst: [32]u8 align(16) = undefined;
         var i: usize = 0;
         while (i + 32 <= ad.len) : (i += 32) {
-            state.enc(&dst, ad[i..][0..32]);
+            state.absorb(ad[i..][0..32]);
         }
         if (ad.len % 32 != 0) {
             mem.set(u8, src[0..], 0);
             mem.copy(u8, src[0 .. ad.len % 32], ad[i .. i + ad.len % 32]);
-            state.enc(&dst, &src);
+            state.absorb(&src);
         }
         i = 0;
         while (i + 32 <= m.len) : (i += 32) {
@@ -138,12 +147,12 @@ pub const Aegis128L = struct {
         var dst: [32]u8 align(16) = undefined;
         var i: usize = 0;
         while (i + 32 <= ad.len) : (i += 32) {
-            state.enc(&dst, ad[i..][0..32]);
+            state.absorb(ad[i..][0..32]);
         }
         if (ad.len % 32 != 0) {
             mem.set(u8, src[0..], 0);
             mem.copy(u8, src[0 .. ad.len % 32], ad[i .. i + ad.len % 32]);
-            state.enc(&dst, &src);
+            state.absorb(&src);
         }
         i = 0;
         while (i + 32 <= m.len) : (i += 32) {
@@ -212,6 +221,11 @@ const State256 = struct {
         blocks[0] = tmp.xorBlocks(d);
     }
 
+    fn absorb(state: *State256, src: *const [16]u8) void {
+        const msg = AesBlock.fromBytes(src);
+        state.update(msg);
+    }
+
     fn enc(state: *State256, dst: *[16]u8, src: *const [16]u8) void {
         const blocks = &state.blocks;
         const msg = AesBlock.fromBytes(src);
@@ -248,11 +262,14 @@ const State256 = struct {
 ///
 /// The 256 bit variant of AEGIS has a 256 bit key, a 256 bit nonce, and processes 128 bit message blocks.
 ///
-/// https://competitions.cr.yp.to/round3/aegisv11.pdf
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 pub const Aegis256 = struct {
     pub const tag_length = 16;
     pub const nonce_length = 32;
     pub const key_length = 32;
+    pub const block_length = 16;
+
+    const State = State256;
 
     /// c: ciphertext: output buffer should be of size m.len
     /// tag: authentication tag: output MAC
@@ -331,6 +348,101 @@ pub const Aegis256 = struct {
         }
     }
 };
+
+/// The AEGIS-128L message authentication function outputs 128 bit tags.
+/// In addition to being extremely fast, its large state, non-linearity
+/// and non-invertibility provides the following properties:
+/// - 128 bit security, stronger than GHash/Polyval/Poly1305.
+/// - Recovering the secret key from the state would require ~2^128 attempts,
+///   which is infeasible for any practical adversary.
+/// - It has a large security margin against internal collisions.
+pub const Aegis128LMac = AegisMac(Aegis128L);
+
+/// The AEGIS-256 message authentication function has a 256-bit key size,
+/// but outputs 128 bit tags. Unless theoretical multi-target attacks are a
+/// concern, the AEGIS-128L variant should be preferred.
+/// AEGIS' large state, non-linearity and non-invertibility provides the
+/// following properties:
+/// - 128 bit security, stronger than GHash/Polyval/Poly1305.
+/// - Recovering the secret key from the state would require ~2^128 attempts,
+///   which is infeasible for any practical adversary.
+/// - It has a large security margin against internal collisions.
+pub const Aegis256Mac = AegisMac(Aegis256);
+
+fn AegisMac(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        pub const mac_length = T.tag_length;
+        pub const key_length = T.key_length;
+        pub const block_length = T.block_length;
+
+        state: T.State,
+        buf: [block_length]u8 = undefined,
+        off: usize = 0,
+        msg_len: usize = 0,
+
+        /// Initialize a state for the MAC function
+        pub fn init(key: *const [key_length]u8) Self {
+            const nonce = [_]u8{0} ** T.nonce_length;
+            return Self{
+                .state = T.State.init(key.*, nonce),
+            };
+        }
+
+        /// Add data to the state
+        pub fn update(self: *Self, b: []const u8) void {
+            self.msg_len += b.len;
+
+            const len_partial = @min(b.len, block_length - self.off);
+            mem.copy(u8, self.buf[self.off..][0..len_partial], b[0..len_partial]);
+            self.off += len_partial;
+            if (self.off < block_length) {
+                return;
+            }
+            self.state.absorb(&self.buf);
+
+            var i = len_partial;
+            self.off = 0;
+            while (i + block_length <= b.len) : (i += block_length) {
+                self.state.absorb(b[i..][0..block_length]);
+            }
+            if (i != b.len) {
+                mem.copy(u8, self.buf[0..], b[i..]);
+                self.off = b.len - i;
+            }
+        }
+
+        /// Return an authentication tag for the current state
+        pub fn final(self: *Self, out: *[mac_length]u8) void {
+            if (self.off > 0) {
+                var pad = [_]u8{0} ** block_length;
+                mem.copy(u8, pad[0..], self.buf[0..self.off]);
+                self.state.absorb(&pad);
+            }
+            out.* = self.state.mac(self.msg_len, 0);
+        }
+
+        /// Return an authentication tag for a message and a key
+        pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
+            var ctx = Self.init(key);
+            ctx.update(msg);
+            ctx.final(out);
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+    };
+}
 
 const htest = @import("test.zig");
 const testing = std.testing;
@@ -445,4 +557,38 @@ test "Aegis256 test vector 3" {
     try testing.expectEqualSlices(u8, &m, &m2);
 
     try htest.assertEqual("f7a0878f68bd083e8065354071fc27c3", &tag);
+}
+
+test "Aegis MAC" {
+    const key = [_]u8{0x00} ** Aegis128LMac.key_length;
+    var msg: [64]u8 = undefined;
+    for (msg) |*m, i| {
+        m.* = @truncate(u8, i);
+    }
+    const st_init = Aegis128LMac.init(&key);
+    var st = st_init;
+    var tag: [Aegis128LMac.mac_length]u8 = undefined;
+
+    st.update(msg[0..32]);
+    st.update(msg[32..]);
+    st.final(&tag);
+    try htest.assertEqual("b4e8e46cee04a401ec67bad73df4aa60", &tag);
+
+    st = st_init;
+    st.update(msg[0..31]);
+    st.update(msg[31..]);
+    st.final(&tag);
+    try htest.assertEqual("b4e8e46cee04a401ec67bad73df4aa60", &tag);
+
+    st = st_init;
+    st.update(msg[0..14]);
+    st.update(msg[14..30]);
+    st.update(msg[30..]);
+    st.final(&tag);
+    try htest.assertEqual("b4e8e46cee04a401ec67bad73df4aa60", &tag);
+
+    var empty: [0]u8 = undefined;
+    const nonce = [_]u8{0x00} ** Aegis128L.nonce_length;
+    Aegis128L.encrypt(&empty, &tag, &empty, &msg, nonce, key);
+    try htest.assertEqual("b4e8e46cee04a401ec67bad73df4aa60", &tag);
 }
