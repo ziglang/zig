@@ -223,7 +223,7 @@ static struct ByteSlice read_file_alloc(const char *file_path) {
 
 
 struct Preopen {
-    int wasi_fd; 
+    int wasi_fd;
     int host_fd;
     const char *name;
     size_t name_len;
@@ -259,10 +259,6 @@ static uint16_t read_u16_le(const char *ptr) {
         (((uint64_t)u8_ptr[1]) << 0x08);
 }
 
-static int16_t read_i16_le(const char *ptr) {
-    return read_u16_le(ptr);
-}
-
 static uint32_t read_u32_le(const char *ptr) {
     const uint8_t *u8_ptr = (const uint8_t *)ptr;
     return
@@ -270,10 +266,6 @@ static uint32_t read_u32_le(const char *ptr) {
         (((uint64_t)u8_ptr[1]) << 0x08) |
         (((uint64_t)u8_ptr[2]) << 0x10) |
         (((uint64_t)u8_ptr[3]) << 0x18);
-}
-
-static uint32_t read_i32_le(const char *ptr) {
-    return read_u32_le(ptr);
 }
 
 static uint64_t read_u64_le(const char *ptr) {
@@ -383,19 +375,21 @@ enum Op {
     Op_br_void,
     Op_br_32,
     Op_br_64,
-    Op_br_if_nez_void,
-    Op_br_if_nez_32,
-    Op_br_if_nez_64,
-    Op_br_if_eqz_void,
-    Op_br_if_eqz_32,
-    Op_br_if_eqz_64,
+    Op_br_nez_void,
+    Op_br_nez_32,
+    Op_br_nez_64,
+    Op_br_eqz_void,
+    Op_br_eqz_32,
+    Op_br_eqz_64,
     Op_br_table_void,
     Op_br_table_32,
     Op_br_table_64,
     Op_return_void,
     Op_return_32,
     Op_return_64,
-    Op_call,
+    Op_call_import,
+    Op_call_func,
+    Op_call_indirect,
     Op_drop_32,
     Op_drop_64,
     Op_select_32,
@@ -410,12 +404,160 @@ enum Op {
     Op_global_get_32,
     Op_global_set_0_32,
     Op_global_set_32,
+    Op_load_0_8,
+    Op_load_8,
+    Op_load_0_16,
+    Op_load_16,
+    Op_load_0_32,
+    Op_load_32,
+    Op_load_0_64,
+    Op_load_64,
+    Op_store_0_8,
+    Op_store_8,
+    Op_store_0_16,
+    Op_store_16,
+    Op_store_0_32,
+    Op_store_32,
+    Op_store_0_64,
+    Op_store_64,
+    Op_mem_size,
+    Op_mem_grow,
+    Op_const_0_32,
+    Op_const_0_64,
+    Op_const_1_32,
+    Op_const_1_64,
     Op_const_32,
     Op_const_64,
+    Op_const_umax_32,
+    Op_const_umax_64,
+    Op_eqz_32,
+    Op_eq_32,
+    Op_ne_32,
+    Op_slt_32,
+    Op_ult_32,
+    Op_sgt_32,
+    Op_ugt_32,
+    Op_sle_32,
+    Op_ule_32,
+    Op_sge_32,
+    Op_uge_32,
+    Op_eqz_64,
+    Op_eq_64,
+    Op_ne_64,
+    Op_slt_64,
+    Op_ult_64,
+    Op_sgt_64,
+    Op_ugt_64,
+    Op_sle_64,
+    Op_ule_64,
+    Op_sge_64,
+    Op_uge_64,
+    Op_feq_32,
+    Op_fne_32,
+    Op_flt_32,
+    Op_fgt_32,
+    Op_fle_32,
+    Op_fge_32,
+    Op_feq_64,
+    Op_fne_64,
+    Op_flt_64,
+    Op_fgt_64,
+    Op_fle_64,
+    Op_fge_64,
+    Op_clz_32,
+    Op_ctz_32,
+    Op_popcnt_32,
     Op_add_32,
+    Op_sub_32,
+    Op_mul_32,
+    Op_sdiv_32,
+    Op_udiv_32,
+    Op_srem_32,
+    Op_urem_32,
     Op_and_32,
-    Op_wasm,
-    Op_wasm_prefixed,
+    Op_or_32,
+    Op_xor_32,
+    Op_shl_32,
+    Op_ashr_32,
+    Op_lshr_32,
+    Op_rol_32,
+    Op_ror_32,
+    Op_clz_64,
+    Op_ctz_64,
+    Op_popcnt_64,
+    Op_add_64,
+    Op_sub_64,
+    Op_mul_64,
+    Op_sdiv_64,
+    Op_udiv_64,
+    Op_srem_64,
+    Op_urem_64,
+    Op_and_64,
+    Op_or_64,
+    Op_xor_64,
+    Op_shl_64,
+    Op_ashr_64,
+    Op_lshr_64,
+    Op_rol_64,
+    Op_ror_64,
+    Op_fabs_32,
+    Op_fneg_32,
+    Op_ceil_32,
+    Op_floor_32,
+    Op_trunc_32,
+    Op_nearest_32,
+    Op_sqrt_32,
+    Op_fadd_32,
+    Op_fsub_32,
+    Op_fmul_32,
+    Op_fdiv_32,
+    Op_fmin_32,
+    Op_fmax_32,
+    Op_copysign_32,
+    Op_fabs_64,
+    Op_fneg_64,
+    Op_ceil_64,
+    Op_floor_64,
+    Op_trunc_64,
+    Op_nearest_64,
+    Op_sqrt_64,
+    Op_fadd_64,
+    Op_fsub_64,
+    Op_fmul_64,
+    Op_fdiv_64,
+    Op_fmin_64,
+    Op_fmax_64,
+    Op_copysign_64,
+    Op_ftos_32_32,
+    Op_ftou_32_32,
+    Op_ftos_32_64,
+    Op_ftou_32_64,
+    Op_sext_64_32,
+    Op_ftos_64_32,
+    Op_ftou_64_32,
+    Op_ftos_64_64,
+    Op_ftou_64_64,
+    Op_stof_32_32,
+    Op_utof_32_32,
+    Op_stof_32_64,
+    Op_utof_32_64,
+    Op_ftof_32_64,
+    Op_stof_64_32,
+    Op_utof_64_32,
+    Op_stof_64_64,
+    Op_utof_64_64,
+    Op_ftof_64_32,
+    Op_sext8_32,
+    Op_sext16_32,
+    Op_sext8_64,
+    Op_sext16_64,
+    Op_sext32_64,
+    Op_memcpy,
+    Op_memset,
+
+    Op_wrap_32_64 = Op_drop_32,
+    Op_zext_64_32 = Op_const_0_32,
+    Op_last = Op_memset,
 };
 
 enum WasmOp {
@@ -638,13 +780,11 @@ struct TypeInfo {
 };
 
 struct Function {
+    uint32_t id;
     // Index to start of code in opcodes/operands.
     struct ProgramCounter entry_pc;
     uint32_t type_idx;
-    uint32_t locals_count;
-    // multi-word bitset with vm->types[type_idx].param_count + locals_count bits
-    // indexed from lsb of the first element, 0 -> 32-bit, 1 -> 64-bit
-    uint32_t *local_types;
+    uint32_t locals_size;
 };
 
 enum ImpMod {
@@ -688,7 +828,7 @@ struct Import {
 };
 
 struct VirtualMachine {
-    uint64_t *stack;
+    uint32_t *stack;
     /// Points to one after the last stack item.
     uint32_t stack_top;
     struct ProgramCounter pc;
@@ -869,7 +1009,6 @@ static enum wasi_errno_t finish_wasi_stat(struct VirtualMachine *vm,
     write_u64_le(vm->memory + buf + 0x30, to_wasi_timestamp(st.st_mtim));
     write_u64_le(vm->memory + buf + 0x38, to_wasi_timestamp(st.st_ctim));
 #endif
-
     return WASI_ESUCCESS;
 }
 
@@ -890,7 +1029,7 @@ static enum wasi_errno_t wasi_args_sizes_get(struct VirtualMachine *vm,
 
 /// extern fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 static enum wasi_errno_t wasi_args_get(struct VirtualMachine *vm,
-    uint32_t argv, uint32_t argv_buf) 
+    uint32_t argv, uint32_t argv_buf)
 {
     uint32_t argv_buf_i = 0;
     uint32_t arg_i = 0;
@@ -910,7 +1049,7 @@ static enum wasi_errno_t wasi_args_get(struct VirtualMachine *vm,
 
 /// extern fn random_get(buf: [*]u8, buf_len: usize) errno_t;
 static enum wasi_errno_t wasi_random_get(struct VirtualMachine *vm,
-    uint32_t buf, uint32_t buf_len) 
+    uint32_t buf, uint32_t buf_len)
 {
 #ifdef __linux__
     if (getrandom(vm->memory + buf, buf_len, 0) != buf_len) {
@@ -1181,7 +1320,7 @@ static enum wasi_errno_t wasi_clock_time_get(struct VirtualMachine *vm,
 
 ///pub extern "wasi_snapshot_preview1" fn debug(string: [*:0]const u8, x: u64) void;
 void wasi_debug(struct VirtualMachine *vm, uint32_t text, uint64_t n) {
-    fprintf(stderr, "wasi_debug: '%s' number=%" PRIu64" %" PRIx64 "\n", vm->memory + text, n, n);
+    fprintf(stderr, "wasi_debug: '%s' number=%" PRIu64 " %" PRIx64 "\n", vm->memory + text, n, n);
 }
 
 /// pub extern "wasi_snapshot_preview1" fn debug_slice(ptr: [*]const u8, len: usize) void;
@@ -1189,9 +1328,15 @@ void wasi_debug_slice(struct VirtualMachine *vm, uint32_t ptr, uint32_t len) {
     fprintf(stderr, "wasi_debug_slice: '%.*s'\n", len, vm->memory + ptr);
 }
 
+enum StackType {
+    ST_32,
+    ST_64,
+};
+
 struct Label {
     enum WasmOp opcode;
-    uint32_t stack_depth;
+    uint32_t stack_index;
+    uint32_t stack_offset;
     struct TypeInfo type_info;
     // this is a UINT32_MAX terminated linked list that is stored in the operands array
     uint32_t ref_list;
@@ -1209,7 +1354,7 @@ static uint32_t Label_operandCount(const struct Label *label) {
     }
 }
 
-static bool Label_operandType(const struct Label *label, uint32_t index) {
+static enum StackType Label_operandType(const struct Label *label, uint32_t index) {
     if (label->opcode == WasmOp_loop) {
         return bs_isSet(&label->type_info.param_types, index);
     } else {
@@ -1217,29 +1362,69 @@ static bool Label_operandType(const struct Label *label, uint32_t index) {
     }
 }
 
-static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint32_t *code_i,
-    struct ProgramCounter *pc)
+#define max_stack_depth (1 << 12)
+
+struct StackInfo {
+    uint32_t top_index;
+    uint32_t top_offset;
+    uint32_t types[max_stack_depth >> 5];
+    uint32_t offsets[max_stack_depth];
+};
+
+static enum StackType si_top(const struct StackInfo *si) {
+    return bs_isSet(si->types, si->top_index - 1);
+}
+
+static enum StackType si_local(const struct StackInfo *si, uint32_t local_idx) {
+    return bs_isSet(si->types, local_idx);
+}
+
+static void si_push(struct StackInfo *si, enum StackType entry_type) {
+    bs_setValue(si->types, si->top_index, entry_type);
+    si->offsets[si->top_index] = si->top_offset;
+    si->top_index += 1;
+    si->top_offset += 1 + entry_type;
+}
+
+static void si_pop(struct StackInfo *si, enum StackType entry_type) {
+    assert(si_top(si) == entry_type);
+    si->top_index -= 1;
+    si->top_offset -= 1 + entry_type;
+    assert(si->top_offset == si->offsets[si->top_index]);
+}
+
+static void vm_decodeCode(struct VirtualMachine *vm, struct TypeInfo *func_type_info,
+    uint32_t *code_i, struct ProgramCounter *pc, struct StackInfo *stack)
 {
     const char *mod_ptr = vm->mod_ptr;
     uint8_t *opcodes = vm->opcodes;
     uint32_t *operands = vm->operands;
-    struct TypeInfo *func_type_info = &vm->types[func->type_idx];
+
+    // push return address
+    uint32_t frame_size = stack->top_offset;
+    si_push(stack, ST_32);
+    si_push(stack, ST_32);
 
     uint32_t unreachable_depth = 0;
-    uint32_t stack_depth = func_type_info->param_count + func->locals_count + 2;
-    static uint32_t stack_types[1 << (12 - 3)];
-
+    uint32_t label_i = 0;
     static struct Label labels[1 << 9];
 #ifndef NDEBUG
     memset(labels, 0xaa, sizeof(struct Label) * (1 << 9)); // to match the zig version
 #endif
-    uint32_t label_i = 0;
     labels[label_i].opcode = WasmOp_block;
-    labels[label_i].stack_depth = stack_depth;
-    labels[label_i].type_info = vm->types[func->type_idx];
+    labels[label_i].stack_index = stack->top_index;
+    labels[label_i].stack_offset = stack->top_offset;
+    labels[label_i].type_info = *func_type_info;
     labels[label_i].ref_list = UINT32_MAX;
 
+    enum {
+        State_default,
+        State_bool_not,
+    } state = State_default;
+
     for (;;) {
+        assert(stack->top_index >= labels[0].stack_index);
+        assert(stack->top_offset >= labels[0].stack_offset);
         enum WasmOp opcode = (uint8_t)mod_ptr[*code_i];
         *code_i += 1;
         enum WasmPrefixedOp prefixed_opcode;
@@ -1248,8 +1433,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
         //fprintf(stderr, "decodeCode opcode=0x%x pc=%u:%u\n", opcode, pc->opcode, pc->operand);
         //struct ProgramCounter old_pc = *pc;
 
-        uint32_t initial_stack_depth = stack_depth;
-        if (unreachable_depth == 0) {
+        if (unreachable_depth == 0)
             switch (opcode) {
                 case WasmOp_unreachable:
                 case WasmOp_nop:
@@ -1258,58 +1442,62 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_else:
                 case WasmOp_end:
                 case WasmOp_br:
-                case WasmOp_call:
                 case WasmOp_return:
-                break;
+                case WasmOp_call:
+                case WasmOp_local_get:
+                case WasmOp_local_set:
+                case WasmOp_local_tee:
+                case WasmOp_global_get:
+                case WasmOp_global_set:
+                case WasmOp_drop:
+                case WasmOp_select:
+                break; // handled manually below
 
                 case WasmOp_if:
                 case WasmOp_br_if:
                 case WasmOp_br_table:
                 case WasmOp_call_indirect:
-                case WasmOp_drop:
-                case WasmOp_local_set:
-                case WasmOp_global_set:
-                stack_depth -= 1;
+                si_pop(stack, ST_32);
                 break;
 
-                case WasmOp_select:
-                stack_depth -= 2;
-                break;
-
-                case WasmOp_local_get:
-                case WasmOp_global_get:
                 case WasmOp_memory_size:
                 case WasmOp_i32_const:
-                case WasmOp_i64_const:
                 case WasmOp_f32_const:
-                case WasmOp_f64_const:
-                stack_depth += 1;
+                si_push(stack, ST_32);
                 break;
 
-                case WasmOp_local_tee:
+                case WasmOp_i64_const:
+                case WasmOp_f64_const:
+                si_push(stack, ST_64);
+                break;
+
                 case WasmOp_i32_load:
-                case WasmOp_i64_load:
                 case WasmOp_f32_load:
-                case WasmOp_f64_load:
                 case WasmOp_i32_load8_s:
                 case WasmOp_i32_load8_u:
                 case WasmOp_i32_load16_s:
                 case WasmOp_i32_load16_u:
+                si_pop(stack, ST_32);
+                si_push(stack, ST_32);
+                break;
+
+                case WasmOp_i64_load:
+                case WasmOp_f64_load:
                 case WasmOp_i64_load8_s:
                 case WasmOp_i64_load8_u:
                 case WasmOp_i64_load16_s:
                 case WasmOp_i64_load16_u:
                 case WasmOp_i64_load32_s:
                 case WasmOp_i64_load32_u:
+                si_pop(stack, ST_32);
+                si_push(stack, ST_64);
+                break;
+
                 case WasmOp_memory_grow:
                 case WasmOp_i32_eqz:
                 case WasmOp_i32_clz:
                 case WasmOp_i32_ctz:
                 case WasmOp_i32_popcnt:
-                case WasmOp_i64_eqz:
-                case WasmOp_i64_clz:
-                case WasmOp_i64_ctz:
-                case WasmOp_i64_popcnt:
                 case WasmOp_f32_abs:
                 case WasmOp_f32_neg:
                 case WasmOp_f32_ceil:
@@ -1317,6 +1505,32 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_f32_trunc:
                 case WasmOp_f32_nearest:
                 case WasmOp_f32_sqrt:
+                case WasmOp_i32_trunc_f32_s:
+                case WasmOp_i32_trunc_f32_u:
+                case WasmOp_f32_convert_i32_s:
+                case WasmOp_f32_convert_i32_u:
+                case WasmOp_i32_reinterpret_f32:
+                case WasmOp_f32_reinterpret_i32:
+                case WasmOp_i32_extend8_s:
+                case WasmOp_i32_extend16_s:
+                si_pop(stack, ST_32);
+                si_push(stack, ST_32);
+                break;
+
+                case WasmOp_i64_eqz:
+                case WasmOp_i32_wrap_i64:
+                case WasmOp_i32_trunc_f64_s:
+                case WasmOp_i32_trunc_f64_u:
+                case WasmOp_f32_convert_i64_s:
+                case WasmOp_f32_convert_i64_u:
+                case WasmOp_f32_demote_f64:
+                si_pop(stack, ST_64);
+                si_push(stack, ST_32);
+                break;
+
+                case WasmOp_i64_clz:
+                case WasmOp_i64_ctz:
+                case WasmOp_i64_popcnt:
                 case WasmOp_f64_abs:
                 case WasmOp_f64_neg:
                 case WasmOp_f64_ceil:
@@ -1324,48 +1538,45 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_f64_trunc:
                 case WasmOp_f64_nearest:
                 case WasmOp_f64_sqrt:
-                case WasmOp_i32_wrap_i64:
-                case WasmOp_i32_trunc_f32_s:
-                case WasmOp_i32_trunc_f32_u:
-                case WasmOp_i32_trunc_f64_s:
-                case WasmOp_i32_trunc_f64_u:
+                case WasmOp_i64_trunc_f64_s:
+                case WasmOp_i64_trunc_f64_u:
+                case WasmOp_f64_convert_i64_s:
+                case WasmOp_f64_convert_i64_u:
+                case WasmOp_i64_reinterpret_f64:
+                case WasmOp_f64_reinterpret_i64:
+                case WasmOp_i64_extend8_s:
+                case WasmOp_i64_extend16_s:
+                case WasmOp_i64_extend32_s:
+                si_pop(stack, ST_64);
+                si_push(stack, ST_64);
+                break;
+
                 case WasmOp_i64_extend_i32_s:
                 case WasmOp_i64_extend_i32_u:
                 case WasmOp_i64_trunc_f32_s:
                 case WasmOp_i64_trunc_f32_u:
-                case WasmOp_i64_trunc_f64_s:
-                case WasmOp_i64_trunc_f64_u:
-                case WasmOp_f32_convert_i32_s:
-                case WasmOp_f32_convert_i32_u:
-                case WasmOp_f32_convert_i64_s:
-                case WasmOp_f32_convert_i64_u:
-                case WasmOp_f32_demote_f64:
                 case WasmOp_f64_convert_i32_s:
                 case WasmOp_f64_convert_i32_u:
-                case WasmOp_f64_convert_i64_s:
-                case WasmOp_f64_convert_i64_u:
                 case WasmOp_f64_promote_f32:
-                case WasmOp_i32_reinterpret_f32:
-                case WasmOp_i64_reinterpret_f64:
-                case WasmOp_f32_reinterpret_i32:
-                case WasmOp_f64_reinterpret_i64:
-                case WasmOp_i32_extend8_s:
-                case WasmOp_i32_extend16_s:
-                case WasmOp_i64_extend8_s:
-                case WasmOp_i64_extend16_s:
-                case WasmOp_i64_extend32_s:
+                si_pop(stack, ST_32);
+                si_push(stack, ST_64);
                 break;
 
                 case WasmOp_i32_store:
-                case WasmOp_i64_store:
                 case WasmOp_f32_store:
-                case WasmOp_f64_store:
                 case WasmOp_i32_store8:
                 case WasmOp_i32_store16:
+                si_pop(stack, ST_32);
+                si_pop(stack, ST_32);
+                break;
+
+                case WasmOp_i64_store:
+                case WasmOp_f64_store:
                 case WasmOp_i64_store8:
                 case WasmOp_i64_store16:
                 case WasmOp_i64_store32:
-                stack_depth -= 2;
+                si_pop(stack, ST_64);
+                si_pop(stack, ST_32);
                 break;
 
                 case WasmOp_i32_eq:
@@ -1378,6 +1589,17 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_i32_le_u:
                 case WasmOp_i32_ge_s:
                 case WasmOp_i32_ge_u:
+                case WasmOp_f32_eq:
+                case WasmOp_f32_ne:
+                case WasmOp_f32_lt:
+                case WasmOp_f32_gt:
+                case WasmOp_f32_le:
+                case WasmOp_f32_ge:
+                si_pop(stack, ST_32);
+                si_pop(stack, ST_32);
+                si_push(stack, ST_32);
+                break;
+
                 case WasmOp_i64_eq:
                 case WasmOp_i64_ne:
                 case WasmOp_i64_lt_s:
@@ -1388,204 +1610,17 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_i64_le_u:
                 case WasmOp_i64_ge_s:
                 case WasmOp_i64_ge_u:
-                case WasmOp_f32_eq:
-                case WasmOp_f32_ne:
-                case WasmOp_f32_lt:
-                case WasmOp_f32_gt:
-                case WasmOp_f32_le:
-                case WasmOp_f32_ge:
                 case WasmOp_f64_eq:
                 case WasmOp_f64_ne:
                 case WasmOp_f64_lt:
                 case WasmOp_f64_gt:
                 case WasmOp_f64_le:
                 case WasmOp_f64_ge:
-                case WasmOp_i32_add:
-                case WasmOp_i32_sub:
-                case WasmOp_i32_mul:
-                case WasmOp_i32_div_s:
-                case WasmOp_i32_div_u:
-                case WasmOp_i32_rem_s:
-                case WasmOp_i32_rem_u:
-                case WasmOp_i32_and:
-                case WasmOp_i32_or:
-                case WasmOp_i32_xor:
-                case WasmOp_i32_shl:
-                case WasmOp_i32_shr_s:
-                case WasmOp_i32_shr_u:
-                case WasmOp_i32_rotl:
-                case WasmOp_i32_rotr:
-                case WasmOp_i64_add:
-                case WasmOp_i64_sub:
-                case WasmOp_i64_mul:
-                case WasmOp_i64_div_s:
-                case WasmOp_i64_div_u:
-                case WasmOp_i64_rem_s:
-                case WasmOp_i64_rem_u:
-                case WasmOp_i64_and:
-                case WasmOp_i64_or:
-                case WasmOp_i64_xor:
-                case WasmOp_i64_shl:
-                case WasmOp_i64_shr_s:
-                case WasmOp_i64_shr_u:
-                case WasmOp_i64_rotl:
-                case WasmOp_i64_rotr:
-                case WasmOp_f32_add:
-                case WasmOp_f32_sub:
-                case WasmOp_f32_mul:
-                case WasmOp_f32_div:
-                case WasmOp_f32_min:
-                case WasmOp_f32_max:
-                case WasmOp_f32_copysign:
-                case WasmOp_f64_add:
-                case WasmOp_f64_sub:
-                case WasmOp_f64_mul:
-                case WasmOp_f64_div:
-                case WasmOp_f64_min:
-                case WasmOp_f64_max:
-                case WasmOp_f64_copysign:
-                stack_depth -= 1;
+                si_pop(stack, ST_64);
+                si_pop(stack, ST_64);
+                si_push(stack, ST_32);
                 break;
 
-                case WasmOp_prefixed:
-                switch (prefixed_opcode) {
-                    case WasmPrefixedOp_i32_trunc_sat_f32_s:
-                    case WasmPrefixedOp_i32_trunc_sat_f32_u:
-                    case WasmPrefixedOp_i32_trunc_sat_f64_s:
-                    case WasmPrefixedOp_i32_trunc_sat_f64_u:
-                    case WasmPrefixedOp_i64_trunc_sat_f32_s:
-                    case WasmPrefixedOp_i64_trunc_sat_f32_u:
-                    case WasmPrefixedOp_i64_trunc_sat_f64_s:
-                    case WasmPrefixedOp_i64_trunc_sat_f64_u:
-                    break;
-
-                    case WasmPrefixedOp_memory_init:
-                    case WasmPrefixedOp_memory_copy:
-                    case WasmPrefixedOp_memory_fill:
-                    case WasmPrefixedOp_table_init:
-                    case WasmPrefixedOp_table_copy:
-                    case WasmPrefixedOp_table_fill:
-                    stack_depth -= 3;
-                    break;
-
-                    case WasmPrefixedOp_data_drop:
-                    case WasmPrefixedOp_elem_drop:
-                    break;
-
-                    case WasmPrefixedOp_table_grow:
-                    stack_depth -= 1;
-                    break;
-
-                    case WasmPrefixedOp_table_size:
-                    stack_depth += 1;
-                    break;
-
-                    default: panic("unexpected prefixed opcode");
-                }
-                break;
-
-                default: panic("unexpected opcode");
-            }
-            switch (opcode) {
-                case WasmOp_unreachable:
-                case WasmOp_nop:
-                case WasmOp_block:
-                case WasmOp_loop:
-                case WasmOp_else:
-                case WasmOp_end:
-                case WasmOp_br:
-                case WasmOp_call:
-                case WasmOp_return:
-                case WasmOp_if:
-                case WasmOp_br_if:
-                case WasmOp_br_table:
-                case WasmOp_call_indirect:
-                case WasmOp_drop:
-                case WasmOp_select:
-                case WasmOp_local_set:
-                case WasmOp_local_get:
-                case WasmOp_local_tee:
-                case WasmOp_global_set:
-                case WasmOp_global_get:
-                case WasmOp_i32_store:
-                case WasmOp_i64_store:
-                case WasmOp_f32_store:
-                case WasmOp_f64_store:
-                case WasmOp_i32_store8:
-                case WasmOp_i32_store16:
-                case WasmOp_i64_store8:
-                case WasmOp_i64_store16:
-                case WasmOp_i64_store32:
-                break;
-
-                case WasmOp_i32_const:
-                case WasmOp_f32_const:
-                case WasmOp_memory_size:
-                case WasmOp_i32_load:
-                case WasmOp_f32_load:
-                case WasmOp_i32_load8_s:
-                case WasmOp_i32_load8_u:
-                case WasmOp_i32_load16_s:
-                case WasmOp_i32_load16_u:
-                case WasmOp_memory_grow:
-                case WasmOp_i32_eqz:
-                case WasmOp_i32_clz:
-                case WasmOp_i32_ctz:
-                case WasmOp_i32_popcnt:
-                case WasmOp_i64_eqz:
-                case WasmOp_f32_abs:
-                case WasmOp_f32_neg:
-                case WasmOp_f32_ceil:
-                case WasmOp_f32_floor:
-                case WasmOp_f32_trunc:
-                case WasmOp_f32_nearest:
-                case WasmOp_f32_sqrt:
-                case WasmOp_i32_wrap_i64:
-                case WasmOp_i32_trunc_f32_s:
-                case WasmOp_i32_trunc_f32_u:
-                case WasmOp_i32_trunc_f64_s:
-                case WasmOp_i32_trunc_f64_u:
-                case WasmOp_f32_convert_i32_s:
-                case WasmOp_f32_convert_i32_u:
-                case WasmOp_f32_convert_i64_s:
-                case WasmOp_f32_convert_i64_u:
-                case WasmOp_f32_demote_f64:
-                case WasmOp_i32_reinterpret_f32:
-                case WasmOp_f32_reinterpret_i32:
-                case WasmOp_i32_extend8_s:
-                case WasmOp_i32_extend16_s:
-                case WasmOp_i32_eq:
-                case WasmOp_i32_ne:
-                case WasmOp_i32_lt_s:
-                case WasmOp_i32_lt_u:
-                case WasmOp_i32_gt_s:
-                case WasmOp_i32_gt_u:
-                case WasmOp_i32_le_s:
-                case WasmOp_i32_le_u:
-                case WasmOp_i32_ge_s:
-                case WasmOp_i32_ge_u:
-                case WasmOp_i64_eq:
-                case WasmOp_i64_ne:
-                case WasmOp_i64_lt_s:
-                case WasmOp_i64_lt_u:
-                case WasmOp_i64_gt_s:
-                case WasmOp_i64_gt_u:
-                case WasmOp_i64_le_s:
-                case WasmOp_i64_le_u:
-                case WasmOp_i64_ge_s:
-                case WasmOp_i64_ge_u:
-                case WasmOp_f32_eq:
-                case WasmOp_f32_ne:
-                case WasmOp_f32_lt:
-                case WasmOp_f32_gt:
-                case WasmOp_f32_le:
-                case WasmOp_f32_ge:
-                case WasmOp_f64_eq:
-                case WasmOp_f64_ne:
-                case WasmOp_f64_lt:
-                case WasmOp_f64_gt:
-                case WasmOp_f64_le:
-                case WasmOp_f64_ge:
                 case WasmOp_i32_add:
                 case WasmOp_i32_sub:
                 case WasmOp_i32_mul:
@@ -1608,45 +1643,11 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_f32_min:
                 case WasmOp_f32_max:
                 case WasmOp_f32_copysign:
-                bs_unset(stack_types, stack_depth - 1);
+                si_pop(stack, ST_32);
+                si_pop(stack, ST_32);
+                si_push(stack, ST_32);
                 break;
 
-                case WasmOp_i64_const:
-                case WasmOp_f64_const:
-                case WasmOp_i64_load:
-                case WasmOp_f64_load:
-                case WasmOp_i64_load8_s:
-                case WasmOp_i64_load8_u:
-                case WasmOp_i64_load16_s:
-                case WasmOp_i64_load16_u:
-                case WasmOp_i64_load32_s:
-                case WasmOp_i64_load32_u:
-                case WasmOp_i64_clz:
-                case WasmOp_i64_ctz:
-                case WasmOp_i64_popcnt:
-                case WasmOp_f64_abs:
-                case WasmOp_f64_neg:
-                case WasmOp_f64_ceil:
-                case WasmOp_f64_floor:
-                case WasmOp_f64_trunc:
-                case WasmOp_f64_nearest:
-                case WasmOp_f64_sqrt:
-                case WasmOp_i64_extend_i32_s:
-                case WasmOp_i64_extend_i32_u:
-                case WasmOp_i64_trunc_f32_s:
-                case WasmOp_i64_trunc_f32_u:
-                case WasmOp_i64_trunc_f64_s:
-                case WasmOp_i64_trunc_f64_u:
-                case WasmOp_f64_convert_i32_s:
-                case WasmOp_f64_convert_i32_u:
-                case WasmOp_f64_convert_i64_s:
-                case WasmOp_f64_convert_i64_u:
-                case WasmOp_f64_promote_f32:
-                case WasmOp_i64_reinterpret_f64:
-                case WasmOp_f64_reinterpret_i64:
-                case WasmOp_i64_extend8_s:
-                case WasmOp_i64_extend16_s:
-                case WasmOp_i64_extend32_s:
                 case WasmOp_i64_add:
                 case WasmOp_i64_sub:
                 case WasmOp_i64_mul:
@@ -1669,35 +1670,65 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 case WasmOp_f64_min:
                 case WasmOp_f64_max:
                 case WasmOp_f64_copysign:
-                bs_set(stack_types, stack_depth - 1);
+                si_pop(stack, ST_64);
+                si_pop(stack, ST_64);
+                si_push(stack, ST_64);
                 break;
 
                 case WasmOp_prefixed:
                 switch (prefixed_opcode) {
+                    case WasmPrefixedOp_i32_trunc_sat_f32_s:
+                    case WasmPrefixedOp_i32_trunc_sat_f32_u:
+                    si_pop(stack, ST_32);
+                    si_push(stack, ST_32);
+                    break;
+
+                    case WasmPrefixedOp_i32_trunc_sat_f64_s:
+                    case WasmPrefixedOp_i32_trunc_sat_f64_u:
+                    si_pop(stack, ST_64);
+                    si_push(stack, ST_32);
+                    break;
+
+                    case WasmPrefixedOp_i64_trunc_sat_f32_s:
+                    case WasmPrefixedOp_i64_trunc_sat_f32_u:
+                    si_pop(stack, ST_32);
+                    si_push(stack, ST_64);
+                    break;
+
+                    case WasmPrefixedOp_i64_trunc_sat_f64_s:
+                    case WasmPrefixedOp_i64_trunc_sat_f64_u:
+                    si_pop(stack, ST_64);
+                    si_push(stack, ST_64);
+                    break;
+
                     case WasmPrefixedOp_memory_init:
                     case WasmPrefixedOp_memory_copy:
                     case WasmPrefixedOp_memory_fill:
                     case WasmPrefixedOp_table_init:
                     case WasmPrefixedOp_table_copy:
+                    si_pop(stack, ST_32);
+                    si_pop(stack, ST_32);
+                    si_pop(stack, ST_32);
+                    break;
+
                     case WasmPrefixedOp_table_fill:
+                    si_pop(stack, ST_32);
+                    panic("si_pop(stack, unreachable);");
+                    si_pop(stack, ST_32);
+                    break;
+
                     case WasmPrefixedOp_data_drop:
                     case WasmPrefixedOp_elem_drop:
                     break;
 
-                    case WasmPrefixedOp_i32_trunc_sat_f32_s:
-                    case WasmPrefixedOp_i32_trunc_sat_f32_u:
-                    case WasmPrefixedOp_i32_trunc_sat_f64_s:
-                    case WasmPrefixedOp_i32_trunc_sat_f64_u:
                     case WasmPrefixedOp_table_grow:
-                    case WasmPrefixedOp_table_size:
-                    bs_unset(stack_types, stack_depth - 1);
+                    si_pop(stack, ST_32);
+                    panic("si_pop(stack, unreachable);");
+                    si_push(stack, ST_32);
                     break;
 
-                    case WasmPrefixedOp_i64_trunc_sat_f32_s:
-                    case WasmPrefixedOp_i64_trunc_sat_f32_u:
-                    case WasmPrefixedOp_i64_trunc_sat_f64_s:
-                    case WasmPrefixedOp_i64_trunc_sat_f64_u:
-                    bs_set(stack_types, stack_depth - 1);
+                    case WasmPrefixedOp_table_size:
+                    si_push(stack, ST_32);
                     break;
 
                     default: panic("unexpected prefixed opcode");
@@ -1706,13 +1737,12 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
 
                 default: panic("unexpected opcode");
             }
-        }
-
         switch (opcode) {
             case WasmOp_unreachable:
             if (unreachable_depth == 0) {
                 opcodes[pc->opcode] = Op_unreachable;
                 pc->opcode += 1;
+                unreachable_depth += 1;
             }
             break;
 
@@ -1748,11 +1778,19 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                                 break;
                             default: panic("unexpected param type");
                         }
-                    } else {
-                        label->type_info = vm->types[block_type];
+                    } else label->type_info = vm->types[block_type];
+
+                    uint32_t param_i = label->type_info.param_count;
+                    while (param_i > 0) {
+                        param_i -= 1;
+                        si_pop(stack, bs_isSet(&label->type_info.param_types, param_i));
                     }
-                    label->stack_depth = stack_depth - label->type_info.param_count;
+                    label->stack_index = stack->top_index;
+                    label->stack_offset = stack->top_offset;
                     label->ref_list = UINT32_MAX;
+                    for (; param_i < label->type_info.param_count; param_i += 1)
+                        si_push(stack, bs_isSet(&label->type_info.param_types, param_i));
+
                     switch (opcode) {
                         case WasmOp_block:
                         break;
@@ -1762,7 +1800,10 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         break;
 
                         case WasmOp_if:
-                        opcodes[pc->opcode] = Op_br_if_eqz_void;
+                        if (state == State_bool_not) {
+                            pc->opcode -= 1;
+                            opcodes[pc->opcode] = Op_br_nez_void;
+                        } else opcodes[pc->opcode] = Op_br_eqz_void;
                         pc->opcode += 1;
                         operands[pc->operand] = 0;
                         label->extra.else_ref = pc->operand + 1;
@@ -1771,7 +1812,7 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
 
                         default: panic("unexpected label opcode");
                     }
-                }
+                } else unreachable_depth += 1;
             }
             break;
 
@@ -1780,8 +1821,16 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 struct Label *label = &labels[label_i];
                 assert(label->opcode == WasmOp_if);
                 label->opcode = WasmOp_else;
+
                 if (unreachable_depth == 0) {
                     uint32_t operand_count = Label_operandCount(label);
+                    for (uint32_t operand_i = operand_count; operand_i > 0; ) {
+                        operand_i -= 1;
+                        si_pop(stack, Label_operandType(label, operand_i));
+                    }
+                    assert(stack->top_index == label->stack_index);
+                    assert(stack->top_offset == label->stack_offset);
+
                     switch (operand_count) {
                         case 0:
                         opcodes[pc->opcode] = Op_br_void;
@@ -1790,31 +1839,30 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         case 1:
                         //fprintf(stderr, "label_i=%u operand_type=%d\n",
                         //        label_i, Label_operandType(label, 0));
-                        if (Label_operandType(label, 0)) {
-                            opcodes[pc->opcode] = Op_br_64;
-                        } else {
-                            opcodes[pc->opcode] = Op_br_32;
+                        switch (Label_operandType(label, 0)) {
+                            case ST_32: opcodes[pc->opcode] = Op_br_32; break;
+                            case ST_64: opcodes[pc->opcode] = Op_br_64; break;
                         }
                         break;
 
                         default: panic("unexpected operand count");
                     }
                     pc->opcode += 1;
-                    operands[pc->operand + 0] = stack_depth - operand_count - label->stack_depth;
+                    operands[pc->operand + 0] = stack->top_offset - label->stack_offset;
                     operands[pc->operand + 1] = label->ref_list;
                     label->ref_list = pc->operand + 1;
                     pc->operand += 3;
-                    assert(stack_depth - label->type_info.result_count == label->stack_depth);
                 } else unreachable_depth = 0;
+
                 operands[label->extra.else_ref + 0] = pc->opcode;
                 operands[label->extra.else_ref + 1] = pc->operand;
-                stack_depth = label->stack_depth + label->type_info.param_count;
+                for (uint32_t param_i = 0; param_i < label->type_info.param_count; param_i += 1)
+                    si_push(stack, bs_isSet(&label->type_info.param_types, param_i));
             }
             break;
 
             case WasmOp_end:
             if (unreachable_depth <= 1) {
-                unreachable_depth = 0;
                 struct Label *label = &labels[label_i];
                 struct ProgramCounter *target_pc = (label->opcode == WasmOp_loop) ? &label->extra.loop_pc : pc;
                 if (label->opcode == WasmOp_if) {
@@ -1828,33 +1876,44 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                     operands[ref + 1] = target_pc->operand;
                     ref = next_ref;
                 }
-                stack_depth = label->stack_depth + label->type_info.result_count;
+
+                if (unreachable_depth == 0) {
+                    for (uint32_t result_i = label->type_info.result_count; result_i > 0; ) {
+                        result_i -= 1;
+                        si_pop(stack, bs_isSet(&label->type_info.result_types, result_i));
+                    }
+                } else unreachable_depth = 0;
 
                 if (label_i == 0) {
-                    uint32_t operand_count = Label_operandCount(&labels[0]);
-                    switch (operand_count) {
+                    assert(stack->top_index == label->stack_index);
+                    assert(stack->top_offset == label->stack_offset);
+
+                    switch (labels[0].type_info.result_count) {
                         case 0:
                         opcodes[pc->opcode] = Op_return_void;
                         break;
 
                         case 1:
-                        switch ((int)Label_operandType(&labels[0], 0)) {
-                            case false: opcodes[pc->opcode] = Op_return_32; break;
-                            case  true: opcodes[pc->opcode] = Op_return_64; break;
+                        switch ((enum StackType)bs_isSet(&labels[0].type_info.result_types, 0)) {
+                            case ST_32: opcodes[pc->opcode] = Op_return_32; break;
+                            case ST_64: opcodes[pc->opcode] = Op_return_64; break;
                         }
                         break;
 
                         default: panic("unexpected operand count");
                     }
                     pc->opcode += 1;
-                    operands[pc->operand + 0] = 2 + operand_count;
-                    stack_depth -= operand_count;
-                    assert(stack_depth == labels[0].stack_depth);
-                    operands[pc->operand + 1] = stack_depth;
+                    operands[pc->operand + 0] = stack->top_offset - labels[0].stack_offset;
+                    operands[pc->operand + 1] = frame_size;
                     pc->operand += 2;
                     return;
                 }
                 label_i -= 1;
+
+                stack->top_index = label->stack_index;
+                stack->top_offset = label->stack_offset;
+                for (uint32_t result_i = 0; result_i < label->type_info.result_count; result_i += 1)
+                    si_push(stack, bs_isSet(&label->type_info.result_types, result_i));
             } else unreachable_depth -= 1;
             break;
 
@@ -1865,6 +1924,12 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 if (unreachable_depth == 0) {
                     struct Label *label = &labels[label_i - label_idx];
                     uint32_t operand_count = Label_operandCount(label);
+                    uint32_t operand_i = operand_count;
+                    while (operand_i > 0) {
+                        operand_i -= 1;
+                        si_pop(stack, Label_operandType(label, operand_i));
+                    }
+
                     switch (opcode) {
                         case WasmOp_br:
                         switch (operand_count) {
@@ -1873,9 +1938,9 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                             break;
 
                             case 1:
-                            switch ((int)Label_operandType(label, 0)) {
-                                case false: opcodes[pc->opcode] = Op_br_32; break;
-                                case  true: opcodes[pc->opcode] = Op_br_64; break;
+                            switch (Label_operandType(label, 0)) {
+                                case ST_32: opcodes[pc->opcode] = Op_br_32; break;
+                                case ST_64: opcodes[pc->opcode] = Op_br_64; break;
                             }
                             break;
 
@@ -1886,13 +1951,27 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         case WasmOp_br_if:
                         switch (operand_count) {
                             case 0:
-                            opcodes[pc->opcode] = Op_br_if_nez_void;
+                            if (state == State_bool_not) {
+                                pc->opcode -= 1;
+                                opcodes[pc->opcode] = Op_br_eqz_void;
+                            } else opcodes[pc->opcode] = Op_br_nez_void;
                             break;
 
                             case 1:
-                            switch ((int)Label_operandType(label, 0)) {
-                                case false: opcodes[pc->opcode] = Op_br_if_nez_32; break;
-                                case  true: opcodes[pc->opcode] = Op_br_if_nez_64; break;
+                            switch (Label_operandType(label, 0)) {
+                                case ST_32:
+                                if (state == State_bool_not) {
+                                    pc->opcode -= 1;
+                                    opcodes[pc->opcode] = Op_br_eqz_32;
+                                } else opcodes[pc->opcode] = Op_br_nez_32;
+                                break;
+
+                                case ST_64:
+                                if (state == State_bool_not) {
+                                    pc->opcode -= 1;
+                                    opcodes[pc->opcode] = Op_br_eqz_64;
+                                } else opcodes[pc->opcode] = Op_br_nez_64;
+                                break;
                             }
                             break;
 
@@ -1900,13 +1979,26 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         }
                         break;
 
-                        default: panic("unreachable");
+                        default: panic("unexpected opcode");
                     }
                     pc->opcode += 1;
-                    operands[pc->operand + 0] = stack_depth - operand_count - label->stack_depth;
+                    operands[pc->operand + 0] = stack->top_offset - label->stack_offset;
                     operands[pc->operand + 1] = label->ref_list;
                     label->ref_list = pc->operand + 1;
                     pc->operand += 3;
+
+                    switch (opcode) {
+                        case WasmOp_br:
+                        unreachable_depth += 1;
+                        break;
+
+                        case WasmOp_br_if:
+                        for (; operand_i < operand_count; operand_i += 1)
+                            si_push(stack, Label_operandType(label, operand_i));
+                        break;
+
+                        default: panic("unexpected opcode");
+                    }
                 }
             }
             break;
@@ -1918,17 +2010,22 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                     uint32_t label_idx = read32_uleb128(mod_ptr, code_i);
                     if (unreachable_depth != 0) continue;
                     struct Label *label = &labels[label_i - label_idx];
-                    uint32_t operand_count = Label_operandCount(label);
                     if (i == 0) {
+                        uint32_t operand_count = Label_operandCount(label);
+                        for (uint32_t operand_i = operand_count; operand_i > 0; ) {
+                            operand_i -= 1;
+                            si_pop(stack, Label_operandType(label, operand_i));
+                        }
+
                         switch (operand_count) {
                             case 0:
                             opcodes[pc->opcode] = Op_br_table_void;
                             break;
 
                             case 1:
-                            switch ((int)Label_operandType(label, 0)) {
-                                case false: opcodes[pc->opcode] = Op_br_table_32; break;
-                                case  true: opcodes[pc->opcode] = Op_br_table_64; break;
+                            switch (Label_operandType(label, 0)) {
+                                case ST_32: opcodes[pc->opcode] = Op_br_table_32; break;
+                                case ST_64: opcodes[pc->opcode] = Op_br_table_64; break;
                             }
                             break;
 
@@ -1938,11 +2035,41 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                         operands[pc->operand] = labels_len;
                         pc->operand += 1;
                     }
-                    operands[pc->operand + 0] = stack_depth - operand_count - label->stack_depth;
+                    operands[pc->operand + 0] = stack->top_offset - label->stack_offset;
                     operands[pc->operand + 1] = label->ref_list;
                     label->ref_list = pc->operand + 1;
                     pc->operand += 3;
                 }
+                if (unreachable_depth == 0) unreachable_depth += 1;
+            }
+            break;
+
+            case WasmOp_return:
+            if (unreachable_depth == 0) {
+                for (uint32_t result_i = labels[0].type_info.result_count; result_i > 0; ) {
+                    result_i -= 1;
+                    si_pop(stack, bs_isSet(&labels[0].type_info.result_types, result_i));
+                }
+
+                switch (labels[0].type_info.result_count) {
+                    case 0:
+                    opcodes[pc->opcode] = Op_return_void;
+                    break;
+
+                    case 1:
+                    switch ((enum StackType)bs_isSet(&labels[0].type_info.result_types, 0)) {
+                        case ST_32: opcodes[pc->opcode] = Op_return_32; break;
+                        case ST_64: opcodes[pc->opcode] = Op_return_64; break;
+                    }
+                    break;
+
+                    default: panic("unexpected operand count");
+                }
+                pc->opcode += 1;
+                operands[pc->operand + 0] = stack->top_offset - labels[0].stack_offset;
+                operands[pc->operand + 1] = frame_size;
+                pc->operand += 2;
+                unreachable_depth += 1;
             }
             break;
 
@@ -1950,19 +2077,28 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             {
                 uint32_t fn_id = read32_uleb128(mod_ptr, code_i);
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode] = Op_call;
-                    pc->opcode += 1;
-                    operands[pc->operand] = fn_id;
-                    pc->operand += 1;
-                    uint32_t type_idx = (fn_id < vm->imports_len) ?
-                        vm->imports[fn_id].type_idx :
-                        vm->functions[fn_id - vm->imports_len].type_idx;
+                    uint32_t type_idx;
+                    if (fn_id < vm->imports_len) {
+                        opcodes[pc->opcode + 0] = Op_call_import;
+                        opcodes[pc->opcode + 1] = fn_id;
+                        pc->opcode += 2;
+                        type_idx = vm->imports[fn_id].type_idx;
+                    } else {
+                        uint32_t fn_idx = fn_id - vm->imports_len;
+                        opcodes[pc->opcode] = Op_call_func;
+                        pc->opcode += 1;
+                        operands[pc->operand] = fn_idx;
+                        pc->operand += 1;
+                        type_idx = vm->functions[fn_idx].type_idx;
+                    }
                     struct TypeInfo *type_info = &vm->types[type_idx];
-                    stack_depth -= type_info->param_count;
+
+                    for (uint32_t param_i = type_info->param_count; param_i > 0; ) {
+                        param_i -= 1;
+                        si_pop(stack, bs_isSet(&type_info->param_types, param_i));
+                    }
                     for (uint32_t result_i = 0; result_i < type_info->result_count; result_i += 1)
-                        bs_setValue(stack_types, stack_depth + result_i,
-                                    bs_isSet(&type_info->result_types, result_i));
-                    stack_depth += type_info->result_count;
+                        si_push(stack, bs_isSet(&type_info->result_types, result_i));
                 }
             }
             break;
@@ -1972,75 +2108,46 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 uint32_t type_idx = read32_uleb128(mod_ptr, code_i);
                 if (read32_uleb128(mod_ptr, code_i) != 0) panic("unexpected table index");
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm;
-                    opcodes[pc->opcode + 1] = opcode;
-                    pc->opcode += 2;
+                    opcodes[pc->opcode] = Op_call_indirect;
+                    pc->opcode += 1;
+
                     struct TypeInfo *type_info = &vm->types[type_idx];
-                    stack_depth -= type_info->param_count;
-                    for (uint32_t result_i = 0; result_i < type_info->result_count; result_i += 1)
-                        bs_setValue(stack_types, stack_depth + result_i,
-                                    bs_isSet(&type_info->result_types, result_i));
-                    stack_depth += type_info->result_count;
-                }
-            }
-            break;
-
-            case WasmOp_return:
-            if (unreachable_depth <= 1) {
-                uint32_t operand_count = Label_operandCount(&labels[0]);
-                switch (operand_count) {
-                    case 0:
-                    opcodes[pc->opcode] = Op_return_void;
-                    break;
-
-                    case 1:
-                    switch ((int)Label_operandType(&labels[0], 0)) {
-                        case false: opcodes[pc->opcode] = Op_return_32; break;
-                        case  true: opcodes[pc->opcode] = Op_return_64; break;
+                    for (uint32_t param_i = type_info->param_count; param_i > 0; ) {
+                        param_i -= 1;
+                        si_pop(stack, bs_isSet(&type_info->param_types, param_i));
                     }
-                    break;
-
-                    default: panic("unexpected operand count");
+                    for (uint32_t result_i = 0; result_i < type_info->result_count; result_i += 1)
+                        si_push(stack, bs_isSet(&type_info->result_types, result_i));
                 }
-                pc->opcode += 1;
-                operands[pc->operand + 0] = 2 + stack_depth - labels[0].stack_depth;
-                stack_depth -= operand_count;
-                operands[pc->operand + 1] = stack_depth;
-                pc->operand += 2;
             }
             break;
 
             case WasmOp_select:
             case WasmOp_drop:
             if (unreachable_depth == 0) {
-                switch ((int)bs_isSet(stack_types, stack_depth)) {
-                    case false:
-                    switch (opcode) {
-                        case WasmOp_select:
-                        opcodes[pc->opcode] = Op_select_32;
-                        break;
-
-                        case WasmOp_drop:
-                        opcodes[pc->opcode] = Op_drop_32;
-                        break;
-
-                        default: panic("unexpected opcode");
+                if (opcode == WasmOp_select) si_pop(stack, ST_32);
+                enum StackType operand_type = si_top(stack);
+                si_pop(stack, operand_type);
+                if (opcode == WasmOp_select) {
+                    si_pop(stack, operand_type);
+                    si_push(stack, operand_type);
+                }
+                switch (opcode) {
+                    case WasmOp_select:
+                    switch (operand_type) {
+                        case ST_32: opcodes[pc->opcode] = Op_select_32; break;
+                        case ST_64: opcodes[pc->opcode] = Op_select_64; break;
                     }
                     break;
 
-                    case true:
-                    switch (opcode) {
-                        case WasmOp_select:
-                        opcodes[pc->opcode] = Op_select_64;
-                        break;
-
-                        case WasmOp_drop:
-                        opcodes[pc->opcode] = Op_drop_64;
-                        break;
-
-                        default: panic("unexpected opcode");
+                    case WasmOp_drop:
+                    switch (operand_type) {
+                        case ST_32: opcodes[pc->opcode] = Op_drop_32; break;
+                        case ST_64: opcodes[pc->opcode] = Op_drop_64; break;
                     }
                     break;
+
+                    default: panic("unexpected opcode");
                 }
                 pc->opcode += 1;
             }
@@ -2052,48 +2159,50 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             {
                 uint32_t local_idx = read32_uleb128(mod_ptr, code_i);
                 if (unreachable_depth == 0) {
-                    bool local_type = bs_isSet(func->local_types, local_idx);
-                    switch ((int)local_type) {
-                        case false:
-                        switch (opcode) {
-                            case WasmOp_local_get:
-                            opcodes[pc->opcode] = Op_local_get_32;
-                            break;
-
-                            case WasmOp_local_set:
-                            opcodes[pc->opcode] = Op_local_set_32;
-                            break;
-
-                            case WasmOp_local_tee:
-                            opcodes[pc->opcode] = Op_local_tee_32;
-                            break;
-
-                            default: panic("unexpected opcode");
+                    enum StackType local_type = si_local(stack, local_idx);
+                    switch (opcode) {
+                        case WasmOp_local_get:
+                        switch (local_type) {
+                            case ST_32: opcodes[pc->opcode] = Op_local_get_32; break;
+                            case ST_64: opcodes[pc->opcode] = Op_local_get_64; break;
                         }
                         break;
 
-                        case true:
-                        switch (opcode) {
-                            case WasmOp_local_get:
-                            opcodes[pc->opcode] = Op_local_get_64;
-                            break;
-
-                            case WasmOp_local_set:
-                            opcodes[pc->opcode] = Op_local_set_64;
-                            break;
-
-                            case WasmOp_local_tee:
-                            opcodes[pc->opcode] = Op_local_tee_64;
-                            break;
-
-                            default: panic("unexpected opcode");
+                        case WasmOp_local_set:
+                        switch (local_type) {
+                            case ST_32: opcodes[pc->opcode] = Op_local_set_32; break;
+                            case ST_64: opcodes[pc->opcode] = Op_local_set_64; break;
                         }
                         break;
+
+                        case WasmOp_local_tee:
+                        switch (local_type) {
+                            case ST_32: opcodes[pc->opcode] = Op_local_tee_32; break;
+                            case ST_64: opcodes[pc->opcode] = Op_local_tee_64; break;
+                        }
+                        break;
+
+                        default: panic("unexpected opcode");
                     }
                     pc->opcode += 1;
-                    operands[pc->operand] = initial_stack_depth - local_idx;
+                    operands[pc->operand] = stack->top_offset - stack->offsets[local_idx];
                     pc->operand += 1;
-                    if (opcode == WasmOp_local_get) bs_setValue(stack_types, stack_depth - 1, local_type);
+                    switch (opcode) {
+                        case WasmOp_local_get:
+                        si_push(stack, local_type);
+                        break;
+
+                        case WasmOp_local_set:
+                        si_pop(stack, local_type);
+                        break;
+
+                        case WasmOp_local_tee:
+                        si_pop(stack, local_type);
+                        si_push(stack, local_type);
+                        break;
+
+                        default: panic("unexpected opcode");
+                    }
                 }
             }
             break;
@@ -2103,39 +2212,39 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
             {
                 uint32_t global_idx = read32_uleb128(mod_ptr, code_i);
                 if (unreachable_depth == 0) {
-                    switch (global_idx) {
-                        case 0:
-                        switch (opcode) {
-                            case WasmOp_global_get:
-                            opcodes[pc->opcode] = Op_global_get_0_32;
-                            break;
-
-                            case WasmOp_global_set:
-                            opcodes[pc->opcode] = Op_global_set_0_32;
-                            break;
-
-                            default: panic("unexpected opcode");
+                    enum StackType global_type = ST_32; // all globals assumed to be 32-bit
+                    switch (opcode) {
+                        case WasmOp_global_get:
+                        switch (global_idx) {
+                            case 0: opcodes[pc->opcode] = Op_global_get_0_32; break;
+                            default: opcodes[pc->opcode] = Op_global_get_32; break;
                         }
                         break;
 
-                        default:
-                        switch (opcode) {
-                            case WasmOp_global_get:
-                            opcodes[pc->opcode] = Op_global_get_32;
-                            break;
-
-                            case WasmOp_global_set:
-                            opcodes[pc->opcode] = Op_global_set_32;
-                            break;
-
-                            default: panic("unexpected opcode");
+                        case WasmOp_global_set:
+                        switch (global_idx) {
+                            case 0: opcodes[pc->opcode] = Op_global_set_0_32; break;
+                            default: opcodes[pc->opcode] = Op_global_set_32; break;
                         }
                         break;
+
+                        default: panic("unexpected opcode");
                     }
                     pc->opcode += 1;
                     if (global_idx != 0) {
                         operands[pc->operand] = global_idx;
                         pc->operand += 1;
+                    }
+                    switch (opcode) {
+                        case WasmOp_global_get:
+                        si_push(stack, global_type);
+                        break;
+
+                        case WasmOp_global_set:
+                        si_pop(stack, global_type);
+                        break;
+
+                        default: panic("unexpected opcode");
                     }
                 }
             }
@@ -2169,11 +2278,111 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 uint32_t offset = read32_uleb128(mod_ptr, code_i);
                 (void)alignment;
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm;
-                    opcodes[pc->opcode + 1] = opcode;
-                    pc->opcode += 2;
-                    operands[pc->operand] = offset;
-                    pc->operand += 1;
+                    switch (opcode) {
+                        default: break;
+
+                        case WasmOp_i64_store8: case WasmOp_i64_store16: case WasmOp_i64_store32:
+                        opcodes[pc->opcode] = Op_drop_32;
+                        pc->opcode += 1;
+                        break;
+                    }
+                    switch (opcode) {
+                        case WasmOp_i32_load8_s: case WasmOp_i32_load8_u:
+                        case WasmOp_i64_load8_s: case WasmOp_i64_load8_u:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_load_0_8; break;
+                            default: opcodes[pc->opcode] = Op_load_8; break;
+                        }
+                        break;
+
+                        case WasmOp_i32_load16_s: case WasmOp_i32_load16_u:
+                        case WasmOp_i64_load16_s: case WasmOp_i64_load16_u:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_load_0_16; break;
+                            default: opcodes[pc->opcode] = Op_load_16; break;
+                        }
+                        break;
+
+                        case WasmOp_i32_load: case WasmOp_f32_load:
+                        case WasmOp_i64_load32_s: case WasmOp_i64_load32_u:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_load_0_32; break;
+                            default: opcodes[pc->opcode] = Op_load_32; break;
+                        }
+                        break;
+
+                        case WasmOp_i64_load: case WasmOp_f64_load:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_load_0_64; break;
+                            default: opcodes[pc->opcode] = Op_load_64; break;
+                        }
+                        break;
+
+                        case WasmOp_i32_store8: case WasmOp_i64_store8:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_store_0_8; break;
+                            default: opcodes[pc->opcode] = Op_store_8; break;
+                        }
+                        break;
+
+                        case WasmOp_i32_store16: case WasmOp_i64_store16:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_store_0_16; break;
+                            default: opcodes[pc->opcode] = Op_store_16; break;
+                        }
+                        break;
+
+                        case WasmOp_i32_store: case WasmOp_f32_store: case WasmOp_i64_store32:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_store_0_32; break;
+                            default: opcodes[pc->opcode] = Op_store_32; break;
+                        }
+                        break;
+
+                        case WasmOp_i64_store: case WasmOp_f64_store:
+                        switch (offset) {
+                            case 0: opcodes[pc->opcode] = Op_store_0_64; break;
+                            default: opcodes[pc->opcode] = Op_store_64; break;
+                        }
+                        break;
+
+                        default: panic("unexpected opcode");
+                    }
+                    pc->opcode += 1;
+                    switch (offset) {
+                        case 0: break;
+
+                        default:
+                        operands[pc->operand] = offset;
+                        pc->operand += 1;
+                        break;
+                    }
+                    switch (opcode) {
+                        default: break;
+
+                        case WasmOp_i32_load8_s: case WasmOp_i64_load8_s:
+                        opcodes[pc->opcode] = Op_sext8_32;
+                        pc->opcode += 1;
+                        break;
+
+                        case WasmOp_i32_load16_s: case WasmOp_i64_load16_s:
+                        opcodes[pc->opcode] = Op_sext16_32;
+                        pc->opcode += 1;
+                        break;
+                    }
+                    switch (opcode) {
+                        default: break;
+
+                        case WasmOp_i64_load8_s: case WasmOp_i64_load16_s: case WasmOp_i64_load32_s:
+                        opcodes[pc->opcode] = Op_sext_64_32;
+                        pc->opcode += 1;
+                        break;
+
+                        case WasmOp_i64_load8_u: case WasmOp_i64_load16_u: case WasmOp_i64_load32_u:
+                        opcodes[pc->opcode] = Op_zext_64_32;
+                        pc->opcode += 1;
+                        break;
+                    }
                 }
             }
             break;
@@ -2184,110 +2393,224 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 if (mod_ptr[*code_i] != 0) panic("unexpected memory index");
                 *code_i += 1;
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm;
-                    opcodes[pc->opcode + 1] = opcode;
-                    pc->opcode += 2;
+                    switch (opcode) {
+                        case WasmOp_memory_size: opcodes[pc->opcode] = Op_mem_size; break;
+                        case WasmOp_memory_grow: opcodes[pc->opcode] = Op_mem_grow; break;
+                        default: panic("unexpected opcode");
+                    }
+                    pc->opcode += 1;
                 }
             }
             break;
 
             case WasmOp_i32_const:
+            case WasmOp_f32_const:
             {
-                uint32_t x = read32_ileb128(mod_ptr, code_i);
+                uint32_t value;
+                switch (opcode) {
+                    case WasmOp_i32_const: value = read32_ileb128(mod_ptr, code_i); break;
+
+                    case WasmOp_f32_const:
+                    value = read_u32_le(&mod_ptr[*code_i]);
+                    *code_i += sizeof(value);
+                    break;
+
+                    default: panic("unexpected opcode");
+                }
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode] = Op_const_32;
+                    switch (value) {
+                        case 0: opcodes[pc->opcode] = Op_const_0_32; break;
+                        case 1: opcodes[pc->opcode] = Op_const_1_32; break;
+
+                        default:
+                        opcodes[pc->opcode] = Op_const_32;
+                        operands[pc->operand] = value;
+                        pc->operand += 1;
+                        break;
+
+                        case UINT32_MAX: opcodes[pc->opcode] = Op_const_umax_32; break;
+                    }
                     pc->opcode += 1;
-                    operands[pc->operand] = x;
-                    pc->operand += 1;
                 }
             }
             break;
 
             case WasmOp_i64_const:
-            {
-                uint64_t x = read64_ileb128(mod_ptr, code_i);
-                if (unreachable_depth == 0) {
-                    opcodes[pc->opcode] = Op_const_64;
-                    pc->opcode += 1;
-                    operands[pc->operand + 0] = x & UINT32_MAX;
-                    operands[pc->operand + 1] = (x >> 32) & UINT32_MAX;
-                    pc->operand += 2;
-                }
-            }
-            break;
-
-            case WasmOp_f32_const:
-            {
-                uint32_t x;
-                memcpy(&x, mod_ptr + *code_i, 4);
-                *code_i += 4;
-                if (unreachable_depth == 0) {
-                    opcodes[pc->opcode] = Op_const_32;
-                    pc->opcode += 1;
-                    operands[pc->operand] = x;
-                    pc->operand += 1;
-                }
-            }
-            break;
-
             case WasmOp_f64_const:
             {
-                uint64_t x;
-                memcpy(&x, mod_ptr + *code_i, 8);
-                *code_i += 8;
+                uint64_t value;
+                switch (opcode) {
+                    case WasmOp_i64_const: value = read64_ileb128(mod_ptr, code_i); break;
+
+                    case WasmOp_f64_const:
+                    value = read_u64_le(&mod_ptr[*code_i]);
+                    *code_i += sizeof(value);
+                    break;
+
+                    default: panic("unexpected opcode");
+                }
+
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode] = Op_const_64;
+                    switch (value) {
+                        case 0: opcodes[pc->opcode] = Op_const_0_64; break;
+                        case 1: opcodes[pc->opcode] = Op_const_1_64; break;
+
+                        default:
+                        opcodes[pc->opcode] = Op_const_64;
+                        operands[pc->operand + 0] = (uint32_t)(value >> 0);
+                        operands[pc->operand + 1] = (uint32_t)(value >> 32);
+                        pc->operand += 2;
+                        break;
+
+                        case UINT64_MAX: opcodes[pc->opcode] = Op_const_umax_64; break;
+                    }
                     pc->opcode += 1;
-                    operands[pc->operand + 0] = x & UINT32_MAX;
-                    operands[pc->operand + 1] = (x >> 32) & UINT32_MAX;
-                    pc->operand += 2;
                 }
             }
-            break;
-
-            case WasmOp_i32_add:
-            opcodes[pc->opcode] = Op_add_32;
-            pc->opcode += 1;
-            break;
-
-            case WasmOp_i32_and:
-            opcodes[pc->opcode] = Op_and_32;
-            pc->opcode += 1;
             break;
 
             default:
             if (unreachable_depth == 0) {
-                opcodes[pc->opcode + 0] = Op_wasm;
-                opcodes[pc->opcode + 1] = opcode;
-                pc->opcode += 2;
+                switch (opcode) {
+                    case WasmOp_i32_eqz:           opcodes[pc->opcode] = Op_eqz_32;      break;
+                    case WasmOp_i32_eq:            opcodes[pc->opcode] = Op_eq_32;       break;
+                    case WasmOp_i32_ne:            opcodes[pc->opcode] = Op_ne_32;       break;
+                    case WasmOp_i32_lt_s:          opcodes[pc->opcode] = Op_slt_32;      break;
+                    case WasmOp_i32_lt_u:          opcodes[pc->opcode] = Op_ult_32;      break;
+                    case WasmOp_i32_gt_s:          opcodes[pc->opcode] = Op_sgt_32;      break;
+                    case WasmOp_i32_gt_u:          opcodes[pc->opcode] = Op_ugt_32;      break;
+                    case WasmOp_i32_le_s:          opcodes[pc->opcode] = Op_sle_32;      break;
+                    case WasmOp_i32_le_u:          opcodes[pc->opcode] = Op_ule_32;      break;
+                    case WasmOp_i32_ge_s:          opcodes[pc->opcode] = Op_sge_32;      break;
+                    case WasmOp_i32_ge_u:          opcodes[pc->opcode] = Op_uge_32;      break;
+                    case WasmOp_i64_eqz:           opcodes[pc->opcode] = Op_eqz_64;      break;
+                    case WasmOp_i64_eq:            opcodes[pc->opcode] = Op_eq_64;       break;
+                    case WasmOp_i64_ne:            opcodes[pc->opcode] = Op_ne_64;       break;
+                    case WasmOp_i64_lt_s:          opcodes[pc->opcode] = Op_slt_64;      break;
+                    case WasmOp_i64_lt_u:          opcodes[pc->opcode] = Op_ult_64;      break;
+                    case WasmOp_i64_gt_s:          opcodes[pc->opcode] = Op_sgt_64;      break;
+                    case WasmOp_i64_gt_u:          opcodes[pc->opcode] = Op_ugt_64;      break;
+                    case WasmOp_i64_le_s:          opcodes[pc->opcode] = Op_sle_64;      break;
+                    case WasmOp_i64_le_u:          opcodes[pc->opcode] = Op_ule_64;      break;
+                    case WasmOp_i64_ge_s:          opcodes[pc->opcode] = Op_sge_64;      break;
+                    case WasmOp_i64_ge_u:          opcodes[pc->opcode] = Op_uge_64;      break;
+                    case WasmOp_f32_eq:            opcodes[pc->opcode] = Op_feq_32;      break;
+                    case WasmOp_f32_ne:            opcodes[pc->opcode] = Op_fne_32;      break;
+                    case WasmOp_f32_lt:            opcodes[pc->opcode] = Op_flt_32;      break;
+                    case WasmOp_f32_gt:            opcodes[pc->opcode] = Op_fgt_32;      break;
+                    case WasmOp_f32_le:            opcodes[pc->opcode] = Op_fle_32;      break;
+                    case WasmOp_f32_ge:            opcodes[pc->opcode] = Op_fge_32;      break;
+                    case WasmOp_f64_eq:            opcodes[pc->opcode] = Op_feq_64;      break;
+                    case WasmOp_f64_ne:            opcodes[pc->opcode] = Op_fne_64;      break;
+                    case WasmOp_f64_lt:            opcodes[pc->opcode] = Op_flt_64;      break;
+                    case WasmOp_f64_gt:            opcodes[pc->opcode] = Op_fgt_64;      break;
+                    case WasmOp_f64_le:            opcodes[pc->opcode] = Op_fle_64;      break;
+                    case WasmOp_f64_ge:            opcodes[pc->opcode] = Op_fge_64;      break;
+                    case WasmOp_i32_clz:           opcodes[pc->opcode] = Op_clz_32;      break;
+                    case WasmOp_i32_ctz:           opcodes[pc->opcode] = Op_ctz_32;      break;
+                    case WasmOp_i32_popcnt:        opcodes[pc->opcode] = Op_popcnt_32;   break;
+                    case WasmOp_i32_add:           opcodes[pc->opcode] = Op_add_32;      break;
+                    case WasmOp_i32_sub:           opcodes[pc->opcode] = Op_sub_32;      break;
+                    case WasmOp_i32_mul:           opcodes[pc->opcode] = Op_mul_32;      break;
+                    case WasmOp_i32_div_s:         opcodes[pc->opcode] = Op_sdiv_32;     break;
+                    case WasmOp_i32_div_u:         opcodes[pc->opcode] = Op_udiv_32;     break;
+                    case WasmOp_i32_rem_s:         opcodes[pc->opcode] = Op_srem_32;     break;
+                    case WasmOp_i32_rem_u:         opcodes[pc->opcode] = Op_urem_32;     break;
+                    case WasmOp_i32_and:           opcodes[pc->opcode] = Op_and_32;      break;
+                    case WasmOp_i32_or:            opcodes[pc->opcode] = Op_or_32;       break;
+                    case WasmOp_i32_xor:           opcodes[pc->opcode] = Op_xor_32;      break;
+                    case WasmOp_i32_shl:           opcodes[pc->opcode] = Op_shl_32;      break;
+                    case WasmOp_i32_shr_s:         opcodes[pc->opcode] = Op_ashr_32;     break;
+                    case WasmOp_i32_shr_u:         opcodes[pc->opcode] = Op_lshr_32;     break;
+                    case WasmOp_i32_rotl:          opcodes[pc->opcode] = Op_rol_32;      break;
+                    case WasmOp_i32_rotr:          opcodes[pc->opcode] = Op_ror_32;      break;
+                    case WasmOp_i64_clz:           opcodes[pc->opcode] = Op_clz_64;      break;
+                    case WasmOp_i64_ctz:           opcodes[pc->opcode] = Op_ctz_64;      break;
+                    case WasmOp_i64_popcnt:        opcodes[pc->opcode] = Op_popcnt_64;   break;
+                    case WasmOp_i64_add:           opcodes[pc->opcode] = Op_add_64;      break;
+                    case WasmOp_i64_sub:           opcodes[pc->opcode] = Op_sub_64;      break;
+                    case WasmOp_i64_mul:           opcodes[pc->opcode] = Op_mul_64;      break;
+                    case WasmOp_i64_div_s:         opcodes[pc->opcode] = Op_sdiv_64;     break;
+                    case WasmOp_i64_div_u:         opcodes[pc->opcode] = Op_udiv_64;     break;
+                    case WasmOp_i64_rem_s:         opcodes[pc->opcode] = Op_srem_64;     break;
+                    case WasmOp_i64_rem_u:         opcodes[pc->opcode] = Op_urem_64;     break;
+                    case WasmOp_i64_and:           opcodes[pc->opcode] = Op_and_64;      break;
+                    case WasmOp_i64_or:            opcodes[pc->opcode] = Op_or_64;       break;
+                    case WasmOp_i64_xor:           opcodes[pc->opcode] = Op_xor_64;      break;
+                    case WasmOp_i64_shl:           opcodes[pc->opcode] = Op_shl_64;      break;
+                    case WasmOp_i64_shr_s:         opcodes[pc->opcode] = Op_ashr_64;     break;
+                    case WasmOp_i64_shr_u:         opcodes[pc->opcode] = Op_lshr_64;     break;
+                    case WasmOp_i64_rotl:          opcodes[pc->opcode] = Op_rol_64;      break;
+                    case WasmOp_i64_rotr:          opcodes[pc->opcode] = Op_ror_64;      break;
+                    case WasmOp_f32_abs:           opcodes[pc->opcode] = Op_fabs_32;     break;
+                    case WasmOp_f32_neg:           opcodes[pc->opcode] = Op_fneg_32;     break;
+                    case WasmOp_f32_ceil:          opcodes[pc->opcode] = Op_ceil_32;     break;
+                    case WasmOp_f32_floor:         opcodes[pc->opcode] = Op_floor_32;    break;
+                    case WasmOp_f32_trunc:         opcodes[pc->opcode] = Op_trunc_32;    break;
+                    case WasmOp_f32_nearest:       opcodes[pc->opcode] = Op_nearest_32;  break;
+                    case WasmOp_f32_sqrt:          opcodes[pc->opcode] = Op_sqrt_32;     break;
+                    case WasmOp_f32_add:           opcodes[pc->opcode] = Op_fadd_32;     break;
+                    case WasmOp_f32_sub:           opcodes[pc->opcode] = Op_fsub_32;     break;
+                    case WasmOp_f32_mul:           opcodes[pc->opcode] = Op_fmul_32;     break;
+                    case WasmOp_f32_div:           opcodes[pc->opcode] = Op_fdiv_32;     break;
+                    case WasmOp_f32_min:           opcodes[pc->opcode] = Op_fmin_32;     break;
+                    case WasmOp_f32_max:           opcodes[pc->opcode] = Op_fmax_32;     break;
+                    case WasmOp_f32_copysign:      opcodes[pc->opcode] = Op_copysign_32; break;
+                    case WasmOp_f64_abs:           opcodes[pc->opcode] = Op_fabs_64;     break;
+                    case WasmOp_f64_neg:           opcodes[pc->opcode] = Op_fneg_64;     break;
+                    case WasmOp_f64_ceil:          opcodes[pc->opcode] = Op_ceil_64;     break;
+                    case WasmOp_f64_floor:         opcodes[pc->opcode] = Op_floor_64;    break;
+                    case WasmOp_f64_trunc:         opcodes[pc->opcode] = Op_trunc_64;    break;
+                    case WasmOp_f64_nearest:       opcodes[pc->opcode] = Op_nearest_64;  break;
+                    case WasmOp_f64_sqrt:          opcodes[pc->opcode] = Op_sqrt_64;     break;
+                    case WasmOp_f64_add:           opcodes[pc->opcode] = Op_fadd_64;     break;
+                    case WasmOp_f64_sub:           opcodes[pc->opcode] = Op_fsub_64;     break;
+                    case WasmOp_f64_mul:           opcodes[pc->opcode] = Op_fmul_64;     break;
+                    case WasmOp_f64_div:           opcodes[pc->opcode] = Op_fdiv_64;     break;
+                    case WasmOp_f64_min:           opcodes[pc->opcode] = Op_fmin_64;     break;
+                    case WasmOp_f64_max:           opcodes[pc->opcode] = Op_fmax_64;     break;
+                    case WasmOp_f64_copysign:      opcodes[pc->opcode] = Op_copysign_64; break;
+                    case WasmOp_i32_wrap_i64:      opcodes[pc->opcode] = Op_wrap_32_64;  break;
+                    case WasmOp_i32_trunc_f32_s:   opcodes[pc->opcode] = Op_ftos_32_32;  break;
+                    case WasmOp_i32_trunc_f32_u:   opcodes[pc->opcode] = Op_ftou_32_32;  break;
+                    case WasmOp_i32_trunc_f64_s:   opcodes[pc->opcode] = Op_ftos_32_64;  break;
+                    case WasmOp_i32_trunc_f64_u:   opcodes[pc->opcode] = Op_ftou_32_64;  break;
+                    case WasmOp_i64_extend_i32_s:  opcodes[pc->opcode] = Op_sext_64_32;  break;
+                    case WasmOp_i64_extend_i32_u:  opcodes[pc->opcode] = Op_zext_64_32;  break;
+                    case WasmOp_i64_trunc_f32_s:   opcodes[pc->opcode] = Op_ftos_64_32;  break;
+                    case WasmOp_i64_trunc_f32_u:   opcodes[pc->opcode] = Op_ftou_64_32;  break;
+                    case WasmOp_i64_trunc_f64_s:   opcodes[pc->opcode] = Op_ftos_64_64;  break;
+                    case WasmOp_i64_trunc_f64_u:   opcodes[pc->opcode] = Op_ftou_64_64;  break;
+                    case WasmOp_f32_convert_i32_s: opcodes[pc->opcode] = Op_stof_32_32;  break;
+                    case WasmOp_f32_convert_i32_u: opcodes[pc->opcode] = Op_utof_32_32;  break;
+                    case WasmOp_f32_convert_i64_s: opcodes[pc->opcode] = Op_stof_32_64;  break;
+                    case WasmOp_f32_convert_i64_u: opcodes[pc->opcode] = Op_utof_32_64;  break;
+                    case WasmOp_f32_demote_f64:    opcodes[pc->opcode] = Op_ftof_32_64;  break;
+                    case WasmOp_f64_convert_i32_s: opcodes[pc->opcode] = Op_stof_64_32;  break;
+                    case WasmOp_f64_convert_i32_u: opcodes[pc->opcode] = Op_utof_64_32;  break;
+                    case WasmOp_f64_convert_i64_s: opcodes[pc->opcode] = Op_stof_64_64;  break;
+                    case WasmOp_f64_convert_i64_u: opcodes[pc->opcode] = Op_utof_64_64;  break;
+                    case WasmOp_f64_promote_f32:   opcodes[pc->opcode] = Op_ftof_64_32;  break;
+                    case WasmOp_i32_extend8_s:     opcodes[pc->opcode] = Op_sext8_32;    break;
+                    case WasmOp_i32_extend16_s:    opcodes[pc->opcode] = Op_sext16_32;   break;
+                    case WasmOp_i64_extend8_s:     opcodes[pc->opcode] = Op_sext8_64;    break;
+                    case WasmOp_i64_extend16_s:    opcodes[pc->opcode] = Op_sext16_64;   break;
+                    case WasmOp_i64_extend32_s:    opcodes[pc->opcode] = Op_sext32_64;   break;
+                    default: panic("unexpected opcode");
+                }
+                pc->opcode += 1;
             }
             break;
 
             case WasmOp_prefixed:
             switch (prefixed_opcode) {
-                case WasmPrefixedOp_i32_trunc_sat_f32_s:
-                case WasmPrefixedOp_i32_trunc_sat_f32_u:
-                case WasmPrefixedOp_i32_trunc_sat_f64_s:
-                case WasmPrefixedOp_i32_trunc_sat_f64_u:
-                case WasmPrefixedOp_i64_trunc_sat_f32_s:
-                case WasmPrefixedOp_i64_trunc_sat_f32_u:
-                case WasmPrefixedOp_i64_trunc_sat_f64_s:
-                case WasmPrefixedOp_i64_trunc_sat_f64_u:
-                if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm_prefixed;
-                    opcodes[pc->opcode + 1] = prefixed_opcode;
-                    pc->opcode += 2;
-                }
-                break;
-
                 case WasmPrefixedOp_memory_copy:
                 if (mod_ptr[*code_i + 0] != 0 || mod_ptr[*code_i + 1] != 0)
                     panic("unexpected memory index");
                 *code_i += 2;
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm_prefixed;
-                    opcodes[pc->opcode + 1] = prefixed_opcode;
-                    pc->opcode += 2;
+                    opcodes[pc->opcode] = Op_memcpy;
+                    pc->opcode += 1;
                 }
                 break;
 
@@ -2295,27 +2618,18 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
                 if (mod_ptr[*code_i] != 0) panic("unexpected memory index");
                 *code_i += 1;
                 if (unreachable_depth == 0) {
-                    opcodes[pc->opcode + 0] = Op_wasm_prefixed;
-                    opcodes[pc->opcode + 1] = prefixed_opcode;
-                    pc->opcode += 2;
+                    opcodes[pc->opcode] = Op_memset;
+                    pc->opcode += 1;
                 }
                 break;
 
-                default: panic("unreachable");
+                default: panic("unexpected opcode");
             }
             break;
         }
-
         switch (opcode) {
-            case WasmOp_unreachable:
-            case WasmOp_return:
-            case WasmOp_br:
-            case WasmOp_br_table:
-            if (unreachable_depth == 0) unreachable_depth = 1;
-            break;
-
-            default:
-            break;
+            default:             state = State_default;  break;
+            case WasmOp_i32_eqz: state = State_bool_not; break;
         }
 
         //for (uint32_t i = old_pc.opcode; i < pc->opcode; i += 1) {
@@ -2328,70 +2642,71 @@ static void vm_decodeCode(struct VirtualMachine *vm, struct Function *func, uint
 }
 
 static void vm_push_u32(struct VirtualMachine *vm, uint32_t value) {
-    vm->stack[vm->stack_top] = value;
+    vm->stack[vm->stack_top + 0] = value;
     vm->stack_top += 1;
 }
 
 static void vm_push_i32(struct VirtualMachine *vm, int32_t value) {
-    return vm_push_u32(vm, value);
+    vm_push_u32(vm, (uint32_t)value);
 }
 
 static void vm_push_u64(struct VirtualMachine *vm, uint64_t value) {
-    vm->stack[vm->stack_top] = value;
-    vm->stack_top += 1;
+    vm->stack[vm->stack_top + 0] = (uint32_t)(value >> 0);
+    vm->stack[vm->stack_top + 1] = (uint32_t)(value >> 32);
+    vm->stack_top += 2;
 }
 
 static void vm_push_i64(struct VirtualMachine *vm, int64_t value) {
-    return vm_push_u64(vm, value);
+    vm_push_u64(vm, (uint64_t)value);
 }
 
 static void vm_push_f32(struct VirtualMachine *vm, float value) {
     uint32_t integer;
-    memcpy(&integer, &value, 4);
-    return vm_push_u32(vm, integer);
+    memcpy(&integer, &value, sizeof(integer));
+    vm_push_u32(vm, integer);
 }
 
 static void vm_push_f64(struct VirtualMachine *vm, double value) {
     uint64_t integer;
-    memcpy(&integer, &value, 8);
-    return vm_push_u64(vm, integer);
+    memcpy(&integer, &value, sizeof(integer));
+    vm_push_u64(vm, integer);
 }
 
 static uint32_t vm_pop_u32(struct VirtualMachine *vm) {
     vm->stack_top -= 1;
-    return vm->stack[vm->stack_top];
+    return vm->stack[vm->stack_top + 0];
 }
 
 static int32_t vm_pop_i32(struct VirtualMachine *vm) {
-    return vm_pop_u32(vm);
+    return (int32_t)vm_pop_u32(vm);
 }
 
 static uint64_t vm_pop_u64(struct VirtualMachine *vm) {
-    vm->stack_top -= 1;
-    return vm->stack[vm->stack_top];
+    vm->stack_top -= 2;
+    return vm->stack[vm->stack_top + 0] | (uint64_t)vm->stack[vm->stack_top + 1] << 32;
 }
 
 static int64_t vm_pop_i64(struct VirtualMachine *vm) {
-    return vm_pop_u64(vm);
+    return (int64_t)vm_pop_u64(vm);
 }
 
 static float vm_pop_f32(struct VirtualMachine *vm) {
     uint32_t integer = vm_pop_u32(vm);
     float result;
-    memcpy(&result, &integer, 4);
+    memcpy(&result, &integer, sizeof(result));
     return result;
 }
 
 static double vm_pop_f64(struct VirtualMachine *vm) {
     uint64_t integer = vm_pop_u64(vm);
     double result;
-    memcpy(&result, &integer, 8);
+    memcpy(&result, &integer, sizeof(result));
     return result;
 }
 
-static void vm_callImport(struct VirtualMachine *vm, struct Import import) {
-    switch (import.mod) {
-        case ImpMod_wasi_snapshot_preview1: switch (import.name) {
+static void vm_callImport(struct VirtualMachine *vm, const struct Import *import) {
+    switch (import->mod) {
+        case ImpMod_wasi_snapshot_preview1: switch (import->name) {
             case ImpName_fd_prestat_get:
             {
                 uint32_t buf = vm_pop_u32(vm);
@@ -2613,21 +2928,14 @@ static void vm_callImport(struct VirtualMachine *vm, struct Import import) {
     }
 }
 
-static void vm_call(struct VirtualMachine *vm, uint32_t fn_id) {
-    if (fn_id < vm->imports_len) {
-        struct Import imp = vm->imports[fn_id];
-        return vm_callImport(vm, imp);
-    }
-    uint32_t fn_idx = fn_id - vm->imports_len;
-    struct Function *func = &vm->functions[fn_idx];
-
+static void vm_call(struct VirtualMachine *vm, const struct Function *func) {
     //struct TypeInfo *type_info = &vm->types[func->type_idx];
-    //fprintf(stderr, "enter fn_id: %u, param_count: %u, result_count: %u, locals_count: %u\n",
-    //    fn_id, type_info->param_count, type_info->result_count, func->locals_count);
+    //fprintf(stderr, "enter fn_id: %u, param_count: %u, result_count: %u, locals_size: %u\n",
+    //    func->id, type_info->param_count, type_info->result_count, func->locals_size);
 
     // Push zeroed locals to stack
-    memset(vm->stack + vm->stack_top, 0, func->locals_count * sizeof(uint64_t));
-    vm->stack_top += func->locals_count;
+    memset(&vm->stack[vm->stack_top], 0, func->locals_size * sizeof(uint32_t));
+    vm->stack_top += func->locals_size;
 
     vm_push_u32(vm, vm->pc.opcode);
     vm_push_u32(vm, vm->pc.operand);
@@ -2667,36 +2975,41 @@ static void vm_br_u64(struct VirtualMachine *vm) {
 }
 
 static void vm_return_void(struct VirtualMachine *vm) {
-    uint32_t ret_pc_offset = vm->operands[vm->pc.operand + 0];
-    uint32_t stack_adjust = vm->operands[vm->pc.operand + 1];
-
-    vm->pc.opcode = vm->stack[vm->stack_top - ret_pc_offset];
-    vm->pc.operand = vm->stack[vm->stack_top - ret_pc_offset + 1];
+    uint32_t stack_adjust = vm->operands[vm->pc.operand + 0];
+    uint32_t frame_size = vm->operands[vm->pc.operand + 1];
 
     vm->stack_top -= stack_adjust;
+    vm->pc.operand = vm_pop_u32(vm);
+    vm->pc.opcode = vm_pop_u32(vm);
+
+    vm->stack_top -= frame_size;
 }
 
 static void vm_return_u32(struct VirtualMachine *vm) {
-    uint32_t ret_pc_offset = vm->operands[vm->pc.operand + 0];
-    uint32_t stack_adjust = vm->operands[vm->pc.operand + 1];
-
-    vm->pc.opcode = vm->stack[vm->stack_top - ret_pc_offset];
-    vm->pc.operand = vm->stack[vm->stack_top - ret_pc_offset + 1];
+    uint32_t stack_adjust = vm->operands[vm->pc.operand + 0];
+    uint32_t frame_size = vm->operands[vm->pc.operand + 1];
 
     uint32_t result = vm_pop_u32(vm);
+
     vm->stack_top -= stack_adjust;
+    vm->pc.operand = vm_pop_u32(vm);
+    vm->pc.opcode = vm_pop_u32(vm);
+
+    vm->stack_top -= frame_size;
     vm_push_u32(vm, result);
 }
 
 static void vm_return_u64(struct VirtualMachine *vm) {
-    uint32_t ret_pc_offset = vm->operands[vm->pc.operand + 0];
-    uint32_t stack_adjust = vm->operands[vm->pc.operand + 1];
-
-    vm->pc.opcode = vm->stack[vm->stack_top - ret_pc_offset];
-    vm->pc.operand = vm->stack[vm->stack_top - ret_pc_offset + 1];
+    uint32_t stack_adjust = vm->operands[vm->pc.operand + 0];
+    uint32_t frame_size = vm->operands[vm->pc.operand + 1];
 
     uint64_t result = vm_pop_u64(vm);
+
     vm->stack_top -= stack_adjust;
+    vm->pc.operand = vm_pop_u32(vm);
+    vm->pc.opcode = vm_pop_u32(vm);
+
+    vm->stack_top -= frame_size;
     vm_push_u64(vm, result);
 }
 
@@ -2704,77 +3017,68 @@ static void vm_run(struct VirtualMachine *vm) {
     uint8_t *opcodes = vm->opcodes;
     uint32_t *operands = vm->operands;
     struct ProgramCounter *pc = &vm->pc;
+    uint32_t global_0 = vm->globals[0];
     for (;;) {
         enum Op op = opcodes[pc->opcode];
+        //fprintf(stderr, "stack[%u:%u]=%x:%x pc=%x:%x op=%u\n",
+        //    vm->stack_top - 2, vm->stack_top - 1,
+        //    vm->stack[vm->stack_top - 2], vm->stack[vm->stack_top - 1],
+        //    pc->opcode, pc->operand, op);
         pc->opcode += 1;
-        //if (vm->stack_top > 0) {
-        //    fprintf(stderr, "stack[%u]=%lx pc=%u:%u, op=%u\n", 
-        //        vm->stack_top - 1, vm->stack[vm->stack_top - 1], pc->opcode, pc->operand, op);
-        //}
         switch (op) {
             case Op_unreachable:
                 panic("unreachable reached");
-
             case Op_br_void:
                 vm_br_void(vm);
                 break;
-
             case Op_br_32:
                 vm_br_u32(vm);
                 break;
-
             case Op_br_64:
                 vm_br_u64(vm);
                 break;
-
-            case Op_br_if_nez_void:
+            case Op_br_nez_void:
                 if (vm_pop_u32(vm) != 0) {
                     vm_br_void(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
-            case Op_br_if_nez_32:
+            case Op_br_nez_32:
                 if (vm_pop_u32(vm) != 0) {
                     vm_br_u32(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
-            case Op_br_if_nez_64:
+            case Op_br_nez_64:
                 if (vm_pop_u32(vm) != 0) {
                     vm_br_u64(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
-            case Op_br_if_eqz_void:
+            case Op_br_eqz_void:
                 if (vm_pop_u32(vm) == 0) {
                     vm_br_void(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
-            case Op_br_if_eqz_32:
+            case Op_br_eqz_32:
                 if (vm_pop_u32(vm) == 0) {
                     vm_br_u32(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
-            case Op_br_if_eqz_64:
+            case Op_br_eqz_64:
                 if (vm_pop_u32(vm) == 0) {
                     vm_br_u64(vm);
                 } else {
                     pc->operand += 3;
                 }
                 break;
-
             case Op_br_table_void:
                 {
                     uint32_t index = min_u32(vm_pop_u32(vm), operands[pc->operand]);
@@ -2782,7 +3086,6 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_br_void(vm);
                 }
                 break;
-
             case Op_br_table_32:
                 {
                     uint32_t index = min_u32(vm_pop_u32(vm), operands[pc->operand]);
@@ -2790,7 +3093,6 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_br_u32(vm);
                 }
                 break;
-
             case Op_br_table_64:
                 {
                     uint32_t index = min_u32(vm_pop_u32(vm), operands[pc->operand]);
@@ -2798,32 +3100,45 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_br_u64(vm);
                 }
                 break;
-
             case Op_return_void:
                 vm_return_void(vm);
                 break;
-
             case Op_return_32:
                 vm_return_u32(vm);
                 break;
-
             case Op_return_64:
                 vm_return_u64(vm);
                 break;
-
-            case Op_call:
+            case Op_call_import:
                 {
-                    uint32_t fn_id = operands[pc->operand];
+                    uint8_t import_idx = opcodes[pc->opcode];
+                    pc->opcode += 1;
+                    vm_callImport(vm, &vm->imports[import_idx]);
+                }
+                break;
+            case Op_call_func:
+                {
+                    uint32_t func_idx = operands[pc->operand];
                     pc->operand += 1;
-                    vm_call(vm, fn_id);
+                    vm_call(vm, &vm->functions[func_idx]);
+                }
+                break;
+            case Op_call_indirect:
+                {
+                    uint32_t fn_id = vm->table[vm_pop_u32(vm)];
+                    if (fn_id < vm->imports_len)
+                        vm_callImport(vm, &vm->imports[fn_id]);
+                    else
+                        vm_call(vm, &vm->functions[fn_id - vm->imports_len]);
                 }
                 break;
 
             case Op_drop_32:
-            case Op_drop_64:
                 vm->stack_top -= 1;
                 break;
-
+            case Op_drop_64:
+                vm->stack_top -= 2;
+                break;
             case Op_select_32:
                 {
                     uint32_t c = vm_pop_u32(vm);
@@ -2833,7 +3148,6 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_push_u32(vm, result);
                 }
                 break;
-
             case Op_select_64:
                 {
                     uint32_t c = vm_pop_u32(vm);
@@ -2846,49 +3160,53 @@ static void vm_run(struct VirtualMachine *vm) {
 
             case Op_local_get_32:
                 {
-                    uint64_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
                     pc->operand += 1;
                     vm_push_u32(vm, *local);
                 }
                 break;
-
             case Op_local_get_64:
                 {
-                    uint64_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
                     pc->operand += 1;
-                    vm_push_u64(vm, *local);
+                    vm_push_u64(vm, local[0] | (uint64_t)local[1] << 32);
                 }
                 break;
-
             case Op_local_set_32:
                 {
-                    uint64_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
                     pc->operand += 1;
                     *local = vm_pop_u32(vm);
                 }
                 break;
-
             case Op_local_set_64:
                 {
-                    uint64_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
                     pc->operand += 1;
-                    *local = vm_pop_u64(vm);
+                    uint64_t value = vm_pop_u64(vm);
+                    local[0] = (uint32_t)(value >> 0);
+                    local[1] = (uint32_t)(value >> 32);
                 }
                 break;
-
             case Op_local_tee_32:
-            case Op_local_tee_64:
                 {
-                    uint64_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
                     pc->operand += 1;
                     *local = vm->stack[vm->stack_top - 1];
                 }
                 break;
-
-            case Op_global_get_0_32:
-                vm_push_u32(vm, vm->globals[0]);
+            case Op_local_tee_64:
+                {
+                    uint32_t *local = &vm->stack[vm->stack_top - operands[pc->operand]];
+                    pc->operand += 1;
+                    local[0] = vm->stack[vm->stack_top - 2];
+                    local[1] = vm->stack[vm->stack_top - 1];
+                }
                 break;
 
+            case Op_global_get_0_32:
+                vm_push_u32(vm, global_0);
+                break;
             case Op_global_get_32:
                 {
                     uint32_t idx = operands[pc->operand];
@@ -2896,11 +3214,9 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_push_u32(vm, vm->globals[idx]);
                 }
                 break;
-
             case Op_global_set_0_32:
-                vm->globals[0] = vm_pop_u32(vm);
+                global_0 = vm_pop_u32(vm);
                 break;
-
             case Op_global_set_32:
                 {
                     uint32_t idx = operands[pc->operand];
@@ -2909,23 +3225,430 @@ static void vm_run(struct VirtualMachine *vm) {
                 }
                 break;
 
+            case Op_load_0_8:
+                {
+                    uint32_t address = vm_pop_u32(vm);
+                    vm_push_u32(vm, (uint8_t)vm->memory[address]);
+                }
+                break;
+            case Op_load_8:
+                {
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    vm_push_u32(vm, (uint8_t)vm->memory[address]);
+                }
+                break;
+            case Op_load_0_16:
+                {
+                    uint32_t address = vm_pop_u32(vm);
+                    vm_push_u32(vm, read_u16_le(&vm->memory[address]));
+                }
+                break;
+            case Op_load_16:
+                {
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    vm_push_u32(vm, read_u16_le(&vm->memory[address]));
+                }
+                break;
+            case Op_load_0_32:
+                {
+                    uint32_t address = vm_pop_u32(vm);
+                    vm_push_u32(vm, read_u32_le(&vm->memory[address]));
+                }
+                break;
+            case Op_load_32:
+                {
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    vm_push_u32(vm, read_u32_le(&vm->memory[address]));
+                }
+                break;
+            case Op_load_0_64:
+                {
+                    uint32_t address = vm_pop_u32(vm);
+                    vm_push_u64(vm, read_u64_le(&vm->memory[address]));
+                }
+                break;
+            case Op_load_64:
+                {
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    vm_push_u64(vm, read_u64_le(&vm->memory[address]));
+                }
+                break;
+            case Op_store_0_8:
+                {
+                    uint8_t value = (uint8_t)vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm);
+                    vm->memory[address] = value;
+                }
+                break;
+            case Op_store_8:
+                {
+                    uint8_t value = (uint8_t)vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    vm->memory[address] = value;
+                }
+                break;
+            case Op_store_0_16:
+                {
+                    uint16_t value = (uint16_t)vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm);
+                    write_u16_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_store_16:
+                {
+                    uint16_t value = (uint16_t)vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    write_u16_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_store_0_32:
+                {
+                    uint32_t value = vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm);
+                    write_u32_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_store_32:
+                {
+                    uint32_t value = vm_pop_u32(vm);
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    write_u32_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_store_0_64:
+                {
+                    uint64_t value = vm_pop_u64(vm);
+                    uint32_t address = vm_pop_u32(vm);
+                    write_u64_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_store_64:
+                {
+                    uint64_t value = vm_pop_u64(vm);
+                    uint32_t address = vm_pop_u32(vm) + operands[pc->operand];
+                    pc->operand += 1;
+                    write_u64_le(&vm->memory[address], value);
+                }
+                break;
+            case Op_mem_size:
+                vm_push_u32(vm, vm->memory_len / wasm_page_size);
+                break;
+            case Op_mem_grow:
+                {
+                    uint32_t page_count = vm_pop_u32(vm);
+                    uint32_t old_page_count = vm->memory_len / wasm_page_size;
+                    uint32_t new_len = vm->memory_len + page_count * wasm_page_size;
+                    if (new_len > max_memory) {
+                        vm_push_i32(vm, -1);
+                    } else {
+                        vm->memory_len = new_len;
+                        vm_push_u32(vm, old_page_count);
+                    }
+                }
+                break;
+
+            case Op_const_0_32:
+                vm_push_i32(vm, 0);
+                break;
+            case Op_const_0_64:
+                vm_push_i64(vm, 0);
+                break;
+            case Op_const_1_32:
+                vm_push_i32(vm, 1);
+                break;
+            case Op_const_1_64:
+                vm_push_i64(vm, 1);
+                break;
             case Op_const_32:
                 {
-                    uint32_t x = operands[pc->operand];
+                    uint32_t value = operands[pc->operand];
                     pc->operand += 1;
-                    vm_push_i32(vm, x);
+                    vm_push_i32(vm, value);
                 }
                 break;
-
             case Op_const_64:
                 {
-                    uint64_t x = ((uint64_t)operands[pc->operand]) |
+                    uint64_t value = ((uint64_t)operands[pc->operand]) |
                         (((uint64_t)operands[pc->operand + 1]) << 32);
                     pc->operand += 2;
-                    vm_push_i64(vm, x);
+                    vm_push_i64(vm, value);
+                }
+                break;
+            case Op_const_umax_32:
+                vm_push_i32(vm, -1);
+                break;
+            case Op_const_umax_64:
+                vm_push_i64(vm, -1);
+                break;
+
+            case Op_eqz_32:
+                {
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs == 0);
+                }
+                break;
+            case Op_eq_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs == rhs);
+                }
+                break;
+            case Op_ne_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs != rhs);
+                }
+                break;
+            case Op_slt_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_u32(vm, lhs < rhs);
+                }
+                break;
+            case Op_ult_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs < rhs);
+                }
+                break;
+            case Op_sgt_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_ugt_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_sle_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_ule_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_sge_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_u32(vm, lhs >= rhs);
+                }
+                break;
+            case Op_uge_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs >= rhs);
                 }
                 break;
 
+            case Op_eqz_64:
+                {
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs == 0);
+                }
+                break;
+            case Op_eq_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs == rhs);
+                }
+                break;
+            case Op_ne_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs != rhs);
+                }
+                break;
+            case Op_slt_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_u32(vm, lhs < rhs);
+                }
+                break;
+            case Op_ult_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs < rhs);
+                }
+                break;
+            case Op_sgt_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_ugt_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_sle_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_ule_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_sge_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_u32(vm, lhs >= rhs);
+                }
+                break;
+            case Op_uge_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u32(vm, lhs >= rhs);
+                }
+                break;
+
+            case Op_feq_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs == rhs);
+                }
+                break;
+            case Op_fne_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs != rhs);
+                }
+                break;
+            case Op_flt_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs < rhs);
+                }
+                break;
+            case Op_fgt_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_fle_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_fge_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_u32(vm, lhs >= rhs);
+                }
+                break;
+
+            case Op_feq_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs == rhs);
+                }
+                break;
+            case Op_fne_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs != rhs);
+                }
+                break;
+            case Op_flt_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_fgt_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs > rhs);
+                }
+                break;
+            case Op_fle_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs <= rhs);
+                }
+                break;
+            case Op_fge_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_u32(vm, lhs >= rhs);
+                }
+                break;
+
+            case Op_clz_32:
+                {
+                    uint32_t operand = vm_pop_u32(vm);
+                    uint32_t result = (operand == 0) ? 32 : __builtin_clz(operand);
+                    vm_push_u32(vm, result);
+                }
+                break;
+            case Op_ctz_32:
+                {
+                    uint32_t operand = vm_pop_u32(vm);
+                    uint32_t result = (operand == 0) ? 32 : __builtin_ctz(operand);
+                    vm_push_u32(vm, result);
+                }
+                break;
+            case Op_popcnt_32:
+                {
+                    uint32_t operand = vm_pop_u32(vm);
+                    uint32_t result = __builtin_popcount(operand);
+                    vm_push_u32(vm, result);
+                }
+                break;
             case Op_add_32:
                 {
                     uint32_t rhs = vm_pop_u32(vm);
@@ -2933,7 +3656,48 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_push_u32(vm, lhs + rhs);
                 }
                 break;
-
+            case Op_sub_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs - rhs);
+                }
+                break;
+            case Op_mul_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs * rhs);
+                }
+                break;
+            case Op_sdiv_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_i32(vm, lhs / rhs);
+                }
+                break;
+            case Op_udiv_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs / rhs);
+                }
+                break;
+            case Op_srem_32:
+                {
+                    int32_t rhs = vm_pop_i32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_i32(vm, lhs % rhs);
+                }
+                break;
+            case Op_urem_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs % rhs);
+                }
+                break;
             case Op_and_32:
                 {
                     uint32_t rhs = vm_pop_u32(vm);
@@ -2941,1108 +3705,370 @@ static void vm_run(struct VirtualMachine *vm) {
                     vm_push_u32(vm, lhs & rhs);
                 }
                 break;
-
-            case Op_wasm:
+            case Op_or_32:
                 {
-                    enum WasmOp wasm_op = opcodes[pc->opcode];
-                    //fprintf(stderr, "op2=%x\n", wasm_op);
-                    pc->opcode += 1;
-                    switch (wasm_op) {
-                        case WasmOp_unreachable:
-                        case WasmOp_nop:
-                        case WasmOp_block:
-                        case WasmOp_loop:
-                        case WasmOp_if:
-                        case WasmOp_else:
-                        case WasmOp_end:
-                        case WasmOp_br:
-                        case WasmOp_br_if:
-                        case WasmOp_br_table:
-                        case WasmOp_return:
-                        case WasmOp_call:
-                        case WasmOp_drop:
-                        case WasmOp_select:
-                        case WasmOp_local_get:
-                        case WasmOp_local_set:
-                        case WasmOp_local_tee:
-                        case WasmOp_global_get:
-                        case WasmOp_global_set:
-                        case WasmOp_i32_const:
-                        case WasmOp_i64_const:
-                        case WasmOp_f32_const:
-                        case WasmOp_f64_const:
-                        case WasmOp_i32_add:
-                        case WasmOp_i32_and:
-                        case WasmOp_i32_reinterpret_f32:
-                        case WasmOp_i64_reinterpret_f64:
-                        case WasmOp_f32_reinterpret_i32:
-                        case WasmOp_f64_reinterpret_i64:
-                        case WasmOp_prefixed:
-                            panic("not produced by decodeCode");
-                            break;
-
-                        case WasmOp_call_indirect:
-                            {
-                                uint32_t fn_id = vm->table[vm_pop_u32(vm)];
-                                vm_call(vm, fn_id);
-                            }
-                            break;
-                        case WasmOp_i32_load:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_u32(vm, read_u32_le(vm->memory + offset));
-                            }
-                            break;
-                        case WasmOp_i64_load:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_u64(vm, read_u64_le(vm->memory + offset));
-                            }
-                            break;
-                        case WasmOp_f32_load:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                uint32_t integer = read_u32_le(vm->memory + offset);
-                                vm_push_u32(vm, integer);
-                            }
-                            break;
-                        case WasmOp_f64_load:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                uint64_t integer = read_u64_le(vm->memory + offset);
-                                vm_push_u64(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i32_load8_s:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_i32(vm, (int8_t)vm->memory[offset]);
-                            }
-                            break;
-                        case WasmOp_i32_load8_u:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_u32(vm, (uint8_t)vm->memory[offset]);
-                            }
-                            break;
-                        case WasmOp_i32_load16_s:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                int16_t integer = read_i16_le(vm->memory + offset);
-                                vm_push_i32(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i32_load16_u:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                uint16_t integer = read_u16_le(vm->memory + offset);
-                                vm_push_u32(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i64_load8_s:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_i64(vm, (int8_t)vm->memory[offset]);
-                            }
-                            break;
-                        case WasmOp_i64_load8_u:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm_push_u64(vm, (uint8_t)vm->memory[offset]);
-                            }
-                            break;
-                        case WasmOp_i64_load16_s:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                int16_t integer = read_i16_le(vm->memory + offset);
-                                vm_push_i64(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i64_load16_u:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                uint16_t integer = read_u16_le(vm->memory + offset);
-                                vm_push_u64(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i64_load32_s:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                int32_t integer = read_i32_le(vm->memory + offset);
-                                vm_push_i64(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i64_load32_u:
-                            {
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                uint32_t integer = read_u32_le(vm->memory + offset);
-                                vm_push_u64(vm, integer);
-                            }
-                            break;
-                        case WasmOp_i32_store:
-                            {
-                                uint32_t operand = vm_pop_u32(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u32_le(vm->memory + offset, operand);
-                            }
-                            break;
-                        case WasmOp_i64_store:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u64_le(vm->memory + offset, operand);
-                            }
-                            break;
-                        case WasmOp_f32_store:
-                            {
-                                uint32_t integer = vm_pop_u32(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u32_le(vm->memory + offset, integer);
-                            }
-                            break;
-                        case WasmOp_f64_store:
-                            {
-                                uint64_t integer = vm_pop_u64(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u64_le(vm->memory + offset, integer);
-                            }
-                            break;
-                        case WasmOp_i32_store8:
-                            {
-                                uint8_t small = vm_pop_u32(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm->memory[offset] = small;
-                            }
-                            break;
-                        case WasmOp_i32_store16:
-                            {
-                                uint16_t small = vm_pop_u32(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u16_le(vm->memory + offset, small);
-                            }
-                            break;
-                        case WasmOp_i64_store8:
-                            {
-                                uint8_t operand = vm_pop_u64(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                vm->memory[offset] = operand;
-                            }
-                            break;
-                        case WasmOp_i64_store16:
-                            {
-                                uint16_t small = vm_pop_u64(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u16_le(vm->memory + offset, small);
-                            }
-                            break;
-                        case WasmOp_i64_store32:
-                            {
-                                uint32_t small = vm_pop_u64(vm);
-                                uint32_t offset = operands[pc->operand] + vm_pop_u32(vm);
-                                pc->operand += 1;
-                                write_u32_le(vm->memory + offset, small);
-                            }
-                            break;
-                        case WasmOp_memory_size:
-                            {
-                                uint32_t page_count = vm->memory_len / wasm_page_size;
-                                vm_push_u32(vm, page_count);
-                            }
-                            break;
-                        case WasmOp_memory_grow:
-                            {
-                                uint32_t page_count = vm_pop_u32(vm);
-                                uint32_t old_page_count = vm->memory_len / wasm_page_size;
-                                uint32_t new_len = vm->memory_len + page_count * wasm_page_size;
-                                if (new_len > max_memory) {
-                                    vm_push_i32(vm, -1);
-                                } else {
-                                    vm->memory_len = new_len;
-                                    vm_push_u32(vm, old_page_count);
-                                }
-                            }
-                            break;
-                        case WasmOp_i32_eqz:
-                            {
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs == 0);
-                            }
-                            break;
-                        case WasmOp_i32_eq:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs == rhs);
-                            }
-                            break;
-                        case WasmOp_i32_ne:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs != rhs);
-                            }
-                            break;
-                        case WasmOp_i32_lt_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_u32(vm, lhs < rhs);
-                            }
-                            break;
-                        case WasmOp_i32_lt_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs < rhs);
-                            }
-                            break;
-                        case WasmOp_i32_gt_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_i32_gt_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_i32_le_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_i32_le_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_i32_ge_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-                        case WasmOp_i32_ge_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-                        case WasmOp_i64_eqz:
-                            {
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs == 0);
-                            }
-                            break;
-                        case WasmOp_i64_eq:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs == rhs);
-                            }
-                            break;
-                        case WasmOp_i64_ne:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs != rhs);
-                            }
-                            break;
-                        case WasmOp_i64_lt_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_u32(vm, lhs < rhs);
-                            }
-                            break;
-                        case WasmOp_i64_lt_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs < rhs);
-                            }
-                            break;
-                        case WasmOp_i64_gt_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_i64_gt_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_i64_le_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_i64_le_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_i64_ge_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-                        case WasmOp_i64_ge_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-                        case WasmOp_f32_eq:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs == rhs);
-                            }
-                            break;
-                        case WasmOp_f32_ne:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs != rhs);
-                            }
-                            break;
-                        case WasmOp_f32_lt:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs < rhs);
-                            }
-                            break;
-                        case WasmOp_f32_gt:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_f32_le:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_f32_ge:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-                        case WasmOp_f64_eq:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs == rhs);
-                            }
-                            break;
-                        case WasmOp_f64_ne:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs != rhs);
-                            }
-                            break;
-                        case WasmOp_f64_lt:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_f64_gt:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs > rhs);
-                            }
-                            break;
-                        case WasmOp_f64_le:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs <= rhs);
-                            }
-                            break;
-                        case WasmOp_f64_ge:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_u32(vm, lhs >= rhs);
-                            }
-                            break;
-
-                        case WasmOp_i32_clz:
-                            {
-                                uint32_t operand = vm_pop_u32(vm);
-                                uint32_t result = (operand == 0) ? 32 : __builtin_clz(operand);
-                                vm_push_u32(vm, result);
-                            }
-                            break;
-                        case WasmOp_i32_ctz:
-                            {
-                                uint32_t operand = vm_pop_u32(vm);
-                                uint32_t result = (operand == 0) ? 32 : __builtin_ctz(operand);
-                                vm_push_u32(vm, result);
-                            }
-                            break;
-                        case WasmOp_i32_popcnt:
-                            {
-                                uint32_t operand = vm_pop_u32(vm);
-                                uint32_t result = __builtin_popcount(operand);
-                                vm_push_u32(vm, result);
-                            }
-                            break;
-                        case WasmOp_i32_sub:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs - rhs);
-                            }
-                            break;
-                        case WasmOp_i32_mul:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs * rhs);
-                            }
-                            break;
-                        case WasmOp_i32_div_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_i32(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_i32_div_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_i32_rem_s:
-                            {
-                                int32_t rhs = vm_pop_i32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_i32(vm, lhs % rhs);
-                            }
-                            break;
-                        case WasmOp_i32_rem_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs % rhs);
-                            }
-                            break;
-                        case WasmOp_i32_or:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs | rhs);
-                            }
-                            break;
-                        case WasmOp_i32_xor:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs ^ rhs);
-                            }
-                            break;
-                        case WasmOp_i32_shl:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs << (rhs & 0x1f));
-                            }
-                            break;
-                        case WasmOp_i32_shr_s:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                int32_t lhs = vm_pop_i32(vm);
-                                vm_push_i32(vm, lhs >> (rhs & 0x1f));
-                            }
-                            break;
-                        case WasmOp_i32_shr_u:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, lhs >> (rhs & 0x1f));
-                            }
-                            break;
-                        case WasmOp_i32_rotl:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, rotl32(lhs, rhs));
-                            }
-                            break;
-                        case WasmOp_i32_rotr:
-                            {
-                                uint32_t rhs = vm_pop_u32(vm);
-                                uint32_t lhs = vm_pop_u32(vm);
-                                vm_push_u32(vm, rotr32(lhs, rhs ));
-                            }
-                            break;
-
-                        case WasmOp_i64_clz:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                uint64_t result = (operand == 0) ? 64 : __builtin_clzll(operand);
-                                vm_push_u64(vm, result);
-                            }
-                            break;
-                        case WasmOp_i64_ctz:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                uint64_t result = (operand == 0) ? 64 : __builtin_ctzll(operand);
-                                vm_push_u64(vm, result);
-                            }
-                            break;
-                        case WasmOp_i64_popcnt:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                uint64_t result = __builtin_popcountll(operand);
-                                vm_push_u64(vm, result);
-                            }
-                            break;
-                        case WasmOp_i64_add:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs + rhs);
-                            }
-                            break;
-                        case WasmOp_i64_sub:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs - rhs);
-                            }
-                            break;
-                        case WasmOp_i64_mul:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs * rhs);
-                            }
-                            break;
-                        case WasmOp_i64_div_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_i64(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_i64_div_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_i64_rem_s:
-                            {
-                                int64_t rhs = vm_pop_i64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_i64(vm, lhs % rhs);
-                            }
-                            break;
-                        case WasmOp_i64_rem_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs % rhs);
-                            }
-                            break;
-                        case WasmOp_i64_and:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs & rhs);
-                            }
-                            break;
-                        case WasmOp_i64_or:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs | rhs);
-                            }
-                            break;
-                        case WasmOp_i64_xor:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs ^ rhs);
-                            }
-                            break;
-                        case WasmOp_i64_shl:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs << (rhs & 0x3f));
-                            }
-                            break;
-                        case WasmOp_i64_shr_s:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                int64_t lhs = vm_pop_i64(vm);
-                                vm_push_i64(vm, lhs >> (rhs & 0x3f));
-                            }
-                            break;
-                        case WasmOp_i64_shr_u:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, lhs >> (rhs & 0x3f));
-                            }
-                            break;
-                        case WasmOp_i64_rotl:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, rotl64(lhs, rhs));
-                            }
-                            break;
-                        case WasmOp_i64_rotr:
-                            {
-                                uint64_t rhs = vm_pop_u64(vm);
-                                uint64_t lhs = vm_pop_u64(vm);
-                                vm_push_u64(vm, rotr64(lhs, rhs));
-                            }
-                            break;
-
-                        case WasmOp_f32_abs:
-                            {
-                                vm_push_f32(vm, fabsf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_neg:
-                            {
-                                vm_push_f32(vm, -vm_pop_f32(vm));
-                            }
-                            break;
-                        case WasmOp_f32_ceil:
-                            {
-                                vm_push_f32(vm, ceilf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_floor:
-                            {
-                                vm_push_f32(vm, floorf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_trunc:
-                            {
-                                vm_push_f32(vm, truncf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_nearest:
-                            {
-                                vm_push_f32(vm, roundf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_sqrt:
-                            {
-                                vm_push_f32(vm, sqrtf(vm_pop_f32(vm)));
-                            }
-                            break;
-                        case WasmOp_f32_add:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, lhs + rhs);
-                            }
-                            break;
-                        case WasmOp_f32_sub:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, lhs - rhs);
-                            }
-                            break;
-                        case WasmOp_f32_mul:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, lhs * rhs);
-                            }
-                            break;
-                        case WasmOp_f32_div:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_f32_min:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, (lhs < rhs) ? lhs : rhs);
-                            }
-                            break;
-                        case WasmOp_f32_max:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, (lhs > rhs) ? lhs : rhs);
-                            }
-                            break;
-                        case WasmOp_f32_copysign:
-                            {
-                                float rhs = vm_pop_f32(vm);
-                                float lhs = vm_pop_f32(vm);
-                                vm_push_f32(vm, copysignf(lhs, rhs));
-                            }
-                            break;
-                        case WasmOp_f64_abs:
-                            {
-                                vm_push_f64(vm, fabs(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_neg:
-                            {
-                                vm_push_f64(vm, -vm_pop_f64(vm));
-                            }
-                            break;
-                        case WasmOp_f64_ceil:
-                            {
-                                vm_push_f64(vm, ceil(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_floor:
-                            {
-                                vm_push_f64(vm, floor(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_trunc:
-                            {
-                                vm_push_f64(vm, trunc(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_nearest:
-                            {
-                                vm_push_f64(vm, round(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_sqrt:
-                            {
-                                vm_push_f64(vm, sqrt(vm_pop_f64(vm)));
-                            }
-                            break;
-                        case WasmOp_f64_add:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, lhs + rhs);
-                            }
-                            break;
-                        case WasmOp_f64_sub:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, lhs - rhs);
-                            }
-                            break;
-                        case WasmOp_f64_mul:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, lhs * rhs);
-                            }
-                            break;
-                        case WasmOp_f64_div:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, lhs / rhs);
-                            }
-                            break;
-                        case WasmOp_f64_min:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, (lhs < rhs) ? lhs : rhs);
-                            }
-                            break;
-                        case WasmOp_f64_max:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, (lhs > rhs) ? lhs : rhs);
-                            }
-                            break;
-                        case WasmOp_f64_copysign:
-                            {
-                                double rhs = vm_pop_f64(vm);
-                                double lhs = vm_pop_f64(vm);
-                                vm_push_f64(vm, copysign(lhs, rhs));
-                            }
-                            break;
-
-                        case WasmOp_i32_wrap_i64:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                vm_push_u32(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i32_trunc_f32_s:
-                            {
-                                float operand = vm_pop_f32(vm);
-                                vm_push_i32(vm, truncf(operand));
-                            }
-                            break;
-                        case WasmOp_i32_trunc_f32_u:
-                            {
-                                float operand = vm_pop_f32(vm);
-                                vm_push_u32(vm, truncf(operand));
-                            }
-                            break;
-                        case WasmOp_i32_trunc_f64_s:
-                            {
-                                double operand = vm_pop_f64(vm);
-                                vm_push_i32(vm, trunc(operand));
-                            }
-                            break;
-                        case WasmOp_i32_trunc_f64_u:
-                            {
-                                double operand = vm_pop_f64(vm);
-                                vm_push_u32(vm, trunc(operand));
-                            }
-                            break;
-                        case WasmOp_i64_extend_i32_s:
-                            {
-                                int32_t operand = vm_pop_i32(vm);
-                                vm_push_i64(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i64_extend_i32_u:
-                            {
-                                uint64_t operand = vm_pop_u64(vm);
-                                vm_push_u64(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i64_trunc_f32_s:
-                            {
-                                float operand = vm_pop_f32(vm);
-                                vm_push_i64(vm, truncf(operand));
-                            }
-                            break;
-                        case WasmOp_i64_trunc_f32_u:
-                            {
-                                float operand = vm_pop_f32(vm);
-                                vm_push_u64(vm, truncf(operand));
-                            }
-                            break;
-                        case WasmOp_i64_trunc_f64_s:
-                            {
-                                double operand = vm_pop_f64(vm);
-                                vm_push_i64(vm, trunc(operand));
-                            }
-                            break;
-                        case WasmOp_i64_trunc_f64_u:
-                            {
-                                double operand = vm_pop_f64(vm);
-                                vm_push_u64(vm, trunc(operand));
-                            }
-                            break;
-                        case WasmOp_f32_convert_i32_s:
-                            {
-                                vm_push_f32(vm, vm_pop_i32(vm));
-                            }
-                            break;
-                        case WasmOp_f32_convert_i32_u:
-                            {
-                                vm_push_f32(vm, vm_pop_u32(vm));
-                            }
-                            break;
-                        case WasmOp_f32_convert_i64_s:
-                            {
-                                vm_push_f32(vm, vm_pop_i64(vm));
-                            }
-                            break;
-                        case WasmOp_f32_convert_i64_u:
-                            {
-                                vm_push_f32(vm, vm_pop_u64(vm));
-                            }
-                            break;
-                        case WasmOp_f32_demote_f64:
-                            {
-                                vm_push_f32(vm, vm_pop_f64(vm));
-                            }
-                            break;
-                        case WasmOp_f64_convert_i32_s:
-                            {
-                                vm_push_f64(vm, vm_pop_i32(vm));
-                            }
-                            break;
-                        case WasmOp_f64_convert_i32_u:
-                            {
-                                vm_push_f64(vm, vm_pop_u32(vm));
-                            }
-                            break;
-                        case WasmOp_f64_convert_i64_s:
-                            {
-                                vm_push_f64(vm, vm_pop_i64(vm));
-                            }
-                            break;
-                        case WasmOp_f64_convert_i64_u:
-                            {
-                                vm_push_f64(vm, vm_pop_u64(vm));
-                            }
-                            break;
-                        case WasmOp_f64_promote_f32:
-                            {
-                                vm_push_f64(vm, vm_pop_f32(vm));
-                            }
-                            break;
-
-                        case WasmOp_i32_extend8_s:
-                            {
-                                int8_t operand = vm_pop_i32(vm);
-                                vm_push_i32(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i32_extend16_s:
-                            {
-                                int16_t operand = vm_pop_i32(vm);
-                                vm_push_i32(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i64_extend8_s:
-                            {
-                                int8_t operand = vm_pop_i64(vm);
-                                vm_push_i64(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i64_extend16_s:
-                            {
-                                int16_t operand = vm_pop_i64(vm);
-                                vm_push_i64(vm, operand);
-                            }
-                            break;
-                        case WasmOp_i64_extend32_s:
-                            {
-                                int32_t operand = vm_pop_i64(vm);
-                                vm_push_i64(vm, operand);
-                            }
-                            break;
-
-                        default:
-                            panic("unreachable");
-                    }
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs | rhs);
+                }
+                break;
+            case Op_xor_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs ^ rhs);
+                }
+                break;
+            case Op_shl_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs << (rhs & 0x1f));
+                }
+                break;
+            case Op_ashr_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    int32_t lhs = vm_pop_i32(vm);
+                    vm_push_i32(vm, lhs >> (rhs & 0x1f));
+                }
+                break;
+            case Op_lshr_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, lhs >> (rhs & 0x1f));
+                }
+                break;
+            case Op_rol_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, rotl32(lhs, rhs));
+                }
+                break;
+            case Op_ror_32:
+                {
+                    uint32_t rhs = vm_pop_u32(vm);
+                    uint32_t lhs = vm_pop_u32(vm);
+                    vm_push_u32(vm, rotr32(lhs, rhs));
                 }
                 break;
 
-            case Op_wasm_prefixed:
+            case Op_clz_64:
                 {
-                    enum WasmPrefixedOp wasm_prefixed_op = opcodes[pc->opcode];
-                    pc->opcode += 1;
-                    switch (wasm_prefixed_op) {
-                        case WasmPrefixedOp_i32_trunc_sat_f32_s:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i32_trunc_sat_f32_u:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i32_trunc_sat_f64_s:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i32_trunc_sat_f64_u:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i64_trunc_sat_f32_s:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i64_trunc_sat_f32_u:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i64_trunc_sat_f64_s:
-                            panic("unreachable");
-                        case WasmPrefixedOp_i64_trunc_sat_f64_u:
-                            panic("unreachable");
-                        case WasmPrefixedOp_memory_init:
-                            panic("unreachable");
-                        case WasmPrefixedOp_data_drop:
-                            panic("unreachable");
-
-                        case WasmPrefixedOp_memory_copy:
-                            {
-                                uint32_t n = vm_pop_u32(vm);
-                                uint32_t src = vm_pop_u32(vm);
-                                uint32_t dest = vm_pop_u32(vm);
-                                assert(dest + n <= vm->memory_len);
-                                assert(src + n <= vm->memory_len);
-                                assert(src + n <= dest || dest + n <= src); // overlapping
-                                memcpy(vm->memory + dest, vm->memory + src, n);
-                            }
-                            break;
-
-                        case WasmPrefixedOp_memory_fill:
-                            {
-                                uint32_t n = vm_pop_u32(vm);
-                                uint8_t value = vm_pop_u32(vm);
-                                uint32_t dest = vm_pop_u32(vm);
-                                assert(dest + n <= vm->memory_len);
-                                memset(vm->memory + dest, value, n);
-                            }
-                            break;
-
-                        case WasmPrefixedOp_table_init: panic("unreachable");
-                        case WasmPrefixedOp_elem_drop: panic("unreachable");
-                        case WasmPrefixedOp_table_copy: panic("unreachable");
-                        case WasmPrefixedOp_table_grow: panic("unreachable");
-                        case WasmPrefixedOp_table_size: panic("unreachable");
-                        case WasmPrefixedOp_table_fill: panic("unreachable");
-                        default: panic("unreachable");
-                    }
+                    uint64_t operand = vm_pop_u64(vm);
+                    uint64_t result = (operand == 0) ? 64 : __builtin_clzll(operand);
+                    vm_push_u64(vm, result);
+                }
+                break;
+            case Op_ctz_64:
+                {
+                    uint64_t operand = vm_pop_u64(vm);
+                    uint64_t result = (operand == 0) ? 64 : __builtin_ctzll(operand);
+                    vm_push_u64(vm, result);
+                }
+                break;
+            case Op_popcnt_64:
+                {
+                    uint64_t operand = vm_pop_u64(vm);
+                    uint64_t result = __builtin_popcountll(operand);
+                    vm_push_u64(vm, result);
+                }
+                break;
+            case Op_add_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs + rhs);
+                }
+                break;
+            case Op_sub_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs - rhs);
+                }
+                break;
+            case Op_mul_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs * rhs);
+                }
+                break;
+            case Op_sdiv_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_i64(vm, lhs / rhs);
+                }
+                break;
+            case Op_udiv_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs / rhs);
+                }
+                break;
+            case Op_srem_64:
+                {
+                    int64_t rhs = vm_pop_i64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_i64(vm, lhs % rhs);
+                }
+                break;
+            case Op_urem_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs % rhs);
+                }
+                break;
+            case Op_and_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs & rhs);
+                }
+                break;
+            case Op_or_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs | rhs);
+                }
+                break;
+            case Op_xor_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs ^ rhs);
+                }
+                break;
+            case Op_shl_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs << (rhs & 0x3f));
+                }
+                break;
+            case Op_ashr_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    int64_t lhs = vm_pop_i64(vm);
+                    vm_push_i64(vm, lhs >> (rhs & 0x3f));
+                }
+                break;
+            case Op_lshr_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, lhs >> (rhs & 0x3f));
+                }
+                break;
+            case Op_rol_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, rotl64(lhs, rhs));
+                }
+                break;
+            case Op_ror_64:
+                {
+                    uint64_t rhs = vm_pop_u64(vm);
+                    uint64_t lhs = vm_pop_u64(vm);
+                    vm_push_u64(vm, rotr64(lhs, rhs));
                 }
                 break;
 
+            case Op_fabs_32:
+                vm_push_f32(vm, fabsf(vm_pop_f32(vm)));
+                break;
+            case Op_fneg_32:
+                vm_push_f32(vm, -vm_pop_f32(vm));
+                break;
+            case Op_ceil_32:
+                vm_push_f32(vm, ceilf(vm_pop_f32(vm)));
+                break;
+            case Op_floor_32:
+                vm_push_f32(vm, floorf(vm_pop_f32(vm)));
+                break;
+            case Op_trunc_32:
+                vm_push_f32(vm, truncf(vm_pop_f32(vm)));
+                break;
+            case Op_nearest_32:
+                vm_push_f32(vm, roundf(vm_pop_f32(vm)));
+                break;
+            case Op_sqrt_32:
+                vm_push_f32(vm, sqrtf(vm_pop_f32(vm)));
+                break;
+            case Op_fadd_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, lhs + rhs);
+                }
+                break;
+            case Op_fsub_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, lhs - rhs);
+                }
+                break;
+            case Op_fmul_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, lhs * rhs);
+                }
+                break;
+            case Op_fdiv_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, lhs / rhs);
+                }
+                break;
+            case Op_fmin_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, fminf(lhs, rhs));
+                }
+                break;
+            case Op_fmax_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, fmaxf(lhs, rhs));
+                }
+                break;
+            case Op_copysign_32:
+                {
+                    float rhs = vm_pop_f32(vm);
+                    float lhs = vm_pop_f32(vm);
+                    vm_push_f32(vm, copysignf(lhs, rhs));
+                }
+                break;
+
+            case Op_fabs_64:
+                vm_push_f64(vm, fabs(vm_pop_f64(vm)));
+                break;
+            case Op_fneg_64:
+                vm_push_f64(vm, -vm_pop_f64(vm));
+                break;
+            case Op_ceil_64:
+                vm_push_f64(vm, ceil(vm_pop_f64(vm)));
+                break;
+            case Op_floor_64:
+                vm_push_f64(vm, floor(vm_pop_f64(vm)));
+                break;
+            case Op_trunc_64:
+                vm_push_f64(vm, trunc(vm_pop_f64(vm)));
+                break;
+            case Op_nearest_64:
+                vm_push_f64(vm, round(vm_pop_f64(vm)));
+                break;
+            case Op_sqrt_64:
+                vm_push_f64(vm, sqrt(vm_pop_f64(vm)));
+                break;
+            case Op_fadd_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, lhs + rhs);
+                }
+                break;
+            case Op_fsub_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, lhs - rhs);
+                }
+                break;
+            case Op_fmul_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, lhs * rhs);
+                }
+                break;
+            case Op_fdiv_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, lhs / rhs);
+                }
+                break;
+            case Op_fmin_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, fmin(lhs, rhs));
+                }
+                break;
+            case Op_fmax_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, fmax(lhs, rhs));
+                }
+                break;
+            case Op_copysign_64:
+                {
+                    double rhs = vm_pop_f64(vm);
+                    double lhs = vm_pop_f64(vm);
+                    vm_push_f64(vm, copysign(lhs, rhs));
+                }
+                break;
+
+            case Op_ftos_32_32: vm_push_f32(vm,    (float)vm_pop_i32(vm)); break;
+            case Op_ftou_32_32: vm_push_f32(vm,    (float)vm_pop_u32(vm)); break;
+            case Op_ftos_32_64: vm_push_f32(vm,    (float)vm_pop_i64(vm)); break;
+            case Op_ftou_32_64: vm_push_f32(vm,    (float)vm_pop_u64(vm)); break;
+            case Op_sext_64_32: vm_push_i64(vm,           vm_pop_i32(vm)); break;
+            case Op_ftos_64_32: vm_push_i64(vm,  (int64_t)vm_pop_f32(vm)); break;
+            case Op_ftou_64_32: vm_push_u64(vm, (uint64_t)vm_pop_f32(vm)); break;
+            case Op_ftos_64_64: vm_push_i64(vm,  (int64_t)vm_pop_f64(vm)); break;
+            case Op_ftou_64_64: vm_push_u64(vm, (uint64_t)vm_pop_f64(vm)); break;
+            case Op_stof_32_32: vm_push_f32(vm,    (float)vm_pop_i32(vm)); break;
+            case Op_utof_32_32: vm_push_f32(vm,    (float)vm_pop_u32(vm)); break;
+            case Op_stof_32_64: vm_push_f32(vm,    (float)vm_pop_i64(vm)); break;
+            case Op_utof_32_64: vm_push_f32(vm,    (float)vm_pop_u64(vm)); break;
+            case Op_ftof_32_64: vm_push_f32(vm,    (float)vm_pop_f64(vm)); break;
+            case Op_stof_64_32: vm_push_f64(vm,   (double)vm_pop_i32(vm)); break;
+            case Op_utof_64_32: vm_push_f64(vm,   (double)vm_pop_u32(vm)); break;
+            case Op_stof_64_64: vm_push_f64(vm,   (double)vm_pop_i64(vm)); break;
+            case Op_utof_64_64: vm_push_f64(vm,   (double)vm_pop_u64(vm)); break;
+            case Op_ftof_64_32: vm_push_f64(vm,   (double)vm_pop_f32(vm)); break;
+            case Op_sext8_32:   vm_push_i32(vm,   (int8_t)vm_pop_i32(vm)); break;
+            case Op_sext16_32:  vm_push_i32(vm,  (int16_t)vm_pop_i32(vm)); break;
+            case Op_sext8_64:   vm_push_i64(vm,   (int8_t)vm_pop_i64(vm)); break;
+            case Op_sext16_64:  vm_push_i64(vm,  (int16_t)vm_pop_i64(vm)); break;
+            case Op_sext32_64:  vm_push_i64(vm,  (int32_t)vm_pop_i64(vm)); break;
+
+            case Op_memcpy:
+                {
+                    uint32_t n = vm_pop_u32(vm);
+                    uint32_t src = vm_pop_u32(vm);
+                    uint32_t dest = vm_pop_u32(vm);
+                    assert(dest + n <= vm->memory_len);
+                    assert(src + n <= vm->memory_len);
+                    assert(src + n <= dest || dest + n <= src); // overlapping
+                    memcpy(vm->memory + dest, vm->memory + src, n);
+                }
+                break;
+            case Op_memset:
+                {
+                    uint32_t n = vm_pop_u32(vm);
+                    uint8_t value = (uint8_t)vm_pop_u32(vm);
+                    uint32_t dest = vm_pop_u32(vm);
+                    assert(dest + n <= vm->memory_len);
+                    memset(vm->memory + dest, value, n);
+                }
+                break;
         }
     }
 }
@@ -4064,11 +4090,12 @@ int main(int argc, char **argv) {
 
     size_t cwd_path_len = common_prefix(zig_lib_dir_path, cmake_binary_dir_path);
     const char *rel_cmake_bin_path = cmake_binary_dir_path + cwd_path_len;
+
     size_t rel_cmake_bin_path_len = strlen(rel_cmake_bin_path);
 
     const char *new_argv[30];
     char new_argv_buf[PATH_MAX + 1024];
-    uint32_t new_argv_i = 0; 
+    uint32_t new_argv_i = 0;
     uint32_t new_argv_buf_i = 0;
 
     int cache_dir = -1;
@@ -4102,7 +4129,7 @@ int main(int argc, char **argv) {
     new_argv_i += 1;
     argv_i += 1;
 
-    for(; argv[argv_i]; argv_i += 1) {
+    for (; argv[argv_i]; argv_i += 1) {
         new_argv[new_argv_i] = argv[argv_i];
         new_argv_i += 1;
     }
@@ -4380,6 +4407,7 @@ int main(int argc, char **argv) {
         functions = arena_alloc(sizeof(struct Function) * functions_len);
         for (size_t func_i = 0; func_i < functions_len; func_i += 1) {
             struct Function *func = &functions[func_i];
+            func->id = imports_len + func_i;
             func->type_idx = read32_uleb128(mod_ptr, &i);
         }
     }
@@ -4474,7 +4502,7 @@ int main(int argc, char **argv) {
 #ifndef NDEBUG
     memset(&vm, 0xaa, sizeof(struct VirtualMachine)); // to match the zig version
 #endif
-    vm.stack = arena_alloc(sizeof(uint64_t) * 10000000),
+    vm.stack = arena_alloc(sizeof(uint32_t) * 10000000),
     vm.mod_ptr = mod_ptr;
     vm.opcodes = arena_alloc(2000000);
     vm.operands = arena_alloc(sizeof(uint32_t) * 2000000);
@@ -4496,42 +4524,43 @@ int main(int argc, char **argv) {
         struct ProgramCounter pc;
         pc.opcode = 0;
         pc.operand = 0;
+        struct StackInfo stack;
         for (uint32_t func_i = 0; func_i < functions_len; func_i += 1) {
             struct Function *func = &functions[func_i];
             uint32_t size = read32_uleb128(mod_ptr, &code_i);
             uint32_t code_begin = code_i;
 
+            stack.top_index = 0;
+            stack.top_offset = 0;
             struct TypeInfo *type_info = &vm.types[func->type_idx];
-            func->locals_count = 0;
-            func->local_types = malloc(sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
-            func->local_types[0] = type_info->param_types;
+            for (uint32_t param_i = 0; param_i < type_info->param_count; param_i += 1)
+                si_push(&stack, bs_isSet(&type_info->param_types, param_i));
+            uint32_t params_size = stack.top_offset;
 
             for (uint32_t local_sets_count = read32_uleb128(mod_ptr, &code_i);
                  local_sets_count > 0; local_sets_count -= 1)
             {
-                uint32_t set_count = read32_uleb128(mod_ptr, &code_i);
-                int64_t local_type = read64_ileb128(mod_ptr, &code_i);
-
-                uint32_t i = type_info->param_count + func->locals_count;
-                func->locals_count += set_count;
-                if ((type_info->param_count + func->locals_count + 31) / 32 > (i + 31) / 32)
-                    func->local_types = realloc(func->local_types, sizeof(uint32_t) * ((type_info->param_count + func->locals_count + 31) / 32));
-                for (; i < type_info->param_count + func->locals_count; i += 1)
-                    switch (local_type) {
-                        case -1: case -3: bs_unset(func->local_types, i); break;
-                        case -2: case -4:   bs_set(func->local_types, i); break;
-                        default: panic("unexpected local type");
-                    }
+                uint32_t local_set_count = read32_uleb128(mod_ptr, &code_i);
+                enum StackType local_type;
+                switch (read64_ileb128(mod_ptr, &code_i)) {
+                    case -1: case -3: local_type = ST_32; break;
+                    case -2: case -4: local_type = ST_64; break;
+                    default: panic("unexpected local type");
+                }
+                for (; local_set_count > 0; local_set_count -= 1)
+                    si_push(&stack, local_type);
             }
+            func->locals_size = stack.top_offset - params_size;
 
-            //fprintf(stderr, "set up func %u with pc %u:%u\n", func->type_idx, pc.opcode, pc.operand);
             func->entry_pc = pc;
-            vm_decodeCode(&vm, func, &code_i, &pc);
+            //fprintf(stderr, "decoding func id %u with pc %u:%u\n", func->id, pc.opcode, pc.operand);
+            vm_decodeCode(&vm, type_info, &code_i, &pc, &stack);
             if (code_i != code_begin + size) panic("bad code size");
         }
+        //fprintf(stderr, "%u opcodes\n%u operands\n", pc.opcode, pc.operand);
     }
 
-    vm_call(&vm, start_fn_idx);
+    vm_call(&vm, &vm.functions[start_fn_idx - imports_len]);
     vm_run(&vm);
 
     return 0;
