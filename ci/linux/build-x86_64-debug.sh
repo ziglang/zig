@@ -30,7 +30,7 @@ cd "$ZIGDIR"
 echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
 "$OLD_ZIG" build \
-  --prefix stage3
+  --prefix stage3 \
   --search-prefix "$DEPS_LOCAL" \
   --zig-lib-dir lib \
   -Denable-stage1 \
