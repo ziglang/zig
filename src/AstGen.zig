@@ -4854,8 +4854,9 @@ fn containerDecl(
                             },
                         );
                     }
-                    // Alignment expressions in enums are caught by the parser.
-                    assert(member.ast.align_expr == 0);
+                    if (member.ast.align_expr != 0) {
+                        return astgen.failNode(member.ast.align_expr, "enum fields cannot be aligned", .{});
+                    }
 
                     const name_token = member.ast.main_token;
                     if (mem.eql(u8, tree.tokenSlice(name_token), "_")) {

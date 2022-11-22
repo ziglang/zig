@@ -804,7 +804,7 @@ pub const Type = extern union {
                 return a_struct_obj == b_struct_obj;
             },
             .tuple, .empty_struct_literal => {
-                if (!b.isTuple()) return false;
+                if (!b.isSimpleTuple()) return false;
 
                 const a_tuple = a.tupleFields();
                 const b_tuple = b.tupleFields();
@@ -5572,7 +5572,11 @@ pub const Type = extern union {
 
     pub fn structFieldCount(ty: Type) usize {
         switch (ty.tag()) {
-            .@"struct" => return ty.castTag(.@"struct").?.data.fields.count(),
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.haveFieldTypes());
+                return struct_obj.fields.count();
+            },
             .empty_struct, .empty_struct_literal => return 0,
             .tuple => return ty.castTag(.tuple).?.data.types.len,
             .anon_struct => return ty.castTag(.anon_struct).?.data.types.len,

@@ -11834,6 +11834,12 @@ fn analyzeTupleCat(
     if (dest_fields == 0) {
         return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
     }
+    if (lhs_len == 0) {
+        return rhs;
+    }
+    if (rhs_len == 0) {
+        return lhs;
+    }
     const final_len = try sema.usizeCast(block, rhs_src, dest_fields);
 
     const types = try sema.arena.alloc(Type, final_len);
@@ -11880,13 +11886,13 @@ fn analyzeTupleCat(
     var i: u32 = 0;
     while (i < lhs_len) : (i += 1) {
         const operand_src = lhs_src; // TODO better source location
-        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, @intCast(u32, i), lhs_ty);
+        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, i, lhs_ty);
     }
     i = 0;
     while (i < rhs_len) : (i += 1) {
         const operand_src = rhs_src; // TODO better source location
         element_refs[i + lhs_len] =
-            try sema.tupleFieldValByIndex(block, operand_src, rhs, @intCast(u32, i), rhs_ty);
+            try sema.tupleFieldValByIndex(block, operand_src, rhs, i, rhs_ty);
     }
 
     return block.addAggregateInit(tuple_ty, element_refs);
@@ -18502,8 +18508,12 @@ fn reifyStruct(
         }
         const abi_align = @intCast(u29, (try alignment_val.getUnsignedIntAdvanced(target, sema)).?);
 
-        if (layout == .Packed and abi_align != 0) {
-            return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
+        if (layout == .Packed) {
+            if (abi_align != 0) return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
+            if (is_comptime_val.toBool()) return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{});
+        }
+        if (layout == .Extern and is_comptime_val.toBool()) {
+            return sema.fail(block, src, "extern struct fields cannot be marked comptime", .{});
         }
 
         const field_name = try name_val.toAllocatedBytes(
@@ -18512,6 +18522,25 @@ fn reifyStruct(
             mod,
         );
 
+        if (is_tuple) {
+            const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch {
+                return sema.fail(
+                    block,
+                    src,
+                    "tuple cannot have non-numeric field '{s}'",
+                    .{field_name},
+                );
+            };
+
+            if (field_index >= fields_len) {
+                return sema.fail(
+                    block,
+                    src,
+                    "tuple field {} exceeds tuple field count",
+                    .{field_index},
+                );
+            }
+        }
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop.found_existing) {
             // TODO: better source location
@@ -18525,6 +18554,9 @@ fn reifyStruct(
                 opt_val;
             break :blk try payload_val.copy(new_decl_arena_allocator);
         } else Value.initTag(.unreachable_value);
+        if (is_comptime_val.toBool() and default_val.tag() == .unreachable_value) {
+            return sema.fail(block, src, "comptime field without default initialization value", .{});
+        }
 
         var buffer: Value.ToTypeBuffer = undefined;
         gop.value_ptr.* = .{
@@ -27094,7 +27126,7 @@ fn coerceTupleToStruct(
 
     const inst_ty = sema.typeOf(inst);
     var runtime_src: ?LazySrcLoc = null;
-    const field_count = struct_ty.structFieldCount();
+    const field_count = inst_ty.structFieldCount();
     var field_i: u32 = 0;
     while (field_i < field_count) : (field_i += 1) {
         const field_src = inst_src; // TODO better source location
@@ -27176,15 +27208,16 @@ fn coerceTupleToTuple(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    const field_count = tuple_ty.structFieldCount();
-    const field_vals = try sema.arena.alloc(Value, field_count);
+    const dest_field_count = tuple_ty.structFieldCount();
+    const field_vals = try sema.arena.alloc(Value, dest_field_count);
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
     mem.set(Air.Inst.Ref, field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
+    const inst_field_count = inst_ty.structFieldCount();
     var runtime_src: ?LazySrcLoc = null;
     var field_i: u32 = 0;
-    while (field_i < field_count) : (field_i += 1) {
+    while (field_i < inst_field_count) : (field_i += 1) {
         const field_src = inst_src; // TODO better source location
         const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
             payload.data.names[field_i]

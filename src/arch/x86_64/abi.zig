@@ -552,6 +552,7 @@ test "C_C_D" {
         .layout = .Extern,
         .status = .fully_resolved,
         .known_non_opv = true,
+        .is_tuple = false,
     };
     var C_C_D = Type.Payload.Struct{ .data = &C_C_D_struct };
 

@@ -884,7 +884,7 @@ const Parser = struct {
 
         var align_expr: Node.Index = 0;
         var type_expr: Node.Index = 0;
-        if (p.eatToken(.colon) != null or tuple_like) |_| {
+        if (p.eatToken(.colon) != null or tuple_like) {
             type_expr = try p.expectTypeExpr();
             align_expr = try p.parseByteAlign();
         }

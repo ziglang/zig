@@ -1189,6 +1189,16 @@ fn renderContainerField(
         try renderToken(ais, tree, t, .space); // comptime
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr == 0) {
+        if (field.ast.align_expr != 0) {
+            try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+            const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
+            const align_kw = lparen_token - 1;
+            const rparen_token = tree.lastToken(field.ast.align_expr) + 1;
+            try renderToken(ais, tree, align_kw, .none); // align
+            try renderToken(ais, tree, lparen_token, .none); // (
+            try renderExpression(gpa, ais, tree, field.ast.align_expr, .none); // alignment
+            return renderToken(ais, tree, rparen_token, .space); // )
+        }
         return renderIdentifierComma(ais, tree, field.ast.main_token, space, .eagerly_unquote); // name
     }
     if (field.ast.type_expr != 0 and field.ast.value_expr == 0) {
@@ -1211,6 +1221,15 @@ fn renderContainerField(
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr != 0) {
         try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+        if (field.ast.align_expr != 0) {
+            const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
+            const align_kw = lparen_token - 1;
+            const rparen_token = tree.lastToken(field.ast.align_expr) + 1;
+            try renderToken(ais, tree, align_kw, .none); // align
+            try renderToken(ais, tree, lparen_token, .none); // (
+            try renderExpression(gpa, ais, tree, field.ast.align_expr, .none); // alignment
+            try renderToken(ais, tree, rparen_token, .space); // )
+        }
         try renderToken(ais, tree, field.ast.main_token + 1, .space); // =
         return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
     }
