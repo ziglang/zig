@@ -3,8 +3,6 @@
 set -x
 set -e
 
-echo "Running on Version:" $MACOS_VERSION
-
 # Script assumes the presence of the following:
 # s3cmd 
 
@@ -13,7 +11,7 @@ TARGET="$ARCH-macos-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.4560+828735ac0"
 PREFIX="$HOME/$CACHE_BASENAME"
-JOBS="-j2"
+JOBS="-j3"
 
 rm -rf $PREFIX
 cd $HOME

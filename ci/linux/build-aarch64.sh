@@ -12,7 +12,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.256+271cc52a1"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig" 
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-aarch64-linux:$PATH"
+export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -42,6 +42,14 @@ unset CXX
 
 ninja install
 
+echo "Looking for non-conforming code formatting..."
+stage3-release/bin/zig fmt --check .. \
+  --exclude ../test/cases/ \
+  --exclude ../build-release
+
+# simultaneously test building self-hosted without LLVM and with 32-bit arm
+stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
+
 # TODO: add -fqemu back to this line
 
 stage3-release/bin/zig build test docs \
@@ -51,15 +59,12 @@ stage3-release/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
 
+# Look for HTML errors.
+tidy --drop-empty-elements no -qe zig-cache/langref.html
+
 # Produce the experimental std lib documentation.
 mkdir -p "stage3-release/doc/std"
 stage3-release/bin/zig test ../lib/std/std.zig \
   -femit-docs=stage3-release/doc/std \
   -fno-emit-bin \
   --zig-lib-dir "$(pwd)/../lib"
-
-# cp ../LICENSE $RELEASE_STAGING/
-# cp ../zig-cache/langref.html $RELEASE_STAGING/doc/
-
-# # Look for HTML errors.
-# tidy --drop-empty-elements no -qe $RELEASE_STAGING/doc/langref.html
