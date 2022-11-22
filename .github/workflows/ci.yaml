@@ -57,29 +57,3 @@ jobs:
         uses: actions/checkout@v3
       - name: Build and Test
         run: ./ci/macos/build-aarch64.sh
-  build-tarballs:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}  
-    runs-on: ubuntu-latest
-    needs: 
-      - x86_64-linux-debug
-      - x86_64-linux-release
-      - x86_64-macos
-      - x86_64-windows
-      - aarch64-linux
-      - aarch64-macos
-    env:
-      ZIG_VERSION: "${{ needs.x86_64-linux-debug.outputs.version }}"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3            
-      - uses: webfactory/ssh-agent@v0.6.0
-        with:
-          ssh-private-key: ${{ secrets.WEBSITE_CI_PUSH_SSH_KEY }}
-      - name: Set AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1      
-      - name: Build Tarballs
-        run: sh ./ci/linux/build-tarballs.sh
