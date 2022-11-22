@@ -1,12 +1,10 @@
 #!/bin/sh
 
-
 # Requires cmake ninja-build
 
 set -x
 set -e
 
-ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
@@ -25,6 +23,7 @@ git fetch --tags
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
+rm -rf build-release
 mkdir build-release
 cd build-release
 cmake .. \
