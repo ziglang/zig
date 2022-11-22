@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <common/errno.h>
-
 #include <wasi/api.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -19,7 +17,7 @@ int __wasilibc_nocwd_linkat(int fd1, const char *path1, int fd2, const char *pat
   // Perform system call.
   __wasi_errno_t error = __wasi_path_link(fd1, lookup1_flags, path1, fd2, path2);
   if (error != 0) {
-    errno = errno_fixup_directory(fd1, errno_fixup_directory(fd2, error));
+    errno = error;
     return -1;
   }
   return 0;

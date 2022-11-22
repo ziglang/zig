@@ -103,8 +103,10 @@ int pthread_setcanceltype(int, int *);
 void pthread_testcancel(void);
 int pthread_cancel(pthread_t);
 
+#ifdef __wasilibc_unmodified_upstream /* WASI has no CPU scheduling support. */
 int pthread_getschedparam(pthread_t, int *__restrict, struct sched_param *__restrict);
 int pthread_setschedparam(pthread_t, int, const struct sched_param *);
+#endif
 int pthread_setschedprio(pthread_t, int);
 
 int pthread_once(pthread_once_t *, void (*)(void));
@@ -167,8 +169,10 @@ int pthread_attr_getscope(const pthread_attr_t *__restrict, int *__restrict);
 int pthread_attr_setscope(pthread_attr_t *, int);
 int pthread_attr_getschedpolicy(const pthread_attr_t *__restrict, int *__restrict);
 int pthread_attr_setschedpolicy(pthread_attr_t *, int);
+#ifdef __wasilibc_unmodified_upstream /* WASI has no CPU scheduling support. */
 int pthread_attr_getschedparam(const pthread_attr_t *__restrict, struct sched_param *__restrict);
 int pthread_attr_setschedparam(pthread_attr_t *__restrict, const struct sched_param *__restrict);
+#endif
 int pthread_attr_getinheritsched(const pthread_attr_t *__restrict, int *__restrict);
 int pthread_attr_setinheritsched(pthread_attr_t *, int);
 

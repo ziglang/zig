@@ -11,6 +11,7 @@ int pthread_mutexattr_setprotocol(pthread_mutexattr_t *a, int protocol)
 		a->__attr &= ~8;
 		return 0;
 	case PTHREAD_PRIO_INHERIT:
+#ifdef __wasilibc_unmodified_upstream
 		r = check_pi_result;
 		if (r < 0) {
 			volatile int lk = 0;
@@ -20,6 +21,9 @@ int pthread_mutexattr_setprotocol(pthread_mutexattr_t *a, int protocol)
 		if (r) return r;
 		a->__attr |= 8;
 		return 0;
+#else
+		return ENOTSUP;
+#endif
 	case PTHREAD_PRIO_PROTECT:
 		return ENOTSUP;
 	default:

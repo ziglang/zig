@@ -1,5 +1,9 @@
 #include "pthread_impl.h"
 
+#ifndef __wasilibc_unmodified_upstream
+#include <common/clock.h>
+#endif
+
 /*
  * struct waiter
  *
@@ -48,9 +52,15 @@ static inline void unlock(volatile int *l)
 static inline void unlock_requeue(volatile int *l, volatile int *r, int w)
 {
 	a_store(l, 0);
+#ifdef __wasilibc_unmodified_upstream
 	if (w) __wake(l, 1, 1);
 	else __syscall(SYS_futex, l, FUTEX_REQUEUE|FUTEX_PRIVATE, 0, 1, r) != -ENOSYS
 		|| __syscall(SYS_futex, l, FUTEX_REQUEUE, 0, 1, r);
+#else
+	// Always wake due to lack of requeue system call in WASI
+	// This can impact the performance, so we might need to re-visit that decision
+	__wake(l, 1, 1);
+#endif
 }
 
 enum {
@@ -63,6 +73,9 @@ int __pthread_cond_timedwait(pthread_cond_t *restrict c, pthread_mutex_t *restri
 {
 	struct waiter node = { 0 };
 	int e, seq, clock = c->_c_clock, cs, shared=0, oldstate, tmp;
+#ifndef __wasilibc_unmodified_upstream
+	struct __clockid clock_id = { .id = clock };
+#endif
 	volatile int *fut;
 
 	if ((m->_m_type&15) && (m->_m_lock&INT_MAX) != __pthread_self()->tid)
@@ -97,7 +110,11 @@ int __pthread_cond_timedwait(pthread_cond_t *restrict c, pthread_mutex_t *restri
 	__pthread_setcancelstate(PTHREAD_CANCEL_MASKED, &cs);
 	if (cs == PTHREAD_CANCEL_DISABLE) __pthread_setcancelstate(cs, 0);
 
+#ifdef __wasilibc_unmodified_upstream
 	do e = __timedwait_cp(fut, seq, clock, ts, !shared);
+#else
+	do e = __timedwait_cp(fut, seq, &clock_id, ts, !shared);
+#endif
 	while (*fut==seq && (!e || e==EINTR));
 	if (e == EINTR) e = 0;
 

@@ -19,4 +19,4 @@ int __clock_gettime(clockid_t clock_id, struct timespec *tp) {
   *tp = timestamp_to_timespec(ts);
   return 0;
 }
-extern __typeof(__clock_gettime) clock_gettime __attribute__((weak, alias("__clock_gettime")));
+weak_alias(__clock_gettime, clock_gettime);

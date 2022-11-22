@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <common/errno.h>
-
 #include <assert.h>
 #include <wasi/api.h>
 #include <wasi/libc.h>
@@ -75,7 +73,7 @@ int __wasilibc_nocwd_openat_nomode(int fd, const char *path, int oflag) {
                                  fs_rights_base, fs_rights_inheriting, fs_flags,
                                  &newfd);
   if (error != 0) {
-    errno = errno_fixup_directory(fd, error);
+    errno = error;
     return -1;
   }
   return newfd;

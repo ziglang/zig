@@ -41,7 +41,9 @@ extern "C" {
 #endif
 
 #ifdef __wasilibc_unmodified_upstream /* Use the compiler's definition of NULL */
-#ifdef __cplusplus
+#if __cplusplus >= 201103L
+#define NULL nullptr
+#elif defined(__cplusplus)
 #define NULL 0L
 #else
 #define NULL ((void*)0)

@@ -5,6 +5,7 @@
 #include "syscall.h"
 #include "pthread_impl.h"
 
+#ifdef __wasilibc_unmodified_upstream
 #define IS32BIT(x) !((x)+0x80000000ULL>>32)
 #define CLAMP(x) (int)(IS32BIT(x) ? (x) : 0x7fffffffU+((0ULL+(x))>>63))
 
@@ -28,6 +29,16 @@ static int __futex4_cp(volatile void *addr, int op, int val, const struct timesp
 
 static volatile int dummy = 0;
 weak_alias(dummy, __eintr_valid_flag);
+#else
+static int __futex4_cp(volatile void *addr, int op, int val, const struct timespec *to)
+{
+	int64_t max_wait_ns = -1;
+	if (to) {
+		max_wait_ns = (int64_t)(to->tv_sec * 1000000000 + to->tv_nsec);
+	}
+	return __wasilibc_futex_wait(addr, op, val, max_wait_ns);
+}
+#endif
 
 int __timedwait_cp(volatile int *addr, int val,
 	clockid_t clk, const struct timespec *at, int priv)
@@ -51,11 +62,13 @@ int __timedwait_cp(volatile int *addr, int val,
 
 	r = -__futex4_cp(addr, FUTEX_WAIT|priv, val, top);
 	if (r != EINTR && r != ETIMEDOUT && r != ECANCELED) r = 0;
+#ifdef __wasilibc_unmodified_upstream
 	/* Mitigate bug in old kernels wrongly reporting EINTR for non-
 	 * interrupting (SA_RESTART) signal handlers. This is only practical
 	 * when NO interrupting signal handlers have been installed, and
 	 * works by sigaction tracking whether that's the case. */
 	if (r == EINTR && !__eintr_valid_flag) r = 0;
+#endif
 
 	return r;
 }

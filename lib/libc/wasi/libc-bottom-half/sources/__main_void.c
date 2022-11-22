@@ -8,7 +8,7 @@ int __main_argc_argv(int argc, char *argv[]);
 // If the user's `main` function expects arguments, the compiler will rename
 // it to `__main_argc_argv`, and this version will get linked in, which
 // initializes the argument data and calls `__main_argc_argv`.
-__attribute__((weak, nodebug))
+__attribute__((__weak__, nodebug))
 int __main_void(void) {
     __wasi_errno_t err;
 

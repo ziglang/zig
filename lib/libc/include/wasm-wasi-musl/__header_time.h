@@ -16,12 +16,8 @@
 
 extern const struct __clockid _CLOCK_MONOTONIC;
 #define CLOCK_MONOTONIC (&_CLOCK_MONOTONIC)
-extern const struct __clockid _CLOCK_PROCESS_CPUTIME_ID;
-#define CLOCK_PROCESS_CPUTIME_ID (&_CLOCK_PROCESS_CPUTIME_ID)
 extern const struct __clockid _CLOCK_REALTIME;
 #define CLOCK_REALTIME (&_CLOCK_REALTIME)
-extern const struct __clockid _CLOCK_THREAD_CPUTIME_ID;
-#define CLOCK_THREAD_CPUTIME_ID (&_CLOCK_THREAD_CPUTIME_ID)
 
 /*
  * TIME_UTC is the only standardized time base value.

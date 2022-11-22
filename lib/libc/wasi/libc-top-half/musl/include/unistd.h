@@ -244,7 +244,9 @@ void *sbrk(intptr_t);
 pid_t vfork(void);
 int vhangup(void);
 int chroot(const char *);
+#endif
 int getpagesize(void);
+#ifdef __wasilibc_unmodified_upstream /* WASI has no processes */
 int getdtablesize(void);
 int sethostname(const char *, size_t);
 int getdomainname(char *, size_t);

@@ -1,7 +1,11 @@
+#ifdef __wasilibc_unmodified_upstream
 #define SYSCALL_NO_TLS 1
 #include <elf.h>
+#endif
 #include <limits.h>
+#ifdef __wasilibc_unmodified_upstream
 #include <sys/mman.h>
+#endif
 #include <string.h>
 #include <stddef.h>
 #include "pthread_impl.h"
@@ -11,21 +15,31 @@
 
 volatile int __thread_list_lock;
 
+#ifndef __wasilibc_unmodified_upstream
+void __wasi_init_tp() {
+	__init_tp((void *)__get_tp());
+}
+#endif
+
 int __init_tp(void *p)
 {
 	pthread_t td = p;
 	td->self = td;
+#ifdef __wasilibc_unmodified_upstream
 	int r = __set_thread_area(TP_ADJ(p));
 	if (r < 0) return -1;
 	if (!r) libc.can_do_threads = 1;
 	td->detach_state = DT_JOINABLE;
 	td->tid = __syscall(SYS_set_tid_address, &__thread_list_lock);
+#endif
 	td->locale = &libc.global_locale;
 	td->robust_list.head = &td->robust_list.head;
 	td->sysinfo = __sysinfo;
 	td->next = td->prev = td;
 	return 0;
 }
+
+#ifdef __wasilibc_unmodified_upstream
 
 static struct builtin_tls {
 	char c;
@@ -35,9 +49,15 @@ static struct builtin_tls {
 #define MIN_TLS_ALIGN offsetof(struct builtin_tls, pt)
 
 static struct tls_module main_tls;
+#endif
+
+#ifndef __wasilibc_unmodified_upstream
+extern void __wasm_init_tls(void*);
+#endif
 
 void *__copy_tls(unsigned char *mem)
 {
+#ifdef __wasilibc_unmodified_upstream
 	pthread_t td;
 	struct tls_module *p;
 	size_t i;
@@ -69,8 +89,20 @@ void *__copy_tls(unsigned char *mem)
 	dtv[0] = libc.tls_cnt;
 	td->dtv = dtv;
 	return td;
+#else
+	size_t tls_align = __builtin_wasm_tls_align();
+	volatile void* tls_base = __builtin_wasm_tls_base();
+	mem += tls_align;
+	mem -= (uintptr_t)mem & (tls_align-1);
+	__wasm_init_tls(mem);
+  	__asm__("local.get %0\n"
+			"global.set __tls_base\n"
+			:: "r"(tls_base));
+	return mem;
+#endif
 }
 
+#ifdef __wasilibc_unmodified_upstream
 #if ULONG_MAX == 0xffffffff
 typedef Elf32_Phdr Phdr;
 #else
@@ -151,3 +183,4 @@ static void static_init_tls(size_t *aux)
 }
 
 weak_alias(static_init_tls, __init_tls);
+#endif

@@ -11,6 +11,12 @@
 #define DT_REG __WASI_FILETYPE_REGULAR_FILE
 #define DT_UNKNOWN __WASI_FILETYPE_UNKNOWN
 
+#define IFTODT(x) (__wasilibc_iftodt(x))
+#define DTTOIF(x) (__wasilibc_dttoif(x))
+
+int __wasilibc_iftodt(int x);
+int __wasilibc_dttoif(int x);
+
 #include <__struct_dirent.h>
 #include <__typedef_DIR.h>
 

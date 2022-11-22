@@ -70,7 +70,7 @@ int __wasilibc_find_relpath_alloc(
     char **relative,
     size_t *relative_len,
     int can_realloc
-) __attribute__((weak));
+) __attribute__((__weak__));
 
 #ifdef __cplusplus
 }
