@@ -60,11 +60,10 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib"
 
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe zig-cache/langref.html
+tidy --drop-empty-elements no -qe ../zig-cache/langref.html
 
 # Produce the experimental std lib documentation.
-mkdir -p "stage3-release/doc/std"
 stage3-release/bin/zig test ../lib/std/std.zig \
-  -femit-docs=stage3-release/doc/std \
+  -femit-docs \
   -fno-emit-bin \
   --zig-lib-dir "$(pwd)/../lib"
