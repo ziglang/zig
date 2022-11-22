@@ -325,14 +325,14 @@ pub const DeclGen = struct {
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!IdRef {
         if (ty.zigTypeTag() == .Fn) {
-             const fn_decl_index = switch (val.tag()) {
-                 .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
-                 .function => val.castTag(.function).?.data.owner_decl,
-                 else => unreachable,
-             };
-             const decl = self.module.declPtr(fn_decl_index);
-             self.module.markDeclAlive(decl);
-             return decl.fn_link.spirv.id.toRef();
+            const fn_decl_index = switch (val.tag()) {
+                .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
+                .function => val.castTag(.function).?.data.owner_decl,
+                else => unreachable,
+            };
+            const decl = self.module.declPtr(fn_decl_index);
+            self.module.markDeclAlive(decl);
+            return decl.fn_link.spirv.id.toRef();
         }
 
         const target = self.getTarget();
@@ -1051,7 +1051,7 @@ pub const DeclGen = struct {
             }
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1..], 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
             // TODO: Record output and use it somewhere.
         }
@@ -1096,7 +1096,7 @@ pub const DeclGen = struct {
             input_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             const value = try self.resolve(input);
-            try as.value_map.put(as.gpa, name, .{.value = value});
+            try as.value_map.put(as.gpa, name, .{ .value = value });
         }
 
         as.assemble() catch |err| switch (err) {
@@ -1134,7 +1134,7 @@ pub const DeclGen = struct {
             _ = output;
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[output_extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[output_extra_i..]), 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1..], 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             const result = as.value_map.get(name) orelse return {
