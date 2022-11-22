@@ -81,20 +81,22 @@ const test_targets = blk: {
             .single_threaded = true,
             .backend = .stage2_wasm,
         },
-        .{
-            .target = .{
-                .cpu_arch = .arm,
-                .os_tag = .linux,
-            },
-            .backend = .stage2_arm,
-        },
-        .{
-            .target = CrossTarget.parse(.{
-                .arch_os_abi = "arm-linux-none",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
-            .backend = .stage2_arm,
-        },
+        // https://github.com/ziglang/zig/issues/13623
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .arm,
+        //        .os_tag = .linux,
+        //    },
+        //    .backend = .stage2_arm,
+        //},
+        // https://github.com/ziglang/zig/issues/13623
+        //.{
+        //    .target = CrossTarget.parse(.{
+        //        .arch_os_abi = "arm-linux-none",
+        //        .cpu_features = "generic+v8a",
+        //    }) catch unreachable,
+        //    .backend = .stage2_arm,
+        //},
         .{
             .target = .{
                 .cpu_arch = .aarch64,

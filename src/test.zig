@@ -1816,7 +1816,13 @@ pub const TestContext = struct {
                                 try argv.appendSlice(&.{ "-I", p });
                             }
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
-                            .native => try argv.append(exe_path),
+                            .native => {
+                                if (case.backend == .stage2 and case.target.getCpuArch() == .arm) {
+                                    // https://github.com/ziglang/zig/issues/13623
+                                    continue :update; // Pass test.
+                                }
+                                try argv.append(exe_path);
+                            },
                             .bad_dl, .bad_os_or_cpu => continue :update, // Pass test.
 
                             .rosetta => if (enable_rosetta) {
