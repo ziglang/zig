@@ -60,7 +60,6 @@ make -j2 install
 
 "stage3/bin/zig" build \
   --prefix stage4 \
-  -Dconfig_h="build/config.h" \
   -Denable-llvm \
   -Denable-stage1 \
   -Dno-lib \

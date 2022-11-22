@@ -30,6 +30,7 @@ cd "$ZIGDIR"
 echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
 "$OLD_ZIG" build \
+  --prefix stage3
   --search-prefix "$DEPS_LOCAL" \
   --zig-lib-dir lib \
   -Denable-stage1 \
@@ -39,14 +40,14 @@ echo "building stage3-debug with zig version $($OLD_ZIG version)"
   -Dtarget="$TARGET"
 
 echo "Looking for non-conforming code formatting..."
-zig-out/bin/zig fmt --check . \
+stage3/bin/zig fmt --check . \
   --exclude test/cases/ \
   --exclude build
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
-zig-out/bin/zig build -Dtarget=arm-linux-musleabihf
+stage3/bin/zig build -Dtarget=arm-linux-musleabihf
 
-zig-out/bin/zig build test docs \
+stage3/bin/zig build test docs \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
