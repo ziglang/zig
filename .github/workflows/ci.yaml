@@ -10,8 +10,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Run Build Script
+      - name: Build and Test
         run: sh ./ci/linux/build-aarch64.sh
+  x86_64-linux-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: sh ./ci/linux/build-x86_64-debug.sh
+  x86_64-linux-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: sh ./ci/linux/build-x86_64-release.sh
   x86_64-macos:
     strategy:
       matrix:
@@ -47,7 +61,7 @@ jobs:
       - name: Run Build Script
         run: ./ci/windows/build.ps1
   build-tarballs:
-    needs: [aarch64-linux, x86_64-macos, aarch64-macos, x86_64-windows]
+    needs: [aarch64-linux, x86_64-macos, aarch64-macos, x86_64-windows, x86_64-linux-debug, x86_64-linux-release]
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
