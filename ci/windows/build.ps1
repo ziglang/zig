@@ -40,7 +40,6 @@ Write-Output "Building Zig..."
     -Denable-stage1 `
     -Dstatic-llvm `
     -Drelease `
-    -Dstrip `
     -Duse-zig-libcxx `
     -Dtarget="$TARGET"
 CheckLastExitCode
