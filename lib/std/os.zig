@@ -6028,7 +6028,7 @@ pub fn sendfile(
                     .BADF => unreachable, // Always a race condition.
                     .FAULT => unreachable, // Segmentation fault.
                     .OVERFLOW => unreachable, // We avoid passing too large of a `count`.
-                    .NOTCONN => unreachable, // `out_fd` is an unconnected socket.
+                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
 
                     .INVAL, .NOSYS => {
                         // EINVAL could be any of the following situations:
@@ -6096,7 +6096,7 @@ pub fn sendfile(
 
                     .BADF => unreachable, // Always a race condition.
                     .FAULT => unreachable, // Segmentation fault.
-                    .NOTCONN => unreachable, // `out_fd` is an unconnected socket.
+                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
 
                     .INVAL, .OPNOTSUPP, .NOTSOCK, .NOSYS => {
                         // EINVAL could be any of the following situations:
@@ -6178,7 +6178,7 @@ pub fn sendfile(
                     .BADF => unreachable, // Always a race condition.
                     .FAULT => unreachable, // Segmentation fault.
                     .INVAL => unreachable,
-                    .NOTCONN => unreachable, // `out_fd` is an unconnected socket.
+                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
 
                     .OPNOTSUPP, .NOTSOCK, .NOSYS => break :sf,
 
@@ -6472,7 +6472,7 @@ pub fn recvfrom(
                 .BADF => unreachable, // always a race condition
                 .FAULT => unreachable,
                 .INVAL => unreachable,
-                .NOTCONN => unreachable,
+                .NOTCONN => return error.SocketNotConnected,
                 .NOTSOCK => unreachable,
                 .INTR => continue,
                 .AGAIN => return error.WouldBlock,
