@@ -13,8 +13,9 @@ MCPU="baseline"
 mkdir -p "$DEPS_LOCAL"
 cd "$DEPS_LOCAL"
 
-wget https://ziglang.org/deps/zig+llvm+lld+clang-x86_64-linux-musl-0.10.0-dev.4560+828735ac0.tar.xz
-tar x --strip-components=1 -f zig+llvm+lld+clang-x86_64-linux-musl-0.10.0-dev.4560+828735ac0.tar.xz
+OLD_ZIG_VERSION="0.11.0-dev.256+271cc52a1"
+wget https://ziglang.org/deps/zig+llvm+lld+clang-x86_64-linux-musl-$OLD_ZIG_VERSION.tar.xz
+tar x --strip-components=1 -f zig+llvm+lld+clang-x86_64-linux-musl-$OLD_ZIG_VERSION.tar.xz
 
 wget https://ziglang.org/deps/qemu-linux-x86_64-6.1.0.1.tar.xz
 tar x --strip-components=1 -f qemu-linux-x86_64-6.1.0.1.tar.xz

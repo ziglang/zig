@@ -1041,8 +1041,6 @@ set(BUILD_ZIG2_ARGS
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
     --pkg-end
-    --pkg-begin compiler_rt "${CMAKE_SOURCE_DIR}/lib/compiler_rt.zig"
-    --pkg-end
 )
 
 if("${ZIG_EXECUTABLE}" STREQUAL "")
