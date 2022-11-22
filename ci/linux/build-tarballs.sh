@@ -12,43 +12,6 @@ WORKDIR="$(pwd)"
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.256+271cc52a1"
-PREFIX="$WORKDIR/deps/$CACHE_BASENAME"
-ZIG="$PREFIX/bin/zig" 
-
-OLD_ZIG_VERSION="0.11.0-dev.256+271cc52a1"
-wget "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
-tar xf "$CACHE_BASENAME.tar.xz"
-
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-cd "$ZIGDIR"
-git config core.abbrev 9
-git fetch --unshallow || true
-git fetch --tags
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-
-mkdir "$REL_SRC_BUILD"
-cd "$REL_SRC_BUILD"
-cmake .. \
-  -DCMAKE_INSTALL_PREFIX="stage3-release" \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -GNinja
-
-# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
-# so that installation and testing do not get affected by them.
-unset CC
-unset CXX
-
-ninja install
-
-ZIG_VERSION="$(stage3-release/bin/zig version)"
 
 git clone https://github.com/ziglang/zig-bootstrap
 BOOTSTRAP_SRC="$WORKDIR/zig-bootstrap"

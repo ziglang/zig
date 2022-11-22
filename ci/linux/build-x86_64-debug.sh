@@ -51,7 +51,9 @@ stage3-debug/bin/zig fmt --check .. \
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
 
-stage3-debug/bin/zig build test docs \
+# building docs disabled due to:
+# https://github.com/ziglang/zig/issues/13546
+stage3-debug/bin/zig build test \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
@@ -59,12 +61,13 @@ stage3-debug/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
 
-# Look for HTML errors.
-tidy --drop-empty-elements no -qe zig-cache/langref.html
+# langref disabled due to:
+# https://github.com/ziglang/zig/issues/13546
+## Look for HTML errors.
+#tidy --drop-empty-elements no -qe ../zig-cache/langref.html
 
 # Produce the experimental std lib documentation.
-mkdir -p "stage3-debug/doc/std"
 stage3-debug/bin/zig test ../lib/std/std.zig \
-  -femit-docs=stage3-debug/doc/std \
+  -femit-docs \
   -fno-emit-bin \
   --zig-lib-dir "$(pwd)/../lib"
