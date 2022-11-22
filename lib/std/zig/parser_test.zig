@@ -5824,7 +5824,7 @@ test "recovery: invalid comptime" {
     try testError(
         \\comptime
     , &[_]Error{
-        .expected_block_or_field,
+        .expected_type_expr,
     });
 }
 

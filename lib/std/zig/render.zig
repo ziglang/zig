@@ -40,7 +40,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
 /// Render all members in the given slice, keeping empty lines where appropriate
 fn renderMembers(gpa: Allocator, ais: *Ais, tree: Ast, members: []const Ast.Node.Index) Error!void {
     if (members.len == 0) return;
-    var any_non_tuple_like_fields = false;
+    var is_tuple = true;
     for (members) |member| {
         const tuple_like = switch (tree.nodes.items(.tag)[member]) {
             .container_field_init => tree.containerFieldInit(member).ast.tuple_like,
@@ -49,14 +49,14 @@ fn renderMembers(gpa: Allocator, ais: *Ais, tree: Ast, members: []const Ast.Node
             else => continue,
         };
         if (!tuple_like) {
-            any_non_tuple_like_fields = true;
+            is_tuple = false;
             break;
         }
     }
-    try renderMember(gpa, ais, tree, members[0], any_non_tuple_like_fields, .newline);
+    try renderMember(gpa, ais, tree, members[0], is_tuple, .newline);
     for (members[1..]) |member| {
         try renderExtraNewline(ais, tree, member);
-        try renderMember(gpa, ais, tree, member, any_non_tuple_like_fields, .newline);
+        try renderMember(gpa, ais, tree, member, is_tuple, .newline);
     }
 }
 
@@ -65,7 +65,7 @@ fn renderMember(
     ais: *Ais,
     tree: Ast,
     decl: Ast.Node.Index,
-    any_non_tuple_like_fields: bool,
+    is_tuple: bool,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -181,9 +181,9 @@ fn renderMember(
             try renderExpression(gpa, ais, tree, datas[decl].rhs, space);
         },
 
-        .container_field_init => return renderContainerField(gpa, ais, tree, tree.containerFieldInit(decl), any_non_tuple_like_fields, space),
-        .container_field_align => return renderContainerField(gpa, ais, tree, tree.containerFieldAlign(decl), any_non_tuple_like_fields, space),
-        .container_field => return renderContainerField(gpa, ais, tree, tree.containerField(decl), any_non_tuple_like_fields, space),
+        .container_field_init => return renderContainerField(gpa, ais, tree, tree.containerFieldInit(decl), is_tuple, space),
+        .container_field_align => return renderContainerField(gpa, ais, tree, tree.containerFieldAlign(decl), is_tuple, space),
+        .container_field => return renderContainerField(gpa, ais, tree, tree.containerField(decl), is_tuple, space),
         .@"comptime" => return renderExpression(gpa, ais, tree, decl, space),
 
         .root => unreachable,
@@ -1179,18 +1179,11 @@ fn renderContainerField(
     ais: *Ais,
     tree: Ast,
     field_param: Ast.full.ContainerField,
-    any_non_tuple_like_fields: bool,
+    is_tuple: bool,
     space: Space,
 ) Error!void {
     var field = field_param;
-    if (field.ast.tuple_like and any_non_tuple_like_fields and field.ast.type_expr != 0
-        and tree.nodes.items(.tag)[field.ast.type_expr] == .identifier
-    ) {
-        const ident = tree.nodes.items(.main_token)[field.ast.type_expr];
-        field.ast.tuple_like = false;
-        field.ast.main_token = ident;
-        field.ast.type_expr = 0;
-    } 
+    if (!is_tuple) field.convertToNonTupleLike(tree.nodes);
 
     if (field.comptime_token) |t| {
         try renderToken(ais, tree, t, .space); // comptime
@@ -1935,8 +1928,8 @@ fn renderContainerDecl(
         try renderToken(ais, tree, layout_token, .space);
     }
 
-    var any_non_tuple_like_fields = token_tags[container_decl.ast.main_token] != .keyword_struct;
-    if (!any_non_tuple_like_fields) for (container_decl.ast.members) |member| {
+    var is_tuple = token_tags[container_decl.ast.main_token] == .keyword_struct;
+    if (is_tuple) for (container_decl.ast.members) |member| {
         const tuple_like = switch (tree.nodes.items(.tag)[member]) {
             .container_field_init => tree.containerFieldInit(member).ast.tuple_like,
             .container_field_align => tree.containerFieldAlign(member).ast.tuple_like,
@@ -1944,7 +1937,7 @@ fn renderContainerDecl(
             else => continue,
         };
         if (!tuple_like) {
-            any_non_tuple_like_fields = true;
+            is_tuple = false;
             break;
         }
     };
@@ -2015,7 +2008,7 @@ fn renderContainerDecl(
         // Print all the declarations on the same line.
         try renderToken(ais, tree, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
-            try renderMember(gpa, ais, tree, member, any_non_tuple_like_fields, .space);
+            try renderMember(gpa, ais, tree, member, is_tuple, .space);
         }
         return renderToken(ais, tree, rbrace, space); // rbrace
     }
@@ -2033,9 +2026,9 @@ fn renderContainerDecl(
             .container_field_init,
             .container_field_align,
             .container_field,
-            => try renderMember(gpa, ais, tree, member, any_non_tuple_like_fields, .comma),
+            => try renderMember(gpa, ais, tree, member, is_tuple, .comma),
 
-            else => try renderMember(gpa, ais, tree, member, any_non_tuple_like_fields, .newline),
+            else => try renderMember(gpa, ais, tree, member, is_tuple, .newline),
         }
     }
     ais.popIndent();

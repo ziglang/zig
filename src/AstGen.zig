@@ -4499,21 +4499,15 @@ fn structDeclInner(
             .decl => continue,
             .field => |field| field,
         };
-        if (member.ast.tuple_like and !is_tuple and member.ast.type_expr != 0 and
-            astgen.tree.nodes.items(.tag)[member.ast.type_expr] == .identifier)
-        {
-            const ident = astgen.tree.nodes.items(.main_token)[member.ast.type_expr];
-            member.ast.tuple_like = false;
-            member.ast.main_token = ident;
-            member.ast.type_expr = 0;
-        } else if (is_tuple and !member.ast.tuple_like) {
-            return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
-        }
 
         if (!is_tuple) {
-            if (member.ast.tuple_like) return astgen.failTok(member.ast.main_token, "struct field missing name", .{});
+            member.convertToNonTupleLike(astgen.tree.nodes);
+            assert(!member.ast.tuple_like);
+
             const field_name = try astgen.identAsString(member.ast.main_token);
             wip_members.appendToField(field_name);
+        } else if (!member.ast.tuple_like) {
+            return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
         }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
@@ -4683,14 +4677,8 @@ fn unionDeclInner(
             .decl => continue,
             .field => |field| field,
         };
-        if (member.ast.tuple_like and member.ast.type_expr != 0 and
-            astgen.tree.nodes.items(.tag)[member.ast.type_expr] == .identifier)
-        {
-            const ident = astgen.tree.nodes.items(.main_token)[member.ast.type_expr];
-            member.ast.tuple_like = false;
-            member.ast.main_token = ident;
-            member.ast.type_expr = 0;
-        } else if (member.ast.tuple_like) {
+        member.convertToNonTupleLike(astgen.tree.nodes);
+        if (member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "union field missing name", .{});
         }
         if (member.comptime_token) |comptime_token| {
@@ -4845,14 +4833,8 @@ fn containerDecl(
                             continue;
                         },
                     };
-                    if (member.ast.tuple_like and member.ast.type_expr != 0 and
-                        astgen.tree.nodes.items(.tag)[member.ast.type_expr] == .identifier)
-                    {
-                        const ident = astgen.tree.nodes.items(.main_token)[member.ast.type_expr];
-                        member.ast.tuple_like = false;
-                        member.ast.main_token = ident;
-                        member.ast.type_expr = 0;
-                    } else if (member.ast.tuple_like) {
+                    member.convertToNonTupleLike(astgen.tree.nodes);
+                    if (member.ast.tuple_like) {
                         return astgen.failTok(member.ast.main_token, "enum field missing name", .{});
                     }
                     if (member.comptime_token) |comptime_token| {
@@ -4978,14 +4960,7 @@ fn containerDecl(
                     .decl => continue,
                     .field => |field| field,
                 };
-                if (member.ast.tuple_like and member.ast.type_expr != 0 and
-                    astgen.tree.nodes.items(.tag)[member.ast.type_expr] == .identifier)
-                {
-                    const ident = astgen.tree.nodes.items(.main_token)[member.ast.type_expr];
-                    member.ast.tuple_like = false;
-                    member.ast.main_token = ident;
-                    member.ast.type_expr = 0;
-                }
+                member.convertToNonTupleLike(astgen.tree.nodes);
                 assert(member.comptime_token == null);
                 assert(member.ast.type_expr == 0);
                 assert(member.ast.align_expr == 0);

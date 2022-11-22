@@ -2277,6 +2277,17 @@ pub const full = struct {
         pub fn firstToken(cf: ContainerField) TokenIndex {
             return cf.comptime_token orelse cf.ast.main_token;
         }
+
+        pub fn convertToNonTupleLike(cf: *ContainerField, nodes: NodeList.Slice) void {
+            if (!cf.ast.tuple_like) return;
+            if (cf.ast.type_expr == 0) return;
+            if (nodes.items(.tag)[cf.ast.type_expr] != .identifier) return;
+
+            const ident = nodes.items(.main_token)[cf.ast.type_expr];
+            cf.ast.tuple_like = false;
+            cf.ast.main_token = ident;
+            cf.ast.type_expr = 0;
+        }
     };
 
     pub const FnProto = struct {
