@@ -2,12 +2,20 @@ name: ci
 on: [push, pull_request]
 jobs:
   x86_64-linux-debug:
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-debug.sh
+      # The following step is required by the build-tarballs job.
+      # If this job is being deleted / commented out, make sure
+      # to have another job provide this information.
+      - name: Get Version
+        id: version
+        run: echo "version=$(stage3/bin/zig version)" >> $GITHUB_OUTPUT
   x86_64-linux-release:
     runs-on: [self-hosted, Linux, x86_64]
     steps:
@@ -59,6 +67,8 @@ jobs:
       - x86_64-windows
       - aarch64-linux
       - aarch64-macos
+    env:
+      ZIG_VERSION: "${{ needs.x86_64-linux-debug.outputs.version }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v3            
