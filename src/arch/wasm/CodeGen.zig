@@ -3091,9 +3091,30 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const result = if (!func.liveness.isUnused(inst)) result: {
         const operand = try func.resolveInst(ty_op.operand);
+        const wanted_ty = func.air.typeOfIndex(inst);
+        const given_ty = func.air.typeOf(ty_op.operand);
+        if (given_ty.isAnyFloat() or wanted_ty.isAnyFloat()) {
+            const bitcast_result = try func.bitcast(wanted_ty, given_ty, operand);
+            break :result try bitcast_result.toLocal(func, wanted_ty);
+        }
         break :result func.reuseOperand(ty_op.operand, operand);
     } else WValue{ .none = {} };
     func.finishAir(inst, result, &.{});
+}
+
+fn bitcast(func: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) InnerError!WValue {
+    // if we bitcast a float to or from an integer we must use the 'reinterpret' instruction
+    if (!(wanted_ty.isAnyFloat() or given_ty.isAnyFloat())) return operand;
+    assert((wanted_ty.isInt() and given_ty.isAnyFloat()) or (wanted_ty.isAnyFloat() and given_ty.isInt()));
+
+    const opcode = buildOpcode(.{
+        .op = .reinterpret,
+        .valtype1 = typeToValtype(wanted_ty, func.target),
+        .valtype2 = typeToValtype(given_ty, func.target),
+    });
+    try func.emitWValue(operand);
+    try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+    return WValue{ .stack = {} };
 }
 
 fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
