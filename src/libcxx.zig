@@ -187,15 +187,6 @@ pub fn buildLibCXX(comp: *Compilation) !void {
             try cflags.append("-faligned-allocation");
         }
 
-        try cflags.append("-I");
-        try cflags.append(cxx_include_path);
-
-        try cflags.append("-I");
-        try cflags.append(cxxabi_include_path);
-
-        try cflags.append("-I");
-        try cflags.append(cxx_src_include_path);
-
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -203,9 +194,24 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-std=c++20");
         try cflags.append("-Wno-user-defined-literals");
 
+        // These depend on only the zig lib directory file path, which is
+        // purposefully either in the cache or not in the cache. The decision
+        // should not be overridden here.
+        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxx_include_path);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxxabi_include_path);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxx_src_include_path);
+
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", cxx_src }),
             .extra_flags = cflags.items,
+            .cache_exempt_flags = cache_exempt_flags.items,
         });
     }
 
@@ -340,15 +346,6 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
-        try cflags.append("-I");
-        try cflags.append(cxxabi_include_path);
-
-        try cflags.append("-I");
-        try cflags.append(cxx_include_path);
-
-        try cflags.append("-I");
-        try cflags.append(cxx_src_include_path);
-
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -357,9 +354,24 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         try cflags.append("-funwind-tables");
         try cflags.append("-std=c++20");
 
+        // These depend on only the zig lib directory file path, which is
+        // purposefully either in the cache or not in the cache. The decision
+        // should not be overridden here.
+        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxxabi_include_path);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxx_include_path);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxx_src_include_path);
+
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", cxxabi_src }),
             .extra_flags = cflags.items,
+            .cache_exempt_flags = cache_exempt_flags.items,
         });
     }
 

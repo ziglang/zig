@@ -1,9 +1,21 @@
+//! Manages `zig-cache` directories.
+//! This is not a general-purpose cache. It is designed to be fast and simple,
+//! not to withstand attacks using specially-crafted input.
+
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 /// This value is accessed from multiple threads, protected by mutex.
 recent_problematic_timestamp: i128 = 0,
 mutex: std.Thread.Mutex = .{},
+
+/// A set of strings such as the zig library directory or project source root, which
+/// are stripped from the file paths before putting into the cache. They
+/// are replaced with single-character indicators. This is not to save
+/// space but to eliminate absolute file paths. This improves portability
+/// and usefulness of the cache for advanced use cases.
+prefixes_buffer: [3]Compilation.Directory = undefined,
+prefixes_len: usize = 0,
 
 const Cache = @This();
 const std = @import("std");
@@ -18,6 +30,14 @@ const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.cache);
 
+pub fn addPrefix(cache: *Cache, directory: Compilation.Directory) void {
+    if (directory.path) |p| {
+        log.debug("Cache.addPrefix {d} {s}", .{ cache.prefixes_len, p });
+    }
+    cache.prefixes_buffer[cache.prefixes_len] = directory;
+    cache.prefixes_len += 1;
+}
+
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *Cache) Manifest {
     return Manifest{
@@ -26,6 +46,48 @@ pub fn obtain(cache: *Cache) Manifest {
         .manifest_file = null,
         .manifest_dirty = false,
         .hex_digest = undefined,
+    };
+}
+
+pub fn prefixes(cache: *const Cache) []const Compilation.Directory {
+    return cache.prefixes_buffer[0..cache.prefixes_len];
+}
+
+const PrefixedPath = struct {
+    prefix: u8,
+    sub_path: []u8,
+};
+
+fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
+    const gpa = cache.gpa;
+    const resolved_path = try fs.path.resolve(gpa, &[_][]const u8{file_path});
+    errdefer gpa.free(resolved_path);
+    return findPrefixResolved(cache, resolved_path);
+}
+
+/// Takes ownership of `resolved_path` on success.
+fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
+    const gpa = cache.gpa;
+    const prefixes_slice = cache.prefixes();
+    var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
+    while (i < prefixes_slice.len) : (i += 1) {
+        const p = prefixes_slice[i].path.?;
+        if (mem.startsWith(u8, resolved_path, p)) {
+            // +1 to skip over the path separator here
+            const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
+            gpa.free(resolved_path);
+            return PrefixedPath{
+                .prefix = @intCast(u8, i),
+                .sub_path = sub_path,
+            };
+        } else {
+            log.debug("'{s}' does not start with '{s}'", .{ resolved_path, p });
+        }
+    }
+
+    return PrefixedPath{
+        .prefix = 0,
+        .sub_path = resolved_path,
     };
 }
 
@@ -45,7 +107,7 @@ pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
 
 pub const File = struct {
-    path: ?[]const u8,
+    prefixed_path: ?PrefixedPath,
     max_file_size: ?usize,
     stat: Stat,
     bin_digest: BinDigest,
@@ -57,13 +119,13 @@ pub const File = struct {
         mtime: i128,
     };
 
-    pub fn deinit(self: *File, allocator: Allocator) void {
-        if (self.path) |owned_slice| {
-            allocator.free(owned_slice);
-            self.path = null;
+    pub fn deinit(self: *File, gpa: Allocator) void {
+        if (self.prefixed_path) |pp| {
+            gpa.free(pp.sub_path);
+            self.prefixed_path = null;
         }
         if (self.contents) |contents| {
-            allocator.free(contents);
+            gpa.free(contents);
             self.contents = null;
         }
         self.* = undefined;
@@ -175,9 +237,6 @@ pub const Lock = struct {
     }
 };
 
-/// Manifest manages project-local `zig-cache` directories.
-/// This is not a general-purpose cache.
-/// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
 pub const Manifest = struct {
     cache: *Cache,
     /// Current state for incremental hashing.
@@ -220,21 +279,27 @@ pub const Manifest = struct {
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
-        try self.files.ensureUnusedCapacity(self.cache.gpa, 1);
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        const gpa = self.cache.gpa;
+        try self.files.ensureUnusedCapacity(gpa, 1);
+        const prefixed_path = try self.cache.findPrefix(file_path);
+        errdefer gpa.free(prefixed_path.sub_path);
 
-        const idx = self.files.items.len;
+        log.debug("Manifest.addFile {s} -> {d} {s}", .{
+            file_path, prefixed_path.prefix, prefixed_path.sub_path,
+        });
+
         self.files.addOneAssumeCapacity().* = .{
-            .path = resolved_path,
+            .prefixed_path = prefixed_path,
             .contents = null,
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
         };
 
-        self.hash.addBytes(resolved_path);
+        self.hash.add(prefixed_path.prefix);
+        self.hash.addBytes(prefixed_path.sub_path);
 
-        return idx;
+        return self.files.items.len - 1;
     }
 
     pub fn hashCSource(self: *Manifest, c_source: Compilation.CSourceFile) !void {
@@ -281,6 +346,7 @@ pub const Manifest = struct {
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
     pub fn hit(self: *Manifest) !bool {
+        const gpa = self.cache.gpa;
         assert(self.manifest_file == null);
 
         self.failed_file_index = null;
@@ -362,8 +428,8 @@ pub const Manifest = struct {
 
         self.want_refresh_timestamp = true;
 
-        const file_contents = try self.manifest_file.?.reader().readAllAlloc(self.cache.gpa, manifest_file_size_max);
-        defer self.cache.gpa.free(file_contents);
+        const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
+        defer gpa.free(file_contents);
 
         const input_file_count = self.files.items.len;
         var any_file_changed = false;
@@ -373,9 +439,9 @@ pub const Manifest = struct {
             defer idx += 1;
 
             const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
-                const new = try self.files.addOne(self.cache.gpa);
+                const new = try self.files.addOne(gpa);
                 new.* = .{
-                    .path = null,
+                    .prefixed_path = null,
                     .contents = null,
                     .max_file_size = null,
                     .stat = undefined,
@@ -389,27 +455,35 @@ pub const Manifest = struct {
             const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
+            const prefix_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
             cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             _ = std.fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
+            const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
+            if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
 
             if (file_path.len == 0) {
                 return error.InvalidFormat;
             }
-            if (cache_hash_file.path) |p| {
-                if (!mem.eql(u8, file_path, p)) {
+            if (cache_hash_file.prefixed_path) |pp| {
+                if (pp.prefix != prefix or !mem.eql(u8, file_path, pp.sub_path)) {
                     return error.InvalidFormat;
                 }
             }
 
-            if (cache_hash_file.path == null) {
-                cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
+            if (cache_hash_file.prefixed_path == null) {
+                cache_hash_file.prefixed_path = .{
+                    .prefix = prefix,
+                    .sub_path = try gpa.dupe(u8, file_path),
+                };
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .mode = .read_only }) catch |err| switch (err) {
+            const pp = cache_hash_file.prefixed_path.?;
+            const dir = self.cache.prefixes()[pp.prefix].handle;
+            const this_file = dir.openFile(pp.sub_path, .{ .mode = .read_only }) catch |err| switch (err) {
                 error.FileNotFound => {
                     try self.upgradeToExclusiveLock();
                     return false;
@@ -535,8 +609,9 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
-        log.debug("populateFileHash {s}", .{ch_file.path.?});
-        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        const pp = ch_file.prefixed_path.?;
+        const dir = self.cache.prefixes()[pp.prefix].handle;
+        const file = try dir.openFile(pp.sub_path, .{});
         defer file.close();
 
         const actual_stat = try file.stat();
@@ -588,12 +663,17 @@ pub const Manifest = struct {
     pub fn addFilePostFetch(self: *Manifest, file_path: []const u8, max_file_size: usize) ![]const u8 {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-        errdefer self.cache.gpa.free(resolved_path);
+        const gpa = self.cache.gpa;
+        const prefixed_path = try self.cache.findPrefix(file_path);
+        errdefer gpa.free(prefixed_path.sub_path);
 
-        const new_ch_file = try self.files.addOne(self.cache.gpa);
+        log.debug("Manifest.addFilePostFetch {s} -> {d} {s}", .{
+            file_path, prefixed_path.prefix, prefixed_path.sub_path,
+        });
+
+        const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
-            .path = resolved_path,
+            .prefixed_path = prefixed_path,
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
@@ -613,12 +693,17 @@ pub const Manifest = struct {
     pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-        errdefer self.cache.gpa.free(resolved_path);
+        const gpa = self.cache.gpa;
+        const prefixed_path = try self.cache.findPrefix(file_path);
+        errdefer gpa.free(prefixed_path.sub_path);
 
-        const new_ch_file = try self.files.addOne(self.cache.gpa);
+        log.debug("Manifest.addFilePost {s} -> {d} {s}", .{
+            file_path, prefixed_path.prefix, prefixed_path.sub_path,
+        });
+
+        const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
-            .path = resolved_path,
+            .prefixed_path = prefixed_path,
             .max_file_size = null,
             .stat = undefined,
             .bin_digest = undefined,
@@ -633,17 +718,27 @@ pub const Manifest = struct {
     /// On success, cache takes ownership of `resolved_path`.
     pub fn addFilePostContents(
         self: *Manifest,
-        resolved_path: []const u8,
+        resolved_path: []u8,
         bytes: []const u8,
         stat: File.Stat,
     ) error{OutOfMemory}!void {
         assert(self.manifest_file != null);
+        const gpa = self.cache.gpa;
 
-        const ch_file = try self.files.addOne(self.cache.gpa);
+        const ch_file = try self.files.addOne(gpa);
         errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
+        log.debug("Manifest.addFilePostContents resolved_path={s}", .{resolved_path});
+
+        const prefixed_path = try self.cache.findPrefixResolved(resolved_path);
+        errdefer gpa.free(prefixed_path.sub_path);
+
+        log.debug("Manifest.addFilePostContents -> {d} {s}", .{
+            prefixed_path.prefix, prefixed_path.sub_path,
+        });
+
         ch_file.* = .{
-            .path = resolved_path,
+            .prefixed_path = prefixed_path,
             .max_file_size = null,
             .stat = stat,
             .bin_digest = undefined,
@@ -742,12 +837,13 @@ pub const Manifest = struct {
                     "{s}",
                     .{std.fmt.fmtSliceHexLower(&file.bin_digest)},
                 ) catch unreachable;
-                try writer.print("{d} {d} {d} {s} {s}\n", .{
+                try writer.print("{d} {d} {d} {s} {d} {s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
                     &encoded_digest,
-                    file.path.?,
+                    file.prefixed_path.?.prefix,
+                    file.prefixed_path.?.sub_path,
                 });
             }
 
@@ -889,6 +985,7 @@ test "cache file and then recall it" {
             .gpa = testing.allocator,
             .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
         };
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
         defer cache.manifest_dir.close();
 
         {
@@ -960,6 +1057,7 @@ test "check that changing a file makes cache fail" {
             .gpa = testing.allocator,
             .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
         };
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
         defer cache.manifest_dir.close();
 
         {
@@ -1022,6 +1120,7 @@ test "no file inputs" {
         .gpa = testing.allocator,
         .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
     };
+    cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
     defer cache.manifest_dir.close();
 
     {
@@ -1080,6 +1179,7 @@ test "Manifest with files added after initial hash work" {
             .gpa = testing.allocator,
             .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
         };
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
         defer cache.manifest_dir.close();
 
         {

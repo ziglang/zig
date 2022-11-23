@@ -63,7 +63,4 @@ stage3-release/bin/zig build test docs \
 tidy --drop-empty-elements no -qe ../zig-cache/langref.html
 
 # Produce the experimental std lib documentation.
-stage3-release/bin/zig test ../lib/std/std.zig \
-  -femit-docs \
-  -fno-emit-bin \
-  --zig-lib-dir "$(pwd)/../lib"
+stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib

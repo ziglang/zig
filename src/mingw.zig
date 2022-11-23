@@ -302,6 +302,10 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         .gpa = comp.gpa,
         .manifest_dir = comp.cache_parent.manifest_dir,
     };
+    for (comp.cache_parent.prefixes()) |prefix| {
+        cache.addPrefix(prefix);
+    }
+
     cache.hash.addBytes(build_options.version);
     cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
     cache.hash.add(target.cpu.arch);

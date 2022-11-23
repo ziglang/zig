@@ -201,7 +201,9 @@ pub const CRTFile = struct {
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
     src_path: []const u8,
-    extra_flags: []const []const u8 = &[0][]const u8{},
+    extra_flags: []const []const u8 = &.{},
+    /// Same as extra_flags except they are not added to the Cache hash.
+    cache_exempt_flags: []const []const u8 = &.{},
 };
 
 const Job = union(enum) {
@@ -1456,23 +1458,27 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             else => @as(u8, 3),
         };
 
-        // We put everything into the cache hash that *cannot be modified during an incremental update*.
-        // For example, one cannot change the target between updates, but one can change source files,
-        // so the target goes into the cache hash, but source files do not. This is so that we can
-        // find the same binary and incrementally update it even if there are modified source files.
-        // We do this even if outputting to the current directory because we need somewhere to store
-        // incremental compilation metadata.
+        // We put everything into the cache hash that *cannot be modified
+        // during an incremental update*. For example, one cannot change the
+        // target between updates, but one can change source files, so the
+        // target goes into the cache hash, but source files do not. This is so
+        // that we can find the same binary and incrementally update it even if
+        // there are modified source files. We do this even if outputting to
+        // the current directory because we need somewhere to store incremental
+        // compilation metadata.
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
+        cache.addPrefix(options.zig_lib_directory);
+        cache.addPrefix(options.local_cache_directory);
         errdefer cache.manifest_dir.close();
 
         // This is shared hasher state common to zig source and all C source files.
         cache.hash.addBytes(build_options.version);
         cache.hash.add(builtin.zig_backend);
-        cache.hash.addBytes(options.zig_lib_directory.path orelse ".");
         cache.hash.add(options.optimize_mode);
         cache.hash.add(options.target.cpu.arch);
         cache.hash.addBytes(options.target.cpu.model.name);
@@ -2265,8 +2271,9 @@ pub fn update(comp: *Compilation) !void {
         const is_hit = man.hit() catch |err| {
             // TODO properly bubble these up instead of emitting a warning
             const i = man.failed_file_index orelse return err;
-            const file_path = man.files.items[i].path orelse return err;
-            std.log.warn("{s}: {s}", .{ @errorName(err), file_path });
+            const pp = man.files.items[i].prefixed_path orelse return err;
+            const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+            std.log.warn("{s}: {s}{s}", .{ @errorName(err), prefix, pp.sub_path });
             return err;
         };
         if (is_hit) {
@@ -3246,13 +3253,6 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             const module = comp.bin_file.options.module.?;
             module.semaPkg(pkg) catch |err| switch (err) {
-                error.CurrentWorkingDirectoryUnlinked,
-                error.Unexpected,
-                => comp.lockAndSetMiscFailure(
-                    .analyze_pkg,
-                    "unexpected problem analyzing package '{s}'",
-                    .{pkg.root_src_path},
-                ),
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -3557,7 +3557,14 @@ pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     man.hash.add(comp.sanitize_c);
     man.hash.addListOfBytes(comp.clang_argv);
     man.hash.add(comp.bin_file.options.link_libcpp);
-    man.hash.addListOfBytes(comp.libc_include_dir_list);
+
+    // When libc_installation is null it means that Zig generated this dir list
+    // based on the zig library directory alone. The zig lib directory file
+    // path is purposefully either in the cache or not in the cache. The
+    // decision should not be overridden here.
+    if (comp.bin_file.options.libc_installation != null) {
+        man.hash.addListOfBytes(comp.libc_include_dir_list);
+    }
 
     return man;
 }
@@ -3944,6 +3951,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         {
             try comp.addCCArgs(arena, &argv, ext, null);
             try argv.appendSlice(c_object.src.extra_flags);
+            try argv.appendSlice(c_object.src.cache_exempt_flags);
 
             const out_obj_path = if (comp.bin_file.options.emit) |emit|
                 try emit.directory.join(arena, &.{emit.sub_path})
@@ -3985,6 +3993,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
         try argv.appendSlice(c_object.src.extra_flags);
+        try argv.appendSlice(c_object.src.cache_exempt_flags);
 
         try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
