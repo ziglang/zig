@@ -846,10 +846,8 @@ static inline zig_u8 zig_bit_reverse_u8(zig_u8 val, zig_u8 bits) {
     full_res = __builtin_bitreverse8(val);
 #else
     static zig_u8 const lut[0x10] = {
-        0b0000, 0b1000, 0b0100, 0b1100,
-        0b0010, 0b1010, 0b0110, 0b1110,
-        0b0001, 0b1001, 0b0101, 0b1101,
-        0b0011, 0b1011, 0b0111, 0b1111,
+        0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
+        0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf
     };
     full_res = lut[val >> 0 & 0xF] << 4 | lut[val >> 4 & 0xF] << 0;
 #endif
