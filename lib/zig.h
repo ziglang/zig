@@ -344,6 +344,12 @@ static inline zig_bool zig_addo_u32(zig_u32 *res, zig_u32 lhs, zig_u32 rhs, zig_
 #endif
 }
 
+static inline void zig_vaddo_u32(zig_u8 *ov, zig_u32 *res, int n,
+    const zig_u32 *lhs, const zig_u32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u32(&res[i], lhs[i], rhs[i], bits);
+}
+
 zig_extern zig_i32  __addosi4(zig_i32 lhs, zig_i32 rhs, zig_c_int *overflow);
 static inline zig_bool zig_addo_i32(zig_i32 *res, zig_i32 lhs, zig_i32 rhs, zig_u8 bits) {
 #if zig_has_builtin(add_overflow)
@@ -358,6 +364,12 @@ static inline zig_bool zig_addo_i32(zig_i32 *res, zig_i32 lhs, zig_i32 rhs, zig_
     return overflow || full_res < zig_minInt(i32, bits) || full_res > zig_maxInt(i32, bits);
 }
 
+static inline void zig_vaddo_i32(zig_u8 *ov, zig_i32 *res, int n,
+    const zig_i32 *lhs, const zig_i32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i32(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_addo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_u8 bits) {
 #if zig_has_builtin(add_overflow)
     zig_u64 full_res;
@@ -368,6 +380,12 @@ static inline zig_bool zig_addo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_
     *res = zig_addw_u64(lhs, rhs, bits);
     return *res < lhs;
 #endif
+}
+
+static inline void zig_vaddo_u64(zig_u8 *ov, zig_u64 *res, int n,
+    const zig_u64 *lhs, const zig_u64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern zig_i64  __addodi4(zig_i64 lhs, zig_i64 rhs, zig_c_int *overflow);
@@ -384,6 +402,12 @@ static inline zig_bool zig_addo_i64(zig_i64 *res, zig_i64 lhs, zig_i64 rhs, zig_
     return overflow || full_res < zig_minInt(i64, bits) || full_res > zig_maxInt(i64, bits);
 }
 
+static inline void zig_vaddo_i64(zig_u8 *ov, zig_i64 *res, int n,
+    const zig_i64 *lhs, const zig_i64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i64(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_addo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 bits) {
 #if zig_has_builtin(add_overflow)
     zig_u8 full_res;
@@ -393,6 +417,12 @@ static inline zig_bool zig_addo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 b
 #else
     return zig_addo_u32(res, lhs, rhs, bits);
 #endif
+}
+
+static inline void zig_vaddo_u8(zig_u8 *ov, zig_u8 *res, int n,
+    const zig_u8 *lhs, const zig_u8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline zig_bool zig_addo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 bits) {
@@ -406,6 +436,12 @@ static inline zig_bool zig_addo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 b
 #endif
 }
 
+static inline void zig_vaddo_i8(zig_u8 *ov, zig_i8 *res, int n,
+    const zig_i8 *lhs, const zig_i8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i8(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_addo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_u8 bits) {
 #if zig_has_builtin(add_overflow)
     zig_u16 full_res;
@@ -415,6 +451,12 @@ static inline zig_bool zig_addo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_
 #else
     return zig_addo_u32(res, lhs, rhs, bits);
 #endif
+}
+
+static inline void zig_vaddo_u16(zig_u8 *ov, zig_u16 *res, int n,
+    const zig_u16 *lhs, const zig_u16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u16(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline zig_bool zig_addo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_u8 bits) {
@@ -428,6 +470,12 @@ static inline zig_bool zig_addo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_
 #endif
 }
 
+static inline void zig_vaddo_i16(zig_u8 *ov, zig_i16 *res, int n,
+    const zig_i16 *lhs, const zig_i16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i16(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_subo_u32(zig_u32 *res, zig_u32 lhs, zig_u32 rhs, zig_u8 bits) {
 #if zig_has_builtin(sub_overflow)
     zig_u32 full_res;
@@ -438,6 +486,12 @@ static inline zig_bool zig_subo_u32(zig_u32 *res, zig_u32 lhs, zig_u32 rhs, zig_
     *res = zig_subw_u32(lhs, rhs, bits);
     return *res > lhs;
 #endif
+}
+
+static inline void zig_vsubo_u32(zig_u8 *ov, zig_u32 *res, int n,
+    const zig_u32 *lhs, const zig_u32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u32(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern zig_i32  __subosi4(zig_i32 lhs, zig_i32 rhs, zig_c_int *overflow);
@@ -454,6 +508,12 @@ static inline zig_bool zig_subo_i32(zig_i32 *res, zig_i32 lhs, zig_i32 rhs, zig_
     return overflow || full_res < zig_minInt(i32, bits) || full_res > zig_maxInt(i32, bits);
 }
 
+static inline void zig_vsubo_i32(zig_u8 *ov, zig_i32 *res, int n,
+    const zig_i32 *lhs, const zig_i32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i32(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_subo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_u8 bits) {
 #if zig_has_builtin(sub_overflow)
     zig_u64 full_res;
@@ -464,6 +524,12 @@ static inline zig_bool zig_subo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_
     *res = zig_subw_u64(lhs, rhs, bits);
     return *res > lhs;
 #endif
+}
+
+static inline void zig_vsubo_u64(zig_u8 *ov, zig_u64 *res, int n,
+    const zig_u64 *lhs, const zig_u64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern zig_i64  __subodi4(zig_i64 lhs, zig_i64 rhs, zig_c_int *overflow);
@@ -480,6 +546,12 @@ static inline zig_bool zig_subo_i64(zig_i64 *res, zig_i64 lhs, zig_i64 rhs, zig_
     return overflow || full_res < zig_minInt(i64, bits) || full_res > zig_maxInt(i64, bits);
 }
 
+static inline void zig_vsubo_i64(zig_u8 *ov, zig_i64 *res, int n,
+    const zig_i64 *lhs, const zig_i64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i64(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_subo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 bits) {
 #if zig_has_builtin(sub_overflow)
     zig_u8 full_res;
@@ -489,6 +561,12 @@ static inline zig_bool zig_subo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 b
 #else
     return zig_subo_u32(res, lhs, rhs, bits);
 #endif
+}
+
+static inline void zig_vsubo_u8(zig_u8 *ov, zig_u8 *res, int n,
+    const zig_u8 *lhs, const zig_u8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline zig_bool zig_subo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 bits) {
@@ -502,6 +580,13 @@ static inline zig_bool zig_subo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 b
 #endif
 }
 
+static inline void zig_vsubo_i8(zig_u8 *ov, zig_i8 *res, int n,
+    const zig_i8 *lhs, const zig_i8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i8(&res[i], lhs[i], rhs[i], bits);
+}
+
+
 static inline zig_bool zig_subo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_u8 bits) {
 #if zig_has_builtin(sub_overflow)
     zig_u16 full_res;
@@ -512,6 +597,13 @@ static inline zig_bool zig_subo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_
     return zig_subo_u32(res, lhs, rhs, bits);
 #endif
 }
+
+static inline void zig_vsubo_u16(zig_u8 *ov, zig_u16 *res, int n,
+    const zig_u16 *lhs, const zig_u16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u16(&res[i], lhs[i], rhs[i], bits);
+}
+
 
 static inline zig_bool zig_subo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_u8 bits) {
 #if zig_has_builtin(sub_overflow)
@@ -524,6 +616,12 @@ static inline zig_bool zig_subo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_
 #endif
 }
 
+static inline void zig_vsubo_i16(zig_u8 *ov, zig_i16 *res, int n,
+    const zig_i16 *lhs, const zig_i16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i16(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_mulo_u32(zig_u32 *res, zig_u32 lhs, zig_u32 rhs, zig_u8 bits) {
 #if zig_has_builtin(mul_overflow)
     zig_u32 full_res;
@@ -534,6 +632,12 @@ static inline zig_bool zig_mulo_u32(zig_u32 *res, zig_u32 lhs, zig_u32 rhs, zig_
     *res = zig_mulw_u32(lhs, rhs, bits);
     return rhs != zig_as_u32(0) && lhs > zig_maxInt(u32, bits) / rhs;
 #endif
+}
+
+static inline void zig_vmulo_u32(zig_u8 *ov, zig_u32 *res, int n,
+    const zig_u32 *lhs, const zig_u32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u32(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern zig_i32  __mulosi4(zig_i32 lhs, zig_i32 rhs, zig_c_int *overflow);
@@ -550,6 +654,12 @@ static inline zig_bool zig_mulo_i32(zig_i32 *res, zig_i32 lhs, zig_i32 rhs, zig_
     return overflow || full_res < zig_minInt(i32, bits) || full_res > zig_maxInt(i32, bits);
 }
 
+static inline void zig_vmulo_i32(zig_u8 *ov, zig_i32 *res, int n,
+    const zig_i32 *lhs, const zig_i32 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i32(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_mulo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_u8 bits) {
 #if zig_has_builtin(mul_overflow)
     zig_u64 full_res;
@@ -560,6 +670,12 @@ static inline zig_bool zig_mulo_u64(zig_u64 *res, zig_u64 lhs, zig_u64 rhs, zig_
     *res = zig_mulw_u64(lhs, rhs, bits);
     return rhs != zig_as_u64(0) && lhs > zig_maxInt(u64, bits) / rhs;
 #endif
+}
+
+static inline void zig_vmulo_u64(zig_u8 *ov, zig_u64 *res, int n,
+    const zig_u64 *lhs, const zig_u64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern zig_i64  __mulodi4(zig_i64 lhs, zig_i64 rhs, zig_c_int *overflow);
@@ -576,6 +692,12 @@ static inline zig_bool zig_mulo_i64(zig_i64 *res, zig_i64 lhs, zig_i64 rhs, zig_
     return overflow || full_res < zig_minInt(i64, bits) || full_res > zig_maxInt(i64, bits);
 }
 
+static inline void zig_vmulo_i64(zig_u8 *ov, zig_i64 *res, int n,
+    const zig_i64 *lhs, const zig_i64 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i64(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_mulo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 bits) {
 #if zig_has_builtin(mul_overflow)
     zig_u8 full_res;
@@ -585,6 +707,12 @@ static inline zig_bool zig_mulo_u8(zig_u8 *res, zig_u8 lhs, zig_u8 rhs, zig_u8 b
 #else
     return zig_mulo_u32(res, lhs, rhs, bits);
 #endif
+}
+
+static inline void zig_vmulo_u8(zig_u8 *ov, zig_u8 *res, int n,
+    const zig_u8 *lhs, const zig_u8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline zig_bool zig_mulo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 bits) {
@@ -598,6 +726,12 @@ static inline zig_bool zig_mulo_i8(zig_i8 *res, zig_i8 lhs, zig_i8 rhs, zig_u8 b
 #endif
 }
 
+static inline void zig_vmulo_i8(zig_u8 *ov, zig_i8 *res, int n,
+    const zig_i8 *lhs, const zig_i8 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i8(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_mulo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_u8 bits) {
 #if zig_has_builtin(mul_overflow)
     zig_u16 full_res;
@@ -609,6 +743,12 @@ static inline zig_bool zig_mulo_u16(zig_u16 *res, zig_u16 lhs, zig_u16 rhs, zig_
 #endif
 }
 
+static inline void zig_vmulo_u16(zig_u8 *ov, zig_u16 *res, int n,
+    const zig_u16 *lhs, const zig_u16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u16(&res[i], lhs[i], rhs[i], bits);
+}
+
 static inline zig_bool zig_mulo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_u8 bits) {
 #if zig_has_builtin(mul_overflow)
     zig_i16 full_res;
@@ -618,6 +758,12 @@ static inline zig_bool zig_mulo_i16(zig_i16 *res, zig_i16 lhs, zig_i16 rhs, zig_
 #else
     return zig_mulo_i32(res, lhs, rhs, bits);
 #endif
+}
+
+static inline void zig_vmulo_i16(zig_u8 *ov, zig_i16 *res, int n,
+    const zig_i16 *lhs, const zig_i16 *rhs, zig_u8 bits)
+{
+    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i16(&res[i], lhs[i], rhs[i], bits);
 }
 
 #define zig_int_builtins(w) \
