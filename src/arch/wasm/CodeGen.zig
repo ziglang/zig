@@ -909,6 +909,13 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
             if (info.bits > 32 and info.bits <= 128) break :blk wasm.Valtype.i64;
             break :blk wasm.Valtype.i32; // represented as pointer to stack
         },
+        .Struct => switch (ty.containerLayout()) {
+            .Packed => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return typeToValtype(struct_obj.backing_int_ty, target);
+            },
+            else => wasm.Valtype.i32,
+        },
         else => wasm.Valtype.i32, // all represented as reference/immediate
     };
 }
@@ -2415,7 +2422,7 @@ fn wrapBinOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerEr
 /// NOTE: When the Type is <= 64 bits, leaves the value on top of the stack.
 fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
     assert(ty.abiSize(func.target) <= 16);
-    const bitsize = ty.intInfo(func.target).bits;
+    const bitsize = @intCast(u16, ty.bitSize(func.target));
     const wasm_bits = toWasmBits(bitsize) orelse {
         return func.fail("TODO: Implement wrapOperand for bitsize '{d}'", .{bitsize});
     };
@@ -3170,23 +3177,57 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const field_ty = struct_ty.structFieldType(field_index);
     if (!field_ty.hasRuntimeBitsIgnoreComptime()) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
 
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, func.target)) orelse {
-        const module = func.bin_file.base.options.module.?;
-        return func.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(module)});
-    };
+    const result = switch (struct_ty.containerLayout()) {
+        .Packed => switch (struct_ty.zigTypeTag()) {
+            .Struct => result: {
+                const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout == .Packed);
+                const offset = struct_obj.packedFieldBitOffset(func.target, field_index);
+                const backing_ty = struct_obj.backing_int_ty;
+                const wasm_bits = toWasmBits(backing_ty.intInfo(func.target).bits).?;
+                const const_wvalue = if (wasm_bits == 32)
+                    WValue{ .imm32 = offset }
+                else
+                    WValue{ .imm64 = offset };
 
-    const result = result: {
-        if (isByRef(field_ty, func.target)) {
-            switch (operand) {
-                .stack_offset => |stack_offset| {
-                    break :result WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
-                },
-                else => break :result try func.buildPointerOffset(operand, offset, .new),
+                // for first field we don't require any shifting
+                const shifted_value = if (offset == 0)
+                    operand
+                else
+                    try func.binOp(operand, const_wvalue, backing_ty, .shr);
+
+                if (field_ty.zigTypeTag() == .Float) {
+                    var payload: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = @intCast(u16, field_ty.bitSize(func.target)),
+                    };
+                    const int_type = Type.initPayload(&payload.base);
+                    const truncated = try func.trunc(shifted_value, int_type, backing_ty);
+                    const bitcasted = try func.bitcast(field_ty, int_type, truncated);
+                    break :result try bitcasted.toLocal(func, field_ty);
+                }
+                const truncated = try func.trunc(shifted_value, field_ty, backing_ty);
+                break :result try truncated.toLocal(func, field_ty);
+            },
+            .Union => return func.fail("TODO: airStructFieldVal for packed unions", .{}),
+            else => unreachable,
+        },
+        else => result: {
+            const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, func.target)) orelse {
+                const module = func.bin_file.base.options.module.?;
+                return func.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(module)});
+            };
+            if (isByRef(field_ty, func.target)) {
+                switch (operand) {
+                    .stack_offset => |stack_offset| {
+                        break :result WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
+                    },
+                    else => break :result try func.buildPointerOffset(operand, offset, .new),
+                }
             }
-        }
-
-        const field = try func.load(operand, field_ty, offset);
-        break :result try field.toLocal(func, field_ty);
+            const field = try func.load(operand, field_ty, offset);
+            break :result try field.toLocal(func, field_ty);
+        },
     };
     func.finishAir(inst, result, &.{struct_field.struct_operand});
 }
@@ -3819,19 +3860,25 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const wanted_ty = func.air.getRefType(ty_op.ty);
     const op_ty = func.air.typeOf(ty_op.operand);
 
-    const int_info = op_ty.intInfo(func.target);
+    const result = try func.trunc(operand, wanted_ty, op_ty);
+    func.finishAir(inst, try result.toLocal(func, wanted_ty), &.{ty_op.operand});
+}
+
+/// Truncates a given operand to a given type, discarding any overflown bits.
+/// NOTE: Resulting value is left on the stack.
+fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerError!WValue {
+    const int_info = given_ty.intInfo(func.target);
     if (toWasmBits(int_info.bits) == null) {
         return func.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{int_info.bits});
     }
 
-    var result = try func.intcast(operand, op_ty, wanted_ty);
+    var result = try func.intcast(operand, given_ty, wanted_ty);
     const wanted_bits = wanted_ty.intInfo(func.target).bits;
     const wasm_bits = toWasmBits(wanted_bits).?;
     if (wasm_bits != wanted_bits) {
         result = try func.wrapOperand(result, wanted_ty);
     }
-
-    func.finishAir(inst, try result.toLocal(func, wanted_ty), &.{ty_op.operand});
+    return result;
 }
 
 fn airBoolToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -4486,8 +4533,8 @@ fn airFptrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const dest_ty = func.air.typeOfIndex(inst);
     const operand = try func.resolveInst(ty_op.operand);
-    const trunc = try func.fptrunc(operand, func.air.typeOf(ty_op.operand), dest_ty);
-    const result = try trunc.toLocal(func, dest_ty);
+    const truncated = try func.fptrunc(operand, func.air.typeOf(ty_op.operand), dest_ty);
+    const result = try truncated.toLocal(func, dest_ty);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
