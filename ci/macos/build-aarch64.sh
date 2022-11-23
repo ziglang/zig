@@ -44,8 +44,4 @@ stage3-release/bin/zig build test docs \
   --search-prefix "$PREFIX"
 
 # Produce the experimental std lib documentation.
-mkdir -p "stage3-release/doc/std"
-stage3-release/bin/zig test "$(pwd)/../lib/std/std.zig" \
-  --zig-lib-dir "$(pwd)/../lib" \
-  -femit-docs="$(pwd)/stage3-release/doc/std" \
-  -fno-emit-bin
+stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib

@@ -53,11 +53,9 @@ Write-Output " zig build test docs..."
 CheckLastExitCode
 
 # Produce the experimental std lib documentation.
-mkdir "$ZIGINSTALLDIR\doc\std" -force
-
 Write-Output "zig test std/std.zig..."
 
 & "$ZIGINSTALLDIR\bin\zig.exe" test "$ZIGLIBDIR\std\std.zig" `
     --zig-lib-dir "$ZIGLIBDIR" `
-    -femit-docs="$ZIGINSTALLDIR\doc\std" `
+    -femit-docs `
     -fno-emit-bin
