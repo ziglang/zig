@@ -68,7 +68,7 @@ stage3-release/bin/zig test ../lib/std/std.zig \
   -fno-emit-bin \
   --zig-lib-dir "$(pwd)/../lib"
 
-"stage3/bin/zig" build \
+stage3-release/bin/zig build \
   --prefix stage4-release \
   -Denable-llvm \
   -Denable-stage1 \
