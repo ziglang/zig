@@ -22349,40 +22349,16 @@ fn safetyPanic(
     src: LazySrcLoc,
     panic_id: PanicId,
 ) CompileError!Zir.Inst.Index {
-    const msg = switch (panic_id) {
-        .unreach => "reached unreachable code",
-        .unwrap_null => "attempt to use null value",
-        .cast_to_null => "cast causes pointer to be null",
-        .incorrect_alignment => "incorrect alignment",
-        .invalid_error_code => "invalid error code",
-        .cast_truncated_data => "integer cast truncated bits",
-        .negative_to_unsigned => "attempt to cast negative value to unsigned integer",
-        .integer_overflow => "integer overflow",
-        .shl_overflow => "left shift overflowed bits",
-        .shr_overflow => "right shift overflowed bits",
-        .divide_by_zero => "division by zero",
-        .exact_division_remainder => "exact division produced remainder",
-        .inactive_union_field => "access of inactive union field",
-        .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
-        .corrupt_switch => "switch on corrupt value",
-        .shift_rhs_too_big => "shift amount is greater than the type size",
-        .invalid_enum_value => "invalid enum value",
-    };
+    const panic_messages_ty = try sema.getBuiltinType("panic_messages");
+    const msg_decl_index = (try sema.namespaceLookup(
+        block,
+        src,
+        panic_messages_ty.getNamespace().?,
+        @tagName(panic_id),
+    )).?;
 
-    const msg_inst = msg_inst: {
-        // TODO instead of making a new decl for every panic in the entire compilation,
-        // introduce the concept of a reference-counted decl for these
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        break :msg_inst try sema.analyzeDeclRef(try anon_decl.finish(
-            try Type.Tag.array_u8.create(anon_decl.arena(), msg.len),
-            try Value.Tag.bytes.create(anon_decl.arena(), msg),
-            0, // default alignment
-        ));
-    };
-
-    const casted_msg_inst = try sema.coerce(block, Type.initTag(.const_slice_u8), msg_inst, src);
-    return sema.panicWithMsg(block, src, casted_msg_inst);
+    const msg_inst = try sema.analyzeDeclVal(block, src, msg_decl_index);
+    return sema.panicWithMsg(block, src, msg_inst);
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
