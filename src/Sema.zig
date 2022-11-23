@@ -13468,7 +13468,6 @@ fn zirOverflowArithmetic(
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
 
     const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
-    const ov_ty = tuple_ty.tupleFields().types[1];
     // TODO: Remove and use `ov_ty` instead.
     //       This is a temporary type used until overflow arithmetic properly returns `u1` instead of `bool`.
     const overflowed_ty = if (dest_ty.zigTypeTag() == .Vector) try Type.vector(sema.arena, dest_ty.vectorLen(), Type.bool) else Type.bool;
@@ -13619,14 +13618,7 @@ fn zirOverflowArithmetic(
         try sema.storePtr2(block, src, ptr, ptr_src, wrapped, src, .store);
 
         const overflow_bit = try sema.tupleFieldValByIndex(block, src, tuple, 1, tuple_ty);
-        const zero_ov_val = if (dest_ty.zigTypeTag() == .Vector) try Value.Tag.repeated.create(sema.arena, Value.zero) else Value.zero;
-        const zero_ov = try sema.addConstant(ov_ty, zero_ov_val);
-
-        const overflowed_inst = if (dest_ty.zigTypeTag() == .Vector)
-            block.addCmpVector(overflow_bit, .zero, .neq, try sema.addType(ov_ty))
-        else
-            block.addBinOp(.cmp_neq, overflow_bit, zero_ov);
-        return overflowed_inst;
+        return block.addBitCast(overflowed_ty, overflow_bit);
     };
 
     try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
