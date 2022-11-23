@@ -5247,10 +5247,10 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Or => .{ .infix = " |= " },
         .Xor => .{ .infix = " ^= " },
         .Min => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .ternary = " < " },
+            .Int => Op{ .ternary = " < " },
             .Float => op: {
                 const float_bits = scalar_ty.floatBits(target);
-                break :op .{
+                break :op Op{
                     .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "{s}fmin{s}", .{
                         libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
                     }) catch unreachable,
@@ -5259,10 +5259,10 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .ternary = " > " },
+            .Int => Op{ .ternary = " > " },
             .Float => op: {
                 const float_bits = scalar_ty.floatBits(target);
-                break :op .{
+                break :op Op{
                     .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "{s}fmax{s}", .{
                         libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
                     }) catch unreachable,
@@ -5271,10 +5271,10 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .infix = " += " },
+            .Int => Op{ .infix = " += " },
             .Float => op: {
                 const float_bits = scalar_ty.floatBits(target);
-                break :op .{
+                break :op Op{
                     .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "__add{s}f3", .{
                         compilerRtFloatAbbrev(float_bits),
                     }) catch unreachable,
@@ -5283,10 +5283,10 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .infix = " *= " },
+            .Int => Op{ .infix = " *= " },
             .Float => op: {
                 const float_bits = scalar_ty.floatBits(target);
-                break :op .{
+                break :op Op{
                     .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "__mul{s}f3", .{
                         compilerRtFloatAbbrev(float_bits),
                     }) catch unreachable,
