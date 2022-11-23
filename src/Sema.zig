@@ -29126,20 +29126,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         }
 
         struct_obj.status = .have_layout;
-
-        // In case of querying the ABI alignment of this struct, we will ask
-        // for hasRuntimeBits() of each field, so we need "requires comptime"
-        // to be known already before this function returns.
-        for (struct_obj.fields.values()) |field, i| {
-            _ = sema.typeRequiresComptime(field.ty) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    const msg = sema.err orelse return err;
-                    try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
-                    return err;
-                },
-                else => return err,
-            };
-        }
+        _ = try sema.resolveTypeRequiresComptime(resolved_ty);
     }
     // otherwise it's a tuple; no need to resolve anything
 }
@@ -29303,6 +29290,198 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         };
     }
     union_obj.status = .have_layout;
+    _ = try sema.resolveTypeRequiresComptime(resolved_ty);
+}
+
+// In case of querying the ABI alignment of this struct, we will ask
+// for hasRuntimeBits() of each field, so we need "requires comptime"
+// to be known already before this function returns.
+pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
+    return switch (ty.tag()) {
+        .u1,
+        .u8,
+        .i8,
+        .u16,
+        .i16,
+        .u29,
+        .u32,
+        .i32,
+        .u64,
+        .i64,
+        .u128,
+        .i128,
+        .usize,
+        .isize,
+        .c_short,
+        .c_ushort,
+        .c_int,
+        .c_uint,
+        .c_long,
+        .c_ulong,
+        .c_longlong,
+        .c_ulonglong,
+        .c_longdouble,
+        .f16,
+        .f32,
+        .f64,
+        .f80,
+        .f128,
+        .anyopaque,
+        .bool,
+        .void,
+        .anyerror,
+        .noreturn,
+        .@"anyframe",
+        .null,
+        .undefined,
+        .atomic_order,
+        .atomic_rmw_op,
+        .calling_convention,
+        .address_space,
+        .float_mode,
+        .reduce_op,
+        .call_options,
+        .prefetch_options,
+        .export_options,
+        .extern_options,
+        .manyptr_u8,
+        .manyptr_const_u8,
+        .manyptr_const_u8_sentinel_0,
+        .const_slice_u8,
+        .const_slice_u8_sentinel_0,
+        .anyerror_void_error_union,
+        .empty_struct_literal,
+        .empty_struct,
+        .error_set,
+        .error_set_single,
+        .error_set_inferred,
+        .error_set_merged,
+        .@"opaque",
+        .generic_poison,
+        .array_u8,
+        .array_u8_sentinel_0,
+        .int_signed,
+        .int_unsigned,
+        .enum_simple,
+        => false,
+
+        .single_const_pointer_to_comptime_int,
+        .type,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .type_info,
+        // These are function bodies, not function pointers.
+        .fn_noreturn_no_args,
+        .fn_void_no_args,
+        .fn_naked_noreturn_no_args,
+        .fn_ccc_void_no_args,
+        .function,
+        => true,
+
+        .var_args_param => unreachable,
+        .inferred_alloc_mut => unreachable,
+        .inferred_alloc_const => unreachable,
+        .bound_fn => unreachable,
+
+        .array,
+        .array_sentinel,
+        .vector,
+        => return sema.resolveTypeRequiresComptime(ty.childType()),
+
+        .pointer,
+        .single_const_pointer,
+        .single_mut_pointer,
+        .many_const_pointer,
+        .many_mut_pointer,
+        .c_const_pointer,
+        .c_mut_pointer,
+        .const_slice,
+        .mut_slice,
+        => {
+            const child_ty = ty.childType();
+            if (child_ty.zigTypeTag() == .Fn) {
+                return child_ty.fnInfo().is_generic;
+            } else {
+                return sema.resolveTypeRequiresComptime(child_ty);
+            }
+        },
+
+        .optional,
+        .optional_single_mut_pointer,
+        .optional_single_const_pointer,
+        => {
+            var buf: Type.Payload.ElemType = undefined;
+            return sema.resolveTypeRequiresComptime(ty.optionalChild(&buf));
+        },
+
+        .tuple, .anon_struct => {
+            const tuple = ty.tupleFields();
+            for (tuple.types) |field_ty, i| {
+                const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty)) {
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        .@"struct" => {
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            switch (struct_obj.requires_comptime) {
+                .no, .wip => return false,
+                .yes => return true,
+                .unknown => {
+                    var requires_comptime = false;
+                    struct_obj.requires_comptime = .wip;
+                    for (struct_obj.fields.values()) |field| {
+                        if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+                    }
+                    if (requires_comptime) {
+                        struct_obj.requires_comptime = .yes;
+                    } else {
+                        struct_obj.requires_comptime = .no;
+                    }
+                    return requires_comptime;
+                },
+            }
+        },
+
+        .@"union", .union_safety_tagged, .union_tagged => {
+            const union_obj = ty.cast(Type.Payload.Union).?.data;
+            switch (union_obj.requires_comptime) {
+                .no, .wip => return false,
+                .yes => return true,
+                .unknown => {
+                    var requires_comptime = false;
+                    union_obj.requires_comptime = .wip;
+                    for (union_obj.fields.values()) |field| {
+                        if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+                    }
+                    if (requires_comptime) {
+                        union_obj.requires_comptime = .yes;
+                    } else {
+                        union_obj.requires_comptime = .no;
+                    }
+                    return requires_comptime;
+                },
+            }
+        },
+
+        .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
+        .anyframe_T => {
+            const child_ty = ty.castTag(.anyframe_T).?.data;
+            return sema.resolveTypeRequiresComptime(child_ty);
+        },
+        .enum_numbered => {
+            const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
+            return sema.resolveTypeRequiresComptime(tag_ty);
+        },
+        .enum_full, .enum_nonexhaustive => {
+            const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
+            return sema.resolveTypeRequiresComptime(tag_ty);
+        },
+    };
 }
 
 /// Returns `error.AnalysisFail` if any of the types (recursively) failed to
