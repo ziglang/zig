@@ -19,7 +19,7 @@ jobs:
       # to have another job provide this information.
       - name: Get Version
         id: version
-        run: echo "version=$(stage3/bin/zig version)" >> $GITHUB_OUTPUT
+        run: echo "version=$(stage3-debug/bin/zig version)" >> $GITHUB_OUTPUT
   x86_64-linux-release:
     runs-on: [self-hosted, Linux, x86_64]
     steps:
