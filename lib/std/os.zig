@@ -2999,15 +2999,19 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var buf: [MAX_PATH_BYTES]u8 = undefined;
         var alloc = std.heap.FixedBufferAllocator.init(&buf);
-        const path = try fs.resolve(alloc.allocator(), &.{ wasi_cwd.cwd, dir_path });
+        const path = fs.path.resolve(alloc.allocator(), &.{ wasi_cwd.cwd, dir_path }) catch |err| switch (err) {
+            error.OutOfMemory => return error.NameTooLong,
+            else => |e| return e,
+        };
 
         const dirinfo = try fstatat(AT.FDCWD, path, 0);
         if (dirinfo.filetype != .DIRECTORY) {
             return error.NotDir;
         }
 
+        // This copy is guaranteed to succeed, since buf and path_buffer are the same size.
         var cwd_alloc = std.heap.FixedBufferAllocator.init(&wasi_cwd.path_buffer);
-        wasi_cwd.cwd = try cwd_alloc.allocator().dupe(u8, path);
+        wasi_cwd.cwd = cwd_alloc.allocator().dupe(u8, path) catch unreachable;
         return;
     } else if (builtin.os.tag == .windows) {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;

@@ -22,7 +22,8 @@ const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest; // WASI doesn't allow navigating outside of a preopen
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/preopens/cwd");
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -35,15 +36,41 @@ test "chdir smoke test" {
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, old_cwd, new_cwd));
     }
-    {
-        // Next, change current working directory to one level above
+
+    // Next, change current working directory to one level above
+    if (native_os != .wasi) { // WASI does not support navigating outside of Preopens
         const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
         try os.chdir(parent);
+
         // Restore cwd because process may have other tests that do not tolerate chdir.
         defer os.chdir(old_cwd) catch unreachable;
+
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, parent, new_cwd));
+    }
+
+    // Next, change current working directory to a temp directory one level below
+    {
+        // Create a tmp directory
+        var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var tmp_dir_path = path: {
+            var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
+            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
+        };
+        var tmp_dir = try fs.cwd().makeOpenPath("zig-test-tmp", .{});
+
+        // Change current working directory to tmp directory
+        try os.chdir("zig-test-tmp");
+
+        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const new_cwd = try os.getcwd(new_cwd_buf[0..]);
+        try expect(mem.eql(u8, tmp_dir_path, new_cwd));
+
+        // Restore cwd because process may have other tests that do not tolerate chdir.
+        tmp_dir.close();
+        os.chdir(old_cwd) catch unreachable;
+        try fs.cwd().deleteDir("zig-test-tmp");
     }
 }
 
