@@ -667,7 +667,6 @@ pub const Insn = packed struct {
     }
 
     pub fn st(comptime size: Size, dst: Reg, off: i16, imm: i32) Insn {
-        if (size == .double_word) @compileError("TODO: need to determine how to correctly handle double words");
         return Insn{
             .code = MEM | @enumToInt(size) | ST,
             .dst = @enumToInt(dst),
@@ -1585,6 +1584,27 @@ pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
     }
 }
 
+pub fn map_get_next_key(fd: fd_t, key: []const u8, next_key: []u8) !bool {
+    var attr = Attr{
+        .map_elem = std.mem.zeroes(MapElemAttr),
+    };
+
+    attr.map_elem.map_fd = fd;
+    attr.map_elem.key = @ptrToInt(key.ptr);
+    attr.map_elem.result.next_key = @ptrToInt(next_key.ptr);
+
+    const rc = linux.bpf(.map_get_next_key, &attr, @sizeOf(MapElemAttr));
+    switch (errno(rc)) {
+        .SUCCESS => return true,
+        .BADF => return error.BadFd,
+        .FAULT => unreachable,
+        .INVAL => return error.FieldInAttrNeedsZeroing,
+        .NOENT => return false,
+        .PERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 test "map lookup, update, and delete" {
     const key_size = 4;
     const value_size = 4;
@@ -1604,6 +1624,16 @@ test "map lookup, update, and delete" {
     // fails inserting more than max entries
     const second_key = [key_size]u8{ 0, 0, 0, 1 };
     try expectError(error.ReachedMaxEntries, map_update_elem(map, &second_key, &value, 0));
+
+    // succeed at iterating all keys of map
+    var lookup_key = [_]u8{ 1, 0, 0, 0 };
+    var next_key = [_]u8{ 2, 3, 4, 5 }; // garbage value
+    const status = try map_get_next_key(map, &lookup_key, &next_key);
+    try expectEqual(status, true);
+    try expectEqual(next_key, key);
+    std.mem.copy(u8, &lookup_key, &next_key);
+    const status2 = try map_get_next_key(map, &lookup_key, &next_key);
+    try expectEqual(status2, false);
 
     // succeed at deleting an existing elem
     try map_delete_elem(map, &key);
