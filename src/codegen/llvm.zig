@@ -16,7 +16,6 @@ const Package = @import("../Package.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const target_util = @import("../target.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
@@ -26,6 +25,12 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+
+const target_util = @import("../target.zig");
+const libcFloatPrefix = target_util.libcFloatPrefix;
+const libcFloatSuffix = target_util.libcFloatSuffix;
+const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
+const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -7328,46 +7333,6 @@ pub const FuncGen = struct {
         };
     }
 
-    fn libcFloatPrefix(float_bits: u16) []const u8 {
-        return switch (float_bits) {
-            16, 80 => "__",
-            32, 64, 128 => "",
-            else => unreachable,
-        };
-    }
-
-    fn libcFloatSuffix(float_bits: u16) []const u8 {
-        return switch (float_bits) {
-            16 => "h", // Non-standard
-            32 => "f",
-            64 => "",
-            80 => "x", // Non-standard
-            128 => "q", // Non-standard (mimics convention in GCC libquadmath)
-            else => unreachable,
-        };
-    }
-
-    fn compilerRtFloatAbbrev(float_bits: u16) []const u8 {
-        return switch (float_bits) {
-            16 => "h",
-            32 => "s",
-            64 => "d",
-            80 => "x",
-            128 => "t",
-            else => unreachable,
-        };
-    }
-
-    fn compilerRtIntAbbrev(bits: u16) []const u8 {
-        return switch (bits) {
-            16 => "h",
-            32 => "s",
-            64 => "d",
-            128 => "t",
-            else => "o", // Non-standard
-        };
-    }
-
     /// Creates a floating point comparison by lowering to the appropriate
     /// hardware instruction or softfloat routine for the target
     fn buildFloatCmp(
@@ -9034,11 +8999,9 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
 
         const reduce = self.air.instructions.items(.data)[inst].reduce;
-        var operand = try self.resolveInst(reduce.operand);
+        const operand = try self.resolveInst(reduce.operand);
         const operand_ty = self.air.typeOf(reduce.operand);
         const scalar_ty = self.air.typeOfIndex(inst);
-
-        // TODO handle the fast math setting
 
         switch (reduce.operation) {
             .And => return self.builder.buildAndReduce(operand),

@@ -18,6 +18,12 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const CType = @import("../type.zig").CType;
 
+const target_util = @import("../target.zig");
+const libcFloatPrefix = target_util.libcFloatPrefix;
+const libcFloatSuffix = target_util.libcFloatSuffix;
+const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
+const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
+
 const Mutability = enum { Const, ConstArgument, Mut };
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
@@ -733,7 +739,7 @@ pub const DeclGen = struct {
                         try dg.fmtIntLiteral(ty.errorUnionSet(), val),
                     });
                 },
-                .Array => {
+                .Array, .Vector => {
                     if (location != .Initializer) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
@@ -770,10 +776,10 @@ pub const DeclGen = struct {
                 .BoundFn,
                 .Opaque,
                 => unreachable,
+
                 .Fn,
                 .Frame,
                 .AnyFrame,
-                .Vector,
                 => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
                     @tagName(tag),
                 }),
@@ -922,7 +928,7 @@ pub const DeclGen = struct {
                 => try dg.renderParentPtr(writer, val, ty),
                 else => unreachable,
             },
-            .Array => {
+            .Array, .Vector => {
                 if (location == .FunctionArgument) {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
@@ -1200,7 +1206,6 @@ pub const DeclGen = struct {
 
             .Frame,
             .AnyFrame,
-            .Vector,
             => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
                 @tagName(tag),
             }),
@@ -1746,7 +1751,7 @@ pub const DeclGen = struct {
                 if (t.isVolatilePtr()) try w.writeAll(" volatile");
                 return w.writeAll(" *");
             },
-            .Array => {
+            .Array, .Vector => {
                 var array_pl = Type.Payload.Array{ .base = .{ .tag = .array }, .data = .{
                     .len = t.arrayLenIncludingSentinel(),
                     .elem_type = t.childType(),
@@ -1859,7 +1864,6 @@ pub const DeclGen = struct {
 
             .Frame,
             .AnyFrame,
-            .Vector,
             => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
                 @tagName(tag),
             }),
@@ -3180,25 +3184,43 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     const rhs = try f.resolveInst(bin_op.rhs);
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const scalar_ty = f.air.typeOf(bin_op.lhs).scalarType();
+    const vector_ty = f.air.typeOf(bin_op.lhs);
+    const scalar_ty = vector_ty.scalarType();
     const w = f.object.writer();
 
     const local = try f.allocLocal(inst_ty, .Mut);
     try w.writeAll(";\n");
 
-    try f.writeCValueMember(w, local, .{ .field = 1 });
-    try w.writeAll(" = zig_");
-    try w.writeAll(operation);
-    try w.writeAll("o_");
-    try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
-    try w.writeAll("(&");
-    try f.writeCValueMember(w, local, .{ .field = 0 });
-    try w.writeAll(", ");
+    switch (vector_ty.zigTypeTag()) {
+        .Vector => {
+            try w.writeAll("zig_v");
+            try w.writeAll(operation);
+            try w.writeAll("o_");
+            try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
+            try w.writeAll("(");
+            try f.writeCValueMember(w, local, .{ .field = 1 });
+            try w.writeAll(", ");
+            try f.writeCValueMember(w, local, .{ .field = 0 });
+            try w.print(", {d}, ", .{vector_ty.vectorLen()});
+        },
+        else => {
+            try f.writeCValueMember(w, local, .{ .field = 1 });
+            try w.writeAll(" = zig_");
+            try w.writeAll(operation);
+            try w.writeAll("o_");
+            try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
+            try w.writeAll("(&");
+            try f.writeCValueMember(w, local, .{ .field = 0 });
+            try w.writeAll(", ");
+        },
+    }
+
     try f.writeCValue(w, lhs, .FunctionArgument);
     try w.writeAll(", ");
     try f.writeCValue(w, rhs, .FunctionArgument);
     try f.object.dg.renderBuiltinInfo(w, scalar_ty, info);
     try w.writeAll(");\n");
+
     return local;
 }
 
@@ -5206,16 +5228,153 @@ fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
-    const inst_ty = f.air.typeOfIndex(inst);
+    const target = f.object.dg.module.getTarget();
+    const scalar_ty = f.air.typeOfIndex(inst);
     const reduce = f.air.instructions.items(.data)[inst].reduce;
     const operand = try f.resolveInst(reduce.operand);
+    const operand_ty = f.air.typeOf(reduce.operand);
+    const vector_len = operand_ty.vectorLen();
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst_ty, .Const);
+
+    const Op = union(enum) {
+        call_fn: []const u8,
+        infix: []const u8,
+        ternary: []const u8,
+    };
+    var fn_name_buf: [64]u8 = undefined;
+    const op: Op = switch (reduce.operation) {
+        .And => .{ .infix = " &= " },
+        .Or => .{ .infix = " |= " },
+        .Xor => .{ .infix = " ^= " },
+        .Min => switch (scalar_ty.zigTypeTag()) {
+            .Int => Op{ .ternary = " < " },
+            .Float => op: {
+                const float_bits = scalar_ty.floatBits(target);
+                break :op Op{
+                    .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "{s}fmin{s}", .{
+                        libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
+                    }) catch unreachable,
+                };
+            },
+            else => unreachable,
+        },
+        .Max => switch (scalar_ty.zigTypeTag()) {
+            .Int => Op{ .ternary = " > " },
+            .Float => op: {
+                const float_bits = scalar_ty.floatBits(target);
+                break :op Op{
+                    .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "{s}fmax{s}", .{
+                        libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
+                    }) catch unreachable,
+                };
+            },
+            else => unreachable,
+        },
+        .Add => switch (scalar_ty.zigTypeTag()) {
+            .Int => Op{ .infix = " += " },
+            .Float => op: {
+                const float_bits = scalar_ty.floatBits(target);
+                break :op Op{
+                    .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "__add{s}f3", .{
+                        compilerRtFloatAbbrev(float_bits),
+                    }) catch unreachable,
+                };
+            },
+            else => unreachable,
+        },
+        .Mul => switch (scalar_ty.zigTypeTag()) {
+            .Int => Op{ .infix = " *= " },
+            .Float => op: {
+                const float_bits = scalar_ty.floatBits(target);
+                break :op Op{
+                    .call_fn = std.fmt.bufPrintZ(&fn_name_buf, "__mul{s}f3", .{
+                        compilerRtFloatAbbrev(float_bits),
+                    }) catch unreachable,
+                };
+            },
+            else => unreachable,
+        },
+    };
+
+    // Reduce a vector by repeatedly applying a function to produce an
+    // accumulated result.
+    //
+    // Equivalent to:
+    //   reduce: {
+    //     var i: usize = 0;
+    //     var accum: T = init;
+    //     while (i < vec.len) : (i += 1) {
+    //       accum = func(accum, vec[i]);
+    //     }
+    //     break :reduce accum;
+    //   }
+    const it = try f.allocLocal(Type.usize, .Mut);
+    try writer.writeAll(" = 0;\n");
+
+    const accum = try f.allocLocal(scalar_ty, .Mut);
     try writer.writeAll(" = ");
 
-    _ = operand;
-    _ = local;
-    return f.fail("TODO: C backend: implement airReduce", .{});
+    const init_val = switch (reduce.operation) {
+        .And, .Or, .Xor, .Add => "0",
+        .Min => switch (scalar_ty.zigTypeTag()) {
+            .Int => "TODO_intmax",
+            .Float => "TODO_nan",
+            else => unreachable,
+        },
+        .Max => switch (scalar_ty.zigTypeTag()) {
+            .Int => "TODO_intmin",
+            .Float => "TODO_nan",
+            else => unreachable,
+        },
+        .Mul => "1",
+    };
+    try writer.writeAll(init_val);
+    try writer.writeAll(";");
+    try f.object.indent_writer.insertNewline();
+    try writer.writeAll("for(;");
+    try f.writeCValue(writer, it, .Other);
+    try writer.print("<{d};++", .{vector_len});
+    try f.writeCValue(writer, it, .Other);
+    try writer.writeAll(") ");
+    try f.writeCValue(writer, accum, .Other);
+
+    switch (op) {
+        .call_fn => |fn_name| {
+            try writer.print(" = {s}(", .{fn_name});
+            try f.writeCValue(writer, accum, .FunctionArgument);
+            try writer.writeAll(", ");
+            try f.writeCValue(writer, operand, .Other);
+            try writer.writeAll("[");
+            try f.writeCValue(writer, it, .Other);
+            try writer.writeAll("])");
+        },
+        .infix => |ass| {
+            try writer.writeAll(ass);
+            try f.writeCValue(writer, operand, .Other);
+            try writer.writeAll("[");
+            try f.writeCValue(writer, it, .Other);
+            try writer.writeAll("]");
+        },
+        .ternary => |cmp| {
+            try writer.writeAll(" = ");
+            try f.writeCValue(writer, accum, .Other);
+            try writer.writeAll(cmp);
+            try f.writeCValue(writer, operand, .Other);
+            try writer.writeAll("[");
+            try f.writeCValue(writer, it, .Other);
+            try writer.writeAll("] ? ");
+            try f.writeCValue(writer, accum, .Other);
+            try writer.writeAll(" : ");
+            try f.writeCValue(writer, operand, .Other);
+            try writer.writeAll("[");
+            try f.writeCValue(writer, it, .Other);
+            try writer.writeAll("]");
+        },
+    }
+
+    try writer.writeAll(";\n");
+
+    return accum;
 }
 
 fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -5234,7 +5393,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, mutability);
     try writer.writeAll(" = ");
     switch (inst_ty.zigTypeTag()) {
-        .Array => {
+        .Array, .Vector => {
             const elem_ty = inst_ty.childType();
             try writer.writeByte('{');
             var empty = true;
@@ -5354,7 +5513,6 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(";\n");
             },
         },
-        .Vector => return f.fail("TODO: C backend: implement airAggregateInit for vectors", .{}),
         else => unreachable,
     }
 
@@ -5868,7 +6026,7 @@ fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, target: std.Target) T
 
 fn lowersToArray(ty: Type, target: std.Target) bool {
     return switch (ty.zigTypeTag()) {
-        .Array => return true,
+        .Array, .Vector => return true,
         else => return ty.isAbiInt() and toCIntBits(@intCast(u32, ty.bitSize(target))) == null,
     };
 }
@@ -5877,7 +6035,7 @@ fn loweredArrayInfo(ty: Type, target: std.Target) ?Type.ArrayInfo {
     if (!lowersToArray(ty, target)) return null;
 
     switch (ty.zigTypeTag()) {
-        .Array => return ty.arrayInfo(),
+        .Array, .Vector => return ty.arrayInfo(),
         else => {
             const abi_size = ty.abiSize(target);
             const abi_align = ty.abiAlignment(target);
