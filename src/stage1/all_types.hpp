@@ -99,7 +99,7 @@ enum AddressSpace {
     AddressSpaceConstant,
     AddressSpaceParam,
     AddressSpaceShared,
-    AddressSpaceLocal
+    AddressSpaceLocal,
 };
 
 // This one corresponds to the builtin.zig enum.

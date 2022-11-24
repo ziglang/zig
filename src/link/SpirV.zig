@@ -58,13 +58,13 @@ decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclGenContext) = .
 
 const DeclGenContext = struct {
     air: Air,
-    air_value_arena: ArenaAllocator.State,
+    air_arena: ArenaAllocator.State,
     liveness: Liveness,
 
     fn deinit(self: *DeclGenContext, gpa: Allocator) void {
         self.air.deinit(gpa);
         self.liveness.deinit(gpa);
-        self.air_value_arena.promote(gpa).deinit();
+        self.air_arena.promote(gpa).deinit();
         self.* = undefined;
     }
 };
@@ -140,7 +140,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liv
 
     result.value_ptr.* = .{
         .air = new_air,
-        .air_value_arena = arena.state,
+        .air_arena = arena.state,
         .liveness = new_liveness,
     };
 }
@@ -167,13 +167,13 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {
-    const index = self.decl_table.getIndex(decl_index).?;
-    const module = self.base.options.module.?;
-    const decl = module.declPtr(decl_index);
-    if (decl.val.tag() == .function) {
-        self.decl_table.values()[index].deinit(self.base.allocator);
+    if (self.decl_table.getIndex(decl_index)) |index| {
+        const module = self.base.options.module.?;
+        const decl = module.declPtr(decl_index);
+        if (decl.val.tag() == .function) {
+            self.decl_table.values()[index].deinit(self.base.allocator);
+        }
     }
-    self.decl_table.swapRemoveAt(index);
 }
 
 pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -218,7 +218,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     // Now, actually generate the code for all declarations.
-    var decl_gen = codegen.DeclGen.init(module, &spv);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv);
     defer decl_gen.deinit();
 
     var it = self.decl_table.iterator();
@@ -245,16 +245,18 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
-    const cap: spec.Capability = switch (target.os.tag) {
-        .opencl => .Kernel,
-        .glsl450 => .Shader,
-        .vulkan => .VulkanMemoryModel,
+    const caps: []const spec.Capability = switch (target.os.tag) {
+        .opencl => &.{.Kernel},
+        .glsl450 => &.{.Shader},
+        .vulkan => &.{.Shader},
         else => unreachable, // TODO
     };
 
-    try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
-        .capability = cap,
-    });
+    for (caps) |cap| {
+        try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
+            .capability = cap,
+        });
+    }
 }
 
 fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
@@ -271,7 +273,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     const memory_model: spec.MemoryModel = switch (target.os.tag) {
         .opencl => .OpenCL,
         .glsl450 => .GLSL450,
-        .vulkan => .Vulkan,
+        .vulkan => .GLSL450,
         else => unreachable,
     };
 
@@ -296,16 +298,26 @@ fn cloneLiveness(l: Liveness, gpa: Allocator) !Liveness {
     };
 }
 
-fn cloneAir(air: Air, gpa: Allocator, value_arena: Allocator) !Air {
+fn cloneAir(air: Air, gpa: Allocator, air_arena: Allocator) !Air {
     const values = try gpa.alloc(Value, air.values.len);
     errdefer gpa.free(values);
 
     for (values) |*value, i| {
-        value.* = try air.values[i].copy(value_arena);
+        value.* = try air.values[i].copy(air_arena);
     }
 
     var instructions = try air.instructions.toMultiArrayList().clone(gpa);
     errdefer instructions.deinit(gpa);
+
+    const air_tags = instructions.items(.tag);
+    const air_datas = instructions.items(.data);
+
+    for (air_tags) |tag, i| {
+        switch (tag) {
+            .arg, .alloc, .ret_ptr, .const_ty => air_datas[i].ty = try air_datas[i].ty.copy(air_arena),
+            else => {},
+        }
+    }
 
     return Air{
         .instructions = instructions.slice(),

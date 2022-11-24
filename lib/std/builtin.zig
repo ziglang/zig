@@ -168,7 +168,7 @@ pub const AddressSpace = enum {
     gs,
     fs,
     ss,
-    // GPU address spaces
+    // GPU address spaces.
     global,
     constant,
     param,

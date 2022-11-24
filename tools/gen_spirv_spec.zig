@@ -116,6 +116,31 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\pub const PairIdRefLiteralInteger = struct { target: IdRef, member: LiteralInteger };
         \\pub const PairIdRefIdRef = [2]IdRef;
         \\
+        \\pub const Quantifier = enum {
+        \\    required,
+        \\    optional,
+        \\    variadic,
+        \\};
+        \\
+        \\pub const Operand = struct {
+        \\    kind: OperandKind,
+        \\    quantifier: Quantifier,
+        \\};
+        \\
+        \\pub const OperandCategory = enum {
+        \\    bit_enum,
+        \\    value_enum,
+        \\    id,
+        \\    literal,
+        \\    composite,
+        \\};
+        \\
+        \\pub const Enumerant = struct {
+        \\    name: []const u8,
+        \\    value: Word,
+        \\    parameters: []const OperandKind,
+        \\};
+        \\
         \\
     );
 
@@ -123,12 +148,116 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\pub const version = Version{{ .major = {}, .minor = {}, .patch = {} }};
         \\pub const magic_number: Word = {s};
         \\
+        \\
     ,
         .{ registry.major_version, registry.minor_version, registry.revision, registry.magic_number },
     );
+
     const extended_structs = try extendedStructs(allocator, registry.operand_kinds);
+    try renderClass(writer, allocator, registry.instructions);
+    try renderOperandKind(writer, registry.operand_kinds);
     try renderOpcodes(writer, allocator, registry.instructions, extended_structs);
     try renderOperandKinds(writer, allocator, registry.operand_kinds, extended_structs);
+}
+
+fn renderClass(writer: anytype, allocator: Allocator, instructions: []const g.Instruction) !void {
+    var class_map = std.StringArrayHashMap(void).init(allocator);
+
+    for (instructions) |inst| {
+        if (std.mem.eql(u8, inst.class.?, "@exclude")) {
+            continue;
+        }
+        try class_map.put(inst.class.?, {});
+    }
+
+    try writer.writeAll("pub const Class = enum {\n");
+    for (class_map.keys()) |class| {
+        try renderInstructionClass(writer, class);
+        try writer.writeAll(",\n");
+    }
+    try writer.writeAll("};\n");
+}
+
+fn renderInstructionClass(writer: anytype, class: []const u8) !void {
+    // Just assume that these wont clobber zig builtin types.
+    var prev_was_sep = true;
+    for (class) |c| {
+        switch (c) {
+            '-', '_' => prev_was_sep = true,
+            else => if (prev_was_sep) {
+                try writer.writeByte(std.ascii.toUpper(c));
+                prev_was_sep = false;
+            } else {
+                try writer.writeByte(std.ascii.toLower(c));
+            },
+        }
+    }
+}
+
+fn renderOperandKind(writer: anytype, operands: []const g.OperandKind) !void {
+    try writer.writeAll("pub const OperandKind = enum {\n");
+    for (operands) |operand| {
+        try writer.print("{},\n", .{std.zig.fmtId(operand.kind)});
+    }
+    try writer.writeAll(
+        \\
+        \\pub fn category(self: OperandKind) OperandCategory {
+        \\return switch (self) {
+        \\
+    );
+    for (operands) |operand| {
+        const cat = switch (operand.category) {
+            .BitEnum => "bit_enum",
+            .ValueEnum => "value_enum",
+            .Id => "id",
+            .Literal => "literal",
+            .Composite => "composite",
+        };
+        try writer.print(".{} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
+    }
+    try writer.writeAll(
+        \\};
+        \\}
+        \\pub fn enumerants(self: OperandKind) []const Enumerant {
+        \\return switch (self) {
+        \\
+    );
+    for (operands) |operand| {
+        switch (operand.category) {
+            .BitEnum, .ValueEnum => {},
+            else => {
+                try writer.print(".{} => unreachable,\n", .{std.zig.fmtId(operand.kind)});
+                continue;
+            },
+        }
+
+        try writer.print(".{} => &[_]Enumerant{{", .{std.zig.fmtId(operand.kind)});
+        for (operand.enumerants.?) |enumerant| {
+            if (enumerant.value == .bitflag and std.mem.eql(u8, enumerant.enumerant, "None")) {
+                continue;
+            }
+            try renderEnumerant(writer, enumerant);
+            try writer.writeAll(",");
+        }
+        try writer.writeAll("},\n");
+    }
+    try writer.writeAll("};\n}\n};\n");
+}
+
+fn renderEnumerant(writer: anytype, enumerant: g.Enumerant) !void {
+    try writer.print(".{{.name = \"{s}\", .value = ", .{enumerant.enumerant});
+    switch (enumerant.value) {
+        .bitflag => |flag| try writer.writeAll(flag),
+        .int => |int| try writer.print("{}", .{int}),
+    }
+    try writer.writeAll(", .parameters = &[_]OperandKind{");
+    for (enumerant.parameters) |param, i| {
+        if (i != 0)
+            try writer.writeAll(", ");
+        // Note, param.quantifier will always be one.
+        try writer.print(".{}", .{std.zig.fmtId(param.kind)});
+    }
+    try writer.writeAll("}}");
 }
 
 fn renderOpcodes(
@@ -144,6 +273,9 @@ fn renderOpcodes(
     try aliases.ensureTotalCapacity(instructions.len);
 
     for (instructions) |inst, i| {
+        if (std.mem.eql(u8, inst.class.?, "@exclude")) {
+            continue;
+        }
         const result = inst_map.getOrPutAssumeCapacity(inst.opcode);
         if (!result.found_existing) {
             result.value_ptr.* = i;
@@ -192,6 +324,47 @@ fn renderOpcodes(
         const inst = instructions[i];
         try renderOperand(writer, .instruction, inst.opname, inst.operands, extended_structs);
     }
+
+    try writer.writeAll(
+        \\};
+        \\}
+        \\pub fn operands(self: Opcode) []const Operand {
+        \\return switch (self) {
+        \\
+    );
+
+    for (instructions_indices) |i| {
+        const inst = instructions[i];
+        try writer.print(".{} => &[_]Operand{{", .{std.zig.fmtId(inst.opname)});
+        for (inst.operands) |operand| {
+            const quantifier = if (operand.quantifier) |q|
+                switch (q) {
+                    .@"?" => "optional",
+                    .@"*" => "variadic",
+                }
+            else
+                "required";
+
+            try writer.print(".{{.kind = .{s}, .quantifier = .{s}}},", .{ operand.kind, quantifier });
+        }
+        try writer.writeAll("},\n");
+    }
+
+    try writer.writeAll(
+        \\};
+        \\}
+        \\pub fn class(self: Opcode) Class {
+        \\return switch (self) {
+        \\
+    );
+
+    for (instructions_indices) |i| {
+        const inst = instructions[i];
+        try writer.print(".{} => .", .{std.zig.fmtId(inst.opname)});
+        try renderInstructionClass(writer, inst.class.?);
+        try writer.writeAll(",\n");
+    }
+
     try writer.writeAll("};\n}\n};\n");
 }
 
@@ -298,7 +471,7 @@ fn renderBitEnum(
     for (enumerants) |enumerant, i| {
         if (enumerant.value != .bitflag) return error.InvalidRegistry;
         const value = try parseHexInt(enumerant.value.bitflag);
-        if (@popCount(value) == 0) {
+        if (value == 0) {
             continue; // Skip 'none' items
         }
 

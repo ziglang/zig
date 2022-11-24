@@ -10,6 +10,7 @@ const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
+const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 
 const spec = @import("spirv/spec.zig");
@@ -22,6 +23,7 @@ const IdResultType = spec.IdResultType;
 const SpvModule = @import("spirv/Module.zig");
 const SpvSection = @import("spirv/Section.zig");
 const SpvType = @import("spirv/type.zig").Type;
+const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
@@ -37,10 +39,13 @@ pub const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
+    /// A general-purpose allocator that can be used for any allocations for this DeclGen.
+    gpa: Allocator,
+
     /// The Zig module that we are generating decls for.
     module: *Module,
 
-    /// The SPIR-V module code should be put in.
+    /// The SPIR-V module that instructions should be emitted into.
     spv: *SpvModule,
 
     /// The decl we are currently generating code for.
@@ -71,18 +76,14 @@ pub const DeclGen = struct {
     /// The label of the SPIR-V block we are currently generating.
     current_block_label_id: IdRef,
 
-    /// The actual instructions for this function. We need to declare all locals in
-    /// the first block, and because we don't know which locals there are going to be,
-    /// we're just going to generate everything after the locals-section in this array.
-    /// Note: It will not contain OpFunction, OpFunctionParameter, OpVariable and the
-    /// initial OpLabel. These will be generated into spv.sections.functions directly.
-    code: SpvSection = .{},
+    /// The code (prologue and body) for the function we are currently generating code for.
+    func: SpvModule.Fn = .{},
 
     /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
     error_msg: ?*Module.ErrorMsg,
 
-    /// Possible errors the `gen` function may return.
+    /// Possible errors the `genDecl` function may return.
     const Error = error{ CodegenFail, OutOfMemory };
 
     /// This structure is used to return information about a type typically used for
@@ -132,8 +133,9 @@ pub const DeclGen = struct {
 
     /// Initialize the common resources of a DeclGen. Some fields are left uninitialized,
     /// only set when `gen` is called.
-    pub fn init(module: *Module, spv: *SpvModule) DeclGen {
+    pub fn init(allocator: Allocator, module: *Module, spv: *SpvModule) DeclGen {
         return .{
+            .gpa = allocator,
             .module = module,
             .spv = spv,
             .decl = undefined,
@@ -158,12 +160,19 @@ pub const DeclGen = struct {
         self.inst_results.clearRetainingCapacity();
         self.blocks.clearRetainingCapacity();
         self.current_block_label_id = undefined;
-        self.code.reset();
+        self.func.reset();
         self.error_msg = null;
 
         self.genDecl() catch |err| switch (err) {
             error.CodegenFail => return self.error_msg,
-            else => |others| return others,
+            else => |others| {
+                // There might be an error that happened *after* self.error_msg
+                // was already allocated, so be sure to free it.
+                if (self.error_msg) |error_msg| {
+                    error_msg.deinit(self.module.gpa);
+                }
+                return others;
+            },
         };
 
         return null;
@@ -171,18 +180,18 @@ pub const DeclGen = struct {
 
     /// Free resources owned by the DeclGen.
     pub fn deinit(self: *DeclGen) void {
-        self.args.deinit(self.spv.gpa);
-        self.inst_results.deinit(self.spv.gpa);
-        self.blocks.deinit(self.spv.gpa);
-        self.code.deinit(self.spv.gpa);
+        self.args.deinit(self.gpa);
+        self.inst_results.deinit(self.gpa);
+        self.blocks.deinit(self.gpa);
+        self.func.deinit(self.gpa);
     }
 
     /// Return the target which we are currently compiling for.
-    fn getTarget(self: *DeclGen) std.Target {
+    pub fn getTarget(self: *DeclGen) std.Target {
         return self.module.getTarget();
     }
 
-    fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
+    pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(self.decl);
@@ -191,13 +200,8 @@ pub const DeclGen = struct {
         return error.CodegenFail;
     }
 
-    fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
-        @setCold(true);
-        const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(self.decl);
-        assert(self.error_msg == null);
-        self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "TODO (SPIR-V): " ++ format, args);
-        return error.CodegenFail;
+    pub fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
+        return self.fail("TODO (SPIR-V): " ++ format, args);
     }
 
     /// Fetch the result-id for a previously generated instruction or constant.
@@ -214,7 +218,7 @@ pub const DeclGen = struct {
     /// Note that there is no such thing as nested blocks like in ZIR or AIR, so we don't need to
     /// keep track of the previous block.
     fn beginSpvBlock(self: *DeclGen, label_id: IdResult) !void {
-        try self.code.emit(self.spv.gpa, .OpLabel, .{ .id_result = label_id });
+        try self.func.body.emit(self.spv.gpa, .OpLabel, .{ .id_result = label_id });
         self.current_block_label_id = label_id.toRef();
     }
 
@@ -320,6 +324,17 @@ pub const DeclGen = struct {
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!IdRef {
+        if (ty.zigTypeTag() == .Fn) {
+            const fn_decl_index = switch (val.tag()) {
+                .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
+                .function => val.castTag(.function).?.data.owner_decl,
+                else => unreachable,
+            };
+            const decl = self.module.declPtr(fn_decl_index);
+            self.module.markDeclAlive(decl);
+            return decl.fn_link.spirv.id.toRef();
+        }
+
         const target = self.getTarget();
         const section = &self.spv.sections.types_globals_constants;
         const result_id = self.spv.allocId();
@@ -387,7 +402,27 @@ pub const DeclGen = struct {
                     .value = value,
                 });
             },
+            .Vector => switch (val.tag()) {
+                .aggregate => {
+                    const elem_vals = val.castTag(.aggregate).?.data;
+                    const vector_len = @intCast(usize, ty.vectorLen());
+                    const elem_ty = ty.elemType();
+
+                    const elem_refs = try self.gpa.alloc(IdRef, vector_len);
+                    defer self.gpa.free(elem_refs);
+                    for (elem_refs) |*elem, i| {
+                        elem.* = try self.genConstant(elem_ty, elem_vals[i]);
+                    }
+                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                        .id_result_type = result_type_id,
+                        .id_result = result_id,
+                        .constituents = elem_refs,
+                    });
+                },
+                else => unreachable, // TODO
+            },
             .Void => unreachable,
+            .Fn => unreachable,
             else => return self.todo("constant generation of type {}", .{ty.fmtDebug()}),
         }
 
@@ -396,7 +431,8 @@ pub const DeclGen = struct {
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
     fn resolveTypeId(self: *DeclGen, ty: Type) !IdResultType {
-        return self.spv.typeResultId(try self.resolveType(ty));
+        const type_ref = try self.resolveType(ty);
+        return self.spv.typeResultId(type_ref);
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
@@ -447,8 +483,8 @@ pub const DeclGen = struct {
                 break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
             .Fn => blk: {
-                // We only support zig-calling-convention functions, no varargs.
-                if (ty.fnCallingConvention() != .Unspecified)
+                // We only support C-calling-convention functions for now, no varargs.
+                if (ty.fnCallingConvention() != .C)
                     return self.fail("Unsupported calling convention for SPIR-V", .{});
                 if (ty.fnIsVarArgs())
                     return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
@@ -464,11 +500,19 @@ pub const DeclGen = struct {
                 payload.* = .{ .return_type = return_type, .parameters = param_types };
                 break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
-            .Pointer => {
-                // This type can now be properly implemented, but we still need to implement the storage classes as proper address spaces.
-                return self.todo("Implement type Pointer properly", .{});
+            .Pointer => blk: {
+                const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
+                payload.* = .{
+                    .storage_class = spirvStorageClass(ty.ptrAddressSpace()),
+                    .child_type = try self.resolveType(ty.elemType()),
+                    .array_stride = 0,
+                    // Note: only available in Kernels!
+                    .alignment = null,
+                    .max_byte_offset = null,
+                };
+                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
-            .Vector => {
+            .Vector => blk: {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
                 // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
@@ -476,8 +520,14 @@ pub const DeclGen = struct {
                 // TODO: The SPIR-V spec mentions that vector sizes may be quite restricted! look into which we can use, and whether OpTypeVector
                 // is adequate at all for this.
 
-                // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
-                return self.todo("Implement type Vector", .{});
+                // TODO: Properly verify sizes and child type.
+
+                const payload = try self.spv.arena.create(SpvType.Payload.Vector);
+                payload.* = .{
+                    .component_type = try self.resolveType(ty.elemType()),
+                    .component_count = @intCast(u32, ty.vectorLen()),
+                };
+                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
 
             .Null,
@@ -494,25 +544,14 @@ pub const DeclGen = struct {
         };
     }
 
-    /// SPIR-V requires pointers to have a storage class (address space), and so we have a special function for that.
-    /// TODO: The result of this needs to be cached.
-    fn genPointerType(self: *DeclGen, ty: Type, storage_class: spec.StorageClass) !IdResultType {
-        assert(ty.zigTypeTag() == .Pointer);
-
-        const result_id = self.spv.allocId();
-
-        // TODO: There are many constraints which are ignored for now: We may only create pointers to certain types, and to other types
-        // if more capabilities are enabled. For example, we may only create pointers to f16 if Float16Buffer is enabled.
-        // These also relates to the pointer's address space.
-        const child_id = try self.resolveTypeId(ty.elemType());
-
-        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
-            .id_result = result_id,
-            .storage_class = storage_class,
-            .type = child_id.toRef(),
-        });
-
-        return result_id.toResultType();
+    fn spirvStorageClass(as: std.builtin.AddressSpace) spec.StorageClass {
+        return switch (as) {
+            .generic => .Generic, // TODO: Disallow?
+            .gs, .fs, .ss => unreachable,
+            .shared => .Workgroup,
+            .local => .Private,
+            .global, .param, .constant => unreachable,
+        };
     }
 
     fn genDecl(self: *DeclGen) !void {
@@ -522,7 +561,7 @@ pub const DeclGen = struct {
         if (decl.val.castTag(.function)) |_| {
             assert(decl.ty.zigTypeTag() == .Fn);
             const prototype_id = try self.resolveTypeId(decl.ty);
-            try self.spv.sections.functions.emit(self.spv.gpa, .OpFunction, .{
+            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
                 .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType()),
                 .id_result = result_id,
                 .function_control = .{}, // TODO: We can set inline here if the type requires it.
@@ -532,11 +571,11 @@ pub const DeclGen = struct {
             const params = decl.ty.fnParamLen();
             var i: usize = 0;
 
-            try self.args.ensureUnusedCapacity(self.spv.gpa, params);
+            try self.args.ensureUnusedCapacity(self.gpa, params);
             while (i < params) : (i += 1) {
                 const param_type_id = try self.resolveTypeId(decl.ty.fnParamType(i));
                 const arg_result_id = self.spv.allocId();
-                try self.spv.sections.functions.emit(self.spv.gpa, .OpFunctionParameter, .{
+                try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
                     .id_result_type = param_type_id,
                     .id_result = arg_result_id,
                 });
@@ -546,9 +585,9 @@ pub const DeclGen = struct {
             // TODO: This could probably be done in a better way...
             const root_block_id = self.spv.allocId();
 
-            // We need to generate the label directly in the functions section here because we're going to write the local variables after
-            // here. Since we're not generating in self.code, we're just going to bypass self.beginSpvBlock here.
-            try self.spv.sections.functions.emit(self.spv.gpa, .OpLabel, .{
+            // The root block of a function declaration should appear before OpVariable instructions,
+            // so it is generated into the function's prologue.
+            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
                 .id_result = root_block_id,
             });
             self.current_block_label_id = root_block_id.toRef();
@@ -557,8 +596,8 @@ pub const DeclGen = struct {
             try self.genBody(main_body);
 
             // Append the actual code into the functions section.
-            try self.spv.sections.functions.append(self.spv.gpa, self.code);
-            try self.spv.sections.functions.emit(self.spv.gpa, .OpFunctionEnd, {});
+            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+            try self.spv.addFunction(self.func);
         } else {
             // TODO
             // return self.todo("generate decl type {}", .{decl.ty.zigTypeTag()});
@@ -578,6 +617,8 @@ pub const DeclGen = struct {
             .add, .addwrap => try self.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd),
             .sub, .subwrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
             .mul, .mulwrap => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
+
+            .shuffle => try self.airShuffle(inst),
 
             .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try self.airBinOpSimple(inst, .OpBitwiseOr),
@@ -608,14 +649,18 @@ pub const DeclGen = struct {
             .ret        => return self.airRet(inst),
             .store      => return self.airStore(inst),
             .unreach    => return self.airUnreach(),
+            .assembly   => (try self.airAssembly(inst)) orelse return,
+
+            .dbg_var_ptr => return,
+            .dbg_var_val => return,
+            .dbg_block_begin => return,
+            .dbg_block_end => return,
             // zig fmt: on
 
-            else => |tag| return self.todo("implement AIR tag {s}", .{
-                @tagName(tag),
-            }),
+            else => |tag| return self.todo("implement AIR tag {s}", .{@tagName(tag)}),
         };
 
-        try self.inst_results.putNoClobber(self.spv.gpa, inst, result_id);
+        try self.inst_results.putNoClobber(self.gpa, inst, result_id);
     }
 
     fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !IdRef {
@@ -624,7 +669,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(bin_op.rhs);
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
-        try self.code.emit(self.spv.gpa, opcode, .{
+        try self.func.body.emit(self.spv.gpa, opcode, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .operand_1 = lhs_id,
@@ -680,14 +725,49 @@ pub const DeclGen = struct {
         };
 
         switch (opcode_index) {
-            0 => try self.code.emit(self.spv.gpa, fop, operands),
-            1 => try self.code.emit(self.spv.gpa, sop, operands),
-            2 => try self.code.emit(self.spv.gpa, uop, operands),
+            0 => try self.func.body.emit(self.spv.gpa, fop, operands),
+            1 => try self.func.body.emit(self.spv.gpa, sop, operands),
+            2 => try self.func.body.emit(self.spv.gpa, uop, operands),
             else => unreachable,
         }
         // TODO: Trap on overflow? Probably going to be annoying.
         // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
 
+        return result_id.toRef();
+    }
+
+    fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+        const ty = self.air.typeOfIndex(inst);
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
+        const a = try self.resolve(extra.a);
+        const b = try self.resolve(extra.b);
+        const mask = self.air.values[extra.mask];
+        const mask_len = extra.mask_len;
+        const a_len = self.air.typeOf(extra.a).vectorLen();
+
+        const result_id = self.spv.allocId();
+        const result_type_id = try self.resolveTypeId(ty);
+        // Similar to LLVM, SPIR-V uses indices larger than the length of the first vector
+        // to index into the second vector.
+        try self.func.body.emitRaw(self.spv.gpa, .OpVectorShuffle, 4 + mask_len);
+        self.func.body.writeOperand(spec.IdResultType, result_type_id);
+        self.func.body.writeOperand(spec.IdResult, result_id);
+        self.func.body.writeOperand(spec.IdRef, a);
+        self.func.body.writeOperand(spec.IdRef, b);
+
+        var i: usize = 0;
+        while (i < mask_len) : (i += 1) {
+            var buf: Value.ElemValueBuffer = undefined;
+            const elem = mask.elemValueBuffer(self.module, i, &buf);
+            if (elem.isUndef()) {
+                self.func.body.writeOperand(spec.LiteralInteger, 0xFFFF_FFFF);
+            } else {
+                const int = elem.toSignedInt();
+                const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int + a_len);
+                self.func.body.writeOperand(spec.LiteralInteger, unsigned);
+            }
+        }
         return result_id.toRef();
     }
 
@@ -727,9 +807,9 @@ pub const DeclGen = struct {
         };
 
         switch (opcode_index) {
-            0 => try self.code.emit(self.spv.gpa, fop, operands),
-            1 => try self.code.emit(self.spv.gpa, sop, operands),
-            2 => try self.code.emit(self.spv.gpa, uop, operands),
+            0 => try self.func.body.emit(self.spv.gpa, fop, operands),
+            1 => try self.func.body.emit(self.spv.gpa, sop, operands),
+            2 => try self.func.body.emit(self.spv.gpa, uop, operands),
             else => unreachable,
         }
 
@@ -741,7 +821,7 @@ pub const DeclGen = struct {
         const operand_id = try self.resolve(ty_op.operand);
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
-        try self.code.emit(self.spv.gpa, .OpLogicalNot, .{
+        try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .operand = operand_id,
@@ -751,13 +831,18 @@ pub const DeclGen = struct {
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
         const ty = self.air.typeOfIndex(inst);
-        const storage_class = spec.StorageClass.Function;
-        const result_type_id = try self.genPointerType(ty, storage_class);
+        const result_type_id = try self.resolveTypeId(ty);
         const result_id = self.spv.allocId();
 
         // Rather than generating into code here, we're just going to generate directly into the functions section so that
         // variable declarations appear in the first block of the function.
-        try self.spv.sections.functions.emit(self.spv.gpa, .OpVariable, .{
+        const storage_class = spirvStorageClass(ty.ptrAddressSpace());
+        const section = if (storage_class == .Function)
+            &self.func.prologue
+        else
+            &self.spv.sections.types_globals_constants;
+
+        try section.emit(self.spv.gpa, .OpVariable, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .storage_class = storage_class,
@@ -779,15 +864,15 @@ pub const DeclGen = struct {
         const label_id = self.spv.allocId();
 
         // 4 chosen as arbitrary initial capacity.
-        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.spv.gpa, 4);
+        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.gpa, 4);
 
-        try self.blocks.putNoClobber(self.spv.gpa, inst, .{
+        try self.blocks.putNoClobber(self.gpa, inst, .{
             .label_id = label_id.toRef(),
             .incoming_blocks = &incoming_blocks,
         });
         defer {
             assert(self.blocks.remove(inst));
-            incoming_blocks.deinit(self.spv.gpa);
+            incoming_blocks.deinit(self.gpa);
         }
 
         const ty = self.air.typeOfIndex(inst);
@@ -807,15 +892,14 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
 
         // TODO: OpPhi is limited in the types that it may produce, such as pointers. Figure out which other types
-        // are not allowed to be created from a phi node, and throw an error for those. For now, resolveTypeId already throws
-        // an error for pointers.
+        // are not allowed to be created from a phi node, and throw an error for those.
         const result_type_id = try self.resolveTypeId(ty);
         _ = result_type_id;
 
-        try self.code.emitRaw(self.spv.gpa, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
+        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
 
         for (incoming_blocks.items) |incoming| {
-            self.code.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
+            self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
         }
 
         return result_id.toRef();
@@ -829,10 +913,10 @@ pub const DeclGen = struct {
         if (operand_ty.hasRuntimeBits()) {
             const operand_id = try self.resolve(br.operand);
             // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
-            try block.incoming_blocks.append(self.spv.gpa, .{ .src_label_id = self.current_block_label_id, .break_value_id = operand_id });
+            try block.incoming_blocks.append(self.gpa, .{ .src_label_id = self.current_block_label_id, .break_value_id = operand_id });
         }
 
-        try self.code.emit(self.spv.gpa, .OpBranch, .{ .target_label = block.label_id });
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = block.label_id });
     }
 
     fn airCondBr(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -849,7 +933,7 @@ pub const DeclGen = struct {
         // TODO: We can generate OpSelectionMerge here if we know the target block that both of these will resolve to,
         // but i don't know if those will always resolve to the same block.
 
-        try self.code.emit(self.spv.gpa, .OpBranchConditional, .{
+        try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
             .condition = condition_id,
             .true_label = then_label_id.toRef(),
             .false_label = else_label_id.toRef(),
@@ -864,7 +948,7 @@ pub const DeclGen = struct {
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
         const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
-        try self.code.emit(self.spv.gpa, .OpLine, .{
+        try self.func.body.emit(self.spv.gpa, .OpLine, .{
             .file = src_fname_id,
             .line = dbg_stmt.line,
             .column = dbg_stmt.column,
@@ -883,7 +967,7 @@ pub const DeclGen = struct {
             .Volatile = ty.isVolatilePtr(),
         };
 
-        try self.code.emit(self.spv.gpa, .OpLoad, .{
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .pointer = operand_id,
@@ -900,13 +984,13 @@ pub const DeclGen = struct {
         const loop_label_id = self.spv.allocId();
 
         // Jump to the loop entry point
-        try self.code.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
 
         // TODO: Look into OpLoopMerge.
         try self.beginSpvBlock(loop_label_id);
         try self.genBody(body);
 
-        try self.code.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -914,9 +998,9 @@ pub const DeclGen = struct {
         const operand_ty = self.air.typeOf(operand);
         if (operand_ty.hasRuntimeBits()) {
             const operand_id = try self.resolve(operand);
-            try self.code.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
+            try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
         } else {
-            try self.code.emit(self.spv.gpa, .OpReturn, {});
+            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
         }
     }
 
@@ -930,7 +1014,7 @@ pub const DeclGen = struct {
             .Volatile = lhs_ty.isVolatilePtr(),
         };
 
-        try self.code.emit(self.spv.gpa, .OpStore, .{
+        try self.func.body.emit(self.spv.gpa, .OpStore, .{
             .pointer = dst_ptr_id,
             .object = src_val_id,
             .memory_access = access,
@@ -938,6 +1022,134 @@ pub const DeclGen = struct {
     }
 
     fn airUnreach(self: *DeclGen) !void {
-        try self.code.emit(self.spv.gpa, .OpUnreachable, {});
+        try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+    }
+
+    fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Asm, ty_pl.payload);
+
+        const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
+        const clobbers_len = @truncate(u31, extra.data.flags);
+
+        if (!is_volatile and self.liveness.isUnused(inst)) return null;
+
+        var extra_i: usize = extra.end;
+        const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        extra_i += outputs.len;
+        const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        extra_i += inputs.len;
+
+        if (outputs.len > 1) {
+            return self.todo("implement inline asm with more than 1 output", .{});
+        }
+
+        var output_extra_i = extra_i;
+        for (outputs) |output| {
+            if (output != .none) {
+                return self.todo("implement inline asm with non-returned output", .{});
+            }
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+            // TODO: Record output and use it somewhere.
+        }
+
+        var input_extra_i = extra_i;
+        for (inputs) |input| {
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+            // TODO: Record input and use it somewhere.
+            _ = input;
+        }
+
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                extra_i += clobber.len / 4 + 1;
+                // TODO: Record clobber and use it somewhere.
+            }
+        }
+
+        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+
+        var as = SpvAssembler{
+            .gpa = self.gpa,
+            .src = asm_source,
+            .spv = self.spv,
+            .func = &self.func,
+        };
+        defer as.deinit();
+
+        for (inputs) |input| {
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[input_extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            input_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+            const value = try self.resolve(input);
+            try as.value_map.put(as.gpa, name, .{ .value = value });
+        }
+
+        as.assemble() catch |err| switch (err) {
+            error.AssembleFail => {
+                // TODO: For now the compiler only supports a single error message per decl,
+                // so to translate the possible multiple errors from the assembler, emit
+                // them as notes here.
+                // TODO: Translate proper error locations.
+                assert(as.errors.items.len != 0);
+                assert(self.error_msg == null);
+                const loc = LazySrcLoc.nodeOffset(0);
+                const src_loc = loc.toSrcLoc(self.decl);
+                self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
+                const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
+
+                // Sub-scope to prevent `return error.CodegenFail` from running the errdefers.
+                {
+                    errdefer self.module.gpa.free(notes);
+                    var i: usize = 0;
+                    errdefer for (notes[0..i]) |*note| {
+                        note.deinit(self.module.gpa);
+                    };
+
+                    while (i < as.errors.items.len) : (i += 1) {
+                        notes[i] = try Module.ErrorMsg.init(self.module.gpa, src_loc, "{s}", .{as.errors.items[i].msg});
+                    }
+                }
+                self.error_msg.?.notes = notes;
+                return error.CodegenFail;
+            },
+            else => |others| return others,
+        };
+
+        for (outputs) |output| {
+            _ = output;
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[output_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[output_extra_i..]), 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+            const result = as.value_map.get(name) orelse return {
+                return self.fail("invalid asm output '{s}'", .{name});
+            };
+
+            switch (result) {
+                .just_declared, .unresolved_forward_reference => unreachable,
+                .ty => return self.fail("cannot return spir-v type as value from assembly", .{}),
+                .value => |ref| return ref,
+            }
+
+            // TODO: Multiple results
+        }
+
+        return null;
     }
 };

@@ -30928,10 +30928,14 @@ pub fn analyzeAddressSpace(
     const address_space = addrspace_tv.val.toEnum(std.builtin.AddressSpace);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;
+
     const is_nv = arch == .nvptx or arch == .nvptx64;
-    const is_gpu = is_nv or arch == .amdgcn;
+    const is_amd = arch == .amdgcn;
+    const is_spirv = arch == .spirv32 or arch == .spirv64;
+    const is_gpu = is_nv or is_amd or is_spirv;
 
     const supported = switch (address_space) {
+        // TODO: on spir-v only when os is opencl.
         .generic => true,
         .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized

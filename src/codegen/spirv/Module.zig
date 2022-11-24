@@ -24,6 +24,37 @@ const Type = @import("type.zig").Type;
 
 const TypeCache = std.ArrayHashMapUnmanaged(Type, IdResultType, Type.ShallowHashContext32, true);
 
+/// This structure represents a function that is in-progress of being emitted.
+/// Commonly, the contents of this structure will be merged with the appropriate
+/// sections of the module and re-used. Note that the SPIR-V module system makes
+/// no attempt of compacting result-id's, so any Fn instance should ultimately
+/// be merged into the module it's result-id's are allocated from.
+pub const Fn = struct {
+    /// The prologue of this function; this section contains the function's
+    /// OpFunction, OpFunctionParameter, OpLabel and OpVariable instructions, and
+    /// is separated from the actual function contents as OpVariable instructions
+    /// must appear in the first block of a function definition.
+    prologue: Section = .{},
+    /// The code of the body of this function.
+    /// This section should also contain the OpFunctionEnd instruction marking
+    /// the end of this function definition.
+    body: Section = .{},
+
+    /// Reset this function without deallocating resources, so that
+    /// it may be used to emit code for another function.
+    pub fn reset(self: *Fn) void {
+        self.prologue.reset();
+        self.body.reset();
+    }
+
+    /// Free the resources owned by this function.
+    pub fn deinit(self: *Fn, a: Allocator) void {
+        self.prologue.deinit(a);
+        self.body.deinit(a);
+        self.* = undefined;
+    }
+};
+
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
 
@@ -40,7 +71,8 @@ sections: struct {
     // memory model defined by target, not required here.
     /// OpEntryPoint instructions.
     entry_points: Section = .{},
-    // OpExecutionMode and OpExecutionModeId instructions - skip for now.
+    /// OpExecutionMode and OpExecutionModeId instructions.
+    execution_modes: Section = .{},
     /// OpString, OpSourcExtension, OpSource, OpSourceContinued.
     debug_strings: Section = .{},
     // OpName, OpMemberName - skip for now.
@@ -81,6 +113,7 @@ pub fn deinit(self: *Module) void {
     self.sections.capabilities.deinit(self.gpa);
     self.sections.extensions.deinit(self.gpa);
     self.sections.entry_points.deinit(self.gpa);
+    self.sections.execution_modes.deinit(self.gpa);
     self.sections.debug_strings.deinit(self.gpa);
     self.sections.annotations.deinit(self.gpa);
     self.sections.types_globals_constants.deinit(self.gpa);
@@ -107,7 +140,7 @@ pub fn flush(self: Module, file: std.fs.File) !void {
 
     const header = [_]Word{
         spec.magic_number,
-        (spec.version.major << 16) | (spec.version.minor << 8),
+        (1 << 16) | (5 << 8),
         0, // TODO: Register Zig compiler magic number.
         self.idBound(),
         0, // Schema (currently reserved for future use)
@@ -119,6 +152,7 @@ pub fn flush(self: Module, file: std.fs.File) !void {
         self.sections.capabilities.toWords(),
         self.sections.extensions.toWords(),
         self.sections.entry_points.toWords(),
+        self.sections.execution_modes.toWords(),
         self.sections.debug_strings.toWords(),
         self.sections.annotations.toWords(),
         self.sections.types_globals_constants.toWords(),
@@ -138,6 +172,12 @@ pub fn flush(self: Module, file: std.fs.File) !void {
     try file.seekTo(0);
     try file.setEndPos(file_size);
     try file.pwritevAll(&iovc_buffers, 0);
+}
+
+/// Merge the sections making up a function declaration into this module.
+pub fn addFunction(self: *Module, func: Fn) !void {
+    try self.sections.functions.append(self.gpa, func.prologue);
+    try self.sections.functions.append(self.gpa, func.body);
 }
 
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
@@ -175,11 +215,13 @@ pub fn resolveType(self: *Module, ty: Type) !Type.Ref {
     if (!result.found_existing) {
         result.value_ptr.* = try self.emitType(ty);
     }
+
     return result.index;
 }
 
 pub fn resolveTypeId(self: *Module, ty: Type) !IdRef {
-    return self.typeResultId(try self.resolveType(ty));
+    const type_ref = try self.resolveType(ty);
+    return self.typeResultId(type_ref);
 }
 
 /// Get the result-id of a particular type, by reference. Asserts type_ref is valid.
@@ -208,14 +250,18 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
     switch (ty.tag()) {
         .void => try types.emit(self.gpa, .OpTypeVoid, result_id_operand),
         .bool => try types.emit(self.gpa, .OpTypeBool, result_id_operand),
-        .int => try types.emit(self.gpa, .OpTypeInt, .{
-            .id_result = result_id,
-            .width = ty.payload(.int).width,
-            .signedness = switch (ty.payload(.int).signedness) {
-                .unsigned => @as(spec.LiteralInteger, 0),
+        .int => {
+            const signedness: spec.LiteralInteger = switch (ty.payload(.int).signedness) {
+                .unsigned => 0,
                 .signed => 1,
-            },
-        }),
+            };
+
+            try types.emit(self.gpa, .OpTypeInt, .{
+                .id_result = result_id,
+                .width = ty.payload(.int).width,
+                .signedness = signedness,
+            });
+        },
         .float => try types.emit(self.gpa, .OpTypeFloat, .{
             .id_result = result_id,
             .width = ty.payload(.float).width,
