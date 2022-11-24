@@ -318,6 +318,7 @@ pub const Ed25519 = struct {
             h.update(&scalar_and_prefix.prefix);
             var noise2: [noise_length]u8 = undefined;
             crypto.random.bytes(&noise2);
+            h.update(&noise2);
             if (noise) |*z| {
                 h.update(z);
             }
