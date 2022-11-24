@@ -729,3 +729,43 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
         else => return false,
     }
 }
+
+pub fn libcFloatPrefix(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16, 80 => "__",
+        32, 64, 128 => "",
+        else => unreachable,
+    };
+}
+
+pub fn libcFloatSuffix(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16 => "h", // Non-standard
+        32 => "f",
+        64 => "",
+        80 => "x", // Non-standard
+        128 => "q", // Non-standard (mimics convention in GCC libquadmath)
+        else => unreachable,
+    };
+}
+
+pub fn compilerRtFloatAbbrev(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16 => "h",
+        32 => "s",
+        64 => "d",
+        80 => "x",
+        128 => "t",
+        else => unreachable,
+    };
+}
+
+pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
+    return switch (bits) {
+        16 => "h",
+        32 => "s",
+        64 => "d",
+        128 => "t",
+        else => "o", // Non-standard
+    };
+}
