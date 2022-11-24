@@ -521,8 +521,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_sat         => try self.airSubSat(inst),
             .mul_sat         => try self.airMulSat(inst),
             .shl_sat         => try self.airShlSat(inst),
-            .min             => @panic("TODO try self.airMin(inst)"),
-            .max             => @panic("TODO try self.airMax(inst)"),
+            .min, .max       => try self.airMinMax(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
             .slice           => try self.airSlice(inst),
@@ -1735,6 +1734,22 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
     _ = length;
 
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
+}
+
+fn airMinMax(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        try self.minMax(tag, lhs, rhs, lhs_ty, rhs_ty);
+
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMod(self: *Self, inst: Air.Inst.Index) !void {
@@ -4192,6 +4207,83 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         return MCValue{ .memory = got_addr };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
+    }
+}
+
+fn minMax(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
+    assert(lhs_ty.eql(rhs_ty, mod));
+    switch (lhs_ty.zigTypeTag()) {
+        .Float => return self.fail("TODO min/max on floats", .{}),
+        .Vector => return self.fail("TODO min/max on vectors", .{}),
+        .Int => {
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 64) {
+                // TODO skip register setting when one of the operands
+                // is a small (fits in i13) immediate.
+                const rhs_is_register = rhs == .register;
+                const rhs_reg = if (rhs_is_register)
+                    rhs.register
+                else
+                    try self.register_manager.allocReg(null, gp);
+                const rhs_lock = self.register_manager.lockReg(rhs_reg);
+                defer if (rhs_lock) |reg| self.register_manager.unlockReg(reg);
+                if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+                const result_reg = try self.register_manager.allocReg(null, gp);
+                const result_lock = self.register_manager.lockReg(result_reg);
+                defer if (result_lock) |reg| self.register_manager.unlockReg(reg);
+                try self.genSetReg(lhs_ty, result_reg, lhs);
+
+                const cond_choose_rhs: Instruction.ICondition = switch (tag) {
+                    .max => switch (int_info.signedness) {
+                        .signed => Instruction.ICondition.gt,
+                        .unsigned => Instruction.ICondition.gu,
+                    },
+                    .min => switch (int_info.signedness) {
+                        .signed => Instruction.ICondition.lt,
+                        .unsigned => Instruction.ICondition.cs,
+                    },
+                    else => unreachable,
+                };
+
+                _ = try self.addInst(.{
+                    .tag = .cmp,
+                    .data = .{
+                        .arithmetic_2op = .{
+                            .is_imm = false,
+                            .rs1 = result_reg,
+                            .rs2_or_imm = .{ .rs2 = rhs_reg },
+                        },
+                    },
+                });
+
+                _ = try self.addInst(.{
+                    .tag = .movcc,
+                    .data = .{
+                        .conditional_move_int = .{
+                            .is_imm = false,
+                            .ccr = .xcc,
+                            .cond = .{ .icond = cond_choose_rhs },
+                            .rd = result_reg,
+                            .rs2_or_imm = .{ .rs2 = rhs_reg },
+                        },
+                    },
+                });
+
+                return MCValue{ .register = result_reg };
+            } else {
+                return self.fail("TODO min/max on integers > u64/i64", .{});
+            }
+        },
+        else => unreachable,
     }
 }
 
