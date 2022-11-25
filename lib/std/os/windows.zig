@@ -2103,6 +2103,7 @@ pub const USHORT = u16;
 pub const SHORT = i16;
 pub const ULONG = u32;
 pub const LONG = i32;
+pub const ULONG64 = u64;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
@@ -3715,106 +3716,281 @@ pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
 pub const HANDLER_ROUTINE = std.meta.FnPtr(fn (dwCtrlType: DWORD) callconv(WINAPI) BOOL);
 
-/// The 64-bit load/store atomic instructions are available.
-pub const PF_ARM_64BIT_LOADSTORE_ATOMIC = 25;
+/// Processor feature enumeration.
+pub const PF = enum(DWORD) {
+    /// On a Pentium, a floating-point precision error can occur in rare circumstances.
+    FLOATING_POINT_PRECISION_ERRATA = 0,
 
-/// The divide instruction_available.
-pub const PF_ARM_DIVIDE_INSTRUCTION_AVAILABLE = 24;
+    /// Floating-point operations are emulated using software emulator.
+    /// This function returns a nonzero value if floating-point operations are emulated; otherwise, it returns zero.
+    FLOATING_POINT_EMULATED = 1,
 
-/// The external cache is available.
-pub const PF_ARM_EXTERNAL_CACHE_AVAILABLE = 26;
+    /// The atomic compare and exchange operation (cmpxchg) is available.
+    COMPARE_EXCHANGE_DOUBLE = 2,
 
-/// The floating-point multiply-accumulate instruction is available.
-pub const PF_ARM_FMAC_INSTRUCTIONS_AVAILABLE = 27;
+    /// The MMX instruction set is available.
+    MMX_INSTRUCTIONS_AVAILABLE = 3,
 
-/// The VFP/Neon: 32 x 64bit register bank is present.
-/// This flag has the same meaning as PF_ARM_VFP_EXTENDED_REGISTERS.
-pub const PF_ARM_VFP_32_REGISTERS_AVAILABLE = 18;
+    /// The SSE instruction set is available.
+    XMMI_INSTRUCTIONS_AVAILABLE = 6,
 
-/// The 3D-Now instruction is available.
-pub const PF_3DNOW_INSTRUCTIONS_AVAILABLE = 7;
+    /// The 3D-Now instruction is available.
+    @"3DNOW_INSTRUCTIONS_AVAILABLE" = 7,
 
-/// The processor channels are enabled.
-pub const PF_CHANNELS_ENABLED = 16;
+    /// The RDTSC instruction is available.
+    RDTSC_INSTRUCTION_AVAILABLE = 8,
 
-/// The atomic compare and exchange operation (cmpxchg) is available.
-pub const PF_COMPARE_EXCHANGE_DOUBLE = 2;
+    /// The processor is PAE-enabled.
+    PAE_ENABLED = 9,
 
-/// The atomic compare and exchange 128-bit operation (cmpxchg16b) is available.
-pub const PF_COMPARE_EXCHANGE128 = 14;
+    /// The SSE2 instruction set is available.
+    XMMI64_INSTRUCTIONS_AVAILABLE = 10,
 
-/// The atomic compare 64 and exchange 128-bit operation (cmp8xchg16) is available.
-pub const PF_COMPARE64_EXCHANGE128 = 15;
+    /// Data execution prevention is enabled.
+    NX_ENABLED = 12,
 
-/// _fastfail() is available.
-pub const PF_FASTFAIL_AVAILABLE = 23;
+    /// The SSE3 instruction set is available.
+    SSE3_INSTRUCTIONS_AVAILABLE = 13,
 
-/// Floating-point operations are emulated using software emulator.
-/// This function returns a nonzero value if floating-point operations are emulated; otherwise, it returns zero.
-pub const PF_FLOATING_POINT_EMULATED = 1;
+    /// The atomic compare and exchange 128-bit operation (cmpxchg16b) is available.
+    COMPARE_EXCHANGE128 = 14,
 
-/// On a Pentium, a floating-point precision error can occur in rare circumstances.
-pub const PF_FLOATING_POINT_PRECISION_ERRATA = 0;
+    /// The atomic compare 64 and exchange 128-bit operation (cmp8xchg16) is available.
+    COMPARE64_EXCHANGE128 = 15,
 
-/// The MMX instruction set is available.
-pub const PF_MMX_INSTRUCTIONS_AVAILABLE = 3;
+    /// The processor channels are enabled.
+    CHANNELS_ENABLED = 16,
 
-/// Data execution prevention is enabled.
-pub const PF_NX_ENABLED = 12;
+    /// The processor implements the XSAVI and XRSTOR instructions.
+    XSAVE_ENABLED = 17,
 
-/// The processor is PAE-enabled.
-pub const PF_PAE_ENABLED = 9;
+    /// The VFP/Neon: 32 x 64bit register bank is present.
+    /// This flag has the same meaning as PF_ARM_VFP_EXTENDED_REGISTERS.
+    ARM_VFP_32_REGISTERS_AVAILABLE = 18,
 
-/// The RDTSC instruction is available.
-pub const PF_RDTSC_INSTRUCTION_AVAILABLE = 8;
+    /// Second Level Address Translation is supported by the hardware.
+    SECOND_LEVEL_ADDRESS_TRANSLATION = 20,
 
-/// RDFSBASE, RDGSBASE, WRFSBASE, and WRGSBASE instructions are available.
-pub const PF_RDWRFSGBASE_AVAILABLE = 22;
+    /// Virtualization is enabled in the firmware and made available by the operating system.
+    VIRT_FIRMWARE_ENABLED = 21,
 
-/// Second Level Address Translation is supported by the hardware.
-pub const PF_SECOND_LEVEL_ADDRESS_TRANSLATION = 20;
+    /// RDFSBASE, RDGSBASE, WRFSBASE, and WRGSBASE instructions are available.
+    RDWRFSGBASE_AVAILABLE = 22,
 
-/// The SSE3 instruction set is available.
-pub const PF_SSE3_INSTRUCTIONS_AVAILABLE = 13;
+    /// _fastfail() is available.
+    FASTFAIL_AVAILABLE = 23,
 
-/// The SSSE3 instruction set is available.
-pub const PF_SSSE3_INSTRUCTIONS_AVAILABLE = 36;
+    /// The divide instruction_available.
+    ARM_DIVIDE_INSTRUCTION_AVAILABLE = 24,
 
-/// The SSE4_1 instruction set is available.
-pub const PF_SSE4_1_INSTRUCTIONS_AVAILABLE = 37;
+    /// The 64-bit load/store atomic instructions are available.
+    ARM_64BIT_LOADSTORE_ATOMIC = 25,
 
-/// The SSE4_2 instruction set is available.
-pub const PF_SSE4_2_INSTRUCTIONS_AVAILABLE = 38;
+    /// The external cache is available.
+    ARM_EXTERNAL_CACHE_AVAILABLE = 26,
 
-/// The AVX instruction set is available.
-pub const PF_AVX_INSTRUCTIONS_AVAILABLE = 39;
+    /// The floating-point multiply-accumulate instruction is available.
+    ARM_FMAC_INSTRUCTIONS_AVAILABLE = 27,
 
-/// The AVX2 instruction set is available.
-pub const PF_AVX2_INSTRUCTIONS_AVAILABLE = 40;
+    /// This ARM processor implements the ARM v8 instructions set.
+    ARM_V8_INSTRUCTIONS_AVAILABLE = 29,
 
-/// The AVX512F instruction set is available.
-pub const PF_AVX512F_INSTRUCTIONS_AVAILABLE = 41;
+    /// This ARM processor implements the ARM v8 extra cryptographic instructions (i.e., AES, SHA1 and SHA2).
+    ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE = 30,
 
-/// Virtualization is enabled in the firmware and made available by the operating system.
-pub const PF_VIRT_FIRMWARE_ENABLED = 21;
+    /// This ARM processor implements the ARM v8 extra CRC32 instructions.
+    ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE = 31,
 
-/// The SSE instruction set is available.
-pub const PF_XMMI_INSTRUCTIONS_AVAILABLE = 6;
+    /// This ARM processor implements the ARM v8.1 atomic instructions (e.g., CAS, SWP).
+    ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE = 34,
 
-/// The SSE2 instruction set is available.
-pub const PF_XMMI64_INSTRUCTIONS_AVAILABLE = 10;
+    /// The SSSE3 instruction set is available.
+    SSSE3_INSTRUCTIONS_AVAILABLE = 36,
 
-/// The processor implements the XSAVI and XRSTOR instructions.
-pub const PF_XSAVE_ENABLED = 17;
+    /// The SSE4_1 instruction set is available.
+    SSE4_1_INSTRUCTIONS_AVAILABLE = 37,
 
-/// This ARM processor implements the ARM v8 instructions set.
-pub const PF_ARM_V8_INSTRUCTIONS_AVAILABLE = 29;
+    /// The SSE4_2 instruction set is available.
+    SSE4_2_INSTRUCTIONS_AVAILABLE = 38,
 
-/// This ARM processor implements the ARM v8 extra cryptographic instructions (i.e., AES, SHA1 and SHA2).
-pub const PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE = 30;
+    /// The AVX instruction set is available.
+    AVX_INSTRUCTIONS_AVAILABLE = 39,
 
-/// This ARM processor implements the ARM v8 extra CRC32 instructions.
-pub const PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE = 31;
+    /// The AVX2 instruction set is available.
+    AVX2_INSTRUCTIONS_AVAILABLE = 40,
 
-/// This ARM processor implements the ARM v8.1 atomic instructions (e.g., CAS, SWP).
-pub const PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE = 34;
+    /// The AVX512F instruction set is available.
+    AVX512F_INSTRUCTIONS_AVAILABLE = 41,
+};
+
+pub const MAX_WOW64_SHARED_ENTRIES = 16;
+pub const PROCESSOR_FEATURE_MAX = 64;
+pub const MAXIMUM_XSTATE_FEATURES = 64;
+
+pub const KSYSTEM_TIME = extern struct {
+    LowPart: ULONG,
+    High1Time: LONG,
+    High2Time: LONG,
+};
+
+pub const NT_PRODUCT_TYPE = enum(INT) {
+    NtProductWinNt = 1,
+    NtProductLanManNt,
+    NtProductServer,
+};
+
+pub const ALTERNATIVE_ARCHITECTURE_TYPE = enum(INT) {
+    StandardDesign,
+    NEC98x86,
+    EndAlternatives,
+};
+
+pub const XSTATE_FEATURE = extern struct {
+    Offset: ULONG,
+    Size: ULONG,
+};
+
+pub const XSTATE_CONFIGURATION = extern struct {
+    EnabledFeatures: ULONG64,
+    Size: ULONG,
+    OptimizedSave: ULONG,
+    Features: [MAXIMUM_XSTATE_FEATURES]XSTATE_FEATURE,
+};
+
+/// Shared Kernel User Data
+pub const KUSER_SHARED_DATA = extern struct {
+    TickCountLowDeprecated: ULONG,
+    TickCountMultiplier: ULONG,
+    InterruptTime: KSYSTEM_TIME,
+    SystemTime: KSYSTEM_TIME,
+    TimeZoneBias: KSYSTEM_TIME,
+    ImageNumberLow: USHORT,
+    ImageNumberHigh: USHORT,
+    NtSystemRoot: [260]WCHAR,
+    MaxStackTraceDepth: ULONG,
+    CryptoExponent: ULONG,
+    TimeZoneId: ULONG,
+    LargePageMinimum: ULONG,
+    AitSamplingValue: ULONG,
+    AppCompatFlag: ULONG,
+    RNGSeedVersion: ULONGLONG,
+    GlobalValidationRunlevel: ULONG,
+    TimeZoneBiasStamp: LONG,
+    NtBuildNumber: ULONG,
+    NtProductType: NT_PRODUCT_TYPE,
+    ProductTypeIsValid: BOOLEAN,
+    Reserved0: [1]BOOLEAN,
+    NativeProcessorArchitecture: USHORT,
+    NtMajorVersion: ULONG,
+    NtMinorVersion: ULONG,
+    ProcessorFeatures: [PROCESSOR_FEATURE_MAX]BOOLEAN,
+    Reserved1: ULONG,
+    Reserved3: ULONG,
+    TimeSlip: ULONG,
+    AlternativeArchitecture: ALTERNATIVE_ARCHITECTURE_TYPE,
+    BootId: ULONG,
+    SystemExpirationDate: LARGE_INTEGER,
+    SuiteMaskY: ULONG,
+    KdDebuggerEnabled: BOOLEAN,
+    DummyUnion1: extern union {
+        MitigationPolicies: UCHAR,
+        Alt: packed struct {
+            NXSupportPolicy: u2,
+            SEHValidationPolicy: u2,
+            CurDirDevicesSkippedForDlls: u2,
+            Reserved: u2,
+        },
+    },
+    CyclesPerYield: USHORT,
+    ActiveConsoleId: ULONG,
+    DismountCount: ULONG,
+    ComPlusPackage: ULONG,
+    LastSystemRITEventTickCount: ULONG,
+    NumberOfPhysicalPages: ULONG,
+    SafeBootMode: BOOLEAN,
+    DummyUnion2: extern union {
+        VirtualizationFlags: UCHAR,
+        Alt: packed struct {
+            ArchStartedInEl2: u1,
+            QcSlIsSupported: u1,
+            SpareBits: u6,
+        },
+    },
+    Reserved12: [2]UCHAR,
+    DummyUnion3: extern union {
+        SharedDataFlags: ULONG,
+        Alt: packed struct {
+            DbgErrorPortPresent: u1,
+            DbgElevationEnabled: u1,
+            DbgVirtEnabled: u1,
+            DbgInstallerDetectEnabled: u1,
+            DbgLkgEnabled: u1,
+            DbgDynProcessorEnabled: u1,
+            DbgConsoleBrokerEnabled: u1,
+            DbgSecureBootEnabled: u1,
+            DbgMultiSessionSku: u1,
+            DbgMultiUsersInSessionSku: u1,
+            DbgStateSeparationEnabled: u1,
+            SpareBits: u21,
+        },
+    },
+    DataFlagsPad: [1]ULONG,
+    TestRetInstruction: ULONGLONG,
+    QpcFrequency: LONGLONG,
+    SystemCall: ULONG,
+    Reserved2: ULONG,
+    SystemCallPad: [2]ULONGLONG,
+    DummyUnion4: extern union {
+        TickCount: KSYSTEM_TIME,
+        TickCountQuad: ULONG64,
+        Alt: extern struct {
+            ReservedTickCountOverlay: [3]ULONG,
+            TickCountPad: [1]ULONG,
+        },
+    },
+    Cookie: ULONG,
+    CookiePad: [1]ULONG,
+    ConsoleSessionForegroundProcessId: LONGLONG,
+    TimeUpdateLock: ULONGLONG,
+    BaselineSystemTimeQpc: ULONGLONG,
+    BaselineInterruptTimeQpc: ULONGLONG,
+    QpcSystemTimeIncrement: ULONGLONG,
+    QpcInterruptTimeIncrement: ULONGLONG,
+    QpcSystemTimeIncrementShift: UCHAR,
+    QpcInterruptTimeIncrementShift: UCHAR,
+    UnparkedProcessorCount: USHORT,
+    EnclaveFeatureMask: [4]ULONG,
+    TelemetryCoverageRound: ULONG,
+    UserModeGlobalLogger: [16]USHORT,
+    ImageFileExecutionOptions: ULONG,
+    LangGenerationCount: ULONG,
+    Reserved4: ULONGLONG,
+    InterruptTimeBias: ULONGLONG,
+    QpcBias: ULONGLONG,
+    ActiveProcessorCount: ULONG,
+    ActiveGroupCount: UCHAR,
+    Reserved9: UCHAR,
+    DummyUnion5: extern union {
+        QpcData: USHORT,
+        Alt: extern struct {
+            QpcBypassEnabled: UCHAR,
+            QpcShift: UCHAR,
+        },
+    },
+    TimeZoneBiasEffectiveStart: LARGE_INTEGER,
+    TimeZoneBiasEffectiveEnd: LARGE_INTEGER,
+    XState: XSTATE_CONFIGURATION,
+    FeatureConfigurationChangeStamp: KSYSTEM_TIME,
+    Spare: ULONG,
+    UserPointerAuthMask: ULONG64,
+};
+
+/// Read-only user-mode address for the shared data.
+/// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+/// https://msrc-blog.microsoft.com/2022/04/05/randomizing-the-kuser_shared_data-structure-on-windows/
+pub const SharedUserData: *const KUSER_SHARED_DATA = @intToPtr(*const KUSER_SHARED_DATA, 0x7FFE0000);
+
+pub fn IsProcessorFeaturePresent(feature: PF) bool {
+    if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
+    return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
+}
