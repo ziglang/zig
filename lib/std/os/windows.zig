@@ -3731,6 +3731,9 @@ pub const PF = enum(DWORD) {
     /// The MMX instruction set is available.
     MMX_INSTRUCTIONS_AVAILABLE = 3,
 
+    PPC_MOVEMEM_64BIT_OK = 4,
+    ALPHA_BYTE_INSTRUCTIONS = 5,
+
     /// The SSE instruction set is available.
     XMMI_INSTRUCTIONS_AVAILABLE = 6,
 
@@ -3745,6 +3748,8 @@ pub const PF = enum(DWORD) {
 
     /// The SSE2 instruction set is available.
     XMMI64_INSTRUCTIONS_AVAILABLE = 10,
+
+    SSE_DAZ_MODE_AVAILABLE = 11,
 
     /// Data execution prevention is enabled.
     NX_ENABLED = 12,
@@ -3767,6 +3772,9 @@ pub const PF = enum(DWORD) {
     /// The VFP/Neon: 32 x 64bit register bank is present.
     /// This flag has the same meaning as PF_ARM_VFP_EXTENDED_REGISTERS.
     ARM_VFP_32_REGISTERS_AVAILABLE = 18,
+
+    /// This ARM processor implements the ARM v8 NEON instruction set.
+    ARM_NEON_INSTRUCTIONS_AVAILABLE = 19,
 
     /// Second Level Address Translation is supported by the hardware.
     SECOND_LEVEL_ADDRESS_TRANSLATION = 20,
@@ -3792,6 +3800,8 @@ pub const PF = enum(DWORD) {
     /// The floating-point multiply-accumulate instruction is available.
     ARM_FMAC_INSTRUCTIONS_AVAILABLE = 27,
 
+    RDRAND_INSTRUCTION_AVAILABLE = 28,
+
     /// This ARM processor implements the ARM v8 instructions set.
     ARM_V8_INSTRUCTIONS_AVAILABLE = 29,
 
@@ -3801,8 +3811,13 @@ pub const PF = enum(DWORD) {
     /// This ARM processor implements the ARM v8 extra CRC32 instructions.
     ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE = 31,
 
+    RDTSCP_INSTRUCTION_AVAILABLE = 32,
+    RDPID_INSTRUCTION_AVAILABLE = 33,
+
     /// This ARM processor implements the ARM v8.1 atomic instructions (e.g., CAS, SWP).
     ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE = 34,
+
+    MONITORX_INSTRUCTION_AVAILABLE = 35,
 
     /// The SSSE3 instruction set is available.
     SSSE3_INSTRUCTIONS_AVAILABLE = 36,
@@ -3821,6 +3836,10 @@ pub const PF = enum(DWORD) {
 
     /// The AVX512F instruction set is available.
     AVX512F_INSTRUCTIONS_AVAILABLE = 41,
+
+    ERMS_AVAILABLE = 42,
+    ARM_V82_DP_INSTRUCTIONS_AVAILABLE = 43,
+    ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;
