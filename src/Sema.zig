@@ -7031,16 +7031,21 @@ fn instantiateGenericCall(
             }
             const arg = uncasted_args[arg_i];
             if (is_comptime) {
-                if (try sema.resolveMaybeUndefVal(arg)) |arg_val| {
-                    const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
-                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
-                } else {
-                    return sema.failWithNeededComptime(block, .unneeded, "");
-                }
+                const arg_val = (try sema.resolveMaybeUndefVal(arg)).?;
+                const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
+                child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
             } else if (is_anytype) {
                 const arg_ty = sema.typeOf(arg);
                 if (try sema.typeRequiresComptime(arg_ty)) {
-                    const arg_val = try sema.resolveConstValue(block, .unneeded, arg, "");
+                    const arg_val = sema.resolveConstValue(block, .unneeded, arg, "") catch |err| switch (err) {
+                        error.NeededSourceLocation => {
+                            const decl = sema.mod.declPtr(block.src_decl);
+                            const arg_src = Module.argSrc(call_src.node_offset.x, sema.gpa, decl, arg_i, bound_arg_src);
+                            _ = try sema.resolveConstValue(block, arg_src, arg, "argument to parameter with comptime-only type must be comptime-known");
+                            return error.AnalysisFail;
+                        },
+                        else => |e| return e,
+                    };
                     const child_arg = try child_sema.addConstant(arg_ty, arg_val);
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 } else {
