@@ -50,7 +50,12 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-debug.sh
       - name: Print Version
@@ -63,7 +68,12 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-release.sh
   x86_64-macos:
@@ -76,7 +86,12 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: ./ci/macos/build-x86_64.sh
   x86_64-windows:
@@ -89,7 +104,12 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: ./ci/windows/build.ps1
   aarch64-linux:
@@ -100,7 +120,12 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-aarch64.sh
   aarch64-macos:
@@ -113,6 +138,11 @@ jobs:
         uses: actions/checkout@v3
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.commit }}
+        run: |
+          rf -rf ../ci
+          cp -r ci ../
+          git checkout ${{ inputs.commit }}
+          rm -rf ci
+          mv ../ci .
       - name: Build and Test
         run: ./ci/macos/build-aarch64.sh
