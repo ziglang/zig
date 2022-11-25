@@ -3131,13 +3131,7 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const struct_ptr = try func.resolveInst(extra.data.struct_operand);
     const struct_ty = func.air.typeOf(extra.data.struct_operand).childType();
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, func.target)) orelse {
-        const module = func.bin_file.base.options.module.?;
-        return func.fail("Field type '{}' too big to fit into stack frame", .{
-            struct_ty.structFieldType(extra.data.field_index).fmt(module),
-        });
-    };
-    const result = try func.structFieldPtr(struct_ptr, offset);
+    const result = try func.structFieldPtr(struct_ptr, struct_ty, extra.data.field_index);
     func.finishAir(inst, result, &.{extra.data.struct_operand});
 }
 
@@ -3146,21 +3140,23 @@ fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) Inne
     if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{ty_op.operand});
     const struct_ptr = try func.resolveInst(ty_op.operand);
     const struct_ty = func.air.typeOf(ty_op.operand).childType();
-    const field_ty = struct_ty.structFieldType(index);
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, func.target)) orelse {
-        const module = func.bin_file.base.options.module.?;
-        return func.fail("Field type '{}' too big to fit into stack frame", .{
-            field_ty.fmt(module),
-        });
-    };
-    const result = try func.structFieldPtr(struct_ptr, offset);
+
+    const result = try func.structFieldPtr(struct_ptr, struct_ty, index);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn structFieldPtr(func: *CodeGen, struct_ptr: WValue, offset: u32) InnerError!WValue {
+fn structFieldPtr(func: *CodeGen, struct_ptr: WValue, struct_ty: Type, index: u32) InnerError!WValue {
+    const offset = switch (struct_ty.containerLayout()) {
+        .Packed => switch (struct_ty.zigTypeTag()) {
+            .Struct => struct_ty.packedStructFieldByteOffset(index, func.target),
+            .Union => 0,
+            else => unreachable,
+        },
+        else => struct_ty.structFieldOffset(index, func.target),
+    };
     switch (struct_ptr) {
         .stack_offset => |stack_offset| {
-            return WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
+            return WValue{ .stack_offset = .{ .value = stack_offset.value + @intCast(u32, offset), .references = 1 } };
         },
         else => return func.buildPointerOffset(struct_ptr, offset, .new),
     }
