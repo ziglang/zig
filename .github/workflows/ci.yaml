@@ -105,7 +105,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          del -r ../ci
+          if (Test-Path ../ci) { del -r ../ci }
           cp  ci ../
           git checkout ${{ inputs.commit }}
           del -r ci
