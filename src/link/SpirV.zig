@@ -242,7 +242,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{.Kernel},
+        .opencl => &.{ .Kernel, .Addresses },
         .glsl450 => &.{.Shader},
         .vulkan => &.{.Shader},
         else => unreachable, // TODO
