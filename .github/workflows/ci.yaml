@@ -1,39 +1,5 @@
 name: ci
-run-name: ${{ inputs.commit }}
 on:
-  workflow_dispatch:
-    # Allows launching a CI run on an arbitrary commit
-    # and also specify only a subset of the targets to test
-    inputs:
-      commit: 
-        description: "master branch commit to build"
-        required: true
-        default: 'HEAD'
-        type: string
-      x86_64_linux_debug:
-        required: false
-        default: true
-        type: boolean
-      x86_64_linux_release:
-        required: false
-        default: true
-        type: boolean
-      x86_64_macos:
-        required: false
-        default: true
-        type: boolean
-      x86_64_windows:
-        required: false
-        default: true
-        type: boolean
-      aarch64_linux:
-        required: false
-        default: true
-        type: boolean
-      aarch64_macos:
-        required: false
-        default: true
-        type: boolean
   pull_request:
   push:
     branches: 
@@ -44,110 +10,52 @@ concurrency:
   cancel-in-progress: true
 jobs:
   x86_64-linux-debug:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.x86_64_linux_debug }}
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          rm -rf ../ci
-          cp -r ci ../
-          git checkout ${{ inputs.commit }}
-          rm -rf ci
-          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-debug.sh
       - name: Print Version
         run: echo "$(build-debug/stage3-debug/bin/zig version)"
   x86_64-linux-release:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.x86_64_linux_release }}
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          rm -rf ../ci
-          cp -r ci ../
-          git checkout ${{ inputs.commit }}
-          rm -rf ci
-          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-x86_64-release.sh
   x86_64-macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.x86_64_macos }}
     runs-on: "macos-11"
     env: 
       ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          rm -rf ../ci
-          cp -r ci ../
-          git checkout ${{ inputs.commit }}
-          rm -rf ci
-          mv ../ci .
       - name: Build and Test
         run: ./ci/macos/build-x86_64.sh
   x86_64-windows:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.x86_64_windows }}
     runs-on: windows-latest
     env: 
       ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if (Test-Path ../ci) { del -r ../ci }
-          cp  ci ../
-          git checkout ${{ inputs.commit }}
-          del -r ci
-          mv ../ci .
       - name: Build and Test
         run: ./ci/windows/build.ps1
   aarch64-linux:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.aarch64_linux }}
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          rm -rf ../ci
-          cp -r ci ../
-          if ((git rev-parse --is-shallow-repository) -eq "true") {
-              git fetch --unshallow # `git describe` won't work on a shallow repo
-          }
-          git fetch
-          git checkout ${{ inputs.commit }}
-          rm -rf ci
-          mv ../ci .
       - name: Build and Test
         run: sh ./ci/linux/build-aarch64.sh
   aarch64-macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.aarch64_macos }}
     runs-on: [self-hosted, macOS, aarch64]
     env: 
       ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Switch to specific commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          rm -rf ../ci
-          cp -r ci ../
-          git checkout ${{ inputs.commit }}
-          rm -rf ci
-          mv ../ci .
       - name: Build and Test
         run: ./ci/macos/build-aarch64.sh
