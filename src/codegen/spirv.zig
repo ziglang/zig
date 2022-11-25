@@ -443,32 +443,43 @@ pub const DeclGen = struct {
         return self.spv.typeResultId(type_ref);
     }
 
+    /// Create an integer type suitable for storing at least 'bits' bits.
+    fn intType(self: *DeclGen, signedness: std.builtin.Signedness, bits: u16) !SpvType.Ref {
+        const backing_bits = self.backingIntBits(bits) orelse {
+            // TODO: Integers too big for any native type are represented as "composite integers":
+            // An array of largestSupportedIntBits.
+            return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
+        };
+
+        const payload = try self.spv.arena.create(SpvType.Payload.Int);
+        payload.* = .{
+            .width = backing_bits,
+            .signedness = signedness,
+        };
+        return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+    }
+
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type) Error!SpvType.Ref {
         const target = self.getTarget();
-        return switch (ty.zigTypeTag()) {
-            .Void => try self.spv.resolveType(SpvType.initTag(.void)),
-            .Bool => blk: {
+        switch (ty.zigTypeTag()) {
+            .Void, .NoReturn => return try self.spv.resolveType(SpvType.initTag(.void)),
+            .Bool => {
                 // TODO: SPIR-V booleans are opaque. For local variables this is fine, but for structs
                 // members we want to use integer types instead.
-                break :blk try self.spv.resolveType(SpvType.initTag(.bool));
+                return try self.spv.resolveType(SpvType.initTag(.bool));
             },
-            .Int => blk: {
+            .Int => {
                 const int_info = ty.intInfo(target);
-                const backing_bits = self.backingIntBits(int_info.bits) orelse {
-                    // TODO: Integers too big for any native type are represented as "composite integers":
-                    // An array of largestSupportedIntBits.
-                    return self.todo("Implement composite int type {}", .{ty.fmtDebug()});
-                };
-
-                const payload = try self.spv.arena.create(SpvType.Payload.Int);
-                payload.* = .{
-                    .width = backing_bits,
-                    .signedness = int_info.signedness,
-                };
-                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.intType(int_info.signedness, int_info.bits);
             },
-            .Float => blk: {
+            .Enum => {
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+                const int_info = int_ty.intInfo(target);
+                return try self.intType(.unsigned, int_info.bits);
+            },
+            .Float => {
                 // We can (and want) not really emulate floating points with other floating point types like with the integer types,
                 // so if the float is not supported, just return an error.
                 const bits = ty.floatBits(target);
@@ -488,9 +499,9 @@ pub const DeclGen = struct {
                 payload.* = .{
                     .width = bits,
                 };
-                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
-            .Fn => blk: {
+            .Fn => {
                 // TODO: Put this somewhere in Sema.zig
                 if (ty.fnIsVarArgs())
                     return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
@@ -504,9 +515,9 @@ pub const DeclGen = struct {
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Function);
                 payload.* = .{ .return_type = return_type, .parameters = param_types };
-                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
-            .Pointer => blk: {
+            .Pointer => {
                 const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
                 payload.* = .{
                     .storage_class = spirvStorageClass(ty.ptrAddressSpace()),
@@ -516,9 +527,9 @@ pub const DeclGen = struct {
                     .alignment = null,
                     .max_byte_offset = null,
                 };
-                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
-            .Vector => blk: {
+            .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
                 // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
@@ -533,7 +544,7 @@ pub const DeclGen = struct {
                     .component_type = try self.resolveType(ty.elemType()),
                     .component_count = @intCast(u32, ty.vectorLen()),
                 };
-                break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
 
             .Null,
@@ -545,7 +556,7 @@ pub const DeclGen = struct {
             => unreachable, // Must be comptime.
 
             else => |tag| return self.todo("Implement zig type '{}'", .{tag}),
-        };
+        }
     }
 
     fn spirvStorageClass(as: std.builtin.AddressSpace) spec.StorageClass {
