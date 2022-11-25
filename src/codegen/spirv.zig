@@ -491,9 +491,7 @@ pub const DeclGen = struct {
                 break :blk try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
             .Fn => blk: {
-                // We only support C-calling-convention functions for now, no varargs.
-                if (ty.fnCallingConvention() != .C)
-                    return self.fail("Unsupported calling convention for SPIR-V", .{});
+                // TODO: Put this somewhere in Sema.zig
                 if (ty.fnIsVarArgs())
                     return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
 
