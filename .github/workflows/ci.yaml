@@ -51,7 +51,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
+          rm -rf ../ci
           cp -r ci ../
           git checkout ${{ inputs.commit }}
           rm -rf ci
@@ -69,7 +69,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
+          rm -rf ../ci
           cp -r ci ../
           git checkout ${{ inputs.commit }}
           rm -rf ci
@@ -87,7 +87,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
+          rm -rf ../ci
           cp -r ci ../
           git checkout ${{ inputs.commit }}
           rm -rf ci
@@ -105,10 +105,10 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
-          cp -r ci ../
+          del -r ../ci
+          cp  ci ../
           git checkout ${{ inputs.commit }}
-          rm -rf ci
+          del -r ci
           mv ../ci .
       - name: Build and Test
         run: ./ci/windows/build.ps1
@@ -121,7 +121,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
+          rm -rf ../ci
           cp -r ci ../
           git checkout ${{ inputs.commit }}
           rm -rf ci
@@ -139,7 +139,7 @@ jobs:
       - name: Switch to specific commit
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          rf -rf ../ci
+          rm -rf ../ci
           cp -r ci ../
           git checkout ${{ inputs.commit }}
           rm -rf ci
