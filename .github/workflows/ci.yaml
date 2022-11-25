@@ -127,6 +127,7 @@ jobs:
           if ((git rev-parse --is-shallow-repository) -eq "true") {
               git fetch --unshallow # `git describe` won't work on a shallow repo
           }
+          git fetch
           git checkout ${{ inputs.commit }}
           rm -rf ci
           mv ../ci .
