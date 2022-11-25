@@ -1276,7 +1276,7 @@ pub const Target = struct {
                     .x86, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
-                    .spirv32, .spirv64 => "spir-v",
+                    .spirv32, .spirv64 => "spirv",
                     else => @tagName(arch),
                 };
             }
