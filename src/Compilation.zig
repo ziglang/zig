@@ -1948,8 +1948,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 .sub_path = std.fs.path.basename(sub_path),
             };
         }
-        comp.bin_file.destroy();
+        var old_bin_file = comp.bin_file;
         comp.bin_file = try link.File.openPath(comp.gpa, options);
+        old_bin_file.destroy();
     }
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
