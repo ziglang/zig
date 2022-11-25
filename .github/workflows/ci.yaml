@@ -124,6 +124,9 @@ jobs:
         run: |
           rm -rf ../ci
           cp -r ci ../
+          if ((git rev-parse --is-shallow-repository) -eq "true") {
+              git fetch --unshallow # `git describe` won't work on a shallow repo
+          }
           git checkout ${{ inputs.commit }}
           rm -rf ci
           mv ../ci .
