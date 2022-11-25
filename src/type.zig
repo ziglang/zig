@@ -804,7 +804,7 @@ pub const Type = extern union {
                 return a_struct_obj == b_struct_obj;
             },
             .tuple, .empty_struct_literal => {
-                if (!b.isTuple()) return false;
+                if (!b.isSimpleTuple()) return false;
 
                 const a_tuple = a.tupleFields();
                 const b_tuple = b.tupleFields();
@@ -4494,6 +4494,7 @@ pub const Type = extern union {
             .mut_slice,
             .tuple,
             .empty_struct_literal,
+            .@"struct",
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
@@ -6178,6 +6179,7 @@ pub const Type = extern union {
     pub fn isTuple(ty: Type) bool {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal => true,
+            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
             else => false,
         };
     }
@@ -6192,10 +6194,26 @@ pub const Type = extern union {
     pub fn isTupleOrAnonStruct(ty: Type) bool {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal, .anon_struct => true,
+            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
             else => false,
         };
     }
 
+    pub fn isSimpleTuple(ty: Type) bool {
+        return switch (ty.tag()) {
+            .tuple, .empty_struct_literal => true,
+            else => false,
+        };
+    }
+
+    pub fn isSimpleTupleOrAnonStruct(ty: Type) bool {
+        return switch (ty.tag()) {
+            .tuple, .empty_struct_literal, .anon_struct => true,
+            else => false,
+        };
+    }
+
+    // Only allowed for simple tuple types
     pub fn tupleFields(ty: Type) Payload.Tuple.Data {
         return switch (ty.tag()) {
             .tuple => ty.castTag(.tuple).?.data,

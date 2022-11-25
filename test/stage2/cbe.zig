@@ -670,7 +670,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":3:7: error: expected ',' after field",
+            ":3:13: error: enum fields cannot be aligned",
         });
 
         // Redundant non-exhaustive enum mark.

@@ -1262,6 +1262,7 @@ const Writer = struct {
 
         try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
         try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
+        try self.writeFlag(stream, "tuple, ", small.is_tuple);
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
 
@@ -1335,8 +1336,11 @@ const Writer = struct {
                     const has_type_body = @truncate(u1, cur_bit_bag) != 0;
                     cur_bit_bag >>= 1;
 
-                    const field_name = self.code.extra[extra_index];
-                    extra_index += 1;
+                    var field_name: u32 = 0;
+                    if (!small.is_tuple) {
+                        field_name = self.code.extra[extra_index];
+                        extra_index += 1;
+                    }
                     const doc_comment_index = self.code.extra[extra_index];
                     extra_index += 1;
 
@@ -1370,13 +1374,16 @@ const Writer = struct {
             try stream.writeAll("{\n");
             self.indent += 2;
 
-            for (fields) |field| {
-                const field_name = self.code.nullTerminatedString(field.name);
-
+            for (fields) |field, i| {
                 try self.writeDocComment(stream, field.doc_comment_index);
                 try stream.writeByteNTimes(' ', self.indent);
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
-                try stream.print("{}: ", .{std.zig.fmtId(field_name)});
+                if (field.name != 0) {
+                    const field_name = self.code.nullTerminatedString(field.name);
+                    try stream.print("{}: ", .{std.zig.fmtId(field_name)});
+                } else {
+                    try stream.print("@\"{d}\": ", .{i});
+                }
                 if (field.field_type != .none) {
                     try self.writeInstRef(stream, field.field_type);
                 }

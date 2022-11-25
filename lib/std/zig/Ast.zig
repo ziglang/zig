@@ -559,6 +559,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .container_field,
         => {
             const name_token = main_tokens[n];
+            if (token_tags[name_token + 1] != .colon) return name_token - end_offset;
             if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
                 end_offset += 1;
             }
@@ -1320,33 +1321,39 @@ pub fn containerField(tree: Ast, node: Node.Index) full.ContainerField {
     assert(tree.nodes.items(.tag)[node] == .container_field);
     const data = tree.nodes.items(.data)[node];
     const extra = tree.extraData(data.rhs, Node.ContainerField);
+    const main_token = tree.nodes.items(.main_token)[node];
     return tree.fullContainerField(.{
-        .name_token = tree.nodes.items(.main_token)[node],
+        .main_token = main_token,
         .type_expr = data.lhs,
         .value_expr = extra.value_expr,
         .align_expr = extra.align_expr,
+        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
 pub fn containerFieldInit(tree: Ast, node: Node.Index) full.ContainerField {
     assert(tree.nodes.items(.tag)[node] == .container_field_init);
     const data = tree.nodes.items(.data)[node];
+    const main_token = tree.nodes.items(.main_token)[node];
     return tree.fullContainerField(.{
-        .name_token = tree.nodes.items(.main_token)[node],
+        .main_token = main_token,
         .type_expr = data.lhs,
         .value_expr = data.rhs,
         .align_expr = 0,
+        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
 pub fn containerFieldAlign(tree: Ast, node: Node.Index) full.ContainerField {
     assert(tree.nodes.items(.tag)[node] == .container_field_align);
     const data = tree.nodes.items(.data)[node];
+    const main_token = tree.nodes.items(.main_token)[node];
     return tree.fullContainerField(.{
-        .name_token = tree.nodes.items(.main_token)[node],
+        .main_token = main_token,
         .type_expr = data.lhs,
         .value_expr = 0,
         .align_expr = data.rhs,
+        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
@@ -1944,10 +1951,14 @@ fn fullContainerField(tree: Ast, info: full.ContainerField.Components) full.Cont
         .ast = info,
         .comptime_token = null,
     };
-    // comptime name: type = init,
-    // ^
-    if (info.name_token > 0 and token_tags[info.name_token - 1] == .keyword_comptime) {
-        result.comptime_token = info.name_token - 1;
+    if (token_tags[info.main_token] == .keyword_comptime) {
+        // comptime type = init,
+        // ^
+        result.comptime_token = info.main_token;
+    } else if (info.main_token > 0 and token_tags[info.main_token - 1] == .keyword_comptime) {
+        // comptime name: type = init,
+        // ^
+        result.comptime_token = info.main_token - 1;
     }
     return result;
 }
@@ -2256,14 +2267,26 @@ pub const full = struct {
         ast: Components,
 
         pub const Components = struct {
-            name_token: TokenIndex,
+            main_token: TokenIndex,
             type_expr: Node.Index,
             value_expr: Node.Index,
             align_expr: Node.Index,
+            tuple_like: bool,
         };
 
         pub fn firstToken(cf: ContainerField) TokenIndex {
-            return cf.comptime_token orelse cf.ast.name_token;
+            return cf.comptime_token orelse cf.ast.main_token;
+        }
+
+        pub fn convertToNonTupleLike(cf: *ContainerField, nodes: NodeList.Slice) void {
+            if (!cf.ast.tuple_like) return;
+            if (cf.ast.type_expr == 0) return;
+            if (nodes.items(.tag)[cf.ast.type_expr] != .identifier) return;
+
+            const ident = nodes.items(.main_token)[cf.ast.type_expr];
+            cf.ast.tuple_like = false;
+            cf.ast.main_token = ident;
+            cf.ast.type_expr = 0;
         }
     };
 

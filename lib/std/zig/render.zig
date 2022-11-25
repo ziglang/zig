@@ -40,14 +40,34 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
 /// Render all members in the given slice, keeping empty lines where appropriate
 fn renderMembers(gpa: Allocator, ais: *Ais, tree: Ast, members: []const Ast.Node.Index) Error!void {
     if (members.len == 0) return;
-    try renderMember(gpa, ais, tree, members[0], .newline);
+    var is_tuple = true;
+    for (members) |member| {
+        const tuple_like = switch (tree.nodes.items(.tag)[member]) {
+            .container_field_init => tree.containerFieldInit(member).ast.tuple_like,
+            .container_field_align => tree.containerFieldAlign(member).ast.tuple_like,
+            .container_field => tree.containerField(member).ast.tuple_like,
+            else => continue,
+        };
+        if (!tuple_like) {
+            is_tuple = false;
+            break;
+        }
+    }
+    try renderMember(gpa, ais, tree, members[0], is_tuple, .newline);
     for (members[1..]) |member| {
         try renderExtraNewline(ais, tree, member);
-        try renderMember(gpa, ais, tree, member, .newline);
+        try renderMember(gpa, ais, tree, member, is_tuple, .newline);
     }
 }
 
-fn renderMember(gpa: Allocator, ais: *Ais, tree: Ast, decl: Ast.Node.Index, space: Space) Error!void {
+fn renderMember(
+    gpa: Allocator,
+    ais: *Ais,
+    tree: Ast,
+    decl: Ast.Node.Index,
+    is_tuple: bool,
+    space: Space,
+) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
@@ -161,9 +181,9 @@ fn renderMember(gpa: Allocator, ais: *Ais, tree: Ast, decl: Ast.Node.Index, spac
             try renderExpression(gpa, ais, tree, datas[decl].rhs, space);
         },
 
-        .container_field_init => return renderContainerField(gpa, ais, tree, tree.containerFieldInit(decl), space),
-        .container_field_align => return renderContainerField(gpa, ais, tree, tree.containerFieldAlign(decl), space),
-        .container_field => return renderContainerField(gpa, ais, tree, tree.containerField(decl), space),
+        .container_field_init => return renderContainerField(gpa, ais, tree, tree.containerFieldInit(decl), is_tuple, space),
+        .container_field_align => return renderContainerField(gpa, ais, tree, tree.containerFieldAlign(decl), is_tuple, space),
+        .container_field => return renderContainerField(gpa, ais, tree, tree.containerField(decl), is_tuple, space),
         .@"comptime" => return renderExpression(gpa, ais, tree, decl, space),
 
         .root => unreachable,
@@ -1158,18 +1178,34 @@ fn renderContainerField(
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
-    field: Ast.full.ContainerField,
+    field_param: Ast.full.ContainerField,
+    is_tuple: bool,
     space: Space,
 ) Error!void {
+    var field = field_param;
+    if (!is_tuple) field.convertToNonTupleLike(tree.nodes);
+
     if (field.comptime_token) |t| {
         try renderToken(ais, tree, t, .space); // comptime
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr == 0) {
-        return renderIdentifierComma(ais, tree, field.ast.name_token, space, .eagerly_unquote); // name
+        if (field.ast.align_expr != 0) {
+            try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+            const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
+            const align_kw = lparen_token - 1;
+            const rparen_token = tree.lastToken(field.ast.align_expr) + 1;
+            try renderToken(ais, tree, align_kw, .none); // align
+            try renderToken(ais, tree, lparen_token, .none); // (
+            try renderExpression(gpa, ais, tree, field.ast.align_expr, .none); // alignment
+            return renderToken(ais, tree, rparen_token, .space); // )
+        }
+        return renderIdentifierComma(ais, tree, field.ast.main_token, space, .eagerly_unquote); // name
     }
     if (field.ast.type_expr != 0 and field.ast.value_expr == 0) {
-        try renderIdentifier(ais, tree, field.ast.name_token, .none, .eagerly_unquote); // name
-        try renderToken(ais, tree, field.ast.name_token + 1, .space); // :
+        if (!field.ast.tuple_like) {
+            try renderIdentifier(ais, tree, field.ast.main_token, .none, .eagerly_unquote); // name
+            try renderToken(ais, tree, field.ast.main_token + 1, .space); // :
+        }
 
         if (field.ast.align_expr != 0) {
             try renderExpression(gpa, ais, tree, field.ast.type_expr, .space); // type
@@ -1184,13 +1220,23 @@ fn renderContainerField(
         }
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr != 0) {
-        try renderIdentifier(ais, tree, field.ast.name_token, .space, .eagerly_unquote); // name
-        try renderToken(ais, tree, field.ast.name_token + 1, .space); // =
+        try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+        if (field.ast.align_expr != 0) {
+            const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
+            const align_kw = lparen_token - 1;
+            const rparen_token = tree.lastToken(field.ast.align_expr) + 1;
+            try renderToken(ais, tree, align_kw, .none); // align
+            try renderToken(ais, tree, lparen_token, .none); // (
+            try renderExpression(gpa, ais, tree, field.ast.align_expr, .none); // alignment
+            try renderToken(ais, tree, rparen_token, .space); // )
+        }
+        try renderToken(ais, tree, field.ast.main_token + 1, .space); // =
         return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
     }
-
-    try renderIdentifier(ais, tree, field.ast.name_token, .none, .eagerly_unquote); // name
-    try renderToken(ais, tree, field.ast.name_token + 1, .space); // :
+    if (!field.ast.tuple_like) {
+        try renderIdentifier(ais, tree, field.ast.main_token, .none, .eagerly_unquote); // name
+        try renderToken(ais, tree, field.ast.main_token + 1, .space); // :
+    }
     try renderExpression(gpa, ais, tree, field.ast.type_expr, .space); // type
 
     if (field.ast.align_expr != 0) {
@@ -1901,6 +1947,20 @@ fn renderContainerDecl(
         try renderToken(ais, tree, layout_token, .space);
     }
 
+    var is_tuple = token_tags[container_decl.ast.main_token] == .keyword_struct;
+    if (is_tuple) for (container_decl.ast.members) |member| {
+        const tuple_like = switch (tree.nodes.items(.tag)[member]) {
+            .container_field_init => tree.containerFieldInit(member).ast.tuple_like,
+            .container_field_align => tree.containerFieldAlign(member).ast.tuple_like,
+            .container_field => tree.containerField(member).ast.tuple_like,
+            else => continue,
+        };
+        if (!tuple_like) {
+            is_tuple = false;
+            break;
+        }
+    };
+
     var lbrace: Ast.TokenIndex = undefined;
     if (container_decl.ast.enum_token) |enum_token| {
         try renderToken(ais, tree, container_decl.ast.main_token, .none); // union
@@ -1967,7 +2027,7 @@ fn renderContainerDecl(
         // Print all the declarations on the same line.
         try renderToken(ais, tree, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
-            try renderMember(gpa, ais, tree, member, .space);
+            try renderMember(gpa, ais, tree, member, is_tuple, .space);
         }
         return renderToken(ais, tree, rbrace, space); // rbrace
     }
@@ -1985,9 +2045,9 @@ fn renderContainerDecl(
             .container_field_init,
             .container_field_align,
             .container_field,
-            => try renderMember(gpa, ais, tree, member, .comma),
+            => try renderMember(gpa, ais, tree, member, is_tuple, .comma),
 
-            else => try renderMember(gpa, ais, tree, member, .newline),
+            else => try renderMember(gpa, ais, tree, member, is_tuple, .newline),
         }
     }
     ais.popIndent();

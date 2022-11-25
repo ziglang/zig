@@ -213,7 +213,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.backend = .stage2;
 
         case.addSourceFile("b.zig",
-            \\bad
+            \\+
         );
 
         case.addError(
@@ -221,7 +221,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = (@sizeOf(@import("b.zig")));
             \\}
         , &[_][]const u8{
-            ":1:1: error: struct field missing type",
+            ":1:1: error: expected type expression, found '+'",
         });
     }
 

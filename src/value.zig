@@ -2209,7 +2209,7 @@ pub const Value = extern union {
                 const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
 
-                if (ty.isTupleOrAnonStruct()) {
+                if (ty.isSimpleTupleOrAnonStruct()) {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
                     for (types) |field_ty, i| {
@@ -3004,7 +3004,7 @@ pub const Value = extern union {
             .the_only_possible_value => return ty.onePossibleValue().?,
 
             .empty_struct_value => {
-                if (ty.isTupleOrAnonStruct()) {
+                if (ty.isSimpleTupleOrAnonStruct()) {
                     const tuple = ty.tupleFields();
                     return tuple.values[index];
                 }

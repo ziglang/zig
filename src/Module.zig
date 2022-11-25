@@ -938,6 +938,7 @@ pub const Struct = struct {
     known_non_opv: bool,
     requires_comptime: PropertyBoolean = .unknown,
     have_field_inits: bool = false,
+    is_tuple: bool,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -4458,6 +4459,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .layout = .Auto,
         .status = .none,
         .known_non_opv = undefined,
+        .is_tuple = undefined, // set below
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -4489,6 +4491,9 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         assert(file.zir_loaded);
         const main_struct_inst = Zir.main_struct_inst;
         struct_obj.zir_index = main_struct_inst;
+        const extended = file.zir.instructions.items(.data)[main_struct_inst].extended;
+        const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
+        struct_obj.is_tuple = small.is_tuple;
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
         defer sema_arena.deinit();
@@ -6138,7 +6143,7 @@ fn queryFieldSrc(
                 .name => .{
                     .file_scope = file_scope,
                     .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = field.ast.name_token },
+                    .lazy = .{ .token_abs = field.ast.main_token },
                 },
                 .type => .{
                     .file_scope = file_scope,
