@@ -1,4 +1,5 @@
 name: ci
+run-name: ${{ inputs.commit }}
 on:
   workflow_dispatch:
     # Allows launching a CI run on an arbitrary commit
