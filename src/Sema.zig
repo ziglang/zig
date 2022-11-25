@@ -7580,7 +7580,8 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const enum_tag: Air.Inst.Ref = switch (operand_ty.zigTypeTag()) {
         .Enum => operand,
         .Union => blk: {
-            const tag_ty = operand_ty.unionTagType() orelse {
+            const union_ty = try sema.resolveTypeFields(operand_ty);
+            const tag_ty = union_ty.unionTagType() orelse {
                 return sema.fail(
                     block,
                     operand_src,
@@ -22713,7 +22714,8 @@ fn fieldPtr(
                             return inst;
                         }
                     }
-                    if (child_type.unionTagType()) |enum_ty| {
+                    const union_ty = try sema.resolveTypeFields(child_type);
+                    if (union_ty.unionTagType()) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index| {
                             const field_index_u32 = @intCast(u32, field_index);
                             var anon_decl = try block.startAnonDecl();
