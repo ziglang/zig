@@ -3714,3 +3714,107 @@ pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
 pub const HANDLER_ROUTINE = std.meta.FnPtr(fn (dwCtrlType: DWORD) callconv(WINAPI) BOOL);
+
+/// The 64-bit load/store atomic instructions are available.
+pub const PF_ARM_64BIT_LOADSTORE_ATOMIC = 25;
+
+/// The divide instruction_available.
+pub const PF_ARM_DIVIDE_INSTRUCTION_AVAILABLE = 24;
+
+/// The external cache is available.
+pub const PF_ARM_EXTERNAL_CACHE_AVAILABLE = 26;
+
+/// The floating-point multiply-accumulate instruction is available.
+pub const PF_ARM_FMAC_INSTRUCTIONS_AVAILABLE = 27;
+
+/// The VFP/Neon: 32 x 64bit register bank is present.
+/// This flag has the same meaning as PF_ARM_VFP_EXTENDED_REGISTERS.
+pub const PF_ARM_VFP_32_REGISTERS_AVAILABLE = 18;
+
+/// The 3D-Now instruction is available.
+pub const PF_3DNOW_INSTRUCTIONS_AVAILABLE = 7;
+
+/// The processor channels are enabled.
+pub const PF_CHANNELS_ENABLED = 16;
+
+/// The atomic compare and exchange operation (cmpxchg) is available.
+pub const PF_COMPARE_EXCHANGE_DOUBLE = 2;
+
+/// The atomic compare and exchange 128-bit operation (cmpxchg16b) is available.
+pub const PF_COMPARE_EXCHANGE128 = 14;
+
+/// The atomic compare 64 and exchange 128-bit operation (cmp8xchg16) is available.
+pub const PF_COMPARE64_EXCHANGE128 = 15;
+
+/// _fastfail() is available.
+pub const PF_FASTFAIL_AVAILABLE = 23;
+
+/// Floating-point operations are emulated using software emulator.
+/// This function returns a nonzero value if floating-point operations are emulated; otherwise, it returns zero.
+pub const PF_FLOATING_POINT_EMULATED = 1;
+
+/// On a Pentium, a floating-point precision error can occur in rare circumstances.
+pub const PF_FLOATING_POINT_PRECISION_ERRATA = 0;
+
+/// The MMX instruction set is available.
+pub const PF_MMX_INSTRUCTIONS_AVAILABLE = 3;
+
+/// Data execution prevention is enabled.
+pub const PF_NX_ENABLED = 12;
+
+/// The processor is PAE-enabled.
+pub const PF_PAE_ENABLED = 9;
+
+/// The RDTSC instruction is available.
+pub const PF_RDTSC_INSTRUCTION_AVAILABLE = 8;
+
+/// RDFSBASE, RDGSBASE, WRFSBASE, and WRGSBASE instructions are available.
+pub const PF_RDWRFSGBASE_AVAILABLE = 22;
+
+/// Second Level Address Translation is supported by the hardware.
+pub const PF_SECOND_LEVEL_ADDRESS_TRANSLATION = 20;
+
+/// The SSE3 instruction set is available.
+pub const PF_SSE3_INSTRUCTIONS_AVAILABLE = 13;
+
+/// The SSSE3 instruction set is available.
+pub const PF_SSSE3_INSTRUCTIONS_AVAILABLE = 36;
+
+/// The SSE4_1 instruction set is available.
+pub const PF_SSE4_1_INSTRUCTIONS_AVAILABLE = 37;
+
+/// The SSE4_2 instruction set is available.
+pub const PF_SSE4_2_INSTRUCTIONS_AVAILABLE = 38;
+
+/// The AVX instruction set is available.
+pub const PF_AVX_INSTRUCTIONS_AVAILABLE = 39;
+
+/// The AVX2 instruction set is available.
+pub const PF_AVX2_INSTRUCTIONS_AVAILABLE = 40;
+
+/// The AVX512F instruction set is available.
+pub const PF_AVX512F_INSTRUCTIONS_AVAILABLE = 41;
+
+/// Virtualization is enabled in the firmware and made available by the operating system.
+pub const PF_VIRT_FIRMWARE_ENABLED = 21;
+
+/// The SSE instruction set is available.
+pub const PF_XMMI_INSTRUCTIONS_AVAILABLE = 6;
+
+/// The SSE2 instruction set is available.
+pub const PF_XMMI64_INSTRUCTIONS_AVAILABLE = 10;
+
+/// The processor implements the XSAVI and XRSTOR instructions.
+pub const PF_XSAVE_ENABLED = 17;
+
+/// This ARM processor implements the ARM v8 instructions set.
+pub const PF_ARM_V8_INSTRUCTIONS_AVAILABLE = 29;
+
+/// This ARM processor implements the ARM v8 extra cryptographic instructions (i.e., AES, SHA1 and SHA2).
+pub const PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE = 30;
+
+/// This ARM processor implements the ARM v8 extra CRC32 instructions.
+pub const PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE = 31;
+
+/// This ARM processor implements the ARM v8.1 atomic instructions (e.g., CAS, SWP).
+pub const PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE = 34;
