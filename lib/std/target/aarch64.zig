@@ -2252,4 +2252,19 @@ pub const cpu = struct {
             .v8a,
         }),
     };
+
+    pub const microsoft_sq3 = CpuModel{
+        .name = "microsoft_sq3",
+        .llvm_name = "generic",
+        .features = featureSet(&[_]Feature{
+            .aes,
+            .crc,
+            .crypto,
+            .dotprod,
+            .fp_armv8,
+            .lse,
+            .neon,
+            .sha2,
+        }),
+    };
 };

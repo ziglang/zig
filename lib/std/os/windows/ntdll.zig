@@ -253,3 +253,9 @@ pub extern "ntdll" fn NtUnlockFile(
     Length: *const LARGE_INTEGER,
     Key: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtOpenKey(
+    KeyHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: OBJECT_ATTRIBUTES,
+) callconv(WINAPI) NTSTATUS;

@@ -2504,6 +2504,7 @@ pub const STANDARD_RIGHTS_READ = READ_CONTROL;
 pub const STANDARD_RIGHTS_WRITE = READ_CONTROL;
 pub const STANDARD_RIGHTS_EXECUTE = READ_CONTROL;
 pub const STANDARD_RIGHTS_REQUIRED = DELETE | READ_CONTROL | WRITE_DAC | WRITE_OWNER;
+pub const MAXIMUM_ALLOWED = 0x02000000;
 
 // disposition for NtCreateFile
 pub const FILE_SUPERSEDE = 0;
@@ -2872,8 +2873,10 @@ pub const PROV_RSA_FULL = 1;
 
 pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
-pub const HKEY = *opaque {};
 pub const LSTATUS = LONG;
+
+pub const HKEY = HANDLE;
+pub const HKEY_LOCAL_MACHINE: HKEY = @intToPtr(HKEY, 0x80000002);
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
@@ -4016,4 +4019,188 @@ pub const SharedUserData: *const KUSER_SHARED_DATA = @intToPtr(*const KUSER_SHAR
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
     return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
+}
+
+pub const KEY_QUERY_VALUE = 0x0001;
+
+/// Open symbolic link.
+pub const REG_OPTION_OPEN_LINK: DWORD = 0x8;
+
+inline fn IsPredefKey(hkey: HKEY) bool {
+    return @ptrToInt(hkey) & 0xF0000000 == 0x80000000;
+}
+
+inline fn GetPredefKeyIndex(hkey: HKEY) usize {
+    return @ptrToInt(hkey) & 0x0FFFFFFF;
+}
+
+inline fn ClosePredefKey(hkey: HKEY) void {
+    if (@ptrToInt(hkey) & 0x1 != 0) {
+        assert(ntdll.NtClose(hkey) == .SUCCESS);
+    }
+}
+
+const MAX_DEFAULT_HANDLES = 6;
+pub const REG_MAX_NAME_SIZE = 256;
+
+pub const RegOpenKeyOpts = struct {
+    ulOptions: DWORD = 0,
+    samDesired: ACCESS_MASK = KEY_QUERY_VALUE,
+};
+
+/// Pulls existing key from the registry.
+pub fn RegOpenKey(hkey: HKEY, lpSubKey: []const u16, opts: RegOpenKeyOpts) !HKEY {
+    if (IsPredefKey(hkey) and lpSubKey.len == 0) {
+        return hkey;
+    }
+
+    const key_handle = try MapDefaultKey(hkey);
+    defer ClosePredefKey(key_handle);
+
+    var subkey_string: UNICODE_STRING = undefined;
+    if (lpSubKey.len == 0 or mem.eql(u16, &[_]u16{'\\'}, lpSubKey)) {
+        subkey_string = .{
+            .Length = 0,
+            .MaximumLength = 0,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(&[0]u16{})),
+        };
+    } else {
+        const len_bytes = math.cast(u16, lpSubKey.len * 2) orelse return error.NameTooLong;
+        subkey_string = .{
+            .Length = len_bytes,
+            .MaximumLength = len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(lpSubKey.ptr)),
+        };
+    }
+
+    var attributes: ULONG = OBJ_CASE_INSENSITIVE;
+    if (opts.ulOptions & REG_OPTION_OPEN_LINK != 0) {
+        attributes |= OBJ_OPENLINK;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = key_handle,
+        .Attributes = attributes,
+        .ObjectName = &subkey_string,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+
+    var result: HKEY = undefined;
+    const rc = ntdll.NtOpenKey(
+        &result,
+        opts.samDesired,
+        attr,
+    );
+    switch (rc) {
+        .SUCCESS => return result,
+        else => return unexpectedStatus(rc),
+    }
+}
+
+pub fn RegCloseKey(hkey: HKEY) void {
+    if (IsPredefKey(hkey)) return;
+    assert(ntdll.NtClose(hkey) == .SUCCESS);
+}
+
+extern var DefaultHandleHKUDisabled: BOOLEAN;
+extern var DefaultHandlesDisabled: BOOLEAN;
+extern var DefaultHandleTable: [MAX_DEFAULT_HANDLES]?HANDLE;
+
+fn MapDefaultKey(key: HKEY) !HANDLE {
+    if (!IsPredefKey(key)) return @intToPtr(HANDLE, @ptrToInt(key) & ~@as(usize, 0x1));
+
+    const index = GetPredefKeyIndex(key);
+    if (index >= MAX_DEFAULT_HANDLES) {
+        return error.InvalidParameter;
+    }
+
+    const def_disabled = if (key == HKEY_LOCAL_MACHINE) DefaultHandleHKUDisabled else DefaultHandlesDisabled;
+
+    var handle: HANDLE = undefined;
+    var do_open: bool = true;
+
+    if (def_disabled != 0) {
+        const tmp = DefaultHandleTable[index];
+        if (tmp) |h| {
+            do_open = false;
+            handle = h;
+        }
+    }
+
+    if (do_open) {
+        handle = try OpenPredefinedKey(index);
+    }
+
+    if (def_disabled == 0) {
+        handle = @intToPtr(HANDLE, @ptrToInt(handle) | 0x1);
+    }
+
+    return handle;
+}
+
+fn OpenPredefinedKey(index: usize) !HANDLE {
+    switch (index) {
+        0 => {
+            // HKEY_CLASSES_ROOT
+            return error.Unimplemented;
+        },
+        1 => {
+            // HKEY_CURRENT_USER
+            return error.Unimplemented;
+        },
+        2 => {
+            // HKEY_LOCAL_MACHINE
+            return OpenLocalMachineKey();
+        },
+        3 => {
+            // HKEY_USERS
+            return error.Unimplemented;
+        },
+        5 => {
+            // HKEY_CURRENT_CONFIG
+            return error.Unimplemented;
+        },
+        6 => {
+            // HKEY_DYN_DATA
+            return error.Unimplemented;
+        },
+        else => {
+            return error.InvalidParameter;
+        },
+    }
+}
+
+fn OpenLocalMachineKey() !HANDLE {
+    const path = "\\Registry\\Machine";
+    var path_u16: [REG_MAX_NAME_SIZE]u16 = undefined;
+    const path_len_u16 = try std.unicode.utf8ToUtf16Le(&path_u16, path);
+    const path_len_bytes = @intCast(u16, path_len_u16 * 2);
+
+    var key_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(&path_u16)),
+    };
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = null,
+        .Attributes = OBJ_CASE_INSENSITIVE,
+        .ObjectName = &key_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+
+    var result: HKEY = undefined;
+    const rc = ntdll.NtOpenKey(
+        &result,
+        MAXIMUM_ALLOWED,
+        attr,
+    );
+    switch (rc) {
+        .SUCCESS => return result,
+        else => return unexpectedStatus(rc),
+    }
 }
