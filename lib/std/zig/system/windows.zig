@@ -1,6 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const Target = std.Target;
 
 pub const WindowsVersion = std.Target.Os.WindowsVersion;
+pub const PF = std.os.windows.PF;
+pub const IsProcessorFeaturePresent = std.os.windows.IsProcessorFeaturePresent;
 
 /// Returns the highest known WindowsVersion deduced from reported runtime information.
 /// Discards information about in-between versions we don't differentiate.
@@ -37,4 +41,41 @@ pub fn detectRuntimeVersion() WindowsVersion {
     const version: u32 = @as(u32, os_ver) << 16 | @as(u16, sp_ver) << 8 | sub_ver;
 
     return @intToEnum(WindowsVersion, version);
+}
+
+fn detectNativeCpuAndFeaturesArm64() Target.Cpu {
+    const Feature = Target.aarch64.Feature;
+
+    var cpu = Target.Cpu{
+        .arch = .aarch64,
+        .model = Target.Cpu.Model.generic(.aarch64),
+        .features = Target.Cpu.Feature.Set.empty,
+    };
+
+    if (IsProcessorFeaturePresent(PF.ARM_NEON_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.neon));
+    }
+    if (IsProcessorFeaturePresent(PF.ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.crc));
+    }
+    if (IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.crypto));
+    }
+
+    return cpu;
+}
+
+fn getCpuCount() usize {
+    return std.os.windows.peb().NumberOfProcessors;
+}
+
+pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
+    switch (builtin.cpu.arch) {
+        .aarch64 => return detectNativeCpuAndFeaturesArm64(),
+        else => |arch| return .{
+            .arch = arch,
+            .model = Target.Cpu.Model.generic(arch),
+            .features = Target.Cpu.Feature.Set.empty,
+        },
+    }
 }
