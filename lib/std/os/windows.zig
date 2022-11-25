@@ -3838,7 +3838,11 @@ pub const PF = enum(DWORD) {
     AVX512F_INSTRUCTIONS_AVAILABLE = 41,
 
     ERMS_AVAILABLE = 42,
+
+    /// This ARM processor implements the ARM v8.2 Dot Product (DP) instructions.
     ARM_V82_DP_INSTRUCTIONS_AVAILABLE = 43,
+
+    /// This ARM processor implements the ARM v8.3 JavaScript conversion (JSCVT) instructions.
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
 };
 

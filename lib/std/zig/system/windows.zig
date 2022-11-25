@@ -61,6 +61,15 @@ fn detectNativeCpuAndFeaturesArm64() Target.Cpu {
     if (IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.crypto));
     }
+    if (IsProcessorFeaturePresent(PF.ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.lse));
+    }
+    if (IsProcessorFeaturePresent(PF.ARM_V82_DP_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.dotprod));
+    }
+    if (IsProcessorFeaturePresent(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)) {
+        cpu.features.addFeature(@enumToInt(Feature.jsconv));
+    }
 
     return cpu;
 }
