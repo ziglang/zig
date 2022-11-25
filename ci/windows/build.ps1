@@ -59,3 +59,4 @@ Write-Output "zig test std/std.zig..."
     --zig-lib-dir "$ZIGLIBDIR" `
     -femit-docs `
     -fno-emit-bin
+CheckLastExitCode
