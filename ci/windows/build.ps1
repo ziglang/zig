@@ -49,7 +49,8 @@ Write-Output " zig build test docs..."
 & "$ZIGINSTALLDIR\bin\zig.exe" build test docs `
     --search-prefix "$ZIGPREFIXPATH" `
     -Dstatic-llvm `
-    -Dskip-non-native
+    -Dskip-non-native `
+    -Denable-symlinks-windows
 CheckLastExitCode
 
 # Produce the experimental std lib documentation.

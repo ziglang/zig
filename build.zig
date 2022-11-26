@@ -88,6 +88,7 @@ pub fn build(b: *Builder) !void {
         "Whether LLVM has the experimental target arc enabled",
     ) orelse false;
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
+    const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Enable using symlinks on Windows. If this is not set, hardlinks are used.") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!skip_install_lib_files) {
@@ -519,9 +520,10 @@ pub fn build(b: *Builder) !void {
         b.enable_rosetta,
         b.enable_wasmtime,
         b.enable_wine,
+        enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native));
-    test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests));
+    test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
