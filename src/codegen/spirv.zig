@@ -459,6 +459,22 @@ pub const DeclGen = struct {
         return try self.intType(.unsigned, self.getTarget().cpu.arch.ptrBitWidth());
     }
 
+    /// Construct a simple struct type which consists of some members, and no decorations.
+    /// `members` lifetime only needs to last for this function as it is copied.
+    fn simpleStructType(self: *DeclGen, members: []const SpvType.Payload.Struct.Member) !SpvType.Ref {
+        const payload = try self.spv.arena.create(SpvType.Payload.Struct);
+        payload.* = .{
+            .members = try self.spv.arena.dupe(SpvType.Payload.Struct.Member, members),
+            .decorations = .{},
+        };
+        return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+    }
+
+    fn simpleStructTypeId(self: *DeclGen, members: []const SpvType.Payload.Struct.Member) !IdResultType {
+        const type_ref = try self.simpleStructType(members);
+        return self.spv.typeResultId(type_ref);
+    }
+
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type) Error!SpvType.Ref {
         const target = self.getTarget();
@@ -555,25 +571,10 @@ pub const DeclGen = struct {
                 const len_align = len_ty.abiAlignment(target);
                 const len_offset = std.mem.alignForwardGeneric(u64, ptr_size, len_align);
 
-                const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, 2);
-                members[0] = .{
-                    .ty = spv_ptr_ty,
-                    .offset = 0,
-                    .decorations = .{},
-                };
-                members[1] = .{
-                    .ty = try self.sizeType(),
-                    .offset = @intCast(u32, len_offset),
-                    .decorations = .{},
-                };
-
-                const slice_payload = try self.spv.arena.create(SpvType.Payload.Struct);
-                slice_payload.* = .{
-                    .members = members,
-                    .decorations = .{},
-                    .member_decoration_extra = &.{},
-                };
-                return try self.spv.resolveType(SpvType.initPayload(&slice_payload.base));
+                return try self.simpleStructType(&.{
+                    .{ .ty = spv_ptr_ty, .offset = 0 },
+                    .{ .ty = try self.sizeType(), .offset = @intCast(u32, len_offset) },
+                });
             },
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
@@ -594,7 +595,24 @@ pub const DeclGen = struct {
             },
             .Struct => {
                 if (ty.isSimpleTupleOrAnonStruct()) {
-                    return self.todo("implement tuple struct type", .{});
+                    const tuple = ty.tupleFields();
+                    const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, tuple.types.len);
+                    var member_index: usize = 0;
+                    for (tuple.types) |field_ty, i| {
+                        const field_val = tuple.values[i];
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
+
+                        members[member_index] = .{
+                            .ty = try self.resolveType(field_ty),
+                            .offset = 0,
+                        };
+                    }
+
+                    const payload = try self.spv.arena.create(SpvType.Payload.Struct);
+                    payload.* = .{
+                        .members = members[0..member_index],
+                    };
+                    return try self.spv.resolveType(SpvType.initPayload(&payload.base));
                 }
 
                 const struct_ty = ty.castTag(.@"struct").?.data;
@@ -611,15 +629,12 @@ pub const DeclGen = struct {
                     members[member_index] = .{
                         .ty = try self.resolveType(field.ty),
                         .offset = field.offset,
-                        .decorations = .{},
                     };
                 }
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Struct);
                 payload.* = .{
                     .members = members[0..member_index],
-                    .decorations = .{},
-                    .member_decoration_extra = &.{},
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
@@ -709,6 +724,8 @@ pub const DeclGen = struct {
             .sub, .subwrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
             .mul, .mulwrap => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
+            .add_with_overflow => try self.airOverflowArithOp(inst),
+
             .shuffle => try self.airShuffle(inst),
 
             .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
@@ -719,6 +736,7 @@ pub const DeclGen = struct {
 
             .bitcast        => try self.airBitcast(inst),
             .not            => try self.airNot(inst),
+
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
@@ -841,6 +859,82 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
+    fn airOverflowArithOp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.getTarget();
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const lhs = try self.resolve(extra.lhs);
+        const rhs = try self.resolve(extra.rhs);
+
+        const operand_ty = self.air.typeOf(extra.lhs);
+        const result_ty = self.air.typeOfIndex(inst);
+
+        const operand_ty_id = try self.resolveTypeId(operand_ty);
+        const result_type_id = try self.resolveTypeId(result_ty);
+
+        const operand_bits = operand_ty.intInfo(target).bits;
+        const overflow_member_ty = try self.intType(.unsigned, operand_bits);
+        const overflow_member_ty_id = self.spv.typeResultId(overflow_member_ty);
+
+        const op_result_id = blk: {
+            // Construct the SPIR-V result type.
+            // It is almost the same as the zig one, except that the fields must be the same type
+            // and they must be unsigned.
+            const overflow_result_ty = try self.simpleStructTypeId(&.{
+                .{ .ty = overflow_member_ty, .offset = 0 },
+                .{ .ty = overflow_member_ty, .offset = @intCast(u32, operand_ty.abiSize(target)) },
+            });
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpIAddCarry, .{
+                .id_result_type = overflow_result_ty,
+                .id_result = result_id,
+                .operand_1 = lhs,
+                .operand_2 = rhs,
+            });
+            break :blk result_id.toRef();
+        };
+
+        // Now convert the SPIR-V flavor result into a Zig-flavor result.
+        // First, extract the two fields.
+        const unsigned_result = try self.extractField(overflow_member_ty_id, op_result_id, 0);
+        const overflow = try self.extractField(overflow_member_ty_id, op_result_id, 0);
+
+        // We need to convert the results to the types that Zig expects here.
+        // The `result` is the same type except unsigned, so we can just bitcast that.
+        const result = try self.bitcast(operand_ty_id, unsigned_result);
+
+        // The overflow needs to be converted into whatever is used to represent it in Zig.
+        const casted_overflow = blk: {
+            const ov_ty = result_ty.tupleFields().types[1];
+            const ov_ty_id = try self.resolveTypeId(ov_ty);
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
+                .id_result_type = ov_ty_id,
+                .id_result = result_id,
+                .unsigned_value = overflow,
+            });
+            break :blk result_id.toRef();
+        };
+
+        // TODO: If copying this function for borrow, make sure to convert -1 to 1 as appropriate.
+
+        // Finally, construct the Zig type.
+        // Layout is result, overflow.
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .constituents = &.{
+                result,
+                casted_overflow,
+            },
+        });
+        return result_id.toRef();
+    }
+
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
@@ -923,18 +1017,22 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
+    fn bitcast(self: *DeclGen, target_type_id: IdResultType, value_id: IdRef) !IdRef {
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            .id_result_type = target_type_id,
+            .id_result = result_id,
+            .operand = value_id,
+        });
+        return result_id.toRef();
+    }
+
     fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
-        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-            .id_result_type = result_type_id,
-            .id_result = result_id,
-            .operand = operand_id,
-        });
-        return result_id.toRef();
+        return try self.bitcast(result_type_id, operand_id);
     }
 
     fn airNot(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -951,17 +1049,25 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    fn extractField(self: *DeclGen, result_ty: IdResultType, object: IdRef, field: u32) !IdRef {
         const result_id = self.spv.allocId();
         try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-            .id_result_type = try self.resolveTypeId(self.air.typeOfIndex(inst)),
+            .id_result_type = result_ty,
             .id_result = result_id,
-            .composite = try self.resolve(ty_op.operand),
+            .composite = object,
             .indexes = &.{field},
         });
         return result_id.toRef();
+    }
+
+    fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        return try self.extractField(
+            try self.resolveTypeId(self.air.typeOfIndex(inst)),
+            try self.resolve(ty_op.operand),
+            field,
+        );
     }
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {

@@ -436,17 +436,17 @@ pub const Type = extern union {
             base: Payload = .{ .tag = .@"struct" },
             // TODO: name
             members: []Member,
-            decorations: StructDecorations,
+            decorations: StructDecorations = .{},
 
             /// Extra information for decorations, packed for efficiency. Fields are stored sequentially by
             /// order of the `members` slice and `MemberDecorations` struct.
-            member_decoration_extra: []u32,
+            member_decoration_extra: []u32 = &.{},
 
             pub const Member = struct {
                 ty: Ref,
                 offset: u32,
                 // TODO: name
-                decorations: MemberDecorations,
+                decorations: MemberDecorations = .{},
             };
 
             pub const StructDecorations = packed struct {
