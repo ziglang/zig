@@ -483,7 +483,12 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 .f32 => if (args.signedness.? == .signed) return .i32_trunc_f32_s else return .i32_trunc_f32_u,
                 .f64 => if (args.signedness.? == .signed) return .i32_trunc_f64_s else return .i32_trunc_f64_u,
             } else return .f32_trunc, // when no valtype2, it's an f16 instead which is stored in an i32.
-            .i64 => unreachable,
+            .i64 => switch (args.valtype2.?) {
+                .i32 => unreachable,
+                .i64 => unreachable,
+                .f32 => if (args.signedness.? == .signed) return .i64_trunc_f32_s else return .i64_trunc_f32_u,
+                .f64 => if (args.signedness.? == .signed) return .i64_trunc_f64_s else return .i64_trunc_f64_u,
+            },
             .f32 => return .f32_trunc,
             .f64 => return .f64_trunc,
         },
@@ -687,7 +692,10 @@ const InnerError = error{
 };
 
 pub fn deinit(func: *CodeGen) void {
-    assert(func.branches.items.len == 0); // we should end with no branches left. Forgot a call to `branches.pop()`?
+    // in case of an error and we still have branches
+    for (func.branches.items) |*branch| {
+        branch.deinit(func.gpa);
+    }
     func.branches.deinit(func.gpa);
     func.blocks.deinit(func.gpa);
     func.locals.deinit(func.gpa);
@@ -1317,17 +1325,21 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
             assert(ty_classes[0] == .direct);
             const scalar_type = abi.scalarType(ty, func.target);
             const abi_size = scalar_type.abiSize(func.target);
-            const opcode = buildOpcode(.{
-                .op = .load,
-                .width = @intCast(u8, abi_size),
-                .signedness = if (scalar_type.isSignedInt()) .signed else .unsigned,
-                .valtype1 = typeToValtype(scalar_type, func.target),
-            });
             try func.emitWValue(value);
-            try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
-                .offset = value.offset(),
-                .alignment = scalar_type.abiAlignment(func.target),
-            });
+
+            // When the value lives in the virtual stack, we must load it onto the actual stack
+            if (value != .imm32 and value != .imm64) {
+                const opcode = buildOpcode(.{
+                    .op = .load,
+                    .width = @intCast(u8, abi_size),
+                    .signedness = if (scalar_type.isSignedInt()) .signed else .unsigned,
+                    .valtype1 = typeToValtype(scalar_type, func.target),
+                });
+                try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
+                    .offset = value.offset(),
+                    .alignment = scalar_type.abiAlignment(func.target),
+                });
+            }
         },
         .Int, .Float => {
             if (ty_classes[1] == .none) {
@@ -2478,18 +2490,21 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, ptr_child_ty: Type) InnerError
             const parent_ptr = try func.lowerParentPtr(field_ptr.container_ptr, parent_ty);
 
             const offset = switch (parent_ty.zigTypeTag()) {
-                .Struct => blk: {
-                    const offset = parent_ty.structFieldOffset(field_ptr.field_index, func.target);
-                    break :blk offset;
+                .Struct => switch (parent_ty.containerLayout()) {
+                    .Packed => parent_ty.packedStructFieldByteOffset(field_ptr.field_index, func.target),
+                    else => parent_ty.structFieldOffset(field_ptr.field_index, func.target),
                 },
-                .Union => blk: {
-                    const layout: Module.Union.Layout = parent_ty.unionGetLayout(func.target);
-                    if (layout.payload_size == 0) break :blk 0;
-                    if (layout.payload_align > layout.tag_align) break :blk 0;
+                .Union => switch (parent_ty.containerLayout()) {
+                    .Packed => 0,
+                    else => blk: {
+                        const layout: Module.Union.Layout = parent_ty.unionGetLayout(func.target);
+                        if (layout.payload_size == 0) break :blk 0;
+                        if (layout.payload_align > layout.tag_align) break :blk 0;
 
-                    // tag is stored first so calculate offset from where payload starts
-                    const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
-                    break :blk offset;
+                        // tag is stored first so calculate offset from where payload starts
+                        const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
+                        break :blk offset;
+                    },
                 },
                 .Pointer => switch (parent_ty.ptrSize()) {
                     .Slice => switch (field_ptr.field_index) {
@@ -2750,6 +2765,11 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
         },
         .ErrorUnion => {
             return WValue{ .imm32 = 0xaaaaaaaa };
+        },
+        .Struct => {
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            assert(struct_obj.layout == .Packed);
+            return func.emitUndefined(struct_obj.backing_int_ty);
         },
         else => return func.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag()}),
     }
@@ -3201,6 +3221,18 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     const truncated = try func.trunc(shifted_value, int_type, backing_ty);
                     const bitcasted = try func.bitcast(field_ty, int_type, truncated);
                     break :result try bitcasted.toLocal(func, field_ty);
+                } else if (field_ty.isPtrAtRuntime() and struct_obj.fields.count() == 1) {
+                    // In this case we do not have to perform any transformations,
+                    // we can simply reuse the operand.
+                    break :result func.reuseOperand(struct_field.struct_operand, operand);
+                } else if (field_ty.isPtrAtRuntime()) {
+                    var payload: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = @intCast(u16, field_ty.bitSize(func.target)),
+                    };
+                    const int_type = Type.initPayload(&payload.base);
+                    const truncated = try func.trunc(shifted_value, int_type, backing_ty);
+                    break :result try truncated.toLocal(func, field_ty);
                 }
                 const truncated = try func.trunc(shifted_value, field_ty, backing_ty);
                 break :result try truncated.toLocal(func, field_ty);
@@ -3225,6 +3257,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try field.toLocal(func, field_ty);
         },
     };
+
     func.finishAir(inst, result, &.{struct_field.struct_operand});
 }
 
@@ -3571,13 +3604,13 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Asserts type's bitsize <= 128
 /// NOTE: May leave the result on the top of the stack.
 fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_info = given.intInfo(func.target);
-    const wanted_info = wanted.intInfo(func.target);
-    assert(given_info.bits <= 128);
-    assert(wanted_info.bits <= 128);
+    const given_bitsize = @intCast(u16, given.bitSize(func.target));
+    const wanted_bitsize = @intCast(u16, wanted.bitSize(func.target));
+    assert(given_bitsize <= 128);
+    assert(wanted_bitsize <= 128);
 
-    const op_bits = toWasmBits(given_info.bits).?;
-    const wanted_bits = toWasmBits(wanted_info.bits).?;
+    const op_bits = toWasmBits(given_bitsize).?;
+    const wanted_bits = toWasmBits(wanted_bitsize).?;
     if (op_bits == wanted_bits) return operand;
 
     if (op_bits > 32 and op_bits <= 64 and wanted_bits == 32) {
@@ -3585,10 +3618,7 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
         try func.addTag(.i32_wrap_i64);
     } else if (op_bits == 32 and wanted_bits > 32 and wanted_bits <= 64) {
         try func.emitWValue(operand);
-        try func.addTag(switch (wanted_info.signedness) {
-            .signed => .i64_extend_i32_s,
-            .unsigned => .i64_extend_i32_u,
-        });
+        try func.addTag(if (wanted.isSignedInt()) .i64_extend_i32_s else .i64_extend_i32_u);
     } else if (wanted_bits == 128) {
         // for 128bit integers we store the integer in the virtual stack, rather than a local
         const stack_ptr = try func.allocStack(wanted);
@@ -3869,7 +3899,7 @@ fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) Inner
     }
 
     var result = try func.intcast(operand, given_ty, wanted_ty);
-    const wanted_bits = wanted_ty.intInfo(func.target).bits;
+    const wanted_bits = @intCast(u16, wanted_ty.bitSize(func.target));
     const wasm_bits = toWasmBits(wanted_bits).?;
     if (wasm_bits != wanted_bits) {
         result = try func.wrapOperand(result, wanted_ty);
