@@ -115,16 +115,10 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // - https://github.com/ziglang/zig/issues/3863
     if (@typeInfo(T).Enum.fields.len <= 100) {
         const kvs = comptime build_kvs: {
-            // In order to generate an array of structs that play nice with anonymous
-            // list literals, we need to give them "0" and "1" field names.
-            // TODO https://github.com/ziglang/zig/issues/4335
-            const EnumKV = struct {
-                @"0": []const u8,
-                @"1": T,
-            };
+            const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
             inline for (@typeInfo(T).Enum.fields) |enumField, i| {
-                kvs_array[i] = .{ .@"0" = enumField.name, .@"1" = @field(T, enumField.name) };
+                kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
             break :build_kvs kvs_array[0..];
         };
