@@ -885,24 +885,28 @@ fn buildOutputType(
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
                     } else if (mem.eql(u8, arg, "--pkg-begin")) {
-                        const pkg_name = args_iter.next();
-                        const pkg_path = args_iter.next();
-                        if (pkg_name == null or pkg_path == null) fatal("Expected 2 arguments after {s}", .{arg});
+                        const opt_pkg_name = args_iter.next();
+                        const opt_pkg_path = args_iter.next();
+                        if (opt_pkg_name == null or opt_pkg_path == null)
+                            fatal("Expected 2 arguments after {s}", .{arg});
+
+                        const pkg_name = opt_pkg_name.?;
+                        const pkg_path = try introspect.resolvePath(arena, opt_pkg_path.?);
 
                         const new_cur_pkg = Package.create(
                             gpa,
-                            fs.path.dirname(pkg_path.?),
-                            fs.path.basename(pkg_path.?),
+                            fs.path.dirname(pkg_path),
+                            fs.path.basename(pkg_path),
                         ) catch |err| {
-                            fatal("Failed to add package at path {s}: {s}", .{ pkg_path.?, @errorName(err) });
+                            fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
                         };
 
-                        if (mem.eql(u8, pkg_name.?, "std") or mem.eql(u8, pkg_name.?, "root") or mem.eql(u8, pkg_name.?, "builtin")) {
-                            fatal("unable to add package '{s}' -> '{s}': conflicts with builtin package", .{ pkg_name.?, pkg_path.? });
-                        } else if (cur_pkg.table.get(pkg_name.?)) |prev| {
-                            fatal("unable to add package '{s}' -> '{s}': already exists as '{s}", .{ pkg_name.?, pkg_path.?, prev.root_src_path });
+                        if (mem.eql(u8, pkg_name, "std") or mem.eql(u8, pkg_name, "root") or mem.eql(u8, pkg_name, "builtin")) {
+                            fatal("unable to add package '{s}' -> '{s}': conflicts with builtin package", .{ pkg_name, pkg_path });
+                        } else if (cur_pkg.table.get(pkg_name)) |prev| {
+                            fatal("unable to add package '{s}' -> '{s}': already exists as '{s}", .{ pkg_name, pkg_path, prev.root_src_path });
                         }
-                        try cur_pkg.addAndAdopt(gpa, pkg_name.?, new_cur_pkg);
+                        try cur_pkg.addAndAdopt(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -2705,11 +2709,16 @@ fn buildOutputType(
     };
     defer emit_implib_resolved.deinit();
 
-    const main_pkg: ?*Package = if (root_src_file) |src_path| blk: {
-        if (main_pkg_path) |p| {
-            const rel_src_path = try fs.path.relative(gpa, p, src_path);
-            defer gpa.free(rel_src_path);
-            break :blk try Package.create(gpa, p, rel_src_path);
+    const main_pkg: ?*Package = if (root_src_file) |unresolved_src_path| blk: {
+        const src_path = try introspect.resolvePath(arena, unresolved_src_path);
+        if (main_pkg_path) |unresolved_main_pkg_path| {
+            const p = try introspect.resolvePath(arena, unresolved_main_pkg_path);
+            if (p.len == 0) {
+                break :blk try Package.create(gpa, null, src_path);
+            } else {
+                const rel_src_path = try fs.path.relative(arena, p, src_path);
+                break :blk try Package.create(gpa, p, rel_src_path);
+            }
         } else {
             const root_src_dir_path = fs.path.dirname(src_path);
             break :blk Package.create(gpa, root_src_dir_path, fs.path.basename(src_path)) catch |err| {
@@ -2745,7 +2754,7 @@ fn buildOutputType(
 
     const self_exe_path = try introspect.findZigExePath(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |unresolved_lib_dir| l: {
-        const lib_dir = try fs.path.resolve(arena, &.{unresolved_lib_dir});
+        const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
         break :l .{
             .path = lib_dir,
             .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
