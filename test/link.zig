@@ -120,7 +120,7 @@ fn addMachOCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
         .requires_macos_sdk = true,
         .requires_symlinks = true,
-   });
+    });
 
     cases.addBuildFile("test/link/macho/linksection/build.zig", .{
         .build_modes = true,
