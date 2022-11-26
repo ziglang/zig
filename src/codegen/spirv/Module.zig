@@ -216,7 +216,7 @@ pub fn resolveType(self: *Module, ty: Type) !Type.Ref {
         result.value_ptr.* = try self.emitType(ty);
     }
 
-    return result.index;
+    return @intToEnum(Type.Ref, result.index);
 }
 
 pub fn resolveTypeId(self: *Module, ty: Type) !IdRef {
@@ -226,12 +226,12 @@ pub fn resolveTypeId(self: *Module, ty: Type) !IdRef {
 
 /// Get the result-id of a particular type, by reference. Asserts type_ref is valid.
 pub fn typeResultId(self: Module, type_ref: Type.Ref) IdResultType {
-    return self.type_cache.values()[type_ref];
+    return self.type_cache.values()[@enumToInt(type_ref)];
 }
 
 /// Get the result-id of a particular type as IdRef, by Type.Ref. Asserts type_ref is valid.
 pub fn typeRefId(self: Module, type_ref: Type.Ref) IdRef {
-    return self.type_cache.values()[type_ref].toRef();
+    return self.type_cache.values()[@enumToInt(type_ref)].toRef();
 }
 
 /// Unconditionally emit a spir-v type into the appropriate section.

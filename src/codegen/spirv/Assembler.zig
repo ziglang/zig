@@ -753,7 +753,7 @@ fn parseContextDependentNumber(self: *Assembler) !void {
 
     const tok = self.currentToken();
     const result_type_ref = try self.resolveTypeRef(self.inst.operands.items[0].ref_id);
-    const result_type = self.spv.type_cache.keys()[result_type_ref];
+    const result_type = self.spv.type_cache.keys()[@enumToInt(result_type_ref)];
     switch (result_type.tag()) {
         .int => {
             const int = result_type.castTag(.int).?;

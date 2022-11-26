@@ -11,7 +11,7 @@ pub const Type = extern union {
     ptr_otherwise: *Payload,
 
     /// A reference to another SPIR-V type.
-    pub const Ref = usize;
+    pub const Ref = enum(u32) { _ };
 
     pub fn initTag(comptime small_tag: Tag) Type {
         comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
