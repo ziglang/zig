@@ -611,6 +611,11 @@ test "Condition - signal wakes one" {
         return error.SkipZigTest;
     }
 
+    if (builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/13660
+        return error.SkipZigTest;
+    }
+
     var num_runs: usize = 1;
     const num_threads = 3;
     const timeoutDelay = 10 * std.time.ns_per_ms;
