@@ -454,6 +454,11 @@ pub const DeclGen = struct {
         return try self.spv.resolveType(try SpvType.int(self.spv.arena, signedness, backing_bits));
     }
 
+    /// Create an integer type that represents 'usize'.
+    fn sizeType(self: *DeclGen) !SpvType.Ref {
+        return try self.intType(.unsigned, self.getTarget().cpu.arch.ptrBitWidth());
+    }
+
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type) Error!SpvType.Ref {
         const target = self.getTarget();
@@ -524,16 +529,51 @@ pub const DeclGen = struct {
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
             .Pointer => {
-                const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
-                payload.* = .{
-                    .storage_class = spirvStorageClass(ty.ptrAddressSpace()),
-                    .child_type = try self.resolveType(ty.elemType()),
+                const ptr_info = ty.ptrInfo().data;
+
+                const ptr_payload = try self.spv.arena.create(SpvType.Payload.Pointer);
+                ptr_payload.* = .{
+                    .storage_class = spirvStorageClass(ptr_info.@"addrspace"),
+                    .child_type = try self.resolveType(ptr_info.pointee_type),
+                    // TODO: ???
                     .array_stride = 0,
                     // Note: only available in Kernels!
-                    .alignment = null,
+                    .alignment = ty.ptrAlignment(target) * 8,
                     .max_byte_offset = null,
                 };
-                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                const spv_ptr_ty = try self.spv.resolveType(SpvType.initPayload(&ptr_payload.base));
+
+                if (ptr_info.size != .Slice) {
+                    return spv_ptr_ty;
+                }
+
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const ptr_ty = ty.slicePtrFieldType(&buf);
+                const len_ty = Type.usize;
+
+                const ptr_size = ptr_ty.abiSize(target);
+                const len_align = len_ty.abiAlignment(target);
+                const len_offset = std.mem.alignForwardGeneric(u64, ptr_size, len_align);
+
+                const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, 2);
+                members[0] = .{
+                    .ty = spv_ptr_ty,
+                    .offset = 0,
+                    .decorations = .{},
+                };
+                members[1] = .{
+                    .ty = try self.sizeType(),
+                    .offset = @intCast(u32, len_offset),
+                    .decorations = .{},
+                };
+
+                const slice_payload = try self.spv.arena.create(SpvType.Payload.Struct);
+                slice_payload.* = .{
+                    .members = members,
+                    .decorations = .{},
+                    .member_decoration_extra = &.{},
+                };
+                return try self.spv.resolveType(SpvType.initPayload(&slice_payload.base));
             },
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
