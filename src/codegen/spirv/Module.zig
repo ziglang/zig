@@ -75,7 +75,8 @@ sections: struct {
     execution_modes: Section = .{},
     /// OpString, OpSourcExtension, OpSource, OpSourceContinued.
     debug_strings: Section = .{},
-    // OpName, OpMemberName - skip for now.
+    // OpName, OpMemberName.
+    debug_names: Section = .{},
     // OpModuleProcessed - skip for now.
     /// Annotation instructions (OpDecorate etc).
     annotations: Section = .{},
@@ -115,6 +116,7 @@ pub fn deinit(self: *Module) void {
     self.sections.entry_points.deinit(self.gpa);
     self.sections.execution_modes.deinit(self.gpa);
     self.sections.debug_strings.deinit(self.gpa);
+    self.sections.debug_names.deinit(self.gpa);
     self.sections.annotations.deinit(self.gpa);
     self.sections.types_globals_constants.deinit(self.gpa);
     self.sections.functions.deinit(self.gpa);
@@ -154,6 +156,7 @@ pub fn flush(self: Module, file: std.fs.File) !void {
         self.sections.entry_points.toWords(),
         self.sections.execution_modes.toWords(),
         self.sections.debug_strings.toWords(),
+        self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
         self.sections.types_globals_constants.toWords(),
         self.sections.functions.toWords(),
@@ -244,12 +247,25 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
     const result_id = self.allocId();
     const ref_id = result_id.toRef();
     const types = &self.sections.types_globals_constants;
+    const debug_names = &self.sections.debug_names;
     const annotations = &self.sections.annotations;
     const result_id_operand = .{ .id_result = result_id };
 
     switch (ty.tag()) {
-        .void => try types.emit(self.gpa, .OpTypeVoid, result_id_operand),
-        .bool => try types.emit(self.gpa, .OpTypeBool, result_id_operand),
+        .void => {
+            try types.emit(self.gpa, .OpTypeVoid, result_id_operand);
+            try debug_names.emit(self.gpa, .OpName, .{
+                .target = result_id.toRef(),
+                .name = "void",
+            });
+        },
+        .bool => {
+            try types.emit(self.gpa, .OpTypeBool, result_id_operand);
+            try debug_names.emit(self.gpa, .OpName, .{
+                .target = result_id.toRef(),
+                .name = "bool",
+            });
+        },
         .u8,
         .u16,
         .u32,
@@ -260,6 +276,7 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
         .i64,
         .int,
         => {
+            const bits = ty.intFloatBits();
             const signedness: spec.LiteralInteger = switch (ty.intSignedness()) {
                 .unsigned => 0,
                 .signed => 1,
@@ -267,14 +284,37 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
 
             try types.emit(self.gpa, .OpTypeInt, .{
                 .id_result = result_id,
-                .width = ty.intFloatBits(),
+                .width = bits,
                 .signedness = signedness,
             });
+
+            const ui: []const u8 = switch (signedness) {
+                0 => "u",
+                1 => "i",
+                else => unreachable,
+            };
+            const name = try std.fmt.allocPrint(self.gpa, "{s}{}", .{ ui, bits });
+            defer self.gpa.free(name);
+
+            try debug_names.emit(self.gpa, .OpName, .{
+                .target = result_id.toRef(),
+                .name = name,
+            });
         },
-        .f16, .f32, .f64 => try types.emit(self.gpa, .OpTypeFloat, .{
-            .id_result = result_id,
-            .width = ty.intFloatBits(),
-        }),
+        .f16, .f32, .f64 => {
+            const bits = ty.intFloatBits();
+            try types.emit(self.gpa, .OpTypeFloat, .{
+                .id_result = result_id,
+                .width = bits,
+            });
+
+            const name = try std.fmt.allocPrint(self.gpa, "f{}", .{bits});
+            defer self.gpa.free(name);
+            try debug_names.emit(self.gpa, .OpName, .{
+                .target = result_id.toRef(),
+                .name = name,
+            });
+        },
         .vector => try types.emit(self.gpa, .OpTypeVector, .{
             .id_result = result_id,
             .component_type = self.typeResultId(ty.childType()).toRef(),
