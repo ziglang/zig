@@ -703,7 +703,7 @@ pub const DeclGen = struct {
 
     fn genInst(self: *DeclGen, inst: Air.Inst.Index) !void {
         const air_tags = self.air.instructions.items(.tag);
-        const result_id = switch (air_tags[inst]) {
+        const maybe_result_id: ?IdRef = switch (air_tags[inst]) {
             // zig fmt: off
             .add, .addwrap => try self.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd),
             .sub, .subwrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
@@ -717,7 +717,8 @@ pub const DeclGen = struct {
             .bool_and => try self.airBinOpSimple(inst, .OpLogicalAnd),
             .bool_or  => try self.airBinOpSimple(inst, .OpLogicalOr),
 
-            .not     => try self.airNot(inst),
+            .bitcast    => try self.airBitcast(inst),
+            .not        => try self.airNot(inst),
 
             .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
             .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
@@ -728,10 +729,9 @@ pub const DeclGen = struct {
 
             .arg   => self.airArg(),
             .alloc => try self.airAlloc(inst),
-            .block => (try self.airBlock(inst)) orelse return,
+            .block => try self.airBlock(inst),
             .load  => try self.airLoad(inst),
 
-            .bitcast    => try self.airBitcast(inst),
             .br         => return self.airBr(inst),
             .breakpoint => return,
             .cond_br    => return self.airCondBr(inst),
@@ -741,12 +741,13 @@ pub const DeclGen = struct {
             .ret        => return self.airRet(inst),
             .store      => return self.airStore(inst),
             .unreach    => return self.airUnreach(),
-            .assembly   => (try self.airAssembly(inst)) orelse return,
 
-            .call              => (try self.airCall(inst, .auto)) orelse return,
-            .call_always_tail  => (try self.airCall(inst, .always_tail)) orelse return,
-            .call_never_tail   => (try self.airCall(inst, .never_tail)) orelse return,
-            .call_never_inline => (try self.airCall(inst, .never_inline)) orelse return,
+            .assembly => try self.airAssembly(inst),
+
+            .call              => try self.airCall(inst, .auto),
+            .call_always_tail  => try self.airCall(inst, .always_tail),
+            .call_never_tail   => try self.airCall(inst, .never_tail),
+            .call_never_inline => try self.airCall(inst, .never_inline),
 
             .dbg_var_ptr => return,
             .dbg_var_val => return,
@@ -757,10 +758,12 @@ pub const DeclGen = struct {
             else => |tag| return self.todo("implement AIR tag {s}", .{@tagName(tag)}),
         };
 
+        const result_id = maybe_result_id orelse return;
         try self.inst_results.putNoClobber(self.gpa, inst, result_id);
     }
 
-    fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !IdRef {
+    fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -781,7 +784,8 @@ pub const DeclGen = struct {
         comptime fop: Opcode,
         comptime sop: Opcode,
         comptime uop: Opcode,
-    ) !IdRef {
+    ) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.air.typeOfIndex(inst);
@@ -833,7 +837,8 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+    fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
@@ -868,7 +873,8 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airCmp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !IdRef {
+    fn airCmp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -913,7 +919,22 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airNot(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+    fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const result_id = self.spv.allocId();
+        const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
+        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .operand = operand_id,
+        });
+        return result_id.toRef();
+    }
+
+    fn airNot(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_id = self.spv.allocId();
@@ -926,7 +947,8 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+    fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
         const result_type_id = try self.resolveTypeId(ty);
         const result_id = self.spv.allocId();
@@ -981,7 +1003,7 @@ pub const DeclGen = struct {
         try self.beginSpvBlock(label_id);
 
         // If this block didn't produce a value, simply return here.
-        if (!ty.hasRuntimeBits())
+        if (!ty.hasRuntimeBitsIgnoreComptime())
             return null;
 
         // Combine the result from the blocks using the Phi instruction.
@@ -999,19 +1021,6 @@ pub const DeclGen = struct {
             self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
         }
 
-        return result_id.toRef();
-    }
-
-    fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
-        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-            .id_result_type = result_type_id,
-            .id_result = result_id,
-            .operand = operand_id,
-        });
         return result_id.toRef();
     }
 
@@ -1104,6 +1113,7 @@ pub const DeclGen = struct {
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
+        if (self.liveness.isUnused(inst)) return;
         const operand = self.air.instructions.items(.data)[inst].un_op;
         const operand_ty = self.air.typeOf(operand);
         if (operand_ty.hasRuntimeBits()) {
@@ -1297,6 +1307,10 @@ pub const DeclGen = struct {
 
         if (return_type.isNoReturn()) {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+        }
+
+        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBitsIgnoreComptime()) {
+            return null;
         }
 
         return result_id.toRef();
