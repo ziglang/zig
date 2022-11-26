@@ -977,27 +977,35 @@ test "@addWithOverflow" {
         fn doTheTest() !void {
             {
                 var result: @Vector(4, u8) = undefined;
-                var overflow = @addWithOverflow(@Vector(4, u8), @Vector(4, u8){ 250, 250, 250, 250 }, @Vector(4, u8){ 0, 5, 6, 10 }, &result);
+                var lhs = @Vector(4, u8){ 250, 250, 250, 250 };
+                var rhs = @Vector(4, u8){ 0, 5, 6, 10 };
+                var overflow = @addWithOverflow(@Vector(4, u8), lhs, rhs, &result);
                 var expected: @Vector(4, bool) = .{ false, false, true, true };
-                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+                try expectEqual(expected, overflow);
             }
             {
                 var result: @Vector(4, i8) = undefined;
-                var overflow = @addWithOverflow(@Vector(4, i8), @Vector(4, i8){ -125, -125, 125, 125 }, @Vector(4, i8){ -3, -4, 2, 3 }, &result);
+                var lhs = @Vector(4, i8){ -125, -125, 125, 125 };
+                var rhs = @Vector(4, i8){ -3, -4, 2, 3 };
+                var overflow = @addWithOverflow(@Vector(4, i8), lhs, rhs, &result);
                 var expected: @Vector(4, bool) = .{ false, true, false, true };
-                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+                try expectEqual(expected, overflow);
             }
             {
                 var result: @Vector(4, u1) = undefined;
-                var overflow = @addWithOverflow(@Vector(4, u1), @Vector(4, u1){ 0, 0, 1, 1 }, @Vector(4, u1){ 0, 1, 0, 1 }, &result);
+                var lhs = @Vector(4, u1){ 0, 0, 1, 1 };
+                var rhs = @Vector(4, u1){ 0, 1, 0, 1 };
+                var overflow = @addWithOverflow(@Vector(4, u1), lhs, rhs, &result);
                 var expected: @Vector(4, bool) = .{ false, false, false, true };
-                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+                try expectEqual(expected, overflow);
             }
             {
                 var result: @Vector(4, u0) = undefined;
-                var overflow = @addWithOverflow(@Vector(4, u0), @Vector(4, u0){ 0, 0, 0, 0 }, @Vector(4, u0){ 0, 0, 0, 0 }, &result);
+                var lhs = @Vector(4, u0){ 0, 0, 0, 0 };
+                var rhs = @Vector(4, u0){ 0, 0, 0, 0 };
+                var overflow = @addWithOverflow(@Vector(4, u0), lhs, rhs, &result);
                 var expected: @Vector(4, bool) = .{ false, false, false, false };
-                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+                try expectEqual(expected, overflow);
             }
         }
     };
@@ -1019,15 +1027,19 @@ test "@subWithOverflow" {
         fn doTheTest() !void {
             {
                 var result: @Vector(2, u8) = undefined;
-                var overflow = @subWithOverflow(@Vector(2, u8), @Vector(2, u8){ 5, 5 }, @Vector(2, u8){ 5, 6 }, &result);
+                var lhs = @Vector(2, u8){ 5, 5 };
+                var rhs = @Vector(2, u8){ 5, 6 };
+                var overflow = @subWithOverflow(@Vector(2, u8), lhs, rhs, &result);
                 var expected: @Vector(2, bool) = .{ false, true };
-                try expect(mem.eql(bool, &@as([2]bool, overflow), &@as([2]bool, expected)));
+                try expectEqual(expected, overflow);
             }
             {
                 var result: @Vector(4, i8) = undefined;
-                var overflow = @subWithOverflow(@Vector(4, i8), @Vector(4, i8){ -120, -120, 120, 120 }, @Vector(4, i8){ 8, 9, -7, -8 }, &result);
+                var lhs = @Vector(4, i8){ -120, -120, 120, 120 };
+                var rhs = @Vector(4, i8){ 8, 9, -7, -8 };
+                var overflow = @subWithOverflow(@Vector(4, i8), lhs, rhs, &result);
                 var expected: @Vector(4, bool) = .{ false, true, false, true };
-                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+                try expectEqual(expected, overflow);
             }
         }
     };
@@ -1048,9 +1060,11 @@ test "@mulWithOverflow" {
     const S = struct {
         fn doTheTest() !void {
             var result: @Vector(4, u8) = undefined;
-            var overflow = @mulWithOverflow(@Vector(4, u8), @Vector(4, u8){ 10, 10, 10, 10 }, @Vector(4, u8){ 25, 26, 0, 30 }, &result);
+            var lhs = @Vector(4, u8){ 10, 10, 10, 10 };
+            var rhs = @Vector(4, u8){ 25, 26, 0, 30 };
+            var overflow = @mulWithOverflow(@Vector(4, u8), lhs, rhs, &result);
             var expected: @Vector(4, bool) = .{ false, true, false, true };
-            try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            try expectEqual(expected, overflow);
         }
     };
     try S.doTheTest();
@@ -1062,6 +1076,7 @@ test "@shlWithOverflow" {
         // stage1 doesn't support vector args
         return error.SkipZigTest;
     }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1070,9 +1085,11 @@ test "@shlWithOverflow" {
     const S = struct {
         fn doTheTest() !void {
             var result: @Vector(4, u8) = undefined;
-            var overflow = @shlWithOverflow(@Vector(4, u8), @Vector(4, u8){ 0, 1, 8, 255 }, @Vector(4, u3){ 7, 7, 7, 7 }, &result);
+            var lhs = @Vector(4, u8){ 0, 1, 8, 255 };
+            var rhs = @Vector(4, u3){ 7, 7, 7, 7 };
+            var overflow = @shlWithOverflow(@Vector(4, u8), lhs, rhs, &result);
             var expected: @Vector(4, bool) = .{ false, false, true, true };
-            try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            try expectEqual(expected, overflow);
         }
     };
     try S.doTheTest();
