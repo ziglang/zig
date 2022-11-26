@@ -60,7 +60,7 @@ test {
         ctx.addTestCasesFromDir(dir);
     }
 
-    try @import("test_cases").addCases(&ctx);
+    try @import("../test/cases.zig").addCases(&ctx);
 
     try ctx.run();
 }

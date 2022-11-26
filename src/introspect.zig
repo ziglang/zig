@@ -82,7 +82,12 @@ pub fn findZigLibDir(gpa: mem.Allocator) !Compilation.Directory {
 pub fn findZigLibDirFromSelfExe(
     allocator: mem.Allocator,
     self_exe_path: []const u8,
-) error{ OutOfMemory, FileNotFound }!Compilation.Directory {
+) error{
+    OutOfMemory,
+    FileNotFound,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}!Compilation.Directory {
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
     while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
@@ -90,9 +95,11 @@ pub fn findZigLibDirFromSelfExe(
         defer base_dir.close();
 
         const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
+        const p = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? });
+        defer allocator.free(p);
         return Compilation.Directory{
             .handle = sub_directory.handle,
-            .path = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? }),
+            .path = try resolvePath(allocator, p),
         };
     }
     return error.FileNotFound;
@@ -129,4 +136,47 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
     } else {
         return fs.getAppDataDir(allocator, appname);
     }
+}
+
+/// Similar to std.fs.path.resolve, with a few important differences:
+/// * If the input is an absolute path, check it against the cwd and try to
+///   convert it to a relative path.
+/// * If the resulting path would start with a relative up-dir ("../"), instead
+///   return an absolute path based on the cwd.
+/// * When targeting WASI, fail with an error message if an absolute path is
+///   used.
+pub fn resolvePath(
+    ally: mem.Allocator,
+    p: []const u8,
+) error{
+    OutOfMemory,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}![]u8 {
+    if (fs.path.isAbsolute(p)) {
+        const cwd_path = try std.process.getCwdAlloc(ally);
+        defer ally.free(cwd_path);
+        const relative = try fs.path.relative(ally, cwd_path, p);
+        if (isUpDir(relative)) {
+            ally.free(relative);
+            return ally.dupe(u8, p);
+        } else {
+            return relative;
+        }
+    } else {
+        const resolved = try fs.path.resolve(ally, &.{p});
+        if (isUpDir(resolved)) {
+            ally.free(resolved);
+            const cwd_path = try std.process.getCwdAlloc(ally);
+            defer ally.free(cwd_path);
+            return fs.path.resolve(ally, &.{ cwd_path, p });
+        } else {
+            return resolved;
+        }
+    }
+}
+
+/// TODO move this to std.fs.path
+pub fn isUpDir(p: []const u8) bool {
+    return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == fs.path.sep);
 }

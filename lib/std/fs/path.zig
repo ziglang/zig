@@ -462,7 +462,6 @@ pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
 /// This function is like a series of `cd` statements executed one after another.
 /// It resolves "." and "..".
 /// The result does not have a trailing path separator.
-/// If all paths are relative it uses the current working directory as a starting point.
 /// Each drive has its own current working directory.
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
 /// Note: all usage of this function should be audited due to the existence of symlinks.
@@ -572,15 +571,15 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
             continue;
         }
         var it = mem.tokenize(u8, p[parsed.disk_designator.len..], "/\\");
-        component: while (it.next()) |component| {
+        while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
+                if (result.items.len == 0) {
+                    negative_count += 1;
+                    continue;
+                }
                 while (true) {
-                    if (result.items.len == 0) {
-                        negative_count += 1;
-                        continue :component;
-                    }
                     if (result.items.len == disk_designator_len) {
                         break;
                     }
@@ -589,7 +588,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                         else => false,
                     };
                     result.items.len -= 1;
-                    if (end_with_sep) break;
+                    if (end_with_sep or result.items.len == 0) break;
                 }
             } else if (!have_abs_path and result.items.len == 0) {
                 try result.appendSlice(component);
@@ -659,18 +658,18 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
             result.clearRetainingCapacity();
         }
         var it = mem.tokenize(u8, p, "/");
-        component: while (it.next()) |component| {
+        while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
+                if (result.items.len == 0) {
+                    negative_count += @boolToInt(!is_abs);
+                    continue;
+                }
                 while (true) {
-                    if (result.items.len == 0) {
-                        negative_count += @boolToInt(!is_abs);
-                        continue :component;
-                    }
                     const ends_with_slash = result.items[result.items.len - 1] == '/';
                     result.items.len -= 1;
-                    if (ends_with_slash) break;
+                    if (ends_with_slash or result.items.len == 0) break;
                 }
             } else if (result.items.len > 0 or is_abs) {
                 try result.ensureUnusedCapacity(1 + component.len);
@@ -717,10 +716,10 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
 }
 
 test "resolve" {
-    try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, "..");
+    try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, ".");
     try testResolveWindows(&[_][]const u8{"."}, ".");
 
-    try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, "..");
+    try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, ".");
     try testResolvePosix(&[_][]const u8{"."}, ".");
 }
 
@@ -753,19 +752,21 @@ test "resolveWindows" {
 }
 
 test "resolvePosix" {
-    try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
-    try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
-    try testResolvePosix(&[_][]const u8{ "/a/b/c", "..", "../" }, "/a");
-    try testResolvePosix(&[_][]const u8{ "/", "..", ".." }, "/");
-    try testResolvePosix(&[_][]const u8{"/a/b/c/"}, "/a/b/c");
+    try testResolvePosix(&.{ "/a/b", "c" }, "/a/b/c");
+    try testResolvePosix(&.{ "/a/b", "c", "//d", "e///" }, "/d/e");
+    try testResolvePosix(&.{ "/a/b/c", "..", "../" }, "/a");
+    try testResolvePosix(&.{ "/", "..", ".." }, "/");
+    try testResolvePosix(&.{"/a/b/c/"}, "/a/b/c");
 
-    try testResolvePosix(&[_][]const u8{ "/var/lib", "../", "file/" }, "/var/file");
-    try testResolvePosix(&[_][]const u8{ "/var/lib", "/../", "file/" }, "/file");
-    try testResolvePosix(&[_][]const u8{ "/some/dir", ".", "/absolute/" }, "/absolute");
-    try testResolvePosix(&[_][]const u8{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }, "/foo/tmp.3/cycles/root.js");
+    try testResolvePosix(&.{ "/var/lib", "../", "file/" }, "/var/file");
+    try testResolvePosix(&.{ "/var/lib", "/../", "file/" }, "/file");
+    try testResolvePosix(&.{ "/some/dir", ".", "/absolute/" }, "/absolute");
+    try testResolvePosix(&.{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }, "/foo/tmp.3/cycles/root.js");
 
     // Keep relative paths relative.
-    try testResolvePosix(&[_][]const u8{"a/b"}, "a/b");
+    try testResolvePosix(&.{"a/b"}, "a/b");
+    try testResolvePosix(&.{"."}, ".");
+    try testResolvePosix(&.{ ".", "src/test.zig", "..", "../test/cases.zig" }, "test/cases.zig");
 }
 
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {

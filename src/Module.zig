@@ -30,6 +30,7 @@ const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
 const Liveness = @import("Liveness.zig");
+const isUpDir = @import("introspect.zig").isUpDir;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -4957,15 +4958,19 @@ pub fn importFile(
     const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
     defer gpa.free(resolved_root_path);
 
-    if (!mem.startsWith(u8, resolved_path, resolved_root_path) or
-        // This prevents this check from triggering when the name of the
-        // imported file starts with the root path's directory name.
-        !std.fs.path.isSep(resolved_path[resolved_root_path.len]))
-    {
+    const sub_file_path = p: {
+        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
+            // +1 for the directory separator here.
+            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+        }
+        if (mem.eql(u8, resolved_root_path, ".") and
+            !isUpDir(resolved_path) and
+            !std.fs.path.isAbsolute(resolved_path))
+        {
+            break :p try gpa.dupe(u8, resolved_path);
+        }
         return error.ImportOutsidePkgPath;
-    }
-    // +1 for the directory separator here.
-    const sub_file_path = try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+    };
     errdefer gpa.free(sub_file_path);
 
     log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
@@ -5015,11 +5020,19 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
     defer gpa.free(resolved_root_path);
 
-    if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+    const sub_file_path = p: {
+        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
+            // +1 for the directory separator here.
+            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+        }
+        if (mem.eql(u8, resolved_root_path, ".") and
+            !isUpDir(resolved_path) and
+            !std.fs.path.isAbsolute(resolved_path))
+        {
+            break :p try gpa.dupe(u8, resolved_path);
+        }
         return error.ImportOutsidePkgPath;
-    }
-    // +1 for the directory separator here.
-    const sub_file_path = try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+    };
     errdefer gpa.free(sub_file_path);
 
     var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
