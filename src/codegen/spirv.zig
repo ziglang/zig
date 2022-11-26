@@ -717,8 +717,12 @@ pub const DeclGen = struct {
             .bool_and => try self.airBinOpSimple(inst, .OpLogicalAnd),
             .bool_or  => try self.airBinOpSimple(inst, .OpLogicalOr),
 
-            .bitcast    => try self.airBitcast(inst),
-            .not        => try self.airNot(inst),
+            .bitcast        => try self.airBitcast(inst),
+            .not            => try self.airNot(inst),
+            .slice_ptr      => try self.airSliceField(inst, 0),
+            .slice_len      => try self.airSliceField(inst, 1),
+            .slice_elem_ptr => try self.airSliceElemPtr(inst),
+            .slice_elem_val => try self.airSliceElemVal(inst),
 
             .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
             .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
@@ -924,7 +928,7 @@ pub const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
+        const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
         try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
@@ -943,6 +947,93 @@ pub const DeclGen = struct {
             .id_result_type = result_type_id,
             .id_result = result_id,
             .operand = operand_id,
+        });
+        return result_id.toRef();
+    }
+
+    fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+            .id_result_type = try self.resolveTypeId(self.air.typeOfIndex(inst)),
+            .id_result = result_id,
+            .composite = try self.resolve(ty_op.operand),
+            .indexes = &.{field},
+        });
+        return result_id.toRef();
+    }
+
+    fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+        if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
+
+        const slice = try self.resolve(bin_op.lhs);
+        const index = try self.resolve(bin_op.rhs);
+
+        const spv_ptr_ty = try self.resolveTypeId(self.air.typeOfIndex(inst));
+
+        const slice_ptr = blk: {
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+                .id_result_type = spv_ptr_ty,
+                .id_result = result_id,
+                .composite = slice,
+                .indexes = &.{0},
+            });
+            break :blk result_id.toRef();
+        };
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+            .id_result_type = spv_ptr_ty,
+            .id_result = result_id,
+            .base = slice_ptr,
+            .indexes = &.{index},
+        });
+        return result_id.toRef();
+    }
+
+    fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+        if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
+
+        const slice = try self.resolve(bin_op.lhs);
+        const index = try self.resolve(bin_op.rhs);
+
+        const spv_elem_ty = try self.resolveTypeId(self.air.typeOfIndex(inst));
+        var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const spv_ptr_ty = try self.resolveTypeId(slice_ty.slicePtrFieldType(&slice_buf));
+
+        const slice_ptr = blk: {
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+                .id_result_type = spv_ptr_ty,
+                .id_result = result_id,
+                .composite = slice,
+                .indexes = &.{0},
+            });
+            break :blk result_id.toRef();
+        };
+
+        const elem_ptr = blk: {
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+                .id_result_type = spv_ptr_ty,
+                .id_result = result_id,
+                .base = slice_ptr,
+                .indexes = &.{index},
+            });
+            break :blk result_id.toRef();
+        };
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+            .id_result_type = spv_elem_ty,
+            .id_result = result_id,
+            .pointer = elem_ptr,
         });
         return result_id.toRef();
     }
