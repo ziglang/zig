@@ -134,6 +134,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
+        .USER_MAPPED_FILE => return error.AccessDenied,
         .INVALID_HANDLE => unreachable,
         else => return unexpectedStatus(rc),
     }
