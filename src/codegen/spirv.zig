@@ -492,6 +492,21 @@ pub const DeclGen = struct {
 
                 return try self.spv.resolveType(SpvType.float(bits));
             },
+            .Array => {
+                const elem_ty = ty.childType();
+                const total_len_u64 = ty.arrayLen() + @boolToInt(ty.sentinel() != null);
+                const total_len = std.math.cast(u32, total_len_u64) orelse {
+                    return self.fail("array type of {} elements is too large", .{total_len_u64});
+                };
+
+                const payload = try self.spv.arena.create(SpvType.Payload.Array);
+                payload.* = .{
+                    .element_type = try self.resolveType(elem_ty),
+                    .length = total_len,
+                    .array_stride = @intCast(u32, ty.abiSize(target)),
+                };
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+            },
             .Fn => {
                 // TODO: Put this somewhere in Sema.zig
                 if (ty.fnIsVarArgs())
@@ -537,7 +552,37 @@ pub const DeclGen = struct {
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
+            .Struct => {
+                if (ty.isSimpleTupleOrAnonStruct()) {
+                    return self.todo("implement tuple struct type", .{});
+                }
 
+                const struct_ty = ty.castTag(.@"struct").?.data;
+
+                if (struct_ty.layout == .Packed) {
+                    return try self.resolveType(struct_ty.backing_int_ty);
+                }
+
+                const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, struct_ty.fields.count());
+                var member_index: usize = 0;
+                for (struct_ty.fields.values()) |field| {
+                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+
+                    members[member_index] = .{
+                        .ty = try self.resolveType(field.ty),
+                        .offset = field.offset,
+                        .decorations = .{},
+                    };
+                }
+
+                const payload = try self.spv.arena.create(SpvType.Payload.Struct);
+                payload.* = .{
+                    .members = members[0..member_index],
+                    .decorations = .{},
+                    .member_decoration_extra = &.{},
+                };
+                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+            },
             .Null,
             .Undefined,
             .EnumLiteral,
@@ -632,7 +677,7 @@ pub const DeclGen = struct {
             .bool_and => try self.airBinOpSimple(inst, .OpLogicalAnd),
             .bool_or  => try self.airBinOpSimple(inst, .OpLogicalOr),
 
-            .not => try self.airNot(inst),
+            .not     => try self.airNot(inst),
 
             .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
             .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
@@ -646,6 +691,7 @@ pub const DeclGen = struct {
             .block => (try self.airBlock(inst)) orelse return,
             .load  => try self.airLoad(inst),
 
+            .bitcast    => try self.airBitcast(inst),
             .br         => return self.airBr(inst),
             .breakpoint => return,
             .cond_br    => return self.airCondBr(inst),
@@ -656,6 +702,11 @@ pub const DeclGen = struct {
             .store      => return self.airStore(inst),
             .unreach    => return self.airUnreach(),
             .assembly   => (try self.airAssembly(inst)) orelse return,
+
+            .call              => (try self.airCall(inst, .auto)) orelse return,
+            .call_always_tail  => (try self.airCall(inst, .always_tail)) orelse return,
+            .call_never_tail   => (try self.airCall(inst, .never_tail)) orelse return,
+            .call_never_inline => (try self.airCall(inst, .never_inline)) orelse return,
 
             .dbg_var_ptr => return,
             .dbg_var_val => return,
@@ -911,6 +962,19 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
+    fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const result_id = self.spv.allocId();
+        const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
+        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .operand = operand_id,
+        });
+        return result_id.toRef();
+    }
+
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const br = self.air.instructions.items(.data)[inst].br;
         const block = self.blocks.get(br.block_inst).?;
@@ -1157,5 +1221,44 @@ pub const DeclGen = struct {
         }
 
         return null;
+    }
+
+    fn airCall(self: *DeclGen, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) !?IdRef {
+        _ = modifier;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Call, pl_op.payload);
+        const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+        const callee_ty = self.air.typeOf(pl_op.operand);
+        const zig_fn_ty = switch (callee_ty.zigTypeTag()) {
+            .Fn => callee_ty,
+            .Pointer => return self.fail("cannot call function pointers", .{}),
+            else => unreachable,
+        };
+        const fn_info = zig_fn_ty.fnInfo();
+        const return_type = fn_info.return_type;
+
+        const result_type_id = try self.resolveTypeId(return_type);
+        const result_id = self.spv.allocId();
+        const callee_id = try self.resolve(pl_op.operand);
+
+        try self.func.body.emitRaw(self.spv.gpa, .OpFunctionCall, 3 + args.len);
+        self.func.body.writeOperand(spec.IdResultType, result_type_id);
+        self.func.body.writeOperand(spec.IdResult, result_id);
+        self.func.body.writeOperand(spec.IdRef, callee_id);
+
+        for (args) |arg| {
+            const arg_id = try self.resolve(arg);
+            const arg_ty = self.air.typeOf(arg);
+            if (!arg_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+            self.func.body.writeOperand(spec.IdRef, arg_id);
+        }
+
+        if (return_type.isNoReturn()) {
+            try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+        }
+
+        return result_id.toRef();
     }
 };

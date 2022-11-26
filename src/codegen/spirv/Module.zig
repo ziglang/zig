@@ -222,7 +222,7 @@ pub fn resolveType(self: *Module, ty: Type) !Type.Ref {
     return @intToEnum(Type.Ref, result.index);
 }
 
-pub fn resolveTypeId(self: *Module, ty: Type) !IdRef {
+pub fn resolveTypeId(self: *Module, ty: Type) !IdResultType {
     const type_ref = try self.resolveType(ty);
     return self.typeResultId(type_ref);
 }
@@ -243,7 +243,7 @@ pub fn typeRefId(self: Module, type_ref: Type.Ref) IdRef {
 /// Note: This function does not attempt to perform any validation on the type.
 /// The type is emitted in a shallow fashion; any child types should already
 /// be emitted at this point.
-pub fn emitType(self: *Module, ty: Type) !IdResultType {
+pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
     const result_id = self.allocId();
     const ref_id = result_id.toRef();
     const types = &self.sections.types_globals_constants;
@@ -347,10 +347,21 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
         .array => {
             const info = ty.payload(.array);
             assert(info.length != 0);
+
+            const size_type = Type.initTag(.u32);
+            const size_type_id = try self.resolveTypeId(size_type);
+
+            const length_id = self.allocId();
+            try types.emit(self.gpa, .OpConstant, .{
+                .id_result_type = size_type_id,
+                .id_result = length_id,
+                .value = .{ .uint32 = info.length },
+            });
+
             try types.emit(self.gpa, .OpTypeArray, .{
                 .id_result = result_id,
                 .element_type = self.typeResultId(ty.childType()).toRef(),
-                .length = .{ .id = 0 }, // TODO: info.length must be emitted as constant!
+                .length = length_id.toRef(),
             });
             if (info.array_stride != 0) {
                 try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });

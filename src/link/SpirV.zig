@@ -226,6 +226,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
         const air = entry.value_ptr.air;
         const liveness = entry.value_ptr.liveness;
 
+        log.debug("generating code for {s}", .{decl.name});
+
         // Note, if `decl` is not a function, air/liveness may be undefined.
         if (try decl_gen.gen(decl_index, air, liveness)) |msg| {
             try module.failed_decls.put(module.gpa, decl_index, msg);

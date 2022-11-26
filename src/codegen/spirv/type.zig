@@ -421,7 +421,7 @@ pub const Type = extern union {
             length: u32,
             /// Type has the 'ArrayStride' decoration.
             /// If zero, no stride is present.
-            array_stride: u32,
+            array_stride: u32 = 0,
         };
 
         pub const RuntimeArray = struct {
@@ -434,6 +434,7 @@ pub const Type = extern union {
 
         pub const Struct = struct {
             base: Payload = .{ .tag = .@"struct" },
+            // TODO: name
             members: []Member,
             decorations: StructDecorations,
 
@@ -444,20 +445,21 @@ pub const Type = extern union {
             pub const Member = struct {
                 ty: Ref,
                 offset: u32,
+                // TODO: name
                 decorations: MemberDecorations,
             };
 
             pub const StructDecorations = packed struct {
                 /// Type has the 'Block' decoration.
-                block: bool,
+                block: bool = false,
                 /// Type has the 'BufferBlock' decoration.
-                buffer_block: bool,
+                buffer_block: bool = false,
                 /// Type has the 'GLSLShared' decoration.
-                glsl_shared: bool,
+                glsl_shared: bool = false,
                 /// Type has the 'GLSLPacked' decoration.
-                glsl_packed: bool,
+                glsl_packed: bool = false,
                 /// Type has the 'CPacked' decoration.
-                c_packed: bool,
+                c_packed: bool = false,
             };
 
             pub const MemberDecorations = packed struct {
@@ -473,31 +475,31 @@ pub const Type = extern union {
                     col_major,
                     /// Member is not a matrix or array of matrices.
                     none,
-                },
+                } = .none,
 
                 // Regular decorations, these do not imply extra fields.
 
                 /// Member has the 'NoPerspective' decoration.
-                no_perspective: bool,
+                no_perspective: bool = false,
                 /// Member has the 'Flat' decoration.
-                flat: bool,
+                flat: bool = false,
                 /// Member has the 'Patch' decoration.
-                patch: bool,
+                patch: bool = false,
                 /// Member has the 'Centroid' decoration.
-                centroid: bool,
+                centroid: bool = false,
                 /// Member has the 'Sample' decoration.
-                sample: bool,
+                sample: bool = false,
                 /// Member has the 'Invariant' decoration.
                 /// Note: requires parent struct to have 'Block'.
-                invariant: bool,
+                invariant: bool = false,
                 /// Member has the 'Volatile' decoration.
-                @"volatile": bool,
+                @"volatile": bool = false,
                 /// Member has the 'Coherent' decoration.
-                coherent: bool,
+                coherent: bool = false,
                 /// Member has the 'NonWritable' decoration.
-                non_writable: bool,
+                non_writable: bool = false,
                 /// Member has the 'NonReadable' decoration.
-                non_readable: bool,
+                non_readable: bool = false,
 
                 // The following decorations all imply extra field(s).
 
@@ -506,27 +508,27 @@ pub const Type = extern union {
                 /// Note: If any member of a struct has the BuiltIn decoration, all members must have one.
                 /// Note: Each builtin may only be reachable once for a particular entry point.
                 /// Note: The member type may be constrained by a particular built-in, defined in the client API specification.
-                builtin: bool,
+                builtin: bool = false,
                 /// Member has the 'Stream' decoration.
                 /// This member has an extra field of type `u32`.
-                stream: bool,
+                stream: bool = false,
                 /// Member has the 'Location' decoration.
                 /// This member has an extra field of type `u32`.
-                location: bool,
+                location: bool = false,
                 /// Member has the 'Component' decoration.
                 /// This member has an extra field of type `u32`.
-                component: bool,
+                component: bool = false,
                 /// Member has the 'XfbBuffer' decoration.
                 /// This member has an extra field of type `u32`.
-                xfb_buffer: bool,
+                xfb_buffer: bool = false,
                 /// Member has the 'XfbStride' decoration.
                 /// This member has an extra field of type `u32`.
-                xfb_stride: bool,
+                xfb_stride: bool = false,
                 /// Member has the 'UserSemantic' decoration.
                 /// This member has an extra field of type `[]u8`, which is encoded
                 /// by an `u32` containing the number of chars exactly, and then the string padded to
                 /// a multiple of 4 bytes with zeroes.
-                user_semantic: bool,
+                user_semantic: bool = false,
             };
         };
 
