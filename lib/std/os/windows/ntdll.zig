@@ -22,6 +22,8 @@ const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
 const SIZE_T = windows.SIZE_T;
 const CURDIR = windows.CURDIR;
+const PCWSTR = windows.PCWSTR;
+const RTL_QUERY_REGISTRY_TABLE = windows.RTL_QUERY_REGISTRY_TABLE;
 
 pub const THREADINFOCLASS = enum(c_int) {
     ThreadBasicInformation,
@@ -258,4 +260,12 @@ pub extern "ntdll" fn NtOpenKey(
     KeyHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
     ObjectAttributes: OBJECT_ATTRIBUTES,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn RtlQueryRegistryValues(
+    RelativeTo: ULONG,
+    Path: PCWSTR,
+    QueryTable: [*]RTL_QUERY_REGISTRY_TABLE,
+    Context: ?*anyopaque,
+    Environment: ?*anyopaque,
 ) callconv(WINAPI) NTSTATUS;

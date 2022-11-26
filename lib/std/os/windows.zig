@@ -2088,6 +2088,7 @@ pub const LPWSTR = [*:0]WCHAR;
 pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *anyopaque;
 pub const PWSTR = [*:0]WCHAR;
+pub const PCWSTR = [*:0]const WCHAR;
 pub const SIZE_T = usize;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
@@ -2876,7 +2877,133 @@ pub const ACCESS_MASK = DWORD;
 pub const LSTATUS = LONG;
 
 pub const HKEY = HANDLE;
+
 pub const HKEY_LOCAL_MACHINE: HKEY = @intToPtr(HKEY, 0x80000002);
+
+/// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
+/// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
+pub const KEY_ALL_ACCESS = 0xF003F;
+/// Reserved for system use.
+pub const KEY_CREATE_LINK = 0x0020;
+/// Required to create a subkey of a registry key.
+pub const KEY_CREATE_SUB_KEY = 0x0004;
+/// Required to enumerate the subkeys of a registry key.
+pub const KEY_ENUMERATE_SUB_KEYS = 0x0008;
+/// Equivalent to KEY_READ.
+pub const KEY_EXECUTE = 0x20019;
+/// Required to request change notifications for a registry key or for subkeys of a registry key.
+pub const KEY_NOTIFY = 0x0010;
+/// Required to query the values of a registry key.
+pub const KEY_QUERY_VALUE = 0x0001;
+/// Combines the STANDARD_RIGHTS_READ, KEY_QUERY_VALUE, KEY_ENUMERATE_SUB_KEYS, and KEY_NOTIFY values.
+pub const KEY_READ = 0x20019;
+/// Required to create, delete, or set a registry value.
+pub const KEY_SET_VALUE = 0x0002;
+/// Indicates that an application on 64-bit Windows should operate on the 32-bit registry view.
+/// This flag is ignored by 32-bit Windows.
+pub const KEY_WOW64_32KEY = 0x0200;
+/// Indicates that an application on 64-bit Windows should operate on the 64-bit registry view.
+/// This flag is ignored by 32-bit Windows.
+pub const KEY_WOW64_64KEY = 0x0100;
+/// Combines the STANDARD_RIGHTS_WRITE, KEY_SET_VALUE, and KEY_CREATE_SUB_KEY access rights.
+pub const KEY_WRITE = 0x20006;
+
+/// Open symbolic link.
+pub const REG_OPTION_OPEN_LINK: DWORD = 0x8;
+
+pub const RTL_QUERY_REGISTRY_TABLE = extern struct {
+    QueryRoutine: RTL_QUERY_REGISTRY_ROUTINE,
+    Flags: ULONG,
+    Name: ?PWSTR,
+    EntryContext: ?*anyopaque,
+    DefaultType: ULONG,
+    DefaultData: ?*anyopaque,
+    DefaultLength: ULONG,
+};
+
+pub const RTL_QUERY_REGISTRY_ROUTINE = ?std.meta.FnPtr(fn (
+    PWSTR,
+    ULONG,
+    ?*anyopaque,
+    ULONG,
+    ?*anyopaque,
+    ?*anyopaque,
+) callconv(WINAPI) NTSTATUS);
+
+/// Path is a full path
+pub const RTL_REGISTRY_ABSOLUTE = 0;
+/// \Registry\Machine\System\CurrentControlSet\Services
+pub const RTL_REGISTRY_SERVICES = 1;
+/// \Registry\Machine\System\CurrentControlSet\Control
+pub const RTL_REGISTRY_CONTROL = 2;
+/// \Registry\Machine\Software\Microsoft\Windows NT\CurrentVersion
+pub const RTL_REGISTRY_WINDOWS_NT = 3;
+/// \Registry\Machine\Hardware\DeviceMap
+pub const RTL_REGISTRY_DEVICEMAP = 4;
+/// \Registry\User\CurrentUser
+pub const RTL_REGISTRY_USER = 5;
+pub const RTL_REGISTRY_MAXIMUM = 6;
+
+/// Low order bits are registry handle
+pub const RTL_REGISTRY_HANDLE = 0x40000000;
+/// Indicates the key node is optional
+pub const RTL_REGISTRY_OPTIONAL = 0x80000000;
+
+/// Name is a subkey and remainder of table or until next subkey are value
+/// names for that subkey to look at.
+pub const RTL_QUERY_REGISTRY_SUBKEY = 0x00000001;
+
+/// Reset current key to original key for this and all following table entries.
+pub const RTL_QUERY_REGISTRY_TOPKEY = 0x00000002;
+
+/// Fail if no match found for this table entry.
+pub const RTL_QUERY_REGISTRY_REQUIRED = 0x00000004;
+
+/// Used to mark a table entry that has no value name, just wants a call out, not
+/// an enumeration of all values.
+pub const RTL_QUERY_REGISTRY_NOVALUE = 0x00000008;
+
+/// Used to suppress the expansion of REG_MULTI_SZ into multiple callouts or
+/// to prevent the expansion of environment variable values in REG_EXPAND_SZ.
+pub const RTL_QUERY_REGISTRY_NOEXPAND = 0x00000010;
+
+/// QueryRoutine field ignored.  EntryContext field points to location to store value.
+/// For null terminated strings, EntryContext points to UNICODE_STRING structure that
+/// that describes maximum size of buffer. If .Buffer field is NULL then a buffer is
+/// allocated.
+pub const RTL_QUERY_REGISTRY_DIRECT = 0x00000020;
+
+/// Used to delete value keys after they are queried.
+pub const RTL_QUERY_REGISTRY_DELETE = 0x00000040;
+
+/// Use this flag with the RTL_QUERY_REGISTRY_DIRECT flag to verify that the REG_XXX type
+/// of the stored registry value matches the type expected by the caller.
+/// If the types do not match, the call fails.
+pub const RTL_QUERY_REGISTRY_TYPECHECK = 0x00000100;
+
+/// No value type
+pub const REG_NONE = 0;
+/// Unicode nul terminated string
+pub const REG_SZ = 1;
+/// Unicode nul terminated string (with environment variable references)
+pub const REG_EXPAND_SZ = 2;
+/// Free form binary
+pub const REG_BINARY = 3;
+/// 32-bit number
+pub const REG_DWORD = 4;
+/// 32-bit number (same as REG_DWORD)
+pub const REG_DWORD_LITTLE_ENDIAN = 4;
+/// 32-bit number
+pub const REG_DWORD_BIG_ENDIAN = 5;
+/// Symbolic Link (unicode)
+pub const REG_LINK = 6;
+/// Multiple Unicode strings
+pub const REG_MULTI_SZ = 7;
+/// Resource list in the resource map
+pub const REG_RESOURCE_LIST = 8;
+/// Resource list in the hardware description
+pub const REG_FULL_RESOURCE_DESCRIPTOR = 9;
+pub const REG_RESOURCE_REQUIREMENTS_LIST = 10;
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
@@ -4019,188 +4146,4 @@ pub const SharedUserData: *const KUSER_SHARED_DATA = @intToPtr(*const KUSER_SHAR
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
     return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
-}
-
-pub const KEY_QUERY_VALUE = 0x0001;
-
-/// Open symbolic link.
-pub const REG_OPTION_OPEN_LINK: DWORD = 0x8;
-
-inline fn IsPredefKey(hkey: HKEY) bool {
-    return @ptrToInt(hkey) & 0xF0000000 == 0x80000000;
-}
-
-inline fn GetPredefKeyIndex(hkey: HKEY) usize {
-    return @ptrToInt(hkey) & 0x0FFFFFFF;
-}
-
-inline fn ClosePredefKey(hkey: HKEY) void {
-    if (@ptrToInt(hkey) & 0x1 != 0) {
-        assert(ntdll.NtClose(hkey) == .SUCCESS);
-    }
-}
-
-const MAX_DEFAULT_HANDLES = 6;
-pub const REG_MAX_NAME_SIZE = 256;
-
-pub const RegOpenKeyOpts = struct {
-    ulOptions: DWORD = 0,
-    samDesired: ACCESS_MASK = KEY_QUERY_VALUE,
-};
-
-/// Pulls existing key from the registry.
-pub fn RegOpenKey(hkey: HKEY, lpSubKey: []const u16, opts: RegOpenKeyOpts) !HKEY {
-    if (IsPredefKey(hkey) and lpSubKey.len == 0) {
-        return hkey;
-    }
-
-    const key_handle = try MapDefaultKey(hkey);
-    defer ClosePredefKey(key_handle);
-
-    var subkey_string: UNICODE_STRING = undefined;
-    if (lpSubKey.len == 0 or mem.eql(u16, &[_]u16{'\\'}, lpSubKey)) {
-        subkey_string = .{
-            .Length = 0,
-            .MaximumLength = 0,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(&[0]u16{})),
-        };
-    } else {
-        const len_bytes = math.cast(u16, lpSubKey.len * 2) orelse return error.NameTooLong;
-        subkey_string = .{
-            .Length = len_bytes,
-            .MaximumLength = len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(lpSubKey.ptr)),
-        };
-    }
-
-    var attributes: ULONG = OBJ_CASE_INSENSITIVE;
-    if (opts.ulOptions & REG_OPTION_OPEN_LINK != 0) {
-        attributes |= OBJ_OPENLINK;
-    }
-
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = key_handle,
-        .Attributes = attributes,
-        .ObjectName = &subkey_string,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-
-    var result: HKEY = undefined;
-    const rc = ntdll.NtOpenKey(
-        &result,
-        opts.samDesired,
-        attr,
-    );
-    switch (rc) {
-        .SUCCESS => return result,
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub fn RegCloseKey(hkey: HKEY) void {
-    if (IsPredefKey(hkey)) return;
-    assert(ntdll.NtClose(hkey) == .SUCCESS);
-}
-
-extern var DefaultHandleHKUDisabled: BOOLEAN;
-extern var DefaultHandlesDisabled: BOOLEAN;
-extern var DefaultHandleTable: [MAX_DEFAULT_HANDLES]?HANDLE;
-
-fn MapDefaultKey(key: HKEY) !HANDLE {
-    if (!IsPredefKey(key)) return @intToPtr(HANDLE, @ptrToInt(key) & ~@as(usize, 0x1));
-
-    const index = GetPredefKeyIndex(key);
-    if (index >= MAX_DEFAULT_HANDLES) {
-        return error.InvalidParameter;
-    }
-
-    const def_disabled = if (key == HKEY_LOCAL_MACHINE) DefaultHandleHKUDisabled else DefaultHandlesDisabled;
-
-    var handle: HANDLE = undefined;
-    var do_open: bool = true;
-
-    if (def_disabled != 0) {
-        const tmp = DefaultHandleTable[index];
-        if (tmp) |h| {
-            do_open = false;
-            handle = h;
-        }
-    }
-
-    if (do_open) {
-        handle = try OpenPredefinedKey(index);
-    }
-
-    if (def_disabled == 0) {
-        handle = @intToPtr(HANDLE, @ptrToInt(handle) | 0x1);
-    }
-
-    return handle;
-}
-
-fn OpenPredefinedKey(index: usize) !HANDLE {
-    switch (index) {
-        0 => {
-            // HKEY_CLASSES_ROOT
-            return error.Unimplemented;
-        },
-        1 => {
-            // HKEY_CURRENT_USER
-            return error.Unimplemented;
-        },
-        2 => {
-            // HKEY_LOCAL_MACHINE
-            return OpenLocalMachineKey();
-        },
-        3 => {
-            // HKEY_USERS
-            return error.Unimplemented;
-        },
-        5 => {
-            // HKEY_CURRENT_CONFIG
-            return error.Unimplemented;
-        },
-        6 => {
-            // HKEY_DYN_DATA
-            return error.Unimplemented;
-        },
-        else => {
-            return error.InvalidParameter;
-        },
-    }
-}
-
-fn OpenLocalMachineKey() !HANDLE {
-    const path = "\\Registry\\Machine";
-    var path_u16: [REG_MAX_NAME_SIZE]u16 = undefined;
-    const path_len_u16 = try std.unicode.utf8ToUtf16Le(&path_u16, path);
-    const path_len_bytes = @intCast(u16, path_len_u16 * 2);
-
-    var key_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(&path_u16)),
-    };
-
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = null,
-        .Attributes = OBJ_CASE_INSENSITIVE,
-        .ObjectName = &key_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-
-    var result: HKEY = undefined;
-    const rc = ntdll.NtOpenKey(
-        &result,
-        MAXIMUM_ALLOWED,
-        attr,
-    );
-    switch (rc) {
-        .SUCCESS => return result,
-        else => return unexpectedStatus(rc),
-    }
 }
