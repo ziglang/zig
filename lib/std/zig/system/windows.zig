@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const mem = std.mem;
 const Target = std.Target;
 
 pub const WindowsVersion = std.Target.Os.WindowsVersion;
@@ -43,20 +44,68 @@ pub fn detectRuntimeVersion() WindowsVersion {
     return @intToEnum(WindowsVersion, version);
 }
 
+const Armv8CpuInfoImpl = struct {
+    cores: [8]*const Target.Cpu.Model = undefined,
+    core_no: usize = 0,
+
+    const cpu_family_models = .{
+        // Family, Model, Revision
+        .{ 8, "D4C", 0, &Target.aarch64.cpu.microsoft_sq3 },
+    };
+
+    fn parseOne(self: *Armv8CpuInfoImpl, identifier: []const u8) void {
+        if (mem.indexOf(u8, identifier, "ARMv8") == null) return; // Sanity check
+
+        var family: ?usize = null;
+        var model: ?[]const u8 = null;
+        var revision: ?usize = null;
+
+        var tokens = mem.tokenize(u8, identifier, " ");
+        while (tokens.next()) |token| {
+            if (mem.eql(u8, token, "Family")) {
+                const raw = tokens.next() orelse continue;
+                family = std.fmt.parseInt(usize, raw, 10) catch null;
+            }
+            if (mem.eql(u8, token, "Model")) {
+                model = tokens.next();
+            }
+            if (mem.eql(u8, token, "Revision")) {
+                const raw = tokens.next() orelse continue;
+                revision = std.fmt.parseInt(usize, raw, 10) catch null;
+            }
+        }
+
+        if (family == null or model == null or revision == null) return;
+
+        inline for (cpu_family_models) |set| {
+            if (set[0] == family.? and mem.eql(u8, set[1], model.?) and set[2] == revision.?) {
+                self.cores[self.core_no] = set[3];
+                self.core_no += 1;
+                break;
+            }
+        }
+    }
+
+    fn finalize(self: Armv8CpuInfoImpl) ?*const Target.Cpu.Model {
+        if (self.core_no != 8) return null; // Implies we have seen a core we don't know much about
+        return self.cores[0];
+    }
+};
+
 fn detectCpuModelArm64() !*const Target.Cpu.Model {
     // Pull the CPU identifier from the registry.
-    // Assume max number of cores to be at 128.
-    const max_cpu_count = 128;
+    // Assume max number of cores to be at 8.
+    const max_cpu_count = 8;
     const cpu_count = getCpuCount();
 
     if (cpu_count > max_cpu_count) return error.TooManyCpus;
 
-    const table_size = max_cpu_count * 3 + 1;
-    const actual_table_size = cpu_count * 3 + 1;
-    var table: [table_size]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
+    const table_size = max_cpu_count * 3;
+    const actual_table_size = cpu_count * 3;
+    var table: [table_size + 1]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
 
     // Table sentinel
-    table[actual_table_size - 1] = .{
+    table[actual_table_size] = .{
         .QueryRoutine = null,
         .Flags = 0,
         .Name = null,
@@ -86,7 +135,7 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
         var next_cpu_buf: [std.math.log2(max_cpu_count)]u8 = undefined;
         const next_cpu = try std.fmt.bufPrint(&next_cpu_buf, "{d}", .{i});
 
-        var subkey: [std.math.log2(max_cpu_count) / 2]u16 = undefined;
+        var subkey: [std.math.log2(max_cpu_count) + 1]u16 = undefined;
         const subkey_len = try std.unicode.utf8ToUtf16Le(&subkey, next_cpu);
         subkey[subkey_len] = 0;
 
@@ -137,6 +186,8 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
     }
 
     // Parse the models from strings
+    var parser = Armv8CpuInfoImpl{};
+
     i = 0;
     index = 0;
     while (i < cpu_count) : (i += 1) {
@@ -146,10 +197,10 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
         var identifier_buf: [max_sz_value * 2]u8 = undefined;
         const len = try std.unicode.utf16leToUtf8(&identifier_buf, entry.Buffer[0 .. entry.Length / 2]);
         const identifier = identifier_buf[0..len];
-        _ = identifier;
+        parser.parseOne(identifier);
     }
 
-    return &Target.aarch64.cpu.microsoft_sq3;
+    return parser.finalize() orelse Target.Cpu.Model.generic(.aarch64);
 }
 
 fn detectNativeCpuAndFeaturesArm64() Target.Cpu {
@@ -163,23 +214,41 @@ fn detectNativeCpuAndFeaturesArm64() Target.Cpu {
         .features = model.features,
     };
 
+    // Override any features that are either present or absent
     if (IsProcessorFeaturePresent(PF.ARM_NEON_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.neon));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.neon));
     }
+
     if (IsProcessorFeaturePresent(PF.ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.crc));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.crc));
     }
+
     if (IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.crypto));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.crypto));
     }
+
     if (IsProcessorFeaturePresent(PF.ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.lse));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.lse));
     }
+
     if (IsProcessorFeaturePresent(PF.ARM_V82_DP_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.dotprod));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.dotprod));
     }
+
     if (IsProcessorFeaturePresent(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)) {
         cpu.features.addFeature(@enumToInt(Feature.jsconv));
+    } else {
+        cpu.features.removeFeature(@enumToInt(Feature.jsconv));
     }
 
     return cpu;
