@@ -451,12 +451,7 @@ pub const DeclGen = struct {
             return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
         };
 
-        const payload = try self.spv.arena.create(SpvType.Payload.Int);
-        payload.* = .{
-            .width = backing_bits,
-            .signedness = signedness,
-        };
-        return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+        return try self.spv.resolveType(try SpvType.int(self.spv.arena, signedness, backing_bits));
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
@@ -495,11 +490,7 @@ pub const DeclGen = struct {
                     return self.fail("Floating point width of {} bits is not supported for the current SPIR-V feature set", .{bits});
                 }
 
-                const payload = try self.spv.arena.create(SpvType.Payload.Float);
-                payload.* = .{
-                    .width = bits,
-                };
-                return try self.spv.resolveType(SpvType.initPayload(&payload.base));
+                return try self.spv.resolveType(SpvType.float(bits));
             },
             .Fn => {
                 // TODO: Put this somewhere in Sema.zig

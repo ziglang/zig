@@ -266,27 +266,28 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         .OpTypeVoid => SpvType.initTag(.void),
         .OpTypeBool => SpvType.initTag(.bool),
         .OpTypeInt => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Int);
             const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
                 0 => .unsigned,
                 1 => .signed,
                 else => {
                     // TODO: Improve source location.
-                    return self.fail(0, "'{}' is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
+                    return self.fail(0, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
                 },
             };
-            payload.* = .{
-                .width = operands[1].literal32,
-                .signedness = signedness,
+            const width = std.math.cast(u16, operands[1].literal32) orelse {
+                return self.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
             };
-            break :blk SpvType.initPayload(&payload.base);
+            break :blk try SpvType.int(self.spv.arena, signedness, width);
         },
         .OpTypeFloat => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Float);
-            payload.* = .{
-                .width = operands[1].literal32,
-            };
-            break :blk SpvType.initPayload(&payload.base);
+            const bits = operands[1].literal32;
+            switch (bits) {
+                16, 32, 64 => {},
+                else => {
+                    return self.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
+                },
+            }
+            break :blk SpvType.float(@intCast(u16, bits));
         },
         .OpTypeVector => blk: {
             const payload = try self.spv.arena.create(SpvType.Payload.Vector);
@@ -754,21 +755,18 @@ fn parseContextDependentNumber(self: *Assembler) !void {
     const tok = self.currentToken();
     const result_type_ref = try self.resolveTypeRef(self.inst.operands.items[0].ref_id);
     const result_type = self.spv.type_cache.keys()[@enumToInt(result_type_ref)];
-    switch (result_type.tag()) {
-        .int => {
-            const int = result_type.castTag(.int).?;
-            try self.parseContextDependentInt(int.signedness, int.width);
-        },
-        .float => {
-            const width = result_type.castTag(.float).?.width;
-            switch (width) {
-                16 => try self.parseContextDependentFloat(16),
-                32 => try self.parseContextDependentFloat(32),
-                64 => try self.parseContextDependentFloat(64),
-                else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{width}),
-            }
-        },
-        else => return self.fail(tok.start, "cannot parse literal constant {s}", .{@tagName(result_type.tag())}),
+    if (result_type.isInt()) {
+        try self.parseContextDependentInt(result_type.intSignedness(), result_type.intFloatBits());
+    } else if (result_type.isFloat()) {
+        const width = result_type.intFloatBits();
+        switch (width) {
+            16 => try self.parseContextDependentFloat(16),
+            32 => try self.parseContextDependentFloat(32),
+            64 => try self.parseContextDependentFloat(64),
+            else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{width}),
+        }
+    } else {
+        return self.fail(tok.start, "cannot parse literal constant {s}", .{@tagName(result_type.tag())});
     }
 }
 

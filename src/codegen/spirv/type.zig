@@ -3,6 +3,8 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Signedness = std.builtin.Signedness;
+const Allocator = std.mem.Allocator;
 
 const spec = @import("spec.zig");
 
@@ -21,6 +23,41 @@ pub const Type = extern union {
     pub fn initPayload(pl: *Payload) Type {
         assert(@enumToInt(pl.tag) >= Tag.no_payload_count);
         return .{ .ptr_otherwise = pl };
+    }
+
+    pub fn int(arena: Allocator, signedness: Signedness, bits: u16) !Type {
+        const bits_and_signedness = switch (signedness) {
+            .signed => -@as(i32, bits),
+            .unsigned => @as(i32, bits),
+        };
+
+        return switch (bits_and_signedness) {
+            8 => initTag(.u8),
+            16 => initTag(.u16),
+            32 => initTag(.u32),
+            64 => initTag(.u64),
+            -8 => initTag(.i8),
+            -16 => initTag(.i16),
+            -32 => initTag(.i32),
+            -64 => initTag(.i64),
+            else => {
+                const int_payload = try arena.create(Payload.Int);
+                int_payload.* = .{
+                    .width = bits,
+                    .signedness = signedness,
+                };
+                return initPayload(&int_payload.base);
+            },
+        };
+    }
+
+    pub fn float(bits: u16) Type {
+        return switch (bits) {
+            16 => initTag(.f16),
+            32 => initTag(.f32),
+            64 => initTag(.f64),
+            else => unreachable, // Enable more types if required.
+        };
     }
 
     pub fn tag(self: Type) Tag {
@@ -80,9 +117,19 @@ pub const Type = extern union {
             .queue,
             .pipe_storage,
             .named_barrier,
+            .u8,
+            .u16,
+            .u32,
+            .u64,
+            .i8,
+            .i16,
+            .i32,
+            .i64,
+            .f16,
+            .f32,
+            .f64,
             => return true,
             .int,
-            .float,
             .vector,
             .matrix,
             .sampled_image,
@@ -132,6 +179,17 @@ pub const Type = extern union {
                     .queue,
                     .pipe_storage,
                     .named_barrier,
+                    .u8,
+                    .u16,
+                    .u32,
+                    .u64,
+                    .i8,
+                    .i16,
+                    .i32,
+                    .i64,
+                    .f16,
+                    .f32,
+                    .f64,
                     => {},
                     else => self.hashPayload(@field(Tag, field.name), &hasher),
                 }
@@ -185,6 +243,53 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isInt(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .u16,
+            .u32,
+            .u64,
+            .i8,
+            .i16,
+            .i32,
+            .i64,
+            .int,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isFloat(self: Type) bool {
+        return switch (self.tag()) {
+            .f16, .f32, .f64 => true,
+            else => false,
+        };
+    }
+
+    /// Returns the number of bits that make up an int or float type.
+    /// Asserts type is either int or float.
+    pub fn intFloatBits(self: Type) u16 {
+        return switch (self.tag()) {
+            .u8, .i8 => 8,
+            .u16, .i16, .f16 => 16,
+            .u32, .i32, .f32 => 32,
+            .u64, .i64, .f64 => 64,
+            .int => self.payload(.int).width,
+            else => unreachable,
+        };
+    }
+
+    /// Returns the signedness of an integer type.
+    /// Asserts that the type is an int.
+    pub fn intSignedness(self: Type) Signedness {
+        return switch (self.tag()) {
+            .u8, .u16, .u32, .u64 => .unsigned,
+            .i8, .i16, .i32, .i64 => .signed,
+            .int => self.payload(.int).signedness,
+            else => unreachable,
+        };
+    }
+
     pub const Tag = enum(usize) {
         void,
         bool,
@@ -195,10 +300,20 @@ pub const Type = extern union {
         queue,
         pipe_storage,
         named_barrier,
+        u8,
+        u16,
+        u32,
+        u64,
+        i8,
+        i16,
+        i32,
+        i64,
+        f16,
+        f32,
+        f64,
 
         // After this, the tag requires a payload.
         int,
-        float,
         vector,
         matrix,
         image,
@@ -211,14 +326,33 @@ pub const Type = extern union {
         function,
         pipe,
 
-        pub const last_no_payload_tag = Tag.named_barrier;
+        pub const last_no_payload_tag = Tag.f64;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .void, .bool, .sampler, .event, .device_event, .reserve_id, .queue, .pipe_storage, .named_barrier => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
+                .void,
+                .bool,
+                .sampler,
+                .event,
+                .device_event,
+                .reserve_id,
+                .queue,
+                .pipe_storage,
+                .named_barrier,
+                .u8,
+                .u16,
+                .u32,
+                .u64,
+                .i8,
+                .i16,
+                .i32,
+                .i64,
+                .f16,
+                .f32,
+                .f64,
+                => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
                 .int => Payload.Int,
-                .float => Payload.Float,
                 .vector => Payload.Vector,
                 .matrix => Payload.Matrix,
                 .image => Payload.Image,
@@ -239,13 +373,8 @@ pub const Type = extern union {
 
         pub const Int = struct {
             base: Payload = .{ .tag = .int },
-            width: u32,
-            signedness: std.builtin.Signedness,
-        };
-
-        pub const Float = struct {
-            base: Payload = .{ .tag = .float },
-            width: u32,
+            width: u16,
+            signedness: Signedness,
         };
 
         pub const Vector = struct {

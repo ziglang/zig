@@ -250,21 +250,30 @@ pub fn emitType(self: *Module, ty: Type) !IdResultType {
     switch (ty.tag()) {
         .void => try types.emit(self.gpa, .OpTypeVoid, result_id_operand),
         .bool => try types.emit(self.gpa, .OpTypeBool, result_id_operand),
-        .int => {
-            const signedness: spec.LiteralInteger = switch (ty.payload(.int).signedness) {
+        .u8,
+        .u16,
+        .u32,
+        .u64,
+        .i8,
+        .i16,
+        .i32,
+        .i64,
+        .int,
+        => {
+            const signedness: spec.LiteralInteger = switch (ty.intSignedness()) {
                 .unsigned => 0,
                 .signed => 1,
             };
 
             try types.emit(self.gpa, .OpTypeInt, .{
                 .id_result = result_id,
-                .width = ty.payload(.int).width,
+                .width = ty.intFloatBits(),
                 .signedness = signedness,
             });
         },
-        .float => try types.emit(self.gpa, .OpTypeFloat, .{
+        .f16, .f32, .f64 => try types.emit(self.gpa, .OpTypeFloat, .{
             .id_result = result_id,
-            .width = ty.payload(.float).width,
+            .width = ty.intFloatBits(),
         }),
         .vector => try types.emit(self.gpa, .OpTypeVector, .{
             .id_result = result_id,
