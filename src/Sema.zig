@@ -9698,10 +9698,12 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
 
     const maybe_union_ty = blk: {
+        const zir_tags = sema.code.instructions.items(.tag);
         const zir_data = sema.code.instructions.items(.data);
         const cond_index = Zir.refToIndex(extra.data.operand).?;
         const raw_operand = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
-        break :blk sema.typeOf(raw_operand);
+        const target_ty = sema.typeOf(raw_operand);
+        break :blk if (zir_tags[cond_index] == .switch_cond_ref) target_ty.elemType() else target_ty;
     };
     const union_originally = maybe_union_ty.zigTypeTag() == .Union;
 

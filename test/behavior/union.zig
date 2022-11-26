@@ -1287,7 +1287,14 @@ test "noreturn field in union" {
             try expect(a == .a);
         },
     }
-    try expect(count == 5);
+    switch (a) {
+        .a => count += 1,
+        .b, .c => |*val| {
+            _ = val;
+            @compileError("bad");
+        },
+    }
+    try expect(count == 6);
 }
 
 test "union and enum field order doesn't match" {
