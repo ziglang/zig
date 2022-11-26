@@ -64,6 +64,8 @@ pub fn Queue(comptime T: type) type {
             return head;
         }
 
+        /// Prepends `node` to the front of the queue.
+        /// The lifetime of `node` must be longer than the lifetime of the queue.
         pub fn unget(self: *Self, node: *Node) void {
             node.prev = null;
 
@@ -72,8 +74,8 @@ pub fn Queue(comptime T: type) type {
 
             const opt_head = self.head;
             self.head = node;
-            if (opt_head) |head| {
-                head.next = node;
+            if (opt_head) |old_head| {
+                node.next = old_head;
             } else {
                 assert(self.tail == null);
                 self.tail = node;
@@ -330,8 +332,22 @@ test "std.atomic.Queue single-threaded" {
     node_3.next = null;
     try expect(!queue.isEmpty());
 
+    queue.unget(&node_3);
+    try expect(queue.get().?.data == 3);
+    try expect(!queue.isEmpty());
+
     try expect(queue.get().?.data == 4);
     try expect(queue.isEmpty());
+
+    try expect(queue.get() == null);
+    try expect(queue.isEmpty());
+
+    // unget an empty queue
+    queue.unget(&node_4);
+    try expect(queue.tail == &node_4);
+    try expect(queue.head == &node_4);
+
+    try expect(queue.get().?.data == 4);
 
     try expect(queue.get() == null);
     try expect(queue.isEmpty());
