@@ -2876,7 +2876,7 @@ pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
 pub const LSTATUS = LONG;
 
-pub const HKEY = HANDLE;
+pub const HKEY = *opaque {};
 
 pub const HKEY_LOCAL_MACHINE: HKEY = @intToPtr(HKEY, 0x80000002);
 
