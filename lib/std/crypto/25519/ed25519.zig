@@ -181,7 +181,7 @@ pub const Ed25519 = struct {
             const hram = Curve.scalar.reduce64(hram64);
 
             const sb_ah = try Curve.basePoint.mulDoubleBasePublic(self.s, self.a.neg(), hram);
-            if (self.expected_r.sub(sb_ah).clearCofactor().rejectIdentity()) |_| {
+            if (self.expected_r.sub(sb_ah).rejectLowOrder()) {
                 return error.SignatureVerificationFailed;
             } else |_| {}
         }
