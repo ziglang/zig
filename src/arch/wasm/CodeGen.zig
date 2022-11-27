@@ -3834,7 +3834,7 @@ fn airSliceElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addTag(.i32_mul);
     try func.addTag(.i32_add);
 
-    const result_ptr = try func.allocLocal(elem_ty);
+    const result_ptr = try func.allocLocal(Type.usize);
     try func.addLabel(.local_set, result_ptr.local.value);
 
     const result = if (!isByRef(elem_ty, func.target)) result: {
@@ -4301,23 +4301,68 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
                 break :result_value result;
             },
-            .Struct => {
-                const result = try func.allocStack(result_ty);
-                const offset = try func.buildPointerOffset(result, 0, .new); // pointer to offset
-                for (elements) |elem, elem_index| {
-                    if (result_ty.structFieldValueComptime(elem_index) != null) continue;
-
-                    const elem_ty = result_ty.structFieldType(elem_index);
-                    const elem_size = @intCast(u32, elem_ty.abiSize(func.target));
-                    const value = try func.resolveInst(elem);
-                    try func.store(offset, value, elem_ty, 0);
-
-                    if (elem_index < elements.len - 1) {
-                        _ = try func.buildPointerOffset(offset, elem_size, .modify);
+            .Struct => switch (result_ty.containerLayout()) {
+                .Packed => {
+                    if (isByRef(result_ty, func.target)) {
+                        return func.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
                     }
-                }
+                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                    const fields = struct_obj.fields.values();
+                    const backing_type = struct_obj.backing_int_ty;
+                    // we ensure a new local is created so it's zero-initialized
+                    const result = try func.ensureAllocLocal(backing_type);
+                    var current_bit: u16 = 0;
+                    for (elements) |elem, elem_index| {
+                        const field = fields[elem_index];
+                        if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                break :result_value result;
+                        const shift_val = if (struct_obj.backing_int_ty.bitSize(func.target) <= 32)
+                            WValue{ .imm32 = current_bit }
+                        else
+                            WValue{ .imm64 = current_bit };
+
+                        const value = try func.resolveInst(elem);
+                        const value_bit_size = @intCast(u16, field.ty.bitSize(func.target));
+                        var int_ty_payload: Type.Payload.Bits = .{
+                            .base = .{ .tag = .int_unsigned },
+                            .data = value_bit_size,
+                        };
+                        const int_ty = Type.initPayload(&int_ty_payload.base);
+
+                        // load our current result on stack so we can perform all transformations
+                        // using only stack values. Saving the cost of loads and stores.
+                        try func.emitWValue(result);
+                        const bitcasted = try func.bitcast(int_ty, field.ty, value);
+                        const extended_val = try func.intcast(bitcasted, int_ty, backing_type);
+                        // no need to shift any values when the current offset is 0
+                        const shifted = if (current_bit != 0) shifted: {
+                            break :shifted try func.binOp(extended_val, shift_val, backing_type, .shl);
+                        } else extended_val;
+                        // we ignore the result as we keep it on the stack to assign it directly to `result`
+                        _ = try func.binOp(.stack, shifted, backing_type, .@"or");
+                        try func.addLabel(.local_set, result.local.value);
+                        current_bit += value_bit_size;
+                    }
+                    break :result_value result;
+                },
+                else => {
+                    const result = try func.allocStack(result_ty);
+                    const offset = try func.buildPointerOffset(result, 0, .new); // pointer to offset
+                    for (elements) |elem, elem_index| {
+                        if (result_ty.structFieldValueComptime(elem_index) != null) continue;
+
+                        const elem_ty = result_ty.structFieldType(elem_index);
+                        const elem_size = @intCast(u32, elem_ty.abiSize(func.target));
+                        const value = try func.resolveInst(elem);
+                        try func.store(offset, value, elem_ty, 0);
+
+                        if (elem_index < elements.len - 1) {
+                            _ = try func.buildPointerOffset(offset, elem_size, .modify);
+                        }
+                    }
+
+                    break :result_value result;
+                },
             },
             .Vector => return func.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),
             else => unreachable,
