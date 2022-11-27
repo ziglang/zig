@@ -234,7 +234,7 @@ pub const Lock = struct {
     pub fn release(lock: *Lock) void {
         if (builtin.os.tag == .windows) {
             // Windows does not guarantee that locks are immediately unlocked when
-            // the file handle is closed. See: LockFileEx documentation.
+            // the file handle is closed. See LockFileEx documentation.
             lock.manifest_file.unlock();
         }
 
@@ -254,6 +254,7 @@ pub const Manifest = struct {
     /// within the cache directory. This allows multiple processes to utilize
     /// the same cache directory at the same time.
     want_shared_lock: bool = true,
+    have_shared_lock: bool = false,
     have_exclusive_lock: bool = false,
     // Indicate that we want isProblematicTimestamp to perform a filesystem write in
     // order to obtain a problematic timestamp for the next call. Calls after that
@@ -392,6 +393,8 @@ pub const Manifest = struct {
                         self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
                             .lock = .Shared,
                         });
+
+                        self.have_shared_lock = true;
                         break;
                     },
                     error.FileNotFound => {
@@ -427,6 +430,8 @@ pub const Manifest = struct {
                     self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
                         .lock = .Shared,
                     });
+
+                    self.have_shared_lock = true;
                 },
                 else => |e| return e,
             }
@@ -875,11 +880,14 @@ pub const Manifest = struct {
             const manifest_file = self.manifest_file.?;
             try manifest_file.downgradeLock();
         }
+
+        self.have_shared_lock = true;
         self.have_exclusive_lock = false;
     }
 
     fn upgradeToExclusiveLock(self: *Manifest) !void {
         if (self.have_exclusive_lock) return;
+        assert(self.have_shared_lock);
 
         // WASI does not currently support flock, so we bypass it here.
         // TODO: If/when flock is supported on WASI, this check should be removed.
@@ -898,9 +906,11 @@ pub const Manifest = struct {
     /// The `Manifest` remains safe to deinit.
     /// Don't forget to call `writeManifest` before this!
     pub fn toOwnedLock(self: *Manifest) Lock {
+        assert(self.have_shared_lock or self.have_exclusive_lock);
         const lock: Lock = .{
             .manifest_file = self.manifest_file.?,
         };
+
         self.manifest_file = null;
         return lock;
     }
@@ -910,6 +920,11 @@ pub const Manifest = struct {
     /// Don't forget to call `writeManifest` before this!
     pub fn deinit(self: *Manifest) void {
         if (self.manifest_file) |file| {
+            if (builtin.os.tag == .windows and (self.have_shared_lock or self.have_exclusive_lock)) {
+                // See Lock.release for why this is required on Windows
+                file.unlock();
+            }
+
             file.close();
         }
         for (self.files.items) |*file| {
