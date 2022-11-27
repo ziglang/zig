@@ -92,20 +92,61 @@ const Armv8CpuInfoImpl = struct {
     }
 };
 
-fn detectCpuModelArm64() !*const Target.Cpu.Model {
-    // Pull the CPU identifier from the registry.
-    // Assume max number of cores to be at 8.
-    const max_cpu_count = 8;
-    const cpu_count = getCpuCount();
+fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8) ![]const u8 {
+    // Technically, a registry value can be as long as 16k u16s. However, MS recommends storing
+    // values larger than 2048 in a file rather than directly in the registry, and since we
+    // are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
+    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
+    const max_sz_value = 2048;
+    const key_name = std.unicode.utf8ToUtf16LeStringLiteral(key);
 
-    if (cpu_count > max_cpu_count) return error.TooManyCpus;
-
-    const table_size = max_cpu_count * 3;
-    const actual_table_size = cpu_count * 3;
+    // Originally, I wanted to issue a single call with a more complex table structure such that we
+    // would sequentially visit each CPU#d subkey in the registry and pull the value of interest into
+    // a buffer, however, NT seems to be expecting a single buffer per each table meaning we would
+    // end up pulling only the last CPU core info, overwriting everything else.
+    // If anyone can come up with a solution to this, please do!
+    const table_size = 2;
     var table: [table_size + 1]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
 
+    const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
+
+    var buf: [max_sz_value]u16 = undefined;
+    var buf_uni = std.os.windows.UNICODE_STRING{
+        .Length = buf.len * 2,
+        .MaximumLength = buf.len * 2,
+        .Buffer = &buf,
+    };
+
+    const max_cpu_buf = 4;
+    var next_cpu_buf: [max_cpu_buf]u8 = undefined;
+    const next_cpu = try std.fmt.bufPrint(&next_cpu_buf, "{d}", .{core});
+
+    var subkey: [max_cpu_buf + 1]u16 = undefined;
+    const subkey_len = try std.unicode.utf8ToUtf16Le(&subkey, next_cpu);
+    subkey[subkey_len] = 0;
+
+    table[0] = .{
+        .QueryRoutine = null,
+        .Flags = std.os.windows.RTL_QUERY_REGISTRY_SUBKEY | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
+        .Name = subkey[0..subkey_len :0],
+        .EntryContext = null,
+        .DefaultType = std.os.windows.REG_NONE,
+        .DefaultData = null,
+        .DefaultLength = 0,
+    };
+
+    table[1] = .{
+        .QueryRoutine = null,
+        .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
+        .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
+        .EntryContext = &buf_uni,
+        .DefaultType = std.os.windows.REG_NONE,
+        .DefaultData = null,
+        .DefaultLength = 0,
+    };
+
     // Table sentinel
-    table[actual_table_size] = .{
+    table[table_size] = .{
         .QueryRoutine = null,
         .Flags = 0,
         .Name = null,
@@ -115,64 +156,6 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
         .DefaultLength = 0,
     };
 
-    // Technically, a registry value can be as long as 16k u16s. However, MS recommends storing
-    // values larger than 2048 in a file rather than directly in the registry, and since we
-    // are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
-    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
-    const max_sz_value = 2048;
-    const key_name = std.unicode.utf8ToUtf16LeStringLiteral("Identifier");
-
-    var i: usize = 0;
-    var index: usize = 0;
-    while (i < cpu_count) : (i += 1) {
-        var buf: [max_sz_value]u16 = undefined;
-        var buf_uni = std.os.windows.UNICODE_STRING{
-            .Length = buf.len * 2,
-            .MaximumLength = buf.len * 2,
-            .Buffer = &buf,
-        };
-
-        var next_cpu_buf: [std.math.log2(max_cpu_count)]u8 = undefined;
-        const next_cpu = try std.fmt.bufPrint(&next_cpu_buf, "{d}", .{i});
-
-        var subkey: [std.math.log2(max_cpu_count) + 1]u16 = undefined;
-        const subkey_len = try std.unicode.utf8ToUtf16Le(&subkey, next_cpu);
-        subkey[subkey_len] = 0;
-
-        table[index] = .{
-            .QueryRoutine = null,
-            .Flags = std.os.windows.RTL_QUERY_REGISTRY_SUBKEY | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
-            .Name = subkey[0..subkey_len :0],
-            .EntryContext = null,
-            .DefaultType = std.os.windows.REG_NONE,
-            .DefaultData = null,
-            .DefaultLength = 0,
-        };
-
-        table[index + 1] = .{
-            .QueryRoutine = null,
-            .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
-            .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
-            .EntryContext = &buf_uni,
-            .DefaultType = std.os.windows.REG_NONE,
-            .DefaultData = null,
-            .DefaultLength = 0,
-        };
-
-        table[index + 2] = .{
-            .QueryRoutine = null,
-            .Flags = std.os.windows.RTL_QUERY_REGISTRY_TOPKEY,
-            .Name = null,
-            .EntryContext = null,
-            .DefaultType = std.os.windows.REG_NONE,
-            .DefaultData = null,
-            .DefaultLength = 0,
-        };
-
-        index += 3;
-    }
-
-    const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
     const res = std.os.windows.ntdll.RtlQueryRegistryValues(
         std.os.windows.RTL_REGISTRY_ABSOLUTE,
         topkey,
@@ -181,22 +164,29 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
         null,
     );
     switch (res) {
-        .SUCCESS => {},
-        else => return error.QueryRegistryFailed,
+        .SUCCESS => {
+            var identifier_buf: [max_sz_value * 2]u8 = undefined;
+            const len = try std.unicode.utf16leToUtf8(&identifier_buf, buf_uni.Buffer[0 .. buf_uni.Length / 2]);
+            return identifier_buf[0..len];
+        },
+        else => return std.os.windows.unexpectedStatus(res),
     }
+}
+
+fn detectCpuModelArm64() !*const Target.Cpu.Model {
+    // Pull the CPU identifier from the registry.
+    // Assume max number of cores to be at 8.
+    const max_cpu_count = 8;
+    const cpu_count = getCpuCount();
+
+    if (cpu_count > max_cpu_count) return error.TooManyCpus;
 
     // Parse the models from strings
     var parser = Armv8CpuInfoImpl{};
 
-    i = 0;
-    index = 0;
+    var i: usize = 0;
     while (i < cpu_count) : (i += 1) {
-        const entry = @ptrCast(*align(1) const std.os.windows.UNICODE_STRING, table[index + 1].EntryContext);
-        index += 3;
-
-        var identifier_buf: [max_sz_value * 2]u8 = undefined;
-        const len = try std.unicode.utf16leToUtf8(&identifier_buf, entry.Buffer[0 .. entry.Length / 2]);
-        const identifier = identifier_buf[0..len];
+        const identifier = try getCpuInfoFromRegistry(i, "Identifier");
         parser.parseOne(identifier);
     }
 
