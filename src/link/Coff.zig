@@ -938,9 +938,9 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
 
     try self.updateDeclCode(decl_index, code, .FUNCTION);
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -1053,9 +1053,9 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
 
     try self.updateDeclCode(decl_index, code, .NULL);
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 fn getDeclOutputSection(self: *Coff, decl: *Module.Decl) u16 {

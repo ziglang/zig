@@ -387,7 +387,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.include_dir = result_buf.toOwnedSlice();
+            self.include_dir = try result_buf.toOwnedSlice();
             return;
         }
 
@@ -434,7 +434,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.crt_dir = result_buf.toOwnedSlice();
+            self.crt_dir = try result_buf.toOwnedSlice();
             return;
         }
         return error.LibCRuntimeNotFound;
@@ -499,7 +499,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.kernel32_lib_dir = result_buf.toOwnedSlice();
+            self.kernel32_lib_dir = try result_buf.toOwnedSlice();
             return;
         }
         return error.LibCKernel32LibNotFound;

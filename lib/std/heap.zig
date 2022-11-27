@@ -52,11 +52,12 @@ const CAllocator = struct {
         return @intToPtr(*[*]u8, @ptrToInt(ptr) - @sizeOf(usize));
     }
 
-    fn alignedAlloc(len: usize, alignment: usize) ?[*]u8 {
+    fn alignedAlloc(len: usize, log2_align: u8) ?[*]u8 {
+        const alignment = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_align);
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
             // multiple of the pointer size
-            const eff_alignment = std.math.max(alignment, @sizeOf(usize));
+            const eff_alignment = @max(alignment, @sizeOf(usize));
 
             var aligned_ptr: ?*anyopaque = undefined;
             if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
@@ -99,58 +100,42 @@ const CAllocator = struct {
     fn alloc(
         _: *anyopaque,
         len: usize,
-        alignment: u29,
-        len_align: u29,
+        log2_align: u8,
         return_address: usize,
-    ) error{OutOfMemory}![]u8 {
+    ) ?[*]u8 {
         _ = return_address;
         assert(len > 0);
-        assert(std.math.isPowerOfTwo(alignment));
-
-        var ptr = alignedAlloc(len, alignment) orelse return error.OutOfMemory;
-        if (len_align == 0) {
-            return ptr[0..len];
-        }
-        const full_len = init: {
-            if (CAllocator.supports_malloc_size) {
-                const s = alignedAllocSize(ptr);
-                assert(s >= len);
-                break :init s;
-            }
-            break :init len;
-        };
-        return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
+        return alignedAlloc(len, log2_align);
     }
 
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         new_len: usize,
-        len_align: u29,
         return_address: usize,
-    ) ?usize {
-        _ = buf_align;
+    ) bool {
+        _ = log2_buf_align;
         _ = return_address;
         if (new_len <= buf.len) {
-            return mem.alignAllocLen(buf.len, new_len, len_align);
+            return true;
         }
         if (CAllocator.supports_malloc_size) {
             const full_len = alignedAllocSize(buf.ptr);
             if (new_len <= full_len) {
-                return mem.alignAllocLen(full_len, new_len, len_align);
+                return true;
             }
         }
-        return null;
+        return false;
     }
 
     fn free(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         return_address: usize,
     ) void {
-        _ = buf_align;
+        _ = log2_buf_align;
         _ = return_address;
         alignedFree(buf.ptr);
     }
@@ -187,40 +172,35 @@ const raw_c_allocator_vtable = Allocator.VTable{
 fn rawCAlloc(
     _: *anyopaque,
     len: usize,
-    ptr_align: u29,
-    len_align: u29,
+    log2_ptr_align: u8,
     ret_addr: usize,
-) Allocator.Error![]u8 {
-    _ = len_align;
+) ?[*]u8 {
     _ = ret_addr;
-    assert(ptr_align <= @alignOf(std.c.max_align_t));
-    const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
-    return ptr[0..len];
+    assert(log2_ptr_align <= comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t)));
+    // TODO: change the language to make @ptrCast also do alignment cast
+    const ptr = @alignCast(@alignOf(std.c.max_align_t), c.malloc(len));
+    return @ptrCast(?[*]align(@alignOf(std.c.max_align_t)) u8, ptr);
 }
 
 fn rawCResize(
     _: *anyopaque,
     buf: []u8,
-    old_align: u29,
+    log2_old_align: u8,
     new_len: usize,
-    len_align: u29,
     ret_addr: usize,
-) ?usize {
-    _ = old_align;
+) bool {
+    _ = log2_old_align;
     _ = ret_addr;
-    if (new_len <= buf.len) {
-        return mem.alignAllocLen(buf.len, new_len, len_align);
-    }
-    return null;
+    return new_len <= buf.len;
 }
 
 fn rawCFree(
     _: *anyopaque,
     buf: []u8,
-    old_align: u29,
+    log2_old_align: u8,
     ret_addr: usize,
 ) void {
-    _ = old_align;
+    _ = log2_old_align;
     _ = ret_addr;
     c.free(buf.ptr);
 }
@@ -241,8 +221,8 @@ else
     };
 
 /// Verifies that the adjusted length will still map to the full length
-pub fn alignPageAllocLen(full_len: usize, len: usize, len_align: u29) usize {
-    const aligned_len = mem.alignAllocLen(full_len, len, len_align);
+pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
+    const aligned_len = mem.alignAllocLen(full_len, len);
     assert(mem.alignForward(aligned_len, mem.page_size) == full_len);
     return aligned_len;
 }
@@ -257,115 +237,47 @@ const PageAllocator = struct {
         .free = free,
     };
 
-    fn alloc(_: *anyopaque, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         _ = ra;
+        _ = log2_align;
         assert(n > 0);
-        if (n > maxInt(usize) - (mem.page_size - 1)) {
-            return error.OutOfMemory;
-        }
+        if (n > maxInt(usize) - (mem.page_size - 1)) return null;
         const aligned_len = mem.alignForward(n, mem.page_size);
 
         if (builtin.os.tag == .windows) {
             const w = os.windows;
-
-            // Although officially it's at least aligned to page boundary,
-            // Windows is known to reserve pages on a 64K boundary. It's
-            // even more likely that the requested alignment is <= 64K than
-            // 4K, so we're just allocating blindly and hoping for the best.
-            // see https://devblogs.microsoft.com/oldnewthing/?p=42223
             const addr = w.VirtualAlloc(
                 null,
                 aligned_len,
                 w.MEM_COMMIT | w.MEM_RESERVE,
                 w.PAGE_READWRITE,
-            ) catch return error.OutOfMemory;
-
-            // If the allocation is sufficiently aligned, use it.
-            if (mem.isAligned(@ptrToInt(addr), alignment)) {
-                return @ptrCast([*]u8, addr)[0..alignPageAllocLen(aligned_len, n, len_align)];
-            }
-
-            // If it wasn't, actually do an explicitly aligned allocation.
-            w.VirtualFree(addr, 0, w.MEM_RELEASE);
-            const alloc_size = n + alignment - mem.page_size;
-
-            while (true) {
-                // Reserve a range of memory large enough to find a sufficiently
-                // aligned address.
-                const reserved_addr = w.VirtualAlloc(
-                    null,
-                    alloc_size,
-                    w.MEM_RESERVE,
-                    w.PAGE_NOACCESS,
-                ) catch return error.OutOfMemory;
-                const aligned_addr = mem.alignForward(@ptrToInt(reserved_addr), alignment);
-
-                // Release the reserved pages (not actually used).
-                w.VirtualFree(reserved_addr, 0, w.MEM_RELEASE);
-
-                // At this point, it is possible that another thread has
-                // obtained some memory space that will cause the next
-                // VirtualAlloc call to fail. To handle this, we will retry
-                // until it succeeds.
-                const ptr = w.VirtualAlloc(
-                    @intToPtr(*anyopaque, aligned_addr),
-                    aligned_len,
-                    w.MEM_COMMIT | w.MEM_RESERVE,
-                    w.PAGE_READWRITE,
-                ) catch continue;
-
-                return @ptrCast([*]u8, ptr)[0..alignPageAllocLen(aligned_len, n, len_align)];
-            }
+            ) catch return null;
+            return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, addr));
         }
 
-        const max_drop_len = alignment - @min(alignment, mem.page_size);
-        const alloc_len = if (max_drop_len <= aligned_len - n)
-            aligned_len
-        else
-            mem.alignForward(aligned_len + max_drop_len, mem.page_size);
         const hint = @atomicLoad(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, .Unordered);
         const slice = os.mmap(
             hint,
-            alloc_len,
+            aligned_len,
             os.PROT.READ | os.PROT.WRITE,
             os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
-        ) catch return error.OutOfMemory;
+        ) catch return null;
         assert(mem.isAligned(@ptrToInt(slice.ptr), mem.page_size));
-
-        const result_ptr = mem.alignPointer(slice.ptr, alignment) orelse
-            return error.OutOfMemory;
-
-        // Unmap the extra bytes that were only requested in order to guarantee
-        // that the range of memory we were provided had a proper alignment in
-        // it somewhere. The extra bytes could be at the beginning, or end, or both.
-        const drop_len = @ptrToInt(result_ptr) - @ptrToInt(slice.ptr);
-        if (drop_len != 0) {
-            os.munmap(slice[0..drop_len]);
-        }
-
-        // Unmap extra pages
-        const aligned_buffer_len = alloc_len - drop_len;
-        if (aligned_buffer_len > aligned_len) {
-            os.munmap(@alignCast(mem.page_size, result_ptr[aligned_len..aligned_buffer_len]));
-        }
-
-        const new_hint = @alignCast(mem.page_size, result_ptr + aligned_len);
+        const new_hint = @alignCast(mem.page_size, slice.ptr + aligned_len);
         _ = @cmpxchgStrong(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
-
-        return result_ptr[0..alignPageAllocLen(aligned_len, n, len_align)];
+        return slice.ptr;
     }
 
     fn resize(
         _: *anyopaque,
         buf_unaligned: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         new_size: usize,
-        len_align: u29,
         return_address: usize,
-    ) ?usize {
-        _ = buf_align;
+    ) bool {
+        _ = log2_buf_align;
         _ = return_address;
         const new_size_aligned = mem.alignForward(new_size, mem.page_size);
 
@@ -384,40 +296,40 @@ const PageAllocator = struct {
                         w.MEM_DECOMMIT,
                     );
                 }
-                return alignPageAllocLen(new_size_aligned, new_size, len_align);
+                return true;
             }
             const old_size_aligned = mem.alignForward(buf_unaligned.len, mem.page_size);
             if (new_size_aligned <= old_size_aligned) {
-                return alignPageAllocLen(new_size_aligned, new_size, len_align);
+                return true;
             }
-            return null;
+            return false;
         }
 
         const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
         if (new_size_aligned == buf_aligned_len)
-            return alignPageAllocLen(new_size_aligned, new_size, len_align);
+            return true;
 
         if (new_size_aligned < buf_aligned_len) {
             const ptr = @alignCast(mem.page_size, buf_unaligned.ptr + new_size_aligned);
             // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
             os.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
-            return alignPageAllocLen(new_size_aligned, new_size, len_align);
+            return true;
         }
 
         // TODO: call mremap
         // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-        return null;
+        return false;
     }
 
-    fn free(_: *anyopaque, buf_unaligned: []u8, buf_align: u29, return_address: usize) void {
-        _ = buf_align;
+    fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
+        _ = log2_buf_align;
         _ = return_address;
 
         if (builtin.os.tag == .windows) {
-            os.windows.VirtualFree(buf_unaligned.ptr, 0, os.windows.MEM_RELEASE);
+            os.windows.VirtualFree(slice.ptr, 0, os.windows.MEM_RELEASE);
         } else {
-            const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
-            const ptr = @alignCast(mem.page_size, buf_unaligned.ptr);
+            const buf_aligned_len = mem.alignForward(slice.len, mem.page_size);
+            const ptr = @alignCast(mem.page_size, slice.ptr);
             os.munmap(ptr[0..buf_aligned_len]);
         }
     }
@@ -478,7 +390,7 @@ const WasmPageAllocator = struct {
         // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
         const not_found = std.math.maxInt(usize);
 
-        fn useRecycled(self: FreeBlock, num_pages: usize, alignment: u29) usize {
+        fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
             @setCold(true);
             for (self.data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
@@ -492,7 +404,7 @@ const WasmPageAllocator = struct {
                     while (j + count < self.totalPages() and self.getBit(j + count) == .free) {
                         count += 1;
                         const addr = j * mem.page_size;
-                        if (count >= num_pages and mem.isAligned(addr, alignment)) {
+                        if (count >= num_pages and mem.isAlignedLog2(addr, log2_align)) {
                             self.setBits(j, num_pages, .used);
                             return j;
                         }
@@ -521,31 +433,30 @@ const WasmPageAllocator = struct {
         return mem.alignForward(memsize, mem.page_size) / mem.page_size;
     }
 
-    fn alloc(_: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
         _ = ra;
-        if (len > maxInt(usize) - (mem.page_size - 1)) {
-            return error.OutOfMemory;
-        }
+        if (len > maxInt(usize) - (mem.page_size - 1)) return null;
         const page_count = nPages(len);
-        const page_idx = try allocPages(page_count, alignment);
-        return @intToPtr([*]u8, page_idx * mem.page_size)[0..alignPageAllocLen(page_count * mem.page_size, len, len_align)];
+        const page_idx = allocPages(page_count, log2_align) catch return null;
+        return @intToPtr([*]u8, page_idx * mem.page_size);
     }
-    fn allocPages(page_count: usize, alignment: u29) !usize {
+
+    fn allocPages(page_count: usize, log2_align: u8) !usize {
         {
-            const idx = conventional.useRecycled(page_count, alignment);
+            const idx = conventional.useRecycled(page_count, log2_align);
             if (idx != FreeBlock.not_found) {
                 return idx;
             }
         }
 
-        const idx = extended.useRecycled(page_count, alignment);
+        const idx = extended.useRecycled(page_count, log2_align);
         if (idx != FreeBlock.not_found) {
             return idx + extendedOffset();
         }
 
         const next_page_idx = @wasmMemorySize(0);
         const next_page_addr = next_page_idx * mem.page_size;
-        const aligned_addr = mem.alignForward(next_page_addr, alignment);
+        const aligned_addr = mem.alignForwardLog2(next_page_addr, log2_align);
         const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
         const result = @wasmMemoryGrow(0, @intCast(u32, drop_page_count + page_count));
         if (result <= 0)
@@ -573,7 +484,7 @@ const WasmPageAllocator = struct {
                 // Since this is the first page being freed and we consume it, assume *nothing* is free.
                 mem.set(u128, extended.data, PageStatus.none_free);
             }
-            const clamped_start = std.math.max(extendedOffset(), start);
+            const clamped_start = @max(extendedOffset(), start);
             extended.recycle(clamped_start - extendedOffset(), new_end - clamped_start);
         }
     }
@@ -581,31 +492,30 @@ const WasmPageAllocator = struct {
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         new_len: usize,
-        len_align: u29,
         return_address: usize,
-    ) ?usize {
-        _ = buf_align;
+    ) bool {
+        _ = log2_buf_align;
         _ = return_address;
         const aligned_len = mem.alignForward(buf.len, mem.page_size);
-        if (new_len > aligned_len) return null;
+        if (new_len > aligned_len) return false;
         const current_n = nPages(aligned_len);
         const new_n = nPages(new_len);
         if (new_n != current_n) {
             const base = nPages(@ptrToInt(buf.ptr));
             freePages(base + new_n, base + current_n);
         }
-        return alignPageAllocLen(new_n * mem.page_size, new_len, len_align);
+        return true;
     }
 
     fn free(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         return_address: usize,
     ) void {
-        _ = buf_align;
+        _ = log2_buf_align;
         _ = return_address;
         const aligned_len = mem.alignForward(buf.len, mem.page_size);
         const current_n = nPages(aligned_len);
@@ -627,7 +537,14 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         pub fn allocator(self: *HeapAllocator) Allocator {
-            return Allocator.init(self, alloc, resize, free);
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                },
+            };
         }
 
         pub fn deinit(self: *HeapAllocator) void {
@@ -641,48 +558,42 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn alloc(
-            self: *HeapAllocator,
+            ctx: *anyopaque,
             n: usize,
-            ptr_align: u29,
-            len_align: u29,
+            log2_ptr_align: u8,
             return_address: usize,
-        ) error{OutOfMemory}![]u8 {
+        ) ?[*]u8 {
             _ = return_address;
+            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
 
+            const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
             const amt = n + ptr_align - 1 + @sizeOf(usize);
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, .SeqCst);
             const heap_handle = optional_heap_handle orelse blk: {
                 const options = if (builtin.single_threaded) os.windows.HEAP_NO_SERIALIZE else 0;
-                const hh = os.windows.kernel32.HeapCreate(options, amt, 0) orelse return error.OutOfMemory;
+                const hh = os.windows.kernel32.HeapCreate(options, amt, 0) orelse return null;
                 const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, .SeqCst, .SeqCst) orelse break :blk hh;
                 os.windows.HeapDestroy(hh);
                 break :blk other_hh.?; // can't be null because of the cmpxchg
             };
-            const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
+            const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return null;
             const root_addr = @ptrToInt(ptr);
             const aligned_addr = mem.alignForward(root_addr, ptr_align);
-            const return_len = init: {
-                if (len_align == 0) break :init n;
-                const full_len = os.windows.kernel32.HeapSize(heap_handle, 0, ptr);
-                assert(full_len != std.math.maxInt(usize));
-                assert(full_len >= amt);
-                break :init mem.alignBackwardAnyAlign(full_len - (aligned_addr - root_addr) - @sizeOf(usize), len_align);
-            };
-            const buf = @intToPtr([*]u8, aligned_addr)[0..return_len];
+            const buf = @intToPtr([*]u8, aligned_addr)[0..n];
             getRecordPtr(buf).* = root_addr;
-            return buf;
+            return buf.ptr;
         }
 
         fn resize(
-            self: *HeapAllocator,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             new_size: usize,
-            len_align: u29,
             return_address: usize,
-        ) ?usize {
-            _ = buf_align;
+        ) bool {
+            _ = log2_buf_align;
             _ = return_address;
+            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
 
             const root_addr = getRecordPtr(buf).*;
             const align_offset = @ptrToInt(buf.ptr) - root_addr;
@@ -692,27 +603,21 @@ pub const HeapAllocator = switch (builtin.os.tag) {
                 os.windows.HEAP_REALLOC_IN_PLACE_ONLY,
                 @intToPtr(*anyopaque, root_addr),
                 amt,
-            ) orelse return null;
+            ) orelse return false;
             assert(new_ptr == @intToPtr(*anyopaque, root_addr));
-            const return_len = init: {
-                if (len_align == 0) break :init new_size;
-                const full_len = os.windows.kernel32.HeapSize(self.heap_handle.?, 0, new_ptr);
-                assert(full_len != std.math.maxInt(usize));
-                assert(full_len >= amt);
-                break :init mem.alignBackwardAnyAlign(full_len - align_offset, len_align);
-            };
-            getRecordPtr(buf.ptr[0..return_len]).* = root_addr;
-            return return_len;
+            getRecordPtr(buf.ptr[0..new_size]).* = root_addr;
+            return true;
         }
 
         fn free(
-            self: *HeapAllocator,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             return_address: usize,
         ) void {
-            _ = buf_align;
+            _ = log2_buf_align;
             _ = return_address;
+            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
             os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*anyopaque, getRecordPtr(buf).*));
         }
     },
@@ -742,18 +647,27 @@ pub const FixedBufferAllocator = struct {
 
     /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
     pub fn allocator(self: *FixedBufferAllocator) Allocator {
-        return Allocator.init(self, alloc, resize, free);
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .free = free,
+            },
+        };
     }
 
     /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
     /// *WARNING* using this at the same time as the interface returned by `allocator` is not thread safe
     pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
-        return Allocator.init(
-            self,
-            threadSafeAlloc,
-            Allocator.NoResize(FixedBufferAllocator).noResize,
-            Allocator.NoOpFree(FixedBufferAllocator).noOpFree,
-        );
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = threadSafeAlloc,
+                .resize = Allocator.noResize,
+                .free = Allocator.noFree,
+            },
+        };
     }
 
     pub fn ownsPtr(self: *FixedBufferAllocator, ptr: [*]u8) bool {
@@ -771,59 +685,56 @@ pub const FixedBufferAllocator = struct {
         return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
     }
 
-    fn alloc(self: *FixedBufferAllocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
-        _ = len_align;
+    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
         _ = ra;
-        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse
-            return error.OutOfMemory;
+        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
         const adjusted_index = self.end_index + adjust_off;
         const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) {
-            return error.OutOfMemory;
-        }
-        const result = self.buffer[adjusted_index..new_end_index];
+        if (new_end_index > self.buffer.len) return null;
         self.end_index = new_end_index;
-
-        return result;
+        return self.buffer.ptr + adjusted_index;
     }
 
     fn resize(
-        self: *FixedBufferAllocator,
+        ctx: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         new_size: usize,
-        len_align: u29,
         return_address: usize,
-    ) ?usize {
-        _ = buf_align;
+    ) bool {
+        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        _ = log2_buf_align;
         _ = return_address;
         assert(self.ownsSlice(buf)); // sanity check
 
         if (!self.isLastAllocation(buf)) {
-            if (new_size > buf.len) return null;
-            return mem.alignAllocLen(buf.len, new_size, len_align);
+            if (new_size > buf.len) return false;
+            return true;
         }
 
         if (new_size <= buf.len) {
             const sub = buf.len - new_size;
             self.end_index -= sub;
-            return mem.alignAllocLen(buf.len - sub, new_size, len_align);
+            return true;
         }
 
         const add = new_size - buf.len;
-        if (add + self.end_index > self.buffer.len) return null;
+        if (add + self.end_index > self.buffer.len) return false;
 
         self.end_index += add;
-        return new_size;
+        return true;
     }
 
     fn free(
-        self: *FixedBufferAllocator,
+        ctx: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_buf_align: u8,
         return_address: usize,
     ) void {
-        _ = buf_align;
+        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        _ = log2_buf_align;
         _ = return_address;
         assert(self.ownsSlice(buf)); // sanity check
 
@@ -832,19 +743,18 @@ pub const FixedBufferAllocator = struct {
         }
     }
 
-    fn threadSafeAlloc(self: *FixedBufferAllocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
-        _ = len_align;
+    fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
         _ = ra;
+        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
         var end_index = @atomicLoad(usize, &self.end_index, .SeqCst);
         while (true) {
-            const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse
-                return error.OutOfMemory;
+            const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
             const adjusted_index = end_index + adjust_off;
             const new_end_index = adjusted_index + n;
-            if (new_end_index > self.buffer.len) {
-                return error.OutOfMemory;
-            }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .SeqCst, .SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
+            if (new_end_index > self.buffer.len) return null;
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .SeqCst, .SeqCst) orelse
+                return self.buffer[adjusted_index..new_end_index].ptr;
         }
     }
 
@@ -878,48 +788,57 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fallback_allocator: Allocator,
         fixed_buffer_allocator: FixedBufferAllocator,
 
-        /// WARNING: This functions both fetches a `std.mem.Allocator` interface to this allocator *and* resets the internal buffer allocator
+        /// This function both fetches a `Allocator` interface to this
+        /// allocator *and* resets the internal buffer allocator.
         pub fn get(self: *Self) Allocator {
             self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
-            return Allocator.init(self, alloc, resize, free);
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                },
+            };
         }
 
         fn alloc(
-            self: *Self,
+            ctx: *anyopaque,
             len: usize,
-            ptr_align: u29,
-            len_align: u29,
-            return_address: usize,
-        ) error{OutOfMemory}![]u8 {
-            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, ptr_align, len_align, return_address) catch
-                return self.fallback_allocator.rawAlloc(len, ptr_align, len_align, return_address);
+            log2_ptr_align: u8,
+            ra: usize,
+        ) ?[*]u8 {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, log2_ptr_align, ra) orelse
+                return self.fallback_allocator.rawAlloc(len, log2_ptr_align, ra);
         }
 
         fn resize(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             new_len: usize,
-            len_align: u29,
-            return_address: usize,
-        ) ?usize {
+            ra: usize,
+        ) bool {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
-                return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, buf_align, new_len, len_align, return_address);
+                return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, log2_buf_align, new_len, ra);
             } else {
-                return self.fallback_allocator.rawResize(buf, buf_align, new_len, len_align, return_address);
+                return self.fallback_allocator.rawResize(buf, log2_buf_align, new_len, ra);
             }
         }
 
         fn free(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
-            return_address: usize,
+            log2_buf_align: u8,
+            ra: usize,
         ) void {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
-                return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, buf_align, return_address);
+                return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, log2_buf_align, ra);
             } else {
-                return self.fallback_allocator.rawFree(buf, buf_align, return_address);
+                return self.fallback_allocator.rawFree(buf, log2_buf_align, ra);
             }
         }
     };
@@ -987,11 +906,7 @@ test "PageAllocator" {
     }
 
     if (builtin.os.tag == .windows) {
-        // Trying really large alignment. As mentionned in the implementation,
-        // VirtualAlloc returns 64K aligned addresses. We want to make sure
-        // PageAllocator works beyond that, as it's not tested by
-        // `testAllocatorLargeAlignment`.
-        const slice = try allocator.alignedAlloc(u8, 1 << 20, 128);
+        const slice = try allocator.alignedAlloc(u8, mem.page_size, 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -1132,15 +1047,16 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
         allocator.destroy(item);
     }
 
-    slice = allocator.shrink(slice, 50);
-    try testing.expect(slice.len == 50);
-    slice = allocator.shrink(slice, 25);
-    try testing.expect(slice.len == 25);
-    slice = allocator.shrink(slice, 0);
-    try testing.expect(slice.len == 0);
-    slice = try allocator.realloc(slice, 10);
-    try testing.expect(slice.len == 10);
-
+    if (allocator.resize(slice, 50)) {
+        slice = slice[0..50];
+        if (allocator.resize(slice, 25)) {
+            slice = slice[0..25];
+            try testing.expect(allocator.resize(slice, 0));
+            slice = slice[0..0];
+            slice = try allocator.realloc(slice, 10);
+            try testing.expect(slice.len == 10);
+        }
+    }
     allocator.free(slice);
 
     // Zero-length allocation
@@ -1151,7 +1067,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
 
-    const oversize = try allocator.allocAdvanced(u32, null, 5, .at_least);
+    const oversize = try allocator.alignedAlloc(u32, null, 5);
     try testing.expect(oversize.len >= 5);
     for (oversize) |*item| {
         item.* = 0xDEADBEEF;
@@ -1171,21 +1087,18 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
         // grow
         slice = try allocator.realloc(slice, 100);
         try testing.expect(slice.len == 100);
-        // shrink
-        slice = allocator.shrink(slice, 10);
-        try testing.expect(slice.len == 10);
-        // go to zero
-        slice = allocator.shrink(slice, 0);
-        try testing.expect(slice.len == 0);
+        if (allocator.resize(slice, 10)) {
+            slice = slice[0..10];
+        }
+        try testing.expect(allocator.resize(slice, 0));
+        slice = slice[0..0];
         // realloc from zero
         slice = try allocator.realloc(slice, 100);
         try testing.expect(slice.len == 100);
-        // shrink with shrink
-        slice = allocator.shrink(slice, 10);
-        try testing.expect(slice.len == 10);
-        // shrink to zero
-        slice = allocator.shrink(slice, 0);
-        try testing.expect(slice.len == 0);
+        if (allocator.resize(slice, 10)) {
+            slice = slice[0..10];
+        }
+        try testing.expect(allocator.resize(slice, 0));
     }
 }
 
@@ -1193,27 +1106,24 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
 
-    //Maybe a platform's page_size is actually the same as or
-    //  very near usize?
-    if (mem.page_size << 2 > maxInt(usize)) return;
-
-    const USizeShift = std.meta.Int(.unsigned, std.math.log2(@bitSizeOf(usize)));
-    const large_align = @as(u29, mem.page_size << 2);
+    const large_align: usize = mem.page_size / 2;
 
     var align_mask: usize = undefined;
-    _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(USizeShift, @ctz(large_align)), &align_mask);
+    _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)), &align_mask);
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
-    slice = allocator.shrink(slice, 100);
-    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    if (allocator.resize(slice, 100)) {
+        slice = slice[0..100];
+    }
 
     slice = try allocator.realloc(slice, 5000);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
-    slice = allocator.shrink(slice, 10);
-    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    if (allocator.resize(slice, 10)) {
+        slice = slice[0..10];
+    }
 
     slice = try allocator.realloc(slice, 20000);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
@@ -1248,8 +1158,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    // realloc to a smaller size but with a larger alignment
-    slice = try allocator.reallocAdvanced(slice, mem.page_size * 32, alloc_size / 2, .exact);
+    slice = try allocator.reallocAdvanced(slice, alloc_size / 2, 0);
     try testing.expect(slice[0] == 0x12);
     try testing.expect(slice[60] == 0x34);
 }

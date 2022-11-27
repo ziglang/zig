@@ -72,8 +72,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
         .source = source,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
-        .extra_data = parser.extra_data.toOwnedSlice(gpa),
-        .errors = parser.errors.toOwnedSlice(gpa),
+        .extra_data = try parser.extra_data.toOwnedSlice(gpa),
+        .errors = try parser.errors.toOwnedSlice(gpa),
     };
 }
 

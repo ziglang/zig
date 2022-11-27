@@ -693,7 +693,7 @@ pub const Object = struct {
         for (mod.decl_exports.values()) |export_list, i| {
             const decl_index = export_keys[i];
             const llvm_global = object.decl_map.get(decl_index) orelse continue;
-            for (export_list) |exp| {
+            for (export_list.items) |exp| {
                 // Detect if the LLVM global has already been created as an extern. In such
                 // case, we need to replace all uses of it with this exported global.
                 // TODO update std.builtin.ExportOptions to have the name be a
@@ -1215,8 +1215,7 @@ pub const Object = struct {
             else => |e| return e,
         };
 
-        const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-        try o.updateDeclExports(module, decl_index, decl_exports);
+        try o.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -1239,8 +1238,7 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
-        const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-        try self.updateDeclExports(module, decl_index, decl_exports);
+        try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
     }
 
     /// TODO replace this with a call to `Module::getNamedValue`. This will require adding

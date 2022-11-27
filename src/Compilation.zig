@@ -5052,7 +5052,7 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
-                err.context_lines = context_lines.toOwnedSlice();
+                err.context_lines = try context_lines.toOwnedSlice();
             }
 
             var split = std.mem.split(u8, line, "error: ");
@@ -5078,7 +5078,7 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     }
 
     if (current_err) |err| {
-        err.context_lines = context_lines.toOwnedSlice();
+        err.context_lines = try context_lines.toOwnedSlice();
     }
 }
 

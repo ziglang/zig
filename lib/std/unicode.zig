@@ -611,12 +611,7 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
         assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
         out_index += utf8_len;
     }
-
-    const len = result.items.len;
-
-    try result.append(0);
-
-    return result.toOwnedSlice()[0..len :0];
+    return result.toOwnedSliceSentinel(0);
 }
 
 /// Asserts that the output buffer is big enough.
@@ -714,9 +709,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
         }
     }
 
-    const len = result.items.len;
-    try result.append(0);
-    return result.toOwnedSlice()[0..len :0];
+    return result.toOwnedSliceSentinel(0);
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.

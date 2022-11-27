@@ -2244,7 +2244,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
                 .hidden = cur_reference_trace - max_references,
             });
         }
-        err_msg.reference_trace = reference_stack.toOwnedSlice();
+        err_msg.reference_trace = try reference_stack.toOwnedSlice();
     }
     if (sema.owner_func) |func| {
         func.state = .sema_failure;
@@ -5500,20 +5500,18 @@ pub fn analyzeExport(
     // Add to export_owners table.
     const eo_gop = mod.export_owners.getOrPutAssumeCapacity(sema.owner_decl_index);
     if (!eo_gop.found_existing) {
-        eo_gop.value_ptr.* = &[0]*Export{};
+        eo_gop.value_ptr.* = .{};
     }
-    eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
-    eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
-    errdefer eo_gop.value_ptr.* = gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
+    try eo_gop.value_ptr.append(gpa, new_export);
+    errdefer _ = eo_gop.value_ptr.pop();
 
     // Add to exported_decl table.
     const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl_index);
     if (!de_gop.found_existing) {
-        de_gop.value_ptr.* = &[0]*Export{};
+        de_gop.value_ptr.* = .{};
     }
-    de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
-    de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
-    errdefer de_gop.value_ptr.* = gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
+    try de_gop.value_ptr.append(gpa, new_export);
+    errdefer _ = de_gop.value_ptr.pop();
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -10762,7 +10760,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     .payload = undefined,
                 },
             } });
-            var cond_body = case_block.instructions.toOwnedSlice(gpa);
+            var cond_body = try case_block.instructions.toOwnedSlice(gpa);
             defer gpa.free(cond_body);
 
             var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
@@ -10800,7 +10798,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 sema.air_extra.appendSliceAssumeCapacity(cond_body);
             }
             gpa.free(prev_then_body);
-            prev_then_body = case_block.instructions.toOwnedSlice(gpa);
+            prev_then_body = try case_block.instructions.toOwnedSlice(gpa);
             prev_cond_br = new_cond_br;
         }
     }
@@ -16318,7 +16316,7 @@ fn zirCondbr(
     defer sub_block.instructions.deinit(gpa);
 
     try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);
-    const true_instructions = sub_block.instructions.toOwnedSlice(gpa);
+    const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
     const err_cond = blk: {

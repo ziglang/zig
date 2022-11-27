@@ -338,7 +338,7 @@ const TestManifest = struct {
         while (try it.next()) |item| {
             try out.append(item);
         }
-        return out.toOwnedSlice();
+        return try out.toOwnedSlice();
     }
 
     fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) !T {
@@ -361,7 +361,7 @@ const TestManifest = struct {
         while (it.next()) |line| {
             try out.append(line);
         }
-        return out.toOwnedSlice();
+        return try out.toOwnedSlice();
     }
 
     fn ParseFn(comptime T: type) type {
@@ -1179,7 +1179,7 @@ pub const TestContext = struct {
                             if (output.items.len > 0) {
                                 try output.resize(output.items.len - 1);
                             }
-                            case.addCompareOutput(src, output.toOwnedSlice());
+                            case.addCompareOutput(src, try output.toOwnedSlice());
                         },
                         .cli => @panic("TODO cli tests"),
                     }

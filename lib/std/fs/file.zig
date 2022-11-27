@@ -954,11 +954,9 @@ pub const File = struct {
         };
 
         if (optional_sentinel) |sentinel| {
-            try array_list.append(sentinel);
-            const buf = array_list.toOwnedSlice();
-            return buf[0 .. buf.len - 1 :sentinel];
+            return try array_list.toOwnedSliceSentinel(sentinel);
         } else {
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
     }
 

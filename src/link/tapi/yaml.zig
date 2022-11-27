@@ -193,7 +193,7 @@ pub const Value = union(ValueType) {
                 }
             }
 
-            return Value{ .list = out_list.toOwnedSlice() };
+            return Value{ .list = try out_list.toOwnedSlice() };
         } else if (node.cast(Node.Value)) |value| {
             const start = tree.tokens[value.start.?];
             const end = tree.tokens[value.end.?];

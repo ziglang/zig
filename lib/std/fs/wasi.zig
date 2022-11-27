@@ -160,7 +160,7 @@ pub const PreopenList = struct {
         if (cwd_root) |root| assert(fs.path.isAbsolute(root));
 
         // Clear contents if we're being called again
-        for (self.toOwnedSlice()) |preopen| {
+        for (try self.toOwnedSlice()) |preopen| {
             switch (preopen.type) {
                 PreopenType.Dir => |path| self.buffer.allocator.free(path),
             }
@@ -263,8 +263,8 @@ pub const PreopenList = struct {
     }
 
     /// The caller owns the returned memory. ArrayList becomes empty.
-    pub fn toOwnedSlice(self: *Self) []Preopen {
-        return self.buffer.toOwnedSlice();
+    pub fn toOwnedSlice(self: *Self) ![]Preopen {
+        return try self.buffer.toOwnedSlice();
     }
 };
 

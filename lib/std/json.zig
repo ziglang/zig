@@ -1668,12 +1668,10 @@ fn parseInternal(
 
                             if (ptrInfo.sentinel) |some| {
                                 const sentinel_value = @ptrCast(*align(1) const ptrInfo.child, some).*;
-                                try arraylist.append(sentinel_value);
-                                const output = arraylist.toOwnedSlice();
-                                return output[0 .. output.len - 1 :sentinel_value];
+                                return try arraylist.toOwnedSliceSentinel(sentinel_value);
                             }
 
-                            return arraylist.toOwnedSlice();
+                            return try arraylist.toOwnedSlice();
                         },
                         .String => |stringToken| {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;

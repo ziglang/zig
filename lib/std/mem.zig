@@ -47,7 +47,14 @@ pub fn ValidationAllocator(comptime T: type) type {
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize, free);
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                },
+            };
         }
 
         fn getUnderlyingAllocatorPtr(self: *Self) Allocator {
@@ -56,72 +63,48 @@ pub fn ValidationAllocator(comptime T: type) type {
         }
 
         pub fn alloc(
-            self: *Self,
+            ctx: *anyopaque,
             n: usize,
-            ptr_align: u29,
-            len_align: u29,
+            log2_ptr_align: u8,
             ret_addr: usize,
-        ) Allocator.Error![]u8 {
+        ) ?[*]u8 {
             assert(n > 0);
-            assert(mem.isValidAlign(ptr_align));
-            if (len_align != 0) {
-                assert(mem.isAlignedAnyAlign(n, len_align));
-                assert(n >= len_align);
-            }
-
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.rawAlloc(n, ptr_align, len_align, ret_addr);
-            assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
-            if (len_align == 0) {
-                assert(result.len == n);
-            } else {
-                assert(result.len >= n);
-                assert(mem.isAlignedAnyAlign(result.len, len_align));
-            }
+            const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
+                return null;
+            assert(mem.isAlignedLog2(@ptrToInt(result), log2_ptr_align));
             return result;
         }
 
         pub fn resize(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             new_len: usize,
-            len_align: u29,
             ret_addr: usize,
-        ) ?usize {
+        ) bool {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             assert(buf.len > 0);
-            if (len_align != 0) {
-                assert(mem.isAlignedAnyAlign(new_len, len_align));
-                assert(new_len >= len_align);
-            }
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr) orelse return null;
-            if (len_align == 0) {
-                assert(result == new_len);
-            } else {
-                assert(result >= new_len);
-                assert(mem.isAlignedAnyAlign(result, len_align));
-            }
-            return result;
+            return underlying.rawResize(buf, log2_buf_align, new_len, ret_addr);
         }
 
         pub fn free(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             ret_addr: usize,
         ) void {
-            _ = self;
-            _ = buf_align;
+            _ = ctx;
+            _ = log2_buf_align;
             _ = ret_addr;
             assert(buf.len > 0);
         }
 
-        pub usingnamespace if (T == Allocator or !@hasDecl(T, "reset")) struct {} else struct {
-            pub fn reset(self: *Self) void {
-                self.underlying_allocator.reset();
-            }
-        };
+        pub fn reset(self: *Self) void {
+            self.underlying_allocator.reset();
+        }
     };
 }
 
@@ -151,16 +134,15 @@ const fail_allocator = Allocator{
 
 const failAllocator_vtable = Allocator.VTable{
     .alloc = failAllocatorAlloc,
-    .resize = Allocator.NoResize(anyopaque).noResize,
-    .free = Allocator.NoOpFree(anyopaque).noOpFree,
+    .resize = Allocator.noResize,
+    .free = Allocator.noFree,
 };
 
-fn failAllocatorAlloc(_: *anyopaque, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+fn failAllocatorAlloc(_: *anyopaque, n: usize, log2_alignment: u8, ra: usize) ?[*]u8 {
     _ = n;
-    _ = alignment;
-    _ = len_align;
+    _ = log2_alignment;
     _ = ra;
-    return error.OutOfMemory;
+    return null;
 }
 
 test "Allocator basics" {
@@ -188,7 +170,8 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intCast(T, i);
-        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
+        if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
+        values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
     }
 
@@ -203,7 +186,8 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intToFloat(T, i);
-        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
+        if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
+        values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
     }
 }
@@ -3108,7 +3092,7 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 /// - The aligned pointer would not fit the address space,
 /// - The delta required to align the pointer is not a multiple of the pointee's
 ///   type.
-pub fn alignPointerOffset(ptr: anytype, align_to: u29) ?usize {
+pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
     assert(align_to != 0 and @popCount(align_to) == 1);
 
     const T = @TypeOf(ptr);
@@ -3140,7 +3124,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: u29) ?usize {
 /// - The aligned pointer would not fit the address space,
 /// - The delta required to align the pointer is not a multiple of the pointee's
 ///   type.
-pub fn alignPointer(ptr: anytype, align_to: u29) ?@TypeOf(ptr) {
+pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
     const adjust_off = alignPointerOffset(ptr, align_to) orelse return null;
     const T = @TypeOf(ptr);
     // Avoid the use of intToPtr to avoid losing the pointer provenance info.
@@ -3149,7 +3133,7 @@ pub fn alignPointer(ptr: anytype, align_to: u29) ?@TypeOf(ptr) {
 
 test "alignPointer" {
     const S = struct {
-        fn checkAlign(comptime T: type, base: usize, align_to: u29, expected: usize) !void {
+        fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
             var ptr = @intToPtr(T, base);
             var aligned = alignPointer(ptr, align_to);
             try testing.expectEqual(expected, @ptrToInt(aligned));
@@ -3566,6 +3550,11 @@ pub fn alignForward(addr: usize, alignment: usize) usize {
     return alignForwardGeneric(usize, addr, alignment);
 }
 
+pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
+    const alignment = @as(usize, 1) << @intCast(math.Log2Int(usize), log2_alignment);
+    return alignForward(addr, alignment);
+}
+
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
@@ -3626,7 +3615,7 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
-pub fn isValidAlign(alignment: u29) bool {
+pub fn isValidAlign(alignment: usize) bool {
     return @popCount(alignment) == 1;
 }
 
@@ -3635,6 +3624,10 @@ pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
         return isAligned(i, alignment);
     assert(alignment != 0);
     return 0 == @mod(i, alignment);
+}
+
+pub fn isAlignedLog2(addr: usize, log2_alignment: u8) bool {
+    return @ctz(addr) >= log2_alignment;
 }
 
 /// Given an address and an alignment, return true if the address is a multiple of the alignment
@@ -3670,7 +3663,7 @@ test "freeing empty string with null-terminated sentinel" {
 
 /// Returns a slice with the given new alignment,
 /// all other pointer attributes copied from `AttributeSource`.
-fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: u29) type {
+fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) type {
     const info = @typeInfo(AttributeSource).Pointer;
     return @Type(.{
         .Pointer = .{

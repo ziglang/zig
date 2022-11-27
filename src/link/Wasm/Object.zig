@@ -557,7 +557,7 @@ fn Parser(comptime ReaderType: type) type {
                 error.EndOfStream => {}, // finished parsing the file
                 else => |e| return e,
             }
-            parser.object.relocatable_data = relocatable_data.toOwnedSlice();
+            parser.object.relocatable_data = try relocatable_data.toOwnedSlice();
         }
 
         /// Based on the "features" custom section, parses it into a list of
@@ -742,7 +742,7 @@ fn Parser(comptime ReaderType: type) type {
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
 
-                    parser.object.symtable = symbols.toOwnedSlice();
+                    parser.object.symtable = try symbols.toOwnedSlice();
                 },
             }
         }

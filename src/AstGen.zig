@@ -199,8 +199,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 
     return Zir{
         .instructions = astgen.instructions.toOwnedSlice(),
-        .string_bytes = astgen.string_bytes.toOwnedSlice(gpa),
-        .extra = astgen.extra.toOwnedSlice(gpa),
+        .string_bytes = try astgen.string_bytes.toOwnedSlice(gpa),
+        .extra = try astgen.extra.toOwnedSlice(gpa),
     };
 }
 
