@@ -3788,10 +3788,18 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, .Mut);
     try writer.writeAll(";\n");
 
+    const operand_lval = if (operand == .constant) blk: {
+        const operand_local = try f.allocLocal(f.air.typeOf(ty_op.operand), .Const);
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, operand, .Initializer);
+        try writer.writeAll(";\n");
+        break :blk operand_local;
+    } else operand;
+
     try writer.writeAll("memcpy(&");
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(", &");
-    try f.writeCValue(writer, operand, .Other);
+    try f.writeCValue(writer, operand_lval, .Other);
     try writer.writeAll(", sizeof(");
     try f.renderTypecast(writer, inst_ty);
     try writer.writeAll("));\n");
