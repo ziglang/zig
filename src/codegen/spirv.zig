@@ -410,6 +410,44 @@ pub const DeclGen = struct {
                     .value = value,
                 });
             },
+            .Array => switch (val.tag()) {
+                .aggregate => { // todo: combine with Vector
+                    const elem_vals = val.castTag(.aggregate).?.data;
+                    const elem_ty = ty.elemType();
+                    const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
+                    const constituents = try self.spv.gpa.alloc(IdRef, len);
+                    defer self.spv.gpa.free(constituents);
+                    for (elem_vals[0..len]) |elem_val, i| {
+                        constituents[i] = try self.genConstant(elem_ty, elem_val);
+                    }
+                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                        .id_result_type = result_type_id,
+                        .id_result = result_id,
+                        .constituents = constituents,
+                    });
+                },
+                .repeated => {
+                    const elem_val = val.castTag(.repeated).?.data;
+                    const elem_ty = ty.elemType();
+                    const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
+                    const constituents = try self.spv.gpa.alloc(IdRef, len);
+                    defer self.spv.gpa.free(constituents);
+
+                    const elem_val_id = try self.genConstant(elem_ty, elem_val);
+                    for (constituents[0..len]) |*elem| {
+                        elem.* = elem_val_id;
+                    }
+                    if (ty.sentinel()) |sentinel| {
+                        constituents[len] = try self.genConstant(elem_ty, sentinel);
+                    }
+                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                        .id_result_type = result_type_id,
+                        .id_result = result_id,
+                        .constituents = constituents,
+                    });
+                },
+                else => return self.todo("array constant with tag {s}", .{@tagName(val.tag())}),
+            },
             .Vector => switch (val.tag()) {
                 .aggregate => {
                     const elem_vals = val.castTag(.aggregate).?.data;
@@ -427,19 +465,19 @@ pub const DeclGen = struct {
                         .constituents = elem_refs,
                     });
                 },
-                else => unreachable, // TODO
+                else => return self.todo("vector constant with tag {s}", .{@tagName(val.tag())}),
             },
             .Enum => {
-                var int_buffer: Value.Payload.U64 = undefined;
-                const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target);
-
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
+                var ty_buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&ty_buffer);
                 const int_info = int_ty.intInfo(target);
 
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     return self.todo("implement composite int constants for {}", .{int_ty.fmtDebug()});
                 };
+
+                var int_buffer: Value.Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target); // TODO: composite integer constants
 
                 const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
                     1...32 => .{ .uint32 = @truncate(u32, int_val) },
@@ -451,6 +489,48 @@ pub const DeclGen = struct {
                     .id_result_type = result_type_id,
                     .id_result = result_id,
                     .value = value,
+                });
+            },
+            .Struct => {
+                const constituents = if (ty.isSimpleTupleOrAnonStruct()) blk: {
+                    const tuple = ty.tupleFields();
+                    const constituents = try self.spv.gpa.alloc(IdRef, tuple.types.len);
+                    errdefer self.spv.gpa.free(constituents);
+
+                    var member_index: usize = 0;
+                    for (tuple.types) |field_ty, i| {
+                        const field_val = tuple.values[i];
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
+                        constituents[member_index] = try self.genConstant(field_ty, field_val);
+                        member_index += 1;
+                    }
+
+                    break :blk constituents[0..member_index];
+                } else blk: {
+                    const struct_ty = ty.castTag(.@"struct").?.data;
+
+                    if (struct_ty.layout == .Packed) {
+                        return self.todo("packed struct constants", .{});
+                    }
+
+                    const field_vals = val.castTag(.aggregate).?.data;
+                    const constituents = try self.spv.gpa.alloc(IdRef, struct_ty.fields.count());
+                    errdefer self.spv.gpa.free(constituents);
+                    var member_index: usize = 0;
+                    for (struct_ty.fields.values()) |field, i| {
+                        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                        constituents[member_index] = try self.genConstant(field.ty, field_vals[i]);
+                        member_index += 1;
+                    }
+
+                    break :blk constituents[0..member_index];
+                };
+                defer self.spv.gpa.free(constituents);
+
+                try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                    .id_result_type = result_type_id,
+                    .id_result = result_id,
+                    .constituents = constituents,
                 });
             },
             .Void => unreachable,
@@ -539,9 +619,8 @@ pub const DeclGen = struct {
             },
             .Array => {
                 const elem_ty = ty.childType();
-                const total_len_u64 = ty.arrayLen() + @boolToInt(ty.sentinel() != null);
-                const total_len = std.math.cast(u32, total_len_u64) orelse {
-                    return self.fail("array type of {} elements is too large", .{total_len_u64});
+                const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel()) orelse {
+                    return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel()});
                 };
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Array);
@@ -630,6 +709,7 @@ pub const DeclGen = struct {
                             .ty = try self.resolveType(field_ty),
                             .offset = 0,
                         };
+                        member_index += 1;
                     }
 
                     const payload = try self.spv.arena.create(SpvType.Payload.Struct);
