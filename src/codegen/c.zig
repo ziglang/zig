@@ -4580,7 +4580,18 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValu
     const operand_is_ptr = operand_ty.zigTypeTag() == .Pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
 
-    if (!error_union_ty.errorUnionPayload().hasRuntimeBits()) return CValue.none;
+    if (!error_union_ty.errorUnionPayload().hasRuntimeBits()) {
+        if (!is_ptr) return CValue.none;
+
+        const local = try f.allocLocal(inst_ty, .Const);
+        const w = f.object.writer();
+        try w.writeAll(" = (");
+        try f.renderTypecast(w, inst_ty);
+        try w.writeByte(')');
+        try f.writeCValue(w, operand, .Initializer);
+        try w.writeAll(";\n");
+        return local;
+    }
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
