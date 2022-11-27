@@ -1961,7 +1961,7 @@ pub const DeclGen = struct {
         try buffer.appendSlice("static ");
         try dg.renderType(bw, name_slice_ty, .Complete);
         const name_begin = buffer.items.len + " ".len;
-        try bw.print(" zig_tagName_{}(", .{typeToCIdentifier(enum_ty, dg.module)});
+        try bw.print(" zig_tagName_{}_{d}(", .{ typeToCIdentifier(enum_ty, dg.module), @enumToInt(enum_ty.getOwnerDecl()) });
         const name_end = buffer.items.len - "(".len;
         try dg.renderTypeAndName(bw, enum_ty, .{ .identifier = "tag" }, .Const, 0, .Complete);
         try buffer.appendSlice(") {\n switch (tag) {\n");
@@ -2111,11 +2111,16 @@ pub const DeclGen = struct {
             return writer.writeAll(exports.items[0].options.name);
         } else if (decl.isExtern()) {
             return writer.writeAll(mem.sliceTo(decl.name, 0));
+        } else if (dg.module.test_functions.get(decl_index)) |_| {
+            const gpa = dg.gpa;
+            const name = try decl.getFullyQualifiedName(dg.module);
+            defer gpa.free(name);
+            return writer.print("{}_{d}", .{ fmtIdent(name), @enumToInt(decl_index) });
         } else {
             const gpa = dg.gpa;
             const name = try decl.getFullyQualifiedName(dg.module);
             defer gpa.free(name);
-            return writer.print("{ }", .{fmtIdent(name)});
+            return writer.print("{}", .{fmtIdent(name)});
         }
     }
 
