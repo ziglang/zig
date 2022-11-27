@@ -1468,7 +1468,7 @@ pub const DeclGen = struct {
             if (field_id == 0) try buffer.appendSlice(" char empty_tuple;\n");
         }
         const name_begin = buffer.items.len + "} ".len;
-        try buffer.writer().print("}} zig_T_{};\n", .{typeToCIdentifier(t, dg.module)});
+        try buffer.writer().print("}} zig_T_{}_{d};\n", .{ typeToCIdentifier(t, dg.module), @truncate(u16, t.hash(dg.module)) });
         const name_end = buffer.items.len - ";\n".len;
 
         const rendered = try buffer.toOwnedSlice();
