@@ -2981,33 +2981,35 @@ pub const RTL_QUERY_REGISTRY_DELETE = 0x00000040;
 /// If the types do not match, the call fails.
 pub const RTL_QUERY_REGISTRY_TYPECHECK = 0x00000100;
 
-/// No value type
-pub const REG_NONE = 0;
-/// Unicode nul terminated string
-pub const REG_SZ = 1;
-/// Unicode nul terminated string (with environment variable references)
-pub const REG_EXPAND_SZ = 2;
-/// Free form binary
-pub const REG_BINARY = 3;
-/// 32-bit number
-pub const REG_DWORD = 4;
-/// 32-bit number (same as REG_DWORD)
-pub const REG_DWORD_LITTLE_ENDIAN = 4;
-/// 32-bit number
-pub const REG_DWORD_BIG_ENDIAN = 5;
-/// Symbolic Link (unicode)
-pub const REG_LINK = 6;
-/// Multiple Unicode strings
-pub const REG_MULTI_SZ = 7;
-/// Resource list in the resource map
-pub const REG_RESOURCE_LIST = 8;
-/// Resource list in the hardware description
-pub const REG_FULL_RESOURCE_DESCRIPTOR = 9;
-pub const REG_RESOURCE_REQUIREMENTS_LIST = 10;
-/// 64-bit number
-pub const REG_QWORD = 11;
-/// 64-bit number (same as REG_QWORD)
-pub const REG_QWORD_LITTLE_ENDIAN = 11;
+pub const REG = struct {
+    /// No value type
+    pub const NONE: ULONG = 0;
+    /// Unicode nul terminated string
+    pub const SZ: ULONG = 1;
+    /// Unicode nul terminated string (with environment variable references)
+    pub const EXPAND_SZ: ULONG = 2;
+    /// Free form binary
+    pub const BINARY: ULONG = 3;
+    /// 32-bit number
+    pub const DWORD: ULONG = 4;
+    /// 32-bit number (same as REG_DWORD)
+    pub const DWORD_LITTLE_ENDIAN: ULONG = 4;
+    /// 32-bit number
+    pub const DWORD_BIG_ENDIAN: ULONG = 5;
+    /// Symbolic Link (unicode)
+    pub const LINK: ULONG = 6;
+    /// Multiple Unicode strings
+    pub const MULTI_SZ: ULONG = 7;
+    /// Resource list in the resource map
+    pub const RESOURCE_LIST: ULONG = 8;
+    /// Resource list in the hardware description
+    pub const FULL_RESOURCE_DESCRIPTOR: ULONG = 9;
+    pub const RESOURCE_REQUIREMENTS_LIST: ULONG = 10;
+    /// 64-bit number
+    pub const QWORD: ULONG = 11;
+    /// 64-bit number (same as REG_QWORD)
+    pub const QWORD_LITTLE_ENDIAN: ULONG = 11;
+};
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
