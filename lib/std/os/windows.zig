@@ -3004,6 +3004,10 @@ pub const REG_RESOURCE_LIST = 8;
 /// Resource list in the hardware description
 pub const REG_FULL_RESOURCE_DESCRIPTOR = 9;
 pub const REG_RESOURCE_REQUIREMENTS_LIST = 10;
+/// 64-bit number
+pub const REG_QWORD = 11;
+/// 64-bit number (same as REG_QWORD)
+pub const REG_QWORD_LITTLE_ENDIAN = 11;
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,

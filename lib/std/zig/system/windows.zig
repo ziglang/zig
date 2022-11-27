@@ -92,12 +92,7 @@ const Armv8CpuInfoImpl = struct {
     }
 };
 
-fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8) ![]const u8 {
-    // Technically, a registry value can be as long as 16k u16s. However, MS recommends storing
-    // values larger than 2048 in a file rather than directly in the registry, and since we
-    // are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
-    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
-    const max_sz_value = 2048;
+fn getCpuInfoFromRegistry(comptime T: type, core: usize, comptime key: []const u8) !T {
     const key_name = std.unicode.utf8ToUtf16LeStringLiteral(key);
 
     // Originally, I wanted to issue a single call with a more complex table structure such that we
@@ -110,11 +105,38 @@ fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8) ![]const u8 {
 
     const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
 
-    var buf: [max_sz_value]u16 = undefined;
-    var buf_uni = std.os.windows.UNICODE_STRING{
-        .Length = buf.len * 2,
-        .MaximumLength = buf.len * 2,
-        .Buffer = &buf,
+    // Technically, a registry value can be as long as 16k u16s. However, MS recommends storing
+    // values larger than 2048 in a file rather than directly in the registry, and since we
+    // are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
+    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
+    const max_sz_value = 2048;
+
+    const ctx: *anyopaque = blk: {
+        switch (@typeInfo(T)) {
+            .Int => |int| {
+                const bits = int.bits;
+                var buf: [bits * 8]u8 = undefined;
+                break :blk &buf;
+            },
+            .Pointer => |ptr| switch (ptr.size) {
+                .Slice => {
+                    const child = @typeInfo(ptr.child);
+                    if (child != .Int and child.Int.bits != 8) {
+                        @compileError("Unsupported type " ++ @typeName(T) ++ " as registry value");
+                    }
+
+                    var buf: [max_sz_value]u16 = undefined;
+                    var unicode = std.os.windows.UNICODE_STRING{
+                        .Length = buf.len * 2,
+                        .MaximumLength = buf.len * 2,
+                        .Buffer = &buf,
+                    };
+                    break :blk &unicode;
+                },
+                else => @compileError("Unsupported type " ++ @typeName(T) ++ " as registry value"),
+            },
+            else => @compileError("Unsupported type " ++ @typeName(T) ++ " as registry value"),
+        }
     };
 
     const max_cpu_buf = 4;
@@ -139,7 +161,7 @@ fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8) ![]const u8 {
         .QueryRoutine = null,
         .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
         .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
-        .EntryContext = &buf_uni,
+        .EntryContext = ctx,
         .DefaultType = std.os.windows.REG_NONE,
         .DefaultData = null,
         .DefaultLength = 0,
@@ -164,10 +186,18 @@ fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8) ![]const u8 {
         null,
     );
     switch (res) {
-        .SUCCESS => {
-            var identifier_buf: [max_sz_value * 2]u8 = undefined;
-            const len = try std.unicode.utf16leToUtf8(&identifier_buf, buf_uni.Buffer[0 .. buf_uni.Length / 2]);
-            return identifier_buf[0..len];
+        .SUCCESS => switch (@typeInfo(T)) {
+            .Int => {
+                const entry = @ptrCast(*align(1) const T, table[1].EntryContext);
+                return entry.*;
+            },
+            .Pointer => {
+                const entry = @ptrCast(*align(1) const std.os.windows.UNICODE_STRING, table[1].EntryContext);
+                var identifier_buf: [max_sz_value * 2]u8 = undefined;
+                const len = try std.unicode.utf16leToUtf8(&identifier_buf, entry.Buffer[0 .. entry.Length / 2]);
+                return @as(T, identifier_buf[0..len]);
+            },
+            else => unreachable,
         },
         else => return std.os.windows.unexpectedStatus(res),
     }
@@ -186,8 +216,11 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
 
     var i: usize = 0;
     while (i < cpu_count) : (i += 1) {
-        const identifier = try getCpuInfoFromRegistry(i, "Identifier");
+        const identifier = try getCpuInfoFromRegistry([]const u8, i, "Identifier");
         parser.parseOne(identifier);
+
+        const hex = try getCpuInfoFromRegistry(u64, i, "CP 4000");
+        std.log.warn("{d} => {x}", .{ i, hex });
     }
 
     return parser.finalize() orelse Target.Cpu.Model.generic(.aarch64);
