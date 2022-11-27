@@ -19,7 +19,7 @@ pub fn main() !void {
     };
     if (builtin.target.os.tag == .windows) {
         // windows.HANDLE_FLAG_INHERIT is enabled
-        var handle_flags = windows.DWORD;
+        var handle_flags: windows.DWORD = undefined;
         try windows.GetHandleInformation(file_handle, &handle_flags);
         try std.testing.expect(handle_flags & windows.HANDLE_FLAG_INHERIT != 0);
     } else {
