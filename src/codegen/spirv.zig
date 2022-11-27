@@ -858,8 +858,14 @@ pub const DeclGen = struct {
             .slice_len      => try self.airSliceField(inst, 1),
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
             .slice_elem_val => try self.airSliceElemVal(inst),
+            .ptr_elem_ptr   => try self.airPtrElemPtr(inst),
 
             .struct_field_val => try self.airStructFieldVal(inst),
+
+            .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
+            .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
+            .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
+            .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
             .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
             .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
@@ -1337,6 +1343,31 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
+    fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const result_ty = self.air.typeOfIndex(inst);
+        const elem_ty = ptr_ty.childType();
+        // TODO: Make this return a null ptr or something
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime()) return null;
+
+        const result_type_id = try self.resolveTypeId(result_ty);
+        const base_ptr = try self.resolve(bin_op.lhs);
+        const rhs = try self.resolve(bin_op.rhs);
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .base = base_ptr,
+            .indexes = &.{rhs},
+        });
+        return result_id.toRef();
+    }
+
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -1361,6 +1392,49 @@ pub const DeclGen = struct {
             .indexes = &.{field_index},
         });
         return result_id.toRef();
+    }
+
+    fn structFieldPtr(
+        self: *DeclGen,
+        result_ptr_ty: Type,
+        object_ptr_ty: Type,
+        object_ptr: IdRef,
+        field_index: u32,
+    ) !?IdRef {
+        const object_ty = object_ptr_ty.childType();
+        switch (object_ty.zigTypeTag()) {
+            .Struct => switch (object_ty.containerLayout()) {
+                .Packed => unreachable, // TODO
+                else => {
+                    const field_index_id = self.spv.allocId();
+                    const u32_ty_id = self.spv.typeResultId(try self.intType(.unsigned, 32));
+                    try self.func.body.emit(self.spv.gpa, .OpConstant, .{
+                        .id_result_type = u32_ty_id,
+                        .id_result = field_index_id,
+                        .value = .{ .uint32 = field_index },
+                    });
+                    const result_id = self.spv.allocId();
+                    const result_type_id = try self.resolveTypeId(result_ptr_ty);
+                    try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+                        .id_result_type = result_type_id,
+                        .id_result = result_id,
+                        .base = object_ptr,
+                        .indexes = &.{field_index_id.toRef()},
+                    });
+                    return result_id.toRef();
+                },
+            },
+            else => unreachable, // TODO
+        }
+    }
+
+    fn airStructFieldPtrIndex(self: *DeclGen, inst: Air.Inst.Index, field_index: u32) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const struct_ptr = try self.resolve(ty_op.operand);
+        const struct_ptr_ty = self.air.typeOf(ty_op.operand);
+        const result_ptr_ty = self.air.typeOfIndex(inst);
+        return try self.structFieldPtr(result_ptr_ty, struct_ptr_ty, struct_ptr, field_index);
     }
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
