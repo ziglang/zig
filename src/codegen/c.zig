@@ -3894,9 +3894,13 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
 
     try writer.writeAll("switch (");
-    if (condition_ty.tag() == .bool) {
+    if (condition_ty.zigTypeTag() == .Bool) {
         try writer.writeByte('(');
         try f.renderTypecast(writer, Type.u1);
+        try writer.writeByte(')');
+    } else if (condition_ty.isPtrAtRuntime()) {
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, Type.usize);
         try writer.writeByte(')');
     }
     try f.writeCValue(writer, condition, .Other);
@@ -3914,6 +3918,11 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         for (items) |item| {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
+            if (condition_ty.isPtrAtRuntime()) {
+                try writer.writeByte('(');
+                try f.renderTypecast(writer, Type.usize);
+                try writer.writeByte(')');
+            }
             try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
             try writer.writeAll(": ");
         }
