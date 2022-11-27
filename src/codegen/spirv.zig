@@ -850,6 +850,8 @@ pub const DeclGen = struct {
             .bool_and => try self.airBinOpSimple(inst, .OpLogicalAnd),
             .bool_or  => try self.airBinOpSimple(inst, .OpLogicalOr),
 
+            .shl => try self.airShift(inst, .OpShiftLeftLogical),
+
             .bitcast => try self.airBitcast(inst),
             .intcast => try self.airIntcast(inst),
             .not     => try self.airNot(inst),
@@ -924,6 +926,31 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .operand_1 = lhs_id,
             .operand_2 = rhs_id,
+        });
+        return result_id.toRef();
+    }
+
+    fn airShift(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
+        const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
+
+        // the shift and the base must be the same type in SPIR-V, but in Zig the shift is a smaller int.
+        const shift_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
+            .id_result_type = result_type_id,
+            .id_result = shift_id,
+            .unsigned_value = rhs_id,
+        });
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, opcode, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .base = lhs_id,
+            .shift = shift_id.toRef(),
         });
         return result_id.toRef();
     }
