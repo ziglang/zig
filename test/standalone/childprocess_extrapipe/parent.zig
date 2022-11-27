@@ -62,7 +62,7 @@ pub fn main() !void {
     try child_process.spawn(.{ .pipe_info_fn = testPipeInfo });
     try std.testing.expect(child_process.extra_streams.?[0].input == null);
     if (builtin.target.os.tag == .windows) {
-        var handle_flags = windows.DWORD;
+        var handle_flags: windows.DWORD = undefined;
         try windows.GetHandleInformation(child_process.extra_streams.?[0].output.?.handle, &handle_flags);
         std.debug.assert(handle_flags & windows.HANDLE_FLAG_INHERIT != 0);
     } else {
