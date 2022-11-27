@@ -227,13 +227,12 @@ pub fn DeviceIoControl(
 
 pub const GetHandleInformationError = error{Unexpected};
 
-pub fn GetHandleInformation(h: HANDLE, flags: *DWORD) GetHandleInformationError!DWORD {
+pub fn GetHandleInformation(h: HANDLE, flags: *DWORD) GetHandleInformationError!void {
     if (kernel32.GetHandleInformation(h, flags) == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
-    return flags.*;
 }
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
