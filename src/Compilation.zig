@@ -639,14 +639,6 @@ pub const AllErrors = struct {
                 note_i += 1;
             }
         }
-        if (module_err_msg.src_loc.lazy == .entire_file) {
-            try errors.append(.{
-                .plain = .{
-                    .msg = try allocator.dupe(u8, module_err_msg.msg),
-                },
-            });
-            return;
-        }
 
         const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
         for (reference_trace) |*reference, i| {
@@ -683,7 +675,7 @@ pub const AllErrors = struct {
                 .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
                 .reference_trace = reference_trace,
-                .source_line = try allocator.dupe(u8, err_loc.source_line),
+                .source_line = if (module_err_msg.src_loc.lazy == .entire_file) null else try allocator.dupe(u8, err_loc.source_line),
             },
         });
     }
@@ -3080,6 +3072,57 @@ pub fn performAllTheWork(
         }
     }
 
+    if (comp.bin_file.options.module) |mod| {
+        for (mod.import_table.values()) |file| {
+            if (!file.multi_pkg) continue;
+            const err = err_blk: {
+                const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
+                errdefer mod.gpa.free(notes);
+
+                for (notes) |*note, i| {
+                    errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
+                    note.* = switch (file.references.items[i]) {
+                        .import => |loc| try Module.ErrorMsg.init(
+                            mod.gpa,
+                            loc,
+                            "imported from package {s}",
+                            .{loc.file_scope.pkg.name},
+                        ),
+                        .root => |pkg| try Module.ErrorMsg.init(
+                            mod.gpa,
+                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                            "root of package {s}",
+                            .{pkg.name},
+                        ),
+                    };
+                }
+                errdefer for (notes) |*n| n.deinit(mod.gpa);
+
+                const err = try Module.ErrorMsg.create(
+                    mod.gpa,
+                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                    "file exists in multiple packages",
+                    .{},
+                );
+                err.notes = notes;
+                break :err_blk err;
+            };
+            errdefer err.destroy(mod.gpa);
+            try mod.failed_files.putNoClobber(mod.gpa, file, err);
+        }
+
+        // Now that we've reported the errors, we need to deal with
+        // dependencies. Any file referenced by a multi_pkg file should also be
+        // marked multi_pkg and have its status set to astgen_failure, as it's
+        // ambiguous which package they should be analyzed as a part of. We need
+        // to add this flag after reporting the errors however, as otherwise
+        // we'd get an error for every single downstream file, which wouldn't be
+        // very useful.
+        for (mod.import_table.values()) |file| {
+            if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
+        }
+    }
+
     {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
@@ -3504,7 +3547,15 @@ fn workerAstGenFile(
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
-                break :blk mod.importFile(file, import_path) catch continue;
+                const res = mod.importFile(file, import_path) catch continue;
+                if (!res.is_pkg) {
+                    res.file.addReference(mod.*, .{ .import = .{
+                        .file_scope = file,
+                        .parent_decl_node = 0,
+                        .lazy = .{ .token_abs = item.data.token },
+                    } }) catch continue;
+                }
+                break :blk res;
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
