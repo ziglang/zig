@@ -542,9 +542,14 @@ pub const DeclGen = struct {
                             return dg.renderParentPtr(writer, field_ptr.container_ptr, host_ty);
                         },
                     },
-                    .Union => FieldInfo{
-                        .name = container_ty.unionFields().keys()[index],
-                        .ty = container_ty.unionFields().values()[index].ty,
+                    .Union => switch (container_ty.containerLayout()) {
+                        .Auto, .Extern => FieldInfo{
+                            .name = container_ty.unionFields().keys()[index],
+                            .ty = container_ty.unionFields().values()[index].ty,
+                        },
+                        .Packed => {
+                            return dg.renderParentPtr(writer, field_ptr.container_ptr, ptr_ty);
+                        },
                     },
                     .Pointer => field_info: {
                         assert(container_ty.isSlice());
@@ -1165,6 +1170,27 @@ pub const DeclGen = struct {
                     try writer.writeByte(')');
                 }
 
+                const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
+                const field_ty = ty.unionFields().values()[index].ty;
+                const field_name = ty.unionFields().keys()[index];
+                if (ty.containerLayout() == .Packed) {
+                    if (field_ty.hasRuntimeBits()) {
+                        if (field_ty.isPtrAtRuntime()) {
+                            try writer.writeByte('(');
+                            try dg.renderTypecast(writer, ty);
+                            try writer.writeByte(')');
+                        } else if (field_ty.zigTypeTag() == .Float) {
+                            try writer.writeByte('(');
+                            try dg.renderTypecast(writer, ty);
+                            try writer.writeByte(')');
+                        }
+                        try dg.renderValue(writer, field_ty, union_obj.val, .Initializer);
+                    } else {
+                        try writer.writeAll("0");
+                    }
+                    return;
+                }
+
                 try writer.writeByte('{');
                 if (ty.unionTagTypeSafety()) |tag_ty| {
                     const layout = ty.unionGetLayout(target);
@@ -1176,9 +1202,6 @@ pub const DeclGen = struct {
                     try writer.writeAll(".payload = {");
                 }
 
-                const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
-                const field_ty = ty.unionFields().values()[index].ty;
-                const field_name = ty.unionFields().keys()[index];
                 var it = ty.unionFields().iterator();
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
@@ -1794,9 +1817,17 @@ pub const DeclGen = struct {
 
                 return w.writeAll(name);
             },
-            .Struct, .Union => |tag| if (tag == .Struct and t.containerLayout() == .Packed)
-                try dg.renderType(w, t.castTag(.@"struct").?.data.backing_int_ty, kind)
-            else if (t.isSimpleTupleOrAnonStruct()) {
+            .Struct, .Union => |tag| if (t.containerLayout() == .Packed) {
+                if (t.castTag(.@"struct")) |struct_obj| {
+                    try dg.renderType(w, struct_obj.data.backing_int_ty, kind);
+                } else {
+                    var buf: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = @intCast(u16, t.bitSize(target)),
+                    };
+                    try dg.renderType(w, Type.initPayload(&buf.base), kind);
+                }
+            } else if (t.isSimpleTupleOrAnonStruct()) {
                 const ExpectedContents = struct { types: [8]Type, values: [8]Value };
                 var stack align(@alignOf(ExpectedContents)) =
                     std.heap.stackFallback(@sizeOf(ExpectedContents), dg.gpa);
@@ -4388,7 +4419,11 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
                 return local;
             } else @as(CValue, CValue.none), // this @as is needed because of a stage1 bug
         },
-        .@"union", .union_safety_tagged, .union_tagged => .{
+        .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout() == .Packed) {
+            try f.writeCValue(writer, struct_ptr, .Other);
+            try writer.writeAll(";\n");
+            return local;
+        } else .{
             .identifier = struct_ty.unionFields().keys()[index],
         },
         .tuple, .anon_struct => field_name: {
@@ -4502,7 +4537,26 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 return local;
             },
         },
-        .@"union", .union_safety_tagged, .union_tagged => .{
+        .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout() == .Packed) {
+            const operand_lval = if (struct_byval == .constant) blk: {
+                const operand_local = try f.allocLocal(struct_ty, .Const);
+                try writer.writeAll(" = ");
+                try f.writeCValue(writer, struct_byval, .Initializer);
+                try writer.writeAll(";\n");
+                break :blk operand_local;
+            } else struct_byval;
+
+            const local = try f.allocLocal(inst_ty, .Mut);
+            try writer.writeAll(";\n");
+            try writer.writeAll("memcpy(&");
+            try f.writeCValue(writer, local, .FunctionArgument);
+            try writer.writeAll(", &");
+            try f.writeCValue(writer, operand_lval, .FunctionArgument);
+            try writer.writeAll(", sizeof(");
+            try f.renderTypecast(writer, inst_ty);
+            try writer.writeAll("));\n");
+            return local;
+        } else .{
             .identifier = struct_ty.unionFields().keys()[extra.field_index],
         },
         .tuple, .anon_struct => blk: {
@@ -5565,6 +5619,13 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(union_ty, .Const);
+    if (union_obj.layout == .Packed) {
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, payload, .Initializer);
+        try writer.writeAll(";\n");
+        return local;
+    }
+
     try writer.writeAll(" = {");
     if (union_ty.unionTagTypeSafety()) |tag_ty| {
         const layout = union_ty.unionGetLayout(target);
