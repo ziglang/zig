@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const ChildProcess = std.ChildProcess;
 const math = std.math;
-const windows = std.windows;
+const windows = std.os.windows;
 const os = std.os;
 const testing = std.testing;
 
