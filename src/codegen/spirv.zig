@@ -429,9 +429,33 @@ pub const DeclGen = struct {
                 },
                 else => unreachable, // TODO
             },
+            .Enum => {
+                var int_buffer: Value.Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target);
+
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+                const int_info = int_ty.intInfo(target);
+
+                const backing_bits = self.backingIntBits(int_info.bits) orelse {
+                    return self.todo("implement composite int constants for {}", .{int_ty.fmtDebug()});
+                };
+
+                const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
+                    1...32 => .{ .uint32 = @truncate(u32, int_val) },
+                    33...64 => .{ .uint64 = int_val },
+                    else => unreachable,
+                };
+
+                try section.emit(self.spv.gpa, .OpConstant, .{
+                    .id_result_type = result_type_id,
+                    .id_result = result_id,
+                    .value = value,
+                });
+            },
             .Void => unreachable,
             .Fn => unreachable,
-            else => return self.todo("constant generation of type {}", .{ty.fmtDebug()}),
+            else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
 
         return result_id.toRef();
@@ -742,6 +766,8 @@ pub const DeclGen = struct {
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
             .slice_elem_val => try self.airSliceElemVal(inst),
 
+            .struct_field_val => try self.airStructFieldVal(inst),
+
             .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
             .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
             .cmp_gt  => try self.airCmp(inst, .OpFOrdGreaterThan,      .OpSGreaterThan,      .OpUGreaterThan),
@@ -749,10 +775,12 @@ pub const DeclGen = struct {
             .cmp_lt  => try self.airCmp(inst, .OpFOrdLessThan,         .OpSLessThan,         .OpULessThan),
             .cmp_lte => try self.airCmp(inst, .OpFOrdLessThanEqual,    .OpSLessThanEqual,    .OpULessThanEqual),
 
-            .arg   => self.airArg(),
-            .alloc => try self.airAlloc(inst),
-            .block => try self.airBlock(inst),
-            .load  => try self.airLoad(inst),
+            .arg     => self.airArg(),
+            .alloc   => try self.airAlloc(inst),
+            // TODO: We probably need to have a special implementation of this for the C abi.
+            .ret_ptr => try self.airAlloc(inst),
+            .block   => try self.airBlock(inst),
+            .load    => try self.airLoad(inst),
 
             .br         => return self.airBr(inst),
             .breakpoint => return,
@@ -761,6 +789,7 @@ pub const DeclGen = struct {
             .dbg_stmt   => return self.airDbgStmt(inst),
             .loop       => return self.airLoop(inst),
             .ret        => return self.airRet(inst),
+            .ret_load   => return self.airRetLoad(inst),
             .store      => return self.airStore(inst),
             .unreach    => return self.airUnreach(),
 
@@ -989,12 +1018,12 @@ pub const DeclGen = struct {
             .composite_integer => {
                 return self.todo("binary operations for composite integers", .{});
             },
-            .strange_integer => {
-                return self.todo("comparison for strange integers", .{});
-            },
             .float => 0,
             .bool => 1,
-            .integer => switch (info.signedness) {
+            // TODO: Should strange integers be masked before comparison?
+            .strange_integer,
+            .integer,
+            => switch (info.signedness) {
                 .signed => @as(usize, 1),
                 .unsigned => @as(usize, 2),
             },
@@ -1144,6 +1173,32 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
+    fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
+
+        const struct_ty = self.air.typeOf(struct_field.struct_operand);
+        const object = try self.resolve(struct_field.struct_operand);
+        const field_index = struct_field.field_index;
+        const field_ty = struct_ty.structFieldType(field_index);
+        const field_ty_id = try self.resolveTypeId(field_ty);
+
+        if (!field_ty.hasRuntimeBitsIgnoreComptime()) return null;
+
+        assert(struct_ty.zigTypeTag() == .Struct); // Cannot do unions yet.
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+            .id_result_type = field_ty_id,
+            .id_result = result_id,
+            .composite = object,
+            .indexes = &.{field_index},
+        });
+        return result_id.toRef();
+    }
+
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
@@ -1153,7 +1208,7 @@ pub const DeclGen = struct {
         // Rather than generating into code here, we're just going to generate directly into the functions section so that
         // variable declarations appear in the first block of the function.
         const storage_class = spirvStorageClass(ty.ptrAddressSpace());
-        const section = if (storage_class == .Function)
+        const section = if (storage_class == .Function or storage_class == .Generic)
             &self.func.prologue
         else
             &self.spv.sections.types_globals_constants;
@@ -1319,6 +1374,27 @@ pub const DeclGen = struct {
         } else {
             try self.func.body.emit(self.spv.gpa, .OpReturn, {});
         }
+    }
+
+    fn airRetLoad(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const ptr_ty = self.air.typeOf(un_op);
+        const ret_ty = ptr_ty.childType();
+        const ret_ty_id = try self.resolveTypeId(ret_ty);
+
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
+            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+            return;
+        }
+
+        const ptr = try self.resolve(un_op);
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+            .id_result_type = ret_ty_id,
+            .id_result = result_id,
+            .pointer = ptr,
+        });
+        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = result_id.toRef() });
     }
 
     fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
