@@ -273,6 +273,10 @@ test "page aligned array on stack" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    // https://github.com/ziglang/zig/issues/13679
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.cpu.arch == .aarch64 and
+        builtin.os.tag == .windows) return error.SkipZigTest;
 
     // Large alignment value to make it hard to accidentally pass.
     var array align(0x1000) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
