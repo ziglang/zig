@@ -196,7 +196,7 @@ pub fn resolveSourceFileName(self: *Module, decl: *ZigDecl) !IdRef {
     const result = try self.source_file_names.getOrPut(self.gpa, path);
     if (!result.found_existing) {
         const file_result_id = self.allocId();
-        result.value_ptr.* = file_result_id.toRef();
+        result.value_ptr.* = file_result_id;
         try self.sections.debug_strings.emit(self.gpa, .OpString, .{
             .id_result = file_result_id,
             .string = path,
@@ -205,7 +205,7 @@ pub fn resolveSourceFileName(self: *Module, decl: *ZigDecl) !IdRef {
         try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
             .source_language = .Unknown, // TODO: Register Zig source language.
             .version = 0, // TODO: Zig version as u32?
-            .file = file_result_id.toRef(),
+            .file = file_result_id,
             .source = null, // TODO: Store actual source also?
         });
     }
@@ -239,7 +239,7 @@ pub fn typeResultId(self: Module, type_ref: Type.Ref) IdResultType {
 
 /// Get the result-id of a particular type as IdRef, by Type.Ref. Asserts type_ref is valid.
 pub fn typeRefId(self: Module, type_ref: Type.Ref) IdRef {
-    return self.type_cache.values()[@enumToInt(type_ref)].toRef();
+    return self.type_cache.values()[@enumToInt(type_ref)];
 }
 
 /// Unconditionally emit a spir-v type into the appropriate section.
@@ -250,7 +250,7 @@ pub fn typeRefId(self: Module, type_ref: Type.Ref) IdRef {
 /// be emitted at this point.
 pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
     const result_id = self.allocId();
-    const ref_id = result_id.toRef();
+    const ref_id = result_id;
     const types = &self.sections.types_globals_constants;
     const debug_names = &self.sections.debug_names;
     const annotations = &self.sections.annotations;
@@ -260,14 +260,14 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
         .void => {
             try types.emit(self.gpa, .OpTypeVoid, result_id_operand);
             try debug_names.emit(self.gpa, .OpName, .{
-                .target = result_id.toRef(),
+                .target = result_id,
                 .name = "void",
             });
         },
         .bool => {
             try types.emit(self.gpa, .OpTypeBool, result_id_operand);
             try debug_names.emit(self.gpa, .OpName, .{
-                .target = result_id.toRef(),
+                .target = result_id,
                 .name = "bool",
             });
         },
@@ -302,7 +302,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             defer self.gpa.free(name);
 
             try debug_names.emit(self.gpa, .OpName, .{
-                .target = result_id.toRef(),
+                .target = result_id,
                 .name = name,
             });
         },
@@ -316,25 +316,25 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             const name = try std.fmt.allocPrint(self.gpa, "f{}", .{bits});
             defer self.gpa.free(name);
             try debug_names.emit(self.gpa, .OpName, .{
-                .target = result_id.toRef(),
+                .target = result_id,
                 .name = name,
             });
         },
         .vector => try types.emit(self.gpa, .OpTypeVector, .{
             .id_result = result_id,
-            .component_type = self.typeResultId(ty.childType()).toRef(),
+            .component_type = self.typeResultId(ty.childType()),
             .component_count = ty.payload(.vector).component_count,
         }),
         .matrix => try types.emit(self.gpa, .OpTypeMatrix, .{
             .id_result = result_id,
-            .column_type = self.typeResultId(ty.childType()).toRef(),
+            .column_type = self.typeResultId(ty.childType()),
             .column_count = ty.payload(.matrix).column_count,
         }),
         .image => {
             const info = ty.payload(.image);
             try types.emit(self.gpa, .OpTypeImage, .{
                 .id_result = result_id,
-                .sampled_type = self.typeResultId(ty.childType()).toRef(),
+                .sampled_type = self.typeResultId(ty.childType()),
                 .dim = info.dim,
                 .depth = @enumToInt(info.depth),
                 .arrayed = @boolToInt(info.arrayed),
@@ -347,7 +347,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
         .sampler => try types.emit(self.gpa, .OpTypeSampler, result_id_operand),
         .sampled_image => try types.emit(self.gpa, .OpTypeSampledImage, .{
             .id_result = result_id,
-            .image_type = self.typeResultId(ty.childType()).toRef(),
+            .image_type = self.typeResultId(ty.childType()),
         }),
         .array => {
             const info = ty.payload(.array);
@@ -365,8 +365,8 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
 
             try types.emit(self.gpa, .OpTypeArray, .{
                 .id_result = result_id,
-                .element_type = self.typeResultId(ty.childType()).toRef(),
-                .length = length_id.toRef(),
+                .element_type = self.typeResultId(ty.childType()),
+                .length = length_id,
             });
             if (info.array_stride != 0) {
                 try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
@@ -376,7 +376,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             const info = ty.payload(.runtime_array);
             try types.emit(self.gpa, .OpTypeRuntimeArray, .{
                 .id_result = result_id,
-                .element_type = self.typeResultId(ty.childType()).toRef(),
+                .element_type = self.typeResultId(ty.childType()),
             });
             if (info.array_stride != 0) {
                 try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
@@ -387,7 +387,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             try types.emitRaw(self.gpa, .OpTypeStruct, 1 + info.members.len);
             types.writeOperand(IdResult, result_id);
             for (info.members) |member| {
-                types.writeOperand(IdRef, self.typeResultId(member.ty).toRef());
+                types.writeOperand(IdRef, self.typeResultId(member.ty));
             }
             try self.decorateStruct(ref_id, info);
         },
@@ -400,7 +400,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             try types.emit(self.gpa, .OpTypePointer, .{
                 .id_result = result_id,
                 .storage_class = info.storage_class,
-                .type = self.typeResultId(ty.childType()).toRef(),
+                .type = self.typeResultId(ty.childType()),
             });
             if (info.array_stride != 0) {
                 try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
@@ -416,9 +416,9 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             const info = ty.payload(.function);
             try types.emitRaw(self.gpa, .OpTypeFunction, 2 + info.parameters.len);
             types.writeOperand(IdResult, result_id);
-            types.writeOperand(IdRef, self.typeResultId(info.return_type).toRef());
+            types.writeOperand(IdRef, self.typeResultId(info.return_type));
             for (info.parameters) |parameter_type| {
-                types.writeOperand(IdRef, self.typeResultId(parameter_type).toRef());
+                types.writeOperand(IdRef, self.typeResultId(parameter_type));
             }
         },
         .event => try types.emit(self.gpa, .OpTypeEvent, result_id_operand),
@@ -433,7 +433,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
         .named_barrier => try types.emit(self.gpa, .OpTypeNamedBarrier, result_id_operand),
     }
 
-    return result_id.toResultType();
+    return result_id;
 }
 
 fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct) !void {

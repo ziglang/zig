@@ -80,22 +80,11 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\const Version = @import("std").builtin.Version;
         \\
         \\pub const Word = u32;
-        \\pub const IdResultType = struct{
-        \\    id: Word,
-        \\    pub fn toRef(self: IdResultType) IdRef {
-        \\        return .{.id = self.id};
-        \\    }
-        \\};
         \\pub const IdResult = struct{
         \\    id: Word,
-        \\    pub fn toRef(self: IdResult) IdRef {
-        \\        return .{.id = self.id};
-        \\    }
-        \\    pub fn toResultType(self: IdResult) IdResultType {
-        \\        return .{.id = self.id};
-        \\    }
         \\};
-        \\pub const IdRef = struct{ id: Word };
+        \\pub const IdResultType = IdResult;
+        \\pub const IdRef = IdResult;
         \\
         \\pub const IdMemorySemantics = IdRef;
         \\pub const IdScope = IdRef;

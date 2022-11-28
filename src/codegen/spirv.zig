@@ -227,7 +227,7 @@ pub const DeclGen = struct {
     /// keep track of the previous block.
     fn beginSpvBlock(self: *DeclGen, label_id: IdResult) !void {
         try self.func.body.emit(self.spv.gpa, .OpLabel, .{ .id_result = label_id });
-        self.current_block_label_id = label_id.toRef();
+        self.current_block_label_id = label_id;
     }
 
     /// SPIR-V requires enabling specific integer sizes through capabilities, and so if they are not enabled, we need
@@ -340,7 +340,7 @@ pub const DeclGen = struct {
             };
             const decl = self.module.declPtr(fn_decl_index);
             self.module.markDeclAlive(decl);
-            return self.ids.get(fn_decl_index).?.toRef();
+            return self.ids.get(fn_decl_index).?;
         }
 
         const target = self.getTarget();
@@ -350,7 +350,7 @@ pub const DeclGen = struct {
 
         if (val.isUndef()) {
             try section.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = result_type_id, .id_result = result_id });
-            return result_id.toRef();
+            return result_id;
         }
 
         switch (ty.zigTypeTag()) {
@@ -538,7 +538,7 @@ pub const DeclGen = struct {
             else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
 
-        return result_id.toRef();
+        return result_id;
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
@@ -766,7 +766,7 @@ pub const DeclGen = struct {
                 .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType()),
                 .id_result = result_id,
                 .function_control = .{}, // TODO: We can set inline here if the type requires it.
-                .function_type = prototype_id.toRef(),
+                .function_type = prototype_id,
             });
 
             const params = decl.ty.fnParamLen();
@@ -780,7 +780,7 @@ pub const DeclGen = struct {
                     .id_result_type = param_type_id,
                     .id_result = arg_result_id,
                 });
-                self.args.appendAssumeCapacity(arg_result_id.toRef());
+                self.args.appendAssumeCapacity(arg_result_id);
             }
 
             // TODO: This could probably be done in a better way...
@@ -791,7 +791,7 @@ pub const DeclGen = struct {
             try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
                 .id_result = root_block_id,
             });
-            self.current_block_label_id = root_block_id.toRef();
+            self.current_block_label_id = root_block_id;
 
             const main_body = self.air.getMainBody();
             try self.genBody(main_body);
@@ -804,7 +804,7 @@ pub const DeclGen = struct {
             defer self.module.gpa.free(fqn);
 
             try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
-                .target = result_id.toRef(),
+                .target = result_id,
                 .name = fqn,
             });
         } else {
@@ -928,7 +928,7 @@ pub const DeclGen = struct {
             .operand_1 = lhs_id,
             .operand_2 = rhs_id,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airShift(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
@@ -951,9 +951,9 @@ pub const DeclGen = struct {
             .id_result_type = result_type_id,
             .id_result = result_id,
             .base = lhs_id,
-            .shift = shift_id.toRef(),
+            .shift = shift_id,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn maskStrangeInt(self: *DeclGen, ty_id: IdResultType, int_id: IdRef, bits: u16) !IdRef {
@@ -976,9 +976,9 @@ pub const DeclGen = struct {
             .id_result_type = ty_id,
             .id_result = result_id,
             .operand_1 = int_id,
-            .operand_2 = mask_id.toRef(),
+            .operand_2 = mask_id,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airArithOp(
@@ -1046,7 +1046,7 @@ pub const DeclGen = struct {
         // TODO: Trap on overflow? Probably going to be annoying.
         // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
 
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airOverflowArithOp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1089,7 +1089,7 @@ pub const DeclGen = struct {
                 .operand_1 = lhs,
                 .operand_2 = rhs,
             });
-            break :blk result_id.toRef();
+            break :blk result_id;
         };
 
         // Now convert the SPIR-V flavor result into a Zig-flavor result.
@@ -1111,7 +1111,7 @@ pub const DeclGen = struct {
                 .id_result = result_id,
                 .unsigned_value = overflow,
             });
-            break :blk result_id.toRef();
+            break :blk result_id;
         };
 
         // TODO: If copying this function for borrow, make sure to convert -1 to 1 as appropriate.
@@ -1127,7 +1127,7 @@ pub const DeclGen = struct {
                 casted_overflow,
             },
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1163,7 +1163,7 @@ pub const DeclGen = struct {
                 self.func.body.writeOperand(spec.LiteralInteger, unsigned);
             }
         }
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airCmp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !?IdRef {
@@ -1215,7 +1215,7 @@ pub const DeclGen = struct {
             else => unreachable,
         }
 
-        return result_id.toRef();
+        return result_id;
     }
 
     fn bitcast(self: *DeclGen, target_type_id: IdResultType, value_id: IdRef) !IdRef {
@@ -1225,7 +1225,7 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .operand = value_id,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1258,7 +1258,7 @@ pub const DeclGen = struct {
                 .unsigned_value = operand_id,
             }),
         }
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airNot(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1272,7 +1272,7 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .operand = operand_id,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn extractField(self: *DeclGen, result_ty: IdResultType, object: IdRef, field: u32) !IdRef {
@@ -1283,7 +1283,7 @@ pub const DeclGen = struct {
             .composite = object,
             .indexes = &.{field},
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
@@ -1314,7 +1314,7 @@ pub const DeclGen = struct {
                 .composite = slice,
                 .indexes = &.{0},
             });
-            break :blk result_id.toRef();
+            break :blk result_id;
         };
 
         const result_id = self.spv.allocId();
@@ -1324,7 +1324,7 @@ pub const DeclGen = struct {
             .base = slice_ptr,
             .indexes = &.{index},
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1347,7 +1347,7 @@ pub const DeclGen = struct {
                 .composite = slice,
                 .indexes = &.{0},
             });
-            break :blk result_id.toRef();
+            break :blk result_id;
         };
 
         const elem_ptr = blk: {
@@ -1358,7 +1358,7 @@ pub const DeclGen = struct {
                 .base = slice_ptr,
                 .indexes = &.{index},
             });
-            break :blk result_id.toRef();
+            break :blk result_id;
         };
 
         const result_id = self.spv.allocId();
@@ -1367,7 +1367,7 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .pointer = elem_ptr,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1392,7 +1392,7 @@ pub const DeclGen = struct {
             .base = base_ptr,
             .indexes = &.{rhs},
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1418,7 +1418,7 @@ pub const DeclGen = struct {
             .composite = object,
             .indexes = &.{field_index},
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn structFieldPtr(
@@ -1446,9 +1446,9 @@ pub const DeclGen = struct {
                         .id_result_type = result_type_id,
                         .id_result = result_id,
                         .base = object_ptr,
-                        .indexes = &.{field_index_id.toRef()},
+                        .indexes = &.{field_index_id},
                     });
-                    return result_id.toRef();
+                    return result_id;
                 },
             },
             else => unreachable, // TODO
@@ -1483,7 +1483,7 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .storage_class = storage_class,
         });
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airArg(self: *DeclGen) IdRef {
@@ -1503,7 +1503,7 @@ pub const DeclGen = struct {
         var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.gpa, 4);
 
         try self.blocks.putNoClobber(self.gpa, inst, .{
-            .label_id = label_id.toRef(),
+            .label_id = label_id,
             .incoming_blocks = &incoming_blocks,
         });
         defer {
@@ -1538,7 +1538,7 @@ pub const DeclGen = struct {
             self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
         }
 
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -1571,8 +1571,8 @@ pub const DeclGen = struct {
 
         try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
             .condition = condition_id,
-            .true_label = then_label_id.toRef(),
-            .false_label = else_label_id.toRef(),
+            .true_label = then_label_id,
+            .false_label = else_label_id,
         });
 
         try self.beginSpvBlock(then_label_id);
@@ -1610,7 +1610,7 @@ pub const DeclGen = struct {
             .memory_access = access,
         });
 
-        return result_id.toRef();
+        return result_id;
     }
 
     fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -1620,13 +1620,13 @@ pub const DeclGen = struct {
         const loop_label_id = self.spv.allocId();
 
         // Jump to the loop entry point
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id });
 
         // TODO: Look into OpLoopMerge.
         try self.beginSpvBlock(loop_label_id);
         try self.genBody(body);
 
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id.toRef() });
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id });
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -1658,7 +1658,7 @@ pub const DeclGen = struct {
             .id_result = result_id,
             .pointer = ptr,
         });
-        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = result_id.toRef() });
+        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = result_id });
     }
 
     fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -1730,7 +1730,7 @@ pub const DeclGen = struct {
         // Emit the instruction before generating the blocks.
         try self.func.body.emitRaw(self.spv.gpa, .OpSwitch, 2 + (cond_words + 1) * num_conditions);
         self.func.body.writeOperand(IdRef, cond);
-        self.func.body.writeOperand(IdRef, default.toRef());
+        self.func.body.writeOperand(IdRef, default);
 
         // Emit each of the cases
         {
@@ -1965,6 +1965,6 @@ pub const DeclGen = struct {
             return null;
         }
 
-        return result_id.toRef();
+        return result_id;
     }
 };

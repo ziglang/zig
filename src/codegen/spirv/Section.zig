@@ -122,7 +122,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
-        spec.IdResultType, spec.IdResult, spec.IdRef => section.writeWord(operand.id),
+        spec.IdResult => section.writeWord(operand.id),
 
         spec.LiteralInteger => section.writeWord(operand),
 
@@ -258,9 +258,7 @@ fn operandsSize(comptime Operands: type, operands: Operands) usize {
 
 fn operandSize(comptime Operand: type, operand: Operand) usize {
     return switch (Operand) {
-        spec.IdResultType,
         spec.IdResult,
-        spec.IdRef,
         spec.LiteralInteger,
         spec.LiteralExtInstInteger,
         => 1,
@@ -382,7 +380,9 @@ test "SPIR-V Section emit() - string" {
     }, section.instructions.items);
 }
 
-test "SPIR-V Section emit()- extended mask" {
+test "SPIR-V Section emit() - extended mask" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 

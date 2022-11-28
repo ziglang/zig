@@ -135,7 +135,7 @@ const AsmValue = union(enum) {
         return switch (self) {
             .just_declared, .unresolved_forward_reference => unreachable,
             .value => |result| result,
-            .ty => |ref| spv.typeResultId(ref).toRef(),
+            .ty => |ref| spv.typeResultId(ref),
         };
     }
 };
@@ -486,7 +486,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @enumToInt(self.inst.opcode);
 
     if (maybe_result_id) |result| {
-        return AsmValue{ .value = result.toRef() };
+        return AsmValue{ .value = result };
     }
     return null;
 }
