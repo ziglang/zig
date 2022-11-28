@@ -251,7 +251,7 @@ long sysconf(int name)
 		return DELAYTIMER_MAX;
 	case JT_NPROCESSORS_CONF & 255:
 	case JT_NPROCESSORS_ONLN & 255: ;
-#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
+#ifdef __wasilibc_unmodified_upstream
 		unsigned char set[128] = {1};
 		int i, cnt;
 		__syscall(SYS_sched_getaffinity, 0, sizeof set, set);
@@ -259,7 +259,7 @@ long sysconf(int name)
 			for (; set[i]; set[i]&=set[i]-1, cnt++);
 		return cnt;
 #else
-		// With no thread support, just say there's 1 processor.
+		// WASI has no way to query the processor count
 		return 1;
 #endif
 #ifdef __wasilibc_unmodified_upstream // WASI has no sysinfo

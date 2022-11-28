@@ -8,6 +8,10 @@ typedef __attribute__((__may_alias__)) size_t WT;
 
 void *memmove(void *dest, const void *src, size_t n)
 {
+#if defined(__wasm_bulk_memory__)
+	if (n > BULK_MEMORY_THRESHOLD)
+		return __builtin_memmove(dest, src, n);
+#endif
 	char *d = dest;
 	const char *s = src;
 

@@ -1,3 +1,4 @@
+#ifdef __wasilibc_unmodified_upstream
 #ifndef _INTERNAL_SYSCALL_H
 #define _INTERNAL_SYSCALL_H
 
@@ -395,4 +396,5 @@ hidden void __procfdname(char __buf[static 15+3*sizeof(int)], unsigned);
 
 hidden void *__vdsosym(const char *, const char *);
 
+#endif
 #endif

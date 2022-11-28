@@ -24,7 +24,7 @@ void __SIG_ERR(int sig) {
 
 _Noreturn
 static void core_handler(int sig) {
-    fprintf(stderr, "Program recieved fatal signal: %s\n", strsignal(sig));
+    fprintf(stderr, "Program received fatal signal: %s\n", strsignal(sig));
     abort();
 }
 
@@ -138,5 +138,5 @@ void (*signal(int sig, void (*func)(int)))(int) {
     return old;
 }
 
-extern __typeof(signal) bsd_signal __attribute__((weak, alias("signal")));
-extern __typeof(signal) __sysv_signal __attribute__((weak, alias("signal")));
+extern __typeof(signal) bsd_signal __attribute__((__weak__, alias("signal")));
+extern __typeof(signal) __sysv_signal __attribute__((__weak__, alias("signal")));

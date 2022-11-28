@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <errno.h>
-#include <threads.h>
 #include <time.h>
 
 int nanosleep(const struct timespec *rqtp, struct timespec *rem) {
@@ -14,7 +13,3 @@ int nanosleep(const struct timespec *rqtp, struct timespec *rem) {
   }
   return 0;
 }
-
-#if defined(_REENTRANT)
-__strong_reference(nanosleep, thrd_sleep);
-#endif

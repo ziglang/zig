@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <common/errno.h>
-
 #include <sys/socket.h>
 
 #include <assert.h>
@@ -22,7 +20,7 @@ int shutdown(int socket, int how) {
 
   __wasi_errno_t error = __wasi_sock_shutdown(socket, how);
   if (error != 0) {
-    errno = errno_fixup_socket(socket, error);
+    errno = error;
     return -1;
   }
   return error;
