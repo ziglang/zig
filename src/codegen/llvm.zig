@@ -1179,8 +1179,7 @@ pub const Object = struct {
 
             llvm_func.fnSetSubprogram(subprogram);
 
-            const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file.?, line_number, 1);
-            di_scope = lexical_block.toScope();
+            di_scope = subprogram.toScope();
         }
 
         var fg: FuncGen = .{
@@ -1393,9 +1392,10 @@ pub const Object = struct {
             return @ptrCast(*llvm.DIFile, gop.value_ptr.*);
         }
         const dir_path = file.pkg.root_src_directory.path orelse ".";
-        const sub_file_path_z = try gpa.dupeZ(u8, file.sub_file_path);
+        const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
         defer gpa.free(sub_file_path_z);
-        const dir_path_z = try gpa.dupeZ(u8, dir_path);
+        const stage1_workaround = std.fs.path.dirname(file.sub_file_path) orelse "";
+        const dir_path_z = try std.fs.path.joinZ(gpa, &.{ dir_path, stage1_workaround });
         defer gpa.free(dir_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
         gop.value_ptr.* = di_file.toNode();
