@@ -5,7 +5,7 @@
 int __wasilibc_main(int argc, char *argv[]) asm("main");
 
 // The user's `main` function, expecting arguments.
-__attribute__((weak, nodebug))
+__attribute__((__weak__, nodebug))
 int __main_argc_argv(int argc, char *argv[]) {
     return __wasilibc_main(argc, argv);
 }
