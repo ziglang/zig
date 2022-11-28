@@ -31,7 +31,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/pkg_import/build.zig", .{});
     cases.addBuildFile("test/standalone/use_alias/build.zig", .{});
     cases.addBuildFile("test/standalone/brace_expansion/build.zig", .{});
-    cases.addBuildFile("test/standalone/empty_env/build.zig", .{});
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .aarch64) {
+        // https://github.com/ziglang/zig/issues/13685
+        cases.addBuildFile("test/standalone/empty_env/build.zig", .{});
+    }
     cases.addBuildFile("test/standalone/issue_7030/build.zig", .{});
     cases.addBuildFile("test/standalone/install_raw_hex/build.zig", .{});
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12194
@@ -41,7 +44,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
 
     if (builtin.os.tag != .wasi and
         // https://github.com/ziglang/zig/issues/13550
-        (builtin.os.tag != .macos or builtin.cpu.arch != .aarch64))
+        (builtin.os.tag != .macos or builtin.cpu.arch != .aarch64) and
+        // https://github.com/ziglang/zig/issues/13686
+        (builtin.os.tag != .windows or builtin.cpu.arch != .aarch64))
     {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
