@@ -420,6 +420,10 @@ test "@log2 with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    // https://github.com/ziglang/zig/issues/13681
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.cpu.arch == .aarch64 and
+        builtin.os.tag == .windows) return error.SkipZigTest;
 
     comptime try testLog2WithVectors();
     try testLog2WithVectors();
