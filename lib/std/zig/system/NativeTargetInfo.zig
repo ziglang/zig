@@ -978,6 +978,7 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_ta
     switch (builtin.os.tag) {
         .linux => return linux.detectNativeCpuAndFeatures(),
         .macos => return darwin.macos.detectNativeCpuAndFeatures(),
+        .windows => return windows.detectNativeCpuAndFeatures(),
         else => {},
     }
 
