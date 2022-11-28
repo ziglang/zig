@@ -721,7 +721,7 @@ const PosixImpl = struct {
             // then cut off the zero bits from the alignment to get the unique address.
             const addr = @ptrToInt(ptr);
             assert(addr & (alignment - 1) == 0);
-            return addr >> @ctz(alignment);
+            return addr >> @ctz(@as(usize, alignment));
         }
     };
 
