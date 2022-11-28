@@ -1351,12 +1351,12 @@ pub const ChildProcess = struct {
                     .parent_to_child => {
                         extra.input.?.close(); // reading end
                         extra.input = null;
-                        try windows.SetHandleInformation(extra.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                        try windows.SetHandleInformation(extra.output.?.handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT);
                     },
                     .child_to_parent => {
                         extra.output.?.close(); // writing end
                         extra.output = null;
-                        try windows.SetHandleInformation(extra.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                        try windows.SetHandleInformation(extra.input.?.handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT);
                     },
                 }
             }
@@ -1803,8 +1803,8 @@ fn windowsMakeAsyncPipe(
     errdefer os.close(write_handle);
 
     switch (direction) {
-        .child_to_parent => try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0),
-        .parent_to_child => try windows.SetHandleInformation(write_handle, windows.HANDLE_FLAG_INHERIT, 0),
+        .child_to_parent => try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT),
+        .parent_to_child => try windows.SetHandleInformation(write_handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT),
     }
     rd.* = read_handle;
     wr.* = write_handle;
