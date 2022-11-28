@@ -10,6 +10,7 @@ const DWORD = windows.DWORD;
 const FILE_INFO_BY_HANDLE_CLASS = windows.FILE_INFO_BY_HANDLE_CLASS;
 const HANDLE = windows.HANDLE;
 const HMODULE = windows.HMODULE;
+const HKEY = windows.HKEY;
 const HRESULT = windows.HRESULT;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
 const LPCWSTR = windows.LPCWSTR;
@@ -57,6 +58,8 @@ const UCHAR = windows.UCHAR;
 const FARPROC = windows.FARPROC;
 const INIT_ONCE_FN = windows.INIT_ONCE_FN;
 const PMEMORY_BASIC_INFORMATION = windows.PMEMORY_BASIC_INFORMATION;
+const REGSAM = windows.REGSAM;
+const LSTATUS = windows.LSTATUS;
 
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
@@ -231,6 +234,7 @@ pub extern "kernel32" fn GetQueuedCompletionStatusEx(
 
 pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
+pub extern "kernel32" fn IsProcessorFeaturePresent(ProcessorFeature: DWORD) BOOL;
 
 pub extern "kernel32" fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) callconv(WINAPI) ?HANDLE;
 pub extern "kernel32" fn HeapDestroy(hHeap: HANDLE) callconv(WINAPI) BOOL;
@@ -411,3 +415,11 @@ pub extern "kernel32" fn SleepConditionVariableSRW(
 pub extern "kernel32" fn TryAcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) BOOLEAN;
 pub extern "kernel32" fn AcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;
 pub extern "kernel32" fn ReleaseSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;
+
+pub extern "kernel32" fn RegOpenKeyExW(
+    hkey: HKEY,
+    lpSubKey: LPCWSTR,
+    ulOptions: DWORD,
+    samDesired: REGSAM,
+    phkResult: *HKEY,
+) callconv(WINAPI) LSTATUS;
