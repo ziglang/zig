@@ -93,57 +93,32 @@ const Armv8CpuInfoImpl = struct {
     }
 };
 
-fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8, value_type: std.os.windows.ULONG) ![]const u8 {
-    const key_name = std.unicode.utf8ToUtf16LeStringLiteral(key);
+// Technically, a registry value can be as long as 1MB. However, MS recommends storing
+// values larger than 2048 bytes in a file rather than directly in the registry, and since we
+// are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
+const max_value_len = 2048;
 
+const RegistryPair = struct {
+    key: []const u8,
+    value: std.os.windows.ULONG,
+};
+
+fn getCpuInfoFromRegistry(
+    core: usize,
+    comptime pairs_num: comptime_int,
+    comptime pairs: [pairs_num]RegistryPair,
+    out_buf: *[pairs_num][max_value_len]u8,
+) !void {
     // Originally, I wanted to issue a single call with a more complex table structure such that we
     // would sequentially visit each CPU#d subkey in the registry and pull the value of interest into
     // a buffer, however, NT seems to be expecting a single buffer per each table meaning we would
     // end up pulling only the last CPU core info, overwriting everything else.
     // If anyone can come up with a solution to this, please do!
-    const table_size = 2;
+    const table_size = 1 + pairs.len;
     var table: [table_size + 1]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
 
     const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
-
-    // Technically, a registry value can be as long as 1MB. However, MS recommends storing
-    // values larger than 2048 bytes in a file rather than directly in the registry, and since we
-    // are only accessing a system hive \Registry\Machine, we stick to MS guidelines.
-    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
-    const max_value_len = 2048;
-
-    const ctx: *anyopaque = blk: {
-        switch (value_type) {
-            REG.NONE => unreachable,
-
-            REG.SZ,
-            REG.EXPAND_SZ,
-            REG.MULTI_SZ,
-            => {
-                var buf: [max_value_len / 2]u16 = undefined;
-                var unicode = std.os.windows.UNICODE_STRING{
-                    .Length = max_value_len,
-                    .MaximumLength = max_value_len,
-                    .Buffer = &buf,
-                };
-                break :blk &unicode;
-            },
-
-            REG.DWORD,
-            REG.DWORD_BIG_ENDIAN,
-            => {
-                var buf: [4]u8 = undefined;
-                break :blk &buf;
-            },
-
-            REG.QWORD => {
-                var buf: [8]u8 = undefined;
-                break :blk &buf;
-            },
-
-            else => unreachable,
-        }
-    };
 
     const max_cpu_buf = 4;
     var next_cpu_buf: [max_cpu_buf]u8 = undefined;
@@ -163,15 +138,77 @@ fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8, value_type: std
         .DefaultLength = 0,
     };
 
-    table[1] = .{
-        .QueryRoutine = null,
-        .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
-        .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
-        .EntryContext = ctx,
-        .DefaultType = REG.NONE,
-        .DefaultData = null,
-        .DefaultLength = 0,
-    };
+    inline for (pairs) |pair, i| {
+        const ctx: *anyopaque = blk: {
+            switch (pair.value) {
+                REG.SZ,
+                REG.EXPAND_SZ,
+                REG.MULTI_SZ,
+                => {
+                    var buf: [max_value_len / 2]u16 = undefined;
+                    var unicode = std.os.windows.UNICODE_STRING{
+                        .Length = 0,
+                        .MaximumLength = max_value_len,
+                        .Buffer = &buf,
+                    };
+                    break :blk &unicode;
+                },
+
+                REG.DWORD,
+                REG.DWORD_BIG_ENDIAN,
+                => {
+                    var buf: [4]u8 = undefined;
+                    break :blk &buf;
+                },
+
+                REG.QWORD => {
+                    var buf: [8]u8 = undefined;
+                    break :blk &buf;
+                },
+
+                else => unreachable,
+            }
+        };
+        const default: struct { ptr: *anyopaque, len: u32 } = blk: {
+            switch (pair.value) {
+                REG.SZ,
+                REG.EXPAND_SZ,
+                REG.MULTI_SZ,
+                => {
+                    const def = std.unicode.utf8ToUtf16LeStringLiteral("Unknown");
+                    var buf: [def.len + 1]u16 = undefined;
+                    mem.copy(u16, &buf, def);
+                    buf[def.len] = 0;
+                    break :blk .{ .ptr = &buf, .len = @intCast(u32, (buf.len + 1) * 2) };
+                },
+
+                REG.DWORD,
+                REG.DWORD_BIG_ENDIAN,
+                => {
+                    var buf: [4]u8 = [_]u8{0} ** 4;
+                    break :blk .{ .ptr = &buf, .len = 4 };
+                },
+
+                REG.QWORD => {
+                    var buf: [8]u8 = [_]u8{0} ** 8;
+                    break :blk .{ .ptr = &buf, .len = 8 };
+                },
+
+                else => unreachable,
+            }
+        };
+        const key_name = std.unicode.utf8ToUtf16LeStringLiteral(pair.key);
+
+        table[i + 1] = .{
+            .QueryRoutine = null,
+            .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT,
+            .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
+            .EntryContext = ctx,
+            .DefaultType = pair.value,
+            .DefaultData = default.ptr,
+            .DefaultLength = default.len,
+        };
+    }
 
     // Table sentinel
     table[table_size] = .{
@@ -192,32 +229,37 @@ fn getCpuInfoFromRegistry(core: usize, comptime key: []const u8, value_type: std
         null,
     );
     switch (res) {
-        .SUCCESS => switch (value_type) {
-            REG.NONE => unreachable,
+        .SUCCESS => {
+            inline for (pairs) |pair, i| switch (pair.value) {
+                REG.NONE => unreachable,
 
-            REG.SZ,
-            REG.EXPAND_SZ,
-            REG.MULTI_SZ,
-            => {
-                const entry = @ptrCast(*align(1) const std.os.windows.UNICODE_STRING, table[1].EntryContext);
-                var identifier_buf: [max_value_len]u8 = undefined;
-                const len = try std.unicode.utf16leToUtf8(&identifier_buf, entry.Buffer[0 .. entry.Length / 2]);
-                return identifier_buf[0..len];
-            },
+                REG.SZ,
+                REG.EXPAND_SZ,
+                REG.MULTI_SZ,
+                => {
+                    const entry = @ptrCast(*align(1) const std.os.windows.UNICODE_STRING, table[i + 1].EntryContext);
+                    const len = try std.unicode.utf16leToUtf8(out_buf[i][0..], entry.Buffer[0 .. entry.Length / 2]);
+                    out_buf[i][len] = 0;
+                },
 
-            REG.DWORD,
-            REG.DWORD_BIG_ENDIAN,
-            REG.QWORD,
-            => {
-                const entry = @ptrCast([*]align(1) const u8, table[1].EntryContext);
-                switch (value_type) {
-                    REG.DWORD, REG.DWORD_BIG_ENDIAN => return entry[0..4],
-                    REG.QWORD => return entry[0..8],
-                    else => unreachable,
-                }
-            },
+                REG.DWORD,
+                REG.DWORD_BIG_ENDIAN,
+                REG.QWORD,
+                => {
+                    const entry = @ptrCast([*]align(1) const u8, table[i + 1].EntryContext);
+                    switch (pair.value) {
+                        REG.DWORD, REG.DWORD_BIG_ENDIAN => {
+                            mem.copy(u8, out_buf[i][0..4], entry[0..4]);
+                        },
+                        REG.QWORD => {
+                            mem.copy(u8, out_buf[i][0..8], entry[0..8]);
+                        },
+                        else => unreachable,
+                    }
+                },
 
-            else => unreachable,
+                else => unreachable,
+            };
         },
         else => return std.os.windows.unexpectedStatus(res),
     }
@@ -234,13 +276,20 @@ fn detectCpuModelArm64() !*const Target.Cpu.Model {
     // Parse the models from strings
     var parser = Armv8CpuInfoImpl{};
 
+    var out_buf: [3][max_value_len]u8 = undefined;
+
     var i: usize = 0;
     while (i < cpu_count) : (i += 1) {
-        const identifier = try getCpuInfoFromRegistry(i, "Identifier", REG.SZ);
-        parser.parseOne(identifier);
+        try getCpuInfoFromRegistry(i, 3, .{
+            .{ .key = "CP 4000", .value = REG.QWORD },
+            .{ .key = "Identifier", .value = REG.SZ },
+            .{ .key = "VendorIdentifier", .value = REG.SZ },
+        }, &out_buf);
 
-        const hex = try getCpuInfoFromRegistry(i, "CP 4000", REG.QWORD);
-        std.log.warn("{d} => {x}", .{ i, std.fmt.fmtSliceHexLower(hex) });
+        const hex = out_buf[0][0..8];
+        const identifier = mem.sliceTo(out_buf[1][0..], 0);
+        const vendor_identifier = mem.sliceTo(out_buf[2][0..], 0);
+        std.log.warn("{d} => {x}, {s}, {s}", .{ i, std.fmt.fmtSliceHexLower(hex), identifier, vendor_identifier });
     }
 
     return parser.finalize() orelse Target.Cpu.Model.generic(.aarch64);
