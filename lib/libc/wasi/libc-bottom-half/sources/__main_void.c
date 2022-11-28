@@ -2,8 +2,13 @@
 #include <stdlib.h>
 #include <sysexits.h>
 
+int __wasilibc_main(int argc, char *argv[]) asm("main");
+
 // The user's `main` function, expecting arguments.
-int __main_argc_argv(int argc, char *argv[]);
+__attribute__((weak, nodebug))
+int __main_argc_argv(int argc, char *argv[]) {
+    return __wasilibc_main(argc, argv);
+}
 
 // If the user's `main` function expects arguments, the compiler will rename
 // it to `__main_argc_argv`, and this version will get linked in, which
