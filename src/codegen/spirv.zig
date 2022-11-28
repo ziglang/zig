@@ -585,9 +585,10 @@ pub const DeclGen = struct {
         switch (ty.zigTypeTag()) {
             .Void, .NoReturn => return try self.spv.resolveType(SpvType.initTag(.void)),
             .Bool => {
-                // TODO: SPIR-V booleans are opaque. For local variables this is fine, but for structs
-                // members we want to use integer types instead.
-                return try self.spv.resolveType(SpvType.initTag(.bool));
+                // SPIR-V booleans are opaque, which is fine for operations, but they cant be stored.
+                // This function returns the *stored* type, for values directly we convert this into a bool when
+                // it is loaded, and convert it back to this type when stored.
+                return try self.intType(.unsigned, 1);
             },
             .Int => {
                 const int_info = ty.intInfo(target);
@@ -627,7 +628,6 @@ pub const DeclGen = struct {
                 payload.* = .{
                     .element_type = try self.resolveType(elem_ty),
                     .length = total_len,
-                    .array_stride = @intCast(u32, ty.abiSize(target)),
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
@@ -654,29 +654,18 @@ pub const DeclGen = struct {
                 ptr_payload.* = .{
                     .storage_class = spirvStorageClass(ptr_info.@"addrspace"),
                     .child_type = try self.resolveType(ptr_info.pointee_type),
-                    // TODO: ???
-                    .array_stride = 0,
                     // Note: only available in Kernels!
                     .alignment = ty.ptrAlignment(target) * 8,
-                    .max_byte_offset = null,
                 };
-                const spv_ptr_ty = try self.spv.resolveType(SpvType.initPayload(&ptr_payload.base));
+                const ptr_ty_id = try self.spv.resolveType(SpvType.initPayload(&ptr_payload.base));
 
                 if (ptr_info.size != .Slice) {
-                    return spv_ptr_ty;
+                    return ptr_ty_id;
                 }
 
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = ty.slicePtrFieldType(&buf);
-                const len_ty = Type.usize;
-
-                const ptr_size = ptr_ty.abiSize(target);
-                const len_align = len_ty.abiAlignment(target);
-                const len_offset = std.mem.alignForwardGeneric(u64, ptr_size, len_align);
-
                 return try self.simpleStructType(&.{
-                    .{ .ty = spv_ptr_ty, .offset = 0 },
-                    .{ .ty = try self.sizeType(), .offset = @intCast(u32, len_offset) },
+                    .{ .ty = ptr_ty_id, .name = "ptr" },
+                    .{ .ty = try self.sizeType(), .name = "len" },
                 });
             },
             .Vector => {
@@ -700,18 +689,15 @@ pub const DeclGen = struct {
                 if (ty.isSimpleTupleOrAnonStruct()) {
                     const tuple = ty.tupleFields();
                     const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, tuple.types.len);
-                    var member_index: usize = 0;
+                    var member_index: u32 = 0;
                     for (tuple.types) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-
+                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
                         members[member_index] = .{
                             .ty = try self.resolveType(field_ty),
-                            .offset = 0,
                         };
                         member_index += 1;
                     }
-
                     const payload = try self.spv.arena.create(SpvType.Payload.Struct);
                     payload.* = .{
                         .members = members[0..member_index],
@@ -727,18 +713,23 @@ pub const DeclGen = struct {
 
                 const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, struct_ty.fields.count());
                 var member_index: usize = 0;
-                for (struct_ty.fields.values()) |field| {
+                for (struct_ty.fields.values()) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     members[member_index] = .{
                         .ty = try self.resolveType(field.ty),
-                        .offset = field.offset,
+                        .name = struct_ty.fields.keys()[i],
                     };
+                    member_index += 1;
                 }
+
+                const name = try struct_ty.getFullyQualifiedName(self.module);
+                defer self.module.gpa.free(name);
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Struct);
                 payload.* = .{
                     .members = members[0..member_index],
+                    .name = try self.spv.arena.dupe(u8, name),
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
@@ -808,6 +799,14 @@ pub const DeclGen = struct {
             // Append the actual code into the functions section.
             try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
             try self.spv.addFunction(self.func);
+
+            const fqn = try decl.getFullyQualifiedName(self.module);
+            defer self.module.gpa.free(fqn);
+
+            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
+                .target = result_id.toRef(),
+                .name = fqn,
+            });
         } else {
             // TODO
             // return self.todo("generate decl type {}", .{decl.ty.zigTypeTag()});
@@ -1053,8 +1052,6 @@ pub const DeclGen = struct {
     fn airOverflowArithOp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const target = self.getTarget();
-
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const lhs = try self.resolve(extra.lhs);
@@ -1082,8 +1079,8 @@ pub const DeclGen = struct {
             // It is almost the same as the zig one, except that the fields must be the same type
             // and they must be unsigned.
             const overflow_result_ty = try self.simpleStructTypeId(&.{
-                .{ .ty = overflow_member_ty, .offset = 0 },
-                .{ .ty = overflow_member_ty, .offset = @intCast(u32, operand_ty.abiSize(target)) },
+                .{ .ty = overflow_member_ty, .name = "res" },
+                .{ .ty = overflow_member_ty, .name = "ov" },
             });
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpIAddCarry, .{
@@ -1098,7 +1095,7 @@ pub const DeclGen = struct {
         // Now convert the SPIR-V flavor result into a Zig-flavor result.
         // First, extract the two fields.
         const unsigned_result = try self.extractField(overflow_member_ty_id, op_result_id, 0);
-        const overflow = try self.extractField(overflow_member_ty_id, op_result_id, 0);
+        const overflow = try self.extractField(overflow_member_ty_id, op_result_id, 1);
 
         // We need to convert the results to the types that Zig expects here.
         // The `result` is the same type except unsigned, so we can just bitcast that.
@@ -1190,8 +1187,9 @@ pub const DeclGen = struct {
             .float => 0,
             .bool => 1,
             .strange_integer => blk: {
-                lhs_id = try self.maskStrangeInt(result_type_id, lhs_id, info.bits);
-                rhs_id = try self.maskStrangeInt(result_type_id, rhs_id, info.bits);
+                const op_ty_id = try self.resolveTypeId(op_ty);
+                lhs_id = try self.maskStrangeInt(op_ty_id, lhs_id, info.bits);
+                rhs_id = try self.maskStrangeInt(op_ty_id, rhs_id, info.bits);
                 break :blk switch (info.signedness) {
                     .signed => @as(usize, 1),
                     .unsigned => @as(usize, 2),
@@ -1437,7 +1435,7 @@ pub const DeclGen = struct {
                 else => {
                     const field_index_id = self.spv.allocId();
                     const u32_ty_id = self.spv.typeResultId(try self.intType(.unsigned, 32));
-                    try self.func.body.emit(self.spv.gpa, .OpConstant, .{
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpConstant, .{
                         .id_result_type = u32_ty_id,
                         .id_result = field_index_id,
                         .value = .{ .uint32 = field_index },
@@ -1632,7 +1630,6 @@ pub const DeclGen = struct {
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
-        if (self.liveness.isUnused(inst)) return;
         const operand = self.air.instructions.items(.data)[inst].un_op;
         const operand_ty = self.air.typeOf(operand);
         if (operand_ty.hasRuntimeBits()) {

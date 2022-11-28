@@ -437,7 +437,15 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
 }
 
 fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct) !void {
+    const debug_names = &self.sections.debug_names;
     const annotations = &self.sections.annotations;
+
+    if (info.name.len != 0) {
+        try debug_names.emit(self.gpa, .OpName, .{
+            .target = target,
+            .name = info.name,
+        });
+    }
 
     // Decorations for the struct type itself.
     if (info.decorations.block)
@@ -457,6 +465,25 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
     for (info.members, 0..) |member, i| {
         const d = member.decorations;
         const index = @intCast(Word, i);
+
+        if (member.name.len != 0) {
+            try debug_names.emit(self.gpa, .OpMemberName, .{
+                .type = target,
+                .member = index,
+                .name = member.name,
+            });
+        }
+
+        switch (member.offset) {
+            .none => {},
+            else => try annotations.decorateMember(
+                self.gpa,
+                target,
+                index,
+                .{ .Offset = .{ .byte_offset = @enumToInt(member.offset) } },
+            ),
+        }
+
         switch (d.matrix_layout) {
             .row_major => try annotations.decorateMember(self.gpa, target, index, .RowMajor),
             .col_major => try annotations.decorateMember(self.gpa, target, index, .ColMajor),

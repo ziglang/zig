@@ -429,13 +429,13 @@ pub const Type = extern union {
             element_type: Ref,
             /// Type has the 'ArrayStride' decoration.
             /// If zero, no stride is present.
-            array_stride: u32,
+            array_stride: u32 = 0,
         };
 
         pub const Struct = struct {
             base: Payload = .{ .tag = .@"struct" },
-            // TODO: name
             members: []Member,
+            name: []const u8 = "",
             decorations: StructDecorations = .{},
 
             /// Extra information for decorations, packed for efficiency. Fields are stored sequentially by
@@ -444,10 +444,12 @@ pub const Type = extern union {
 
             pub const Member = struct {
                 ty: Ref,
-                offset: u32,
-                // TODO: name
+                name: []const u8 = "",
+                offset: MemberOffset = .none,
                 decorations: MemberDecorations = .{},
             };
+
+            pub const MemberOffset = enum(u32) { none = 0xFFFF_FFFF, _ };
 
             pub const StructDecorations = packed struct {
                 /// Type has the 'Block' decoration.
@@ -544,11 +546,11 @@ pub const Type = extern union {
             /// Type has the 'ArrayStride' decoration.
             /// This is valid for pointers to elements of an array.
             /// If zero, no stride is present.
-            array_stride: u32,
+            array_stride: u32 = 0,
             /// Type has the 'Alignment' decoration.
             alignment: ?u32,
             /// Type has the 'MaxByteOffset' decoration.
-            max_byte_offset: ?u32,
+            max_byte_offset: ?u32 = null,
         };
 
         pub const Function = struct {
