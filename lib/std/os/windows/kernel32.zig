@@ -421,5 +421,5 @@ pub extern "kernel32" fn RegOpenKeyExW(
     lpSubKey: LPCWSTR,
     ulOptions: DWORD,
     samDesired: REGSAM,
-    phkResult: *HANDLE,
+    phkResult: *HKEY,
 ) callconv(WINAPI) LSTATUS;
