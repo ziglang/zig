@@ -88,7 +88,7 @@ pub fn build(b: *Builder) !void {
         "Whether LLVM has the experimental target arc enabled",
     ) orelse false;
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
-    const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Enable using symlinks on Windows. If this is not set, hardlinks are used.") orelse false;
+    const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!skip_install_lib_files) {
