@@ -238,12 +238,14 @@ pub const Mutable = struct {
                     self.limbs[0] = w_value;
                 } else {
                     var i: usize = 0;
-                    while (w_value != 0) : (i += 1) {
+                    while (true) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
 
                         // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
                         w_value >>= limb_bits / 2;
                         w_value >>= limb_bits / 2;
+
+                        if (w_value == 0) break;
                     }
                 }
             },
@@ -256,11 +258,13 @@ pub const Mutable = struct {
                     const mask = (1 << limb_bits) - 1;
 
                     comptime var i = 0;
-                    inline while (w_value != 0) : (i += 1) {
+                    inline while (true) : (i += 1) {
                         self.limbs[i] = w_value & mask;
 
                         w_value >>= limb_bits / 2;
                         w_value >>= limb_bits / 2;
+
+                        if (w_value == 0) break;
                     }
                 }
             },

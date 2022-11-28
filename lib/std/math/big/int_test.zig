@@ -69,6 +69,14 @@ test "big.int set negative minimum" {
     try testing.expect((try a.to(i64)) == minInt(i64));
 }
 
+test "big.int set double-width maximum then zero" {
+    var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer a.deinit();
+    try a.set(@as(DoubleLimb, 0));
+
+    try testing.expectEqual(@as(DoubleLimb, 0), try a.to(DoubleLimb));
+}
+
 test "big.int to target too small error" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff);
     defer a.deinit();
