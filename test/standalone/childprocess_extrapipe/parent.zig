@@ -41,12 +41,17 @@ fn testPipeInfo(self: *ChildProcess) ChildProcess.SpawnError!void {
 }
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(!general_purpose_allocator.deinit());
-    const gpa = general_purpose_allocator.allocator();
+    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+    defer if (gpa_state.deinit()) @panic("found memory leaks");
+    const gpa = gpa_state.allocator();
+
+    var it = try std.process.argsWithAllocator(gpa);
+    defer it.deinit();
+    _ = it.next() orelse unreachable; // skip binary name
+    const child_path = it.next() orelse unreachable;
 
     var child_process = ChildProcess.init(
-        &[_][]const u8{"zig-out/bin/child"},
+        &.{child_path},
         gpa,
     );
     child_process.stdin_behavior = .Pipe;
