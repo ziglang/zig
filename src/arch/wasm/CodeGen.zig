@@ -1492,12 +1492,15 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     // when the length is comptime-known, rather than a runtime value, we can optimize the generated code by having
     // the loop during codegen, rather than inserting a runtime loop into the binary.
     switch (len) {
-        .imm32, .imm64 => {
+        .imm32, .imm64 => blk: {
             const length = switch (len) {
                 .imm32 => |val| val,
                 .imm64 => |val| val,
                 else => unreachable,
             };
+            // if the size (length) is more than 1024 bytes, we use a runtime loop instead to prevent
+            // binary size bloat.
+            if (length > 1024) break :blk;
             var offset: u32 = 0;
             const lhs_base = dst.offset();
             const rhs_base = src.offset();
@@ -1518,80 +1521,81 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                     else => unreachable,
                 }
             }
+            return;
         },
-        else => {
-            // TODO: We should probably lower this to a call to compiler_rt
-            // But for now, we implement it manually
-            var offset = try func.ensureAllocLocal(Type.usize); // local for counter
-            defer offset.free(func);
-
-            // outer block to jump to when loop is done
-            try func.startBlock(.block, wasm.block_empty);
-            try func.startBlock(.loop, wasm.block_empty);
-
-            // loop condition (offset == length -> break)
-            {
-                try func.emitWValue(offset);
-                try func.emitWValue(len);
-                switch (func.arch()) {
-                    .wasm32 => try func.addTag(.i32_eq),
-                    .wasm64 => try func.addTag(.i64_eq),
-                    else => unreachable,
-                }
-                try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
-            }
-
-            // get dst ptr
-            {
-                try func.emitWValue(dst);
-                try func.emitWValue(offset);
-                switch (func.arch()) {
-                    .wasm32 => try func.addTag(.i32_add),
-                    .wasm64 => try func.addTag(.i64_add),
-                    else => unreachable,
-                }
-            }
-
-            // get src value and also store in dst
-            {
-                try func.emitWValue(src);
-                try func.emitWValue(offset);
-                switch (func.arch()) {
-                    .wasm32 => {
-                        try func.addTag(.i32_add);
-                        try func.addMemArg(.i32_load8_u, .{ .offset = src.offset(), .alignment = 1 });
-                        try func.addMemArg(.i32_store8, .{ .offset = dst.offset(), .alignment = 1 });
-                    },
-                    .wasm64 => {
-                        try func.addTag(.i64_add);
-                        try func.addMemArg(.i64_load8_u, .{ .offset = src.offset(), .alignment = 1 });
-                        try func.addMemArg(.i64_store8, .{ .offset = dst.offset(), .alignment = 1 });
-                    },
-                    else => unreachable,
-                }
-            }
-
-            // increment loop counter
-            {
-                try func.emitWValue(offset);
-                switch (func.arch()) {
-                    .wasm32 => {
-                        try func.addImm32(1);
-                        try func.addTag(.i32_add);
-                    },
-                    .wasm64 => {
-                        try func.addImm64(1);
-                        try func.addTag(.i64_add);
-                    },
-                    else => unreachable,
-                }
-                try func.addLabel(.local_set, offset.local.value);
-                try func.addLabel(.br, 0); // jump to start of loop
-            }
-            try func.endBlock(); // close off loop block
-            try func.endBlock(); // close off outer block
-        },
+        else => {},
     }
+
+    // TODO: We should probably lower this to a call to compiler_rt
+    // But for now, we implement it manually
+    var offset = try func.ensureAllocLocal(Type.usize); // local for counter
+    defer offset.free(func);
+
+    // outer block to jump to when loop is done
+    try func.startBlock(.block, wasm.block_empty);
+    try func.startBlock(.loop, wasm.block_empty);
+
+    // loop condition (offset == length -> break)
+    {
+        try func.emitWValue(offset);
+        try func.emitWValue(len);
+        switch (func.arch()) {
+            .wasm32 => try func.addTag(.i32_eq),
+            .wasm64 => try func.addTag(.i64_eq),
+            else => unreachable,
+        }
+        try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
+    }
+
+    // get dst ptr
+    {
+        try func.emitWValue(dst);
+        try func.emitWValue(offset);
+        switch (func.arch()) {
+            .wasm32 => try func.addTag(.i32_add),
+            .wasm64 => try func.addTag(.i64_add),
+            else => unreachable,
+        }
+    }
+
+    // get src value and also store in dst
+    {
+        try func.emitWValue(src);
+        try func.emitWValue(offset);
+        switch (func.arch()) {
+            .wasm32 => {
+                try func.addTag(.i32_add);
+                try func.addMemArg(.i32_load8_u, .{ .offset = src.offset(), .alignment = 1 });
+                try func.addMemArg(.i32_store8, .{ .offset = dst.offset(), .alignment = 1 });
+            },
+            .wasm64 => {
+                try func.addTag(.i64_add);
+                try func.addMemArg(.i64_load8_u, .{ .offset = src.offset(), .alignment = 1 });
+                try func.addMemArg(.i64_store8, .{ .offset = dst.offset(), .alignment = 1 });
+            },
+            else => unreachable,
+        }
+    }
+
+    // increment loop counter
+    {
+        try func.emitWValue(offset);
+        switch (func.arch()) {
+            .wasm32 => {
+                try func.addImm32(1);
+                try func.addTag(.i32_add);
+            },
+            .wasm64 => {
+                try func.addImm64(1);
+                try func.addTag(.i64_add);
+            },
+            else => unreachable,
+        }
+        try func.addLabel(.local_set, offset.local.value);
+        try func.addLabel(.br, 0); // jump to start of loop
+    }
+    try func.endBlock(); // close off loop block
+    try func.endBlock(); // close off outer block
 }
 
 fn ptrSize(func: *const CodeGen) u16 {
@@ -2128,9 +2132,45 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
-    const ty = func.air.typeOf(bin_op.lhs).childType();
+    const ptr_ty = func.air.typeOf(bin_op.lhs);
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const ty = ptr_ty.childType();
+    if (ptr_info.host_size == 0) {
+        try func.store(lhs, rhs, ty, 0);
+    } else {
+        // at this point we have a non-natural alignment, we must
+        // load the value, and then shift+or the rhs into the result location.
+        var int_ty_payload: Type.Payload.Bits = .{
+            .base = .{ .tag = .int_unsigned },
+            .data = ptr_info.host_size * 8,
+        };
+        const int_elem_ty = Type.initPayload(&int_ty_payload.base);
 
-    try func.store(lhs, rhs, ty, 0);
+        var mask = @intCast(u64, (@as(u65, 1) << @intCast(u7, ty.bitSize(func.target))) - 1);
+        mask <<= @intCast(u6, ptr_info.bit_offset);
+        mask ^= ~@as(u64, 0);
+        const shift_val = if (ptr_info.host_size <= 4)
+            WValue{ .imm32 = ptr_info.bit_offset }
+        else
+            WValue{ .imm64 = ptr_info.bit_offset };
+        const mask_val = if (ptr_info.host_size <= 4)
+            WValue{ .imm32 = @truncate(u32, mask) }
+        else
+            WValue{ .imm64 = mask };
+
+        try func.emitWValue(lhs);
+        const loaded = try func.load(lhs, int_elem_ty, 0);
+        const anded = try func.binOp(loaded, mask_val, int_elem_ty, .@"and");
+        const extended_value = try func.intcast(rhs, ty, int_elem_ty);
+        const shifted_value = if (ptr_info.bit_offset > 0) shifted: {
+            break :shifted try func.binOp(extended_value, shift_val, int_elem_ty, .shl);
+        } else extended_value;
+        const result = try func.binOp(anded, shifted_value, int_elem_ty, .@"or");
+        std.debug.print("Host: {} ty {} ty {}\n", .{ ptr_info.host_size, int_elem_ty.fmtDebug(), ty.fmtDebug() });
+        // lhs is still on the stack
+        try func.store(.stack, result, int_elem_ty, 0);
+    }
+
     func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
 
@@ -2218,6 +2258,8 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const ty = func.air.getRefType(ty_op.ty);
+    const ptr_ty = func.air.typeOf(ty_op.operand);
+    const ptr_info = ptr_ty.ptrInfo().data;
 
     if (!ty.hasRuntimeBitsIgnoreComptime()) return func.finishAir(inst, .none, &.{ty_op.operand});
 
@@ -2228,8 +2270,28 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result new_local;
         }
 
-        const stack_loaded = try func.load(operand, ty, 0);
-        break :result try stack_loaded.toLocal(func, ty);
+        if (ptr_info.host_size == 0) {
+            const stack_loaded = try func.load(operand, ty, 0);
+            break :result try stack_loaded.toLocal(func, ty);
+        }
+
+        // at this point we have a non-natural alignment, we must
+        // shift the value to obtain the correct bit.
+        var int_ty_payload: Type.Payload.Bits = .{
+            .base = .{ .tag = .int_unsigned },
+            .data = ptr_info.host_size * 8,
+        };
+        const int_elem_ty = Type.initPayload(&int_ty_payload.base);
+        const shift_val = if (ptr_info.host_size <= 4)
+            WValue{ .imm32 = ptr_info.bit_offset }
+        else
+            WValue{ .imm64 = ptr_info.bit_offset };
+
+        const stack_loaded = try func.load(operand, int_elem_ty, 0);
+        const shifted = try func.binOp(stack_loaded, shift_val, int_elem_ty, .shr);
+        const result = try func.trunc(shifted, ty, int_elem_ty);
+        // const wrapped = try func.wrapOperand(shifted, ty);
+        break :result try result.toLocal(func, ty);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
 }
@@ -3151,7 +3213,7 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const struct_ptr = try func.resolveInst(extra.data.struct_operand);
     const struct_ty = func.air.typeOf(extra.data.struct_operand).childType();
-    const result = try func.structFieldPtr(struct_ptr, struct_ty, extra.data.field_index);
+    const result = try func.structFieldPtr(extra.data.struct_operand, struct_ptr, struct_ty, extra.data.field_index);
     func.finishAir(inst, result, &.{extra.data.struct_operand});
 }
 
@@ -3161,11 +3223,11 @@ fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) Inne
     const struct_ptr = try func.resolveInst(ty_op.operand);
     const struct_ty = func.air.typeOf(ty_op.operand).childType();
 
-    const result = try func.structFieldPtr(struct_ptr, struct_ty, index);
+    const result = try func.structFieldPtr(ty_op.operand, struct_ptr, struct_ty, index);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn structFieldPtr(func: *CodeGen, struct_ptr: WValue, struct_ty: Type, index: u32) InnerError!WValue {
+fn structFieldPtr(func: *CodeGen, ref: Air.Inst.Ref, struct_ptr: WValue, struct_ty: Type, index: u32) InnerError!WValue {
     const offset = switch (struct_ty.containerLayout()) {
         .Packed => switch (struct_ty.zigTypeTag()) {
             .Struct => struct_ty.packedStructFieldByteOffset(index, func.target),
@@ -3174,6 +3236,10 @@ fn structFieldPtr(func: *CodeGen, struct_ptr: WValue, struct_ty: Type, index: u3
         },
         else => struct_ty.structFieldOffset(index, func.target),
     };
+    // save a load and store when we can simply reuse the operand
+    if (offset == 0) {
+        return func.reuseOperand(ref, struct_ptr);
+    }
     switch (struct_ptr) {
         .stack_offset => |stack_offset| {
             return WValue{ .stack_offset = .{ .value = stack_offset.value + @intCast(u32, offset), .references = 1 } };
@@ -3893,9 +3959,9 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Truncates a given operand to a given type, discarding any overflown bits.
 /// NOTE: Resulting value is left on the stack.
 fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerError!WValue {
-    const int_info = given_ty.intInfo(func.target);
-    if (toWasmBits(int_info.bits) == null) {
-        return func.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{int_info.bits});
+    const given_bits = @intCast(u16, given_ty.bitSize(func.target));
+    if (toWasmBits(given_bits) == null) {
+        return func.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{given_bits});
     }
 
     var result = try func.intcast(operand, given_ty, wanted_ty);
