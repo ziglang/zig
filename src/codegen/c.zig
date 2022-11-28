@@ -4108,6 +4108,8 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         if (is_reg) {
             try f.writeCValue(writer, .{ .local = locals_index }, .Other);
             locals_index += 1;
+        } else if (output == .none) {
+            try f.writeCValue(writer, local, .FunctionArgument);
         } else {
             try f.writeCValueDeref(writer, try f.resolveInst(output));
         }
@@ -4410,6 +4412,10 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
                 var u8_ptr_pl = field_ptr_info;
                 u8_ptr_pl.data.pointee_type = Type.u8;
                 const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+
+                if (!std.mem.isAligned(byte_offset, field_ptr_ty.ptrAlignment(target))) {
+                    return f.fail("TODO: CBE: unaligned packed struct field pointer", .{});
+                }
 
                 try writer.writeAll("&((");
                 try f.renderTypecast(writer, u8_ptr_ty);
