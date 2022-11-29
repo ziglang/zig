@@ -26,7 +26,6 @@ export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 rm -rf build-release
 mkdir build-release
 cd build-release
-echo "::group:: Build Zig"
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -42,7 +41,6 @@ unset CC
 unset CXX
 
 ninja install
-echo "::endgroup::"
 
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
@@ -50,20 +48,16 @@ stage3-release/bin/zig fmt --check .. \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
-echo "::group:: zig build arm32"
 stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
-echo "::endgroup::"
 
 # TODO: add -fqemu back to this line
 
-echo "::group:: zig build test docs" 
 stage3-release/bin/zig build test docs \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
-echo "::endgroup::"
 
 # Look for HTML errors.
 tidy --drop-empty-elements no -qe ../zig-cache/langref.html

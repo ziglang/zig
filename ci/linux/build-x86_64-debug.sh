@@ -26,7 +26,6 @@ export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 rm -rf build-debug
 mkdir build-debug
 cd build-debug
-echo "::group:: Build Zig"
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -42,7 +41,6 @@ unset CC
 unset CXX
 
 ninja install
-echo "::endgroup::"
 
 echo "Looking for non-conforming code formatting..."
 stage3-debug/bin/zig fmt --check .. \
@@ -51,13 +49,10 @@ stage3-debug/bin/zig fmt --check .. \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
-echo "::group:: zig build arm32"
 stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
-echo "::endgroup::"
 
 # building docs disabled due to:
 # https://github.com/ziglang/zig/issues/13546
-echo "::group:: zig build test"
 stage3-debug/bin/zig build test \
   -fqemu \
   -fwasmtime \
@@ -65,7 +60,6 @@ stage3-debug/bin/zig build test \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
-echo "::endgroup::"
 
 # langref disabled due to:
 # https://github.com/ziglang/zig/issues/13546

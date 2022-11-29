@@ -23,7 +23,6 @@ git fetch --tags
 
 mkdir build
 cd build
-echo "::group:: Build Zig"
 PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -36,17 +35,13 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -GNinja
 
 $HOME/local/bin/ninja install
-echo "::endgroup::"
 
-
-echo "::group:: zig build test docs"
 stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
   --search-prefix "$PREFIX"
-echo "::endgroup::"
 
 # Produce the experimental std lib documentation.
 stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
