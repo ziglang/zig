@@ -253,7 +253,6 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
     const ref_id = result_id;
     const types = &self.sections.types_globals_constants;
     const debug_names = &self.sections.debug_names;
-    const annotations = &self.sections.annotations;
     const result_id_operand = .{ .id_result = result_id };
 
     switch (ty.tag()) {
@@ -355,13 +354,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
 
             const size_type = Type.initTag(.u32);
             const size_type_id = try self.resolveTypeId(size_type);
-
-            const length_id = self.allocId();
-            try types.emit(self.gpa, .OpConstant, .{
-                .id_result_type = size_type_id,
-                .id_result = length_id,
-                .value = .{ .uint32 = info.length },
-            });
+            const length_id = try self.emitConstant(size_type_id, .{ .uint32 = info.length });
 
             try types.emit(self.gpa, .OpTypeArray, .{
                 .id_result = result_id,
@@ -369,7 +362,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
                 .length = length_id,
             });
             if (info.array_stride != 0) {
-                try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
+                try self.decorate(ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
             }
         },
         .runtime_array => {
@@ -379,7 +372,7 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
                 .element_type = self.typeResultId(ty.childType()),
             });
             if (info.array_stride != 0) {
-                try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
+                try self.decorate(ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
             }
         },
         .@"struct" => {
@@ -403,13 +396,13 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
                 .type = self.typeResultId(ty.childType()),
             });
             if (info.array_stride != 0) {
-                try annotations.decorate(self.gpa, ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
+                try self.decorate(ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
             }
             if (info.alignment) |alignment| {
-                try annotations.decorate(self.gpa, ref_id, .{ .Alignment = .{ .alignment = alignment } });
+                try self.decorate(ref_id, .{ .Alignment = .{ .alignment = alignment } });
             }
             if (info.max_byte_offset) |max_byte_offset| {
-                try annotations.decorate(self.gpa, ref_id, .{ .MaxByteOffset = .{ .max_byte_offset = max_byte_offset } });
+                try self.decorate(ref_id, .{ .MaxByteOffset = .{ .max_byte_offset = max_byte_offset } });
             }
         },
         .function => {
@@ -438,7 +431,6 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
 
 fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct) !void {
     const debug_names = &self.sections.debug_names;
-    const annotations = &self.sections.annotations;
 
     if (info.name.len != 0) {
         try debug_names.emit(self.gpa, .OpName, .{
@@ -449,15 +441,15 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
 
     // Decorations for the struct type itself.
     if (info.decorations.block)
-        try annotations.decorate(self.gpa, target, .Block);
+        try self.decorate(target, .Block);
     if (info.decorations.buffer_block)
-        try annotations.decorate(self.gpa, target, .BufferBlock);
+        try self.decorate(target, .BufferBlock);
     if (info.decorations.glsl_shared)
-        try annotations.decorate(self.gpa, target, .GLSLShared);
+        try self.decorate(target, .GLSLShared);
     if (info.decorations.glsl_packed)
-        try annotations.decorate(self.gpa, target, .GLSLPacked);
+        try self.decorate(target, .GLSLPacked);
     if (info.decorations.c_packed)
-        try annotations.decorate(self.gpa, target, .CPacked);
+        try self.decorate(target, .CPacked);
 
     // Decorations for the struct members.
     const extra = info.member_decoration_extra;
@@ -476,8 +468,7 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
 
         switch (member.offset) {
             .none => {},
-            else => try annotations.decorateMember(
-                self.gpa,
+            else => try self.decorateMember(
                 target,
                 index,
                 .{ .Offset = .{ .byte_offset = @enumToInt(member.offset) } },
@@ -485,70 +476,70 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
         }
 
         switch (d.matrix_layout) {
-            .row_major => try annotations.decorateMember(self.gpa, target, index, .RowMajor),
-            .col_major => try annotations.decorateMember(self.gpa, target, index, .ColMajor),
+            .row_major => try self.decorateMember(target, index, .RowMajor),
+            .col_major => try self.decorateMember(target, index, .ColMajor),
             .none => {},
         }
         if (d.matrix_layout != .none) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .MatrixStride = .{ .matrix_stride = extra[extra_i] },
             });
             extra_i += 1;
         }
 
         if (d.no_perspective)
-            try annotations.decorateMember(self.gpa, target, index, .NoPerspective);
+            try self.decorateMember(target, index, .NoPerspective);
         if (d.flat)
-            try annotations.decorateMember(self.gpa, target, index, .Flat);
+            try self.decorateMember(target, index, .Flat);
         if (d.patch)
-            try annotations.decorateMember(self.gpa, target, index, .Patch);
+            try self.decorateMember(target, index, .Patch);
         if (d.centroid)
-            try annotations.decorateMember(self.gpa, target, index, .Centroid);
+            try self.decorateMember(target, index, .Centroid);
         if (d.sample)
-            try annotations.decorateMember(self.gpa, target, index, .Sample);
+            try self.decorateMember(target, index, .Sample);
         if (d.invariant)
-            try annotations.decorateMember(self.gpa, target, index, .Invariant);
+            try self.decorateMember(target, index, .Invariant);
         if (d.@"volatile")
-            try annotations.decorateMember(self.gpa, target, index, .Volatile);
+            try self.decorateMember(target, index, .Volatile);
         if (d.coherent)
-            try annotations.decorateMember(self.gpa, target, index, .Coherent);
+            try self.decorateMember(target, index, .Coherent);
         if (d.non_writable)
-            try annotations.decorateMember(self.gpa, target, index, .NonWritable);
+            try self.decorateMember(target, index, .NonWritable);
         if (d.non_readable)
-            try annotations.decorateMember(self.gpa, target, index, .NonReadable);
+            try self.decorateMember(target, index, .NonReadable);
 
         if (d.builtin) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .BuiltIn = .{ .built_in = @intToEnum(spec.BuiltIn, extra[extra_i]) },
             });
             extra_i += 1;
         }
         if (d.stream) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .Stream = .{ .stream_number = extra[extra_i] },
             });
             extra_i += 1;
         }
         if (d.location) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .Location = .{ .location = extra[extra_i] },
             });
             extra_i += 1;
         }
         if (d.component) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .Component = .{ .component = extra[extra_i] },
             });
             extra_i += 1;
         }
         if (d.xfb_buffer) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .XfbBuffer = .{ .xfb_buffer_number = extra[extra_i] },
             });
             extra_i += 1;
         }
         if (d.xfb_stride) {
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .XfbStride = .{ .xfb_stride = extra[extra_i] },
             });
             extra_i += 1;
@@ -557,10 +548,50 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
             const len = extra[extra_i];
             extra_i += 1;
             const semantic = @ptrCast([*]const u8, &extra[extra_i])[0..len];
-            try annotations.decorateMember(self.gpa, target, index, .{
+            try self.decorateMember(target, index, .{
                 .UserSemantic = .{ .semantic = semantic },
             });
             extra_i += std.math.divCeil(u32, extra_i, @sizeOf(u32)) catch unreachable;
         }
     }
+}
+
+pub fn emitConstant(
+    self: *Module,
+    ty_id: spec.IdRef,
+    value: spec.LiteralContextDependentNumber,
+) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpConstant, .{
+        .id_result_type = ty_id,
+        .id_result = result_id,
+        .value = value,
+    });
+    return result_id;
+}
+
+/// Decorate a result-id.
+pub fn decorate(
+    self: *Module,
+    target: spec.IdRef,
+    decoration: spec.Decoration.Extended,
+) !void {
+    try self.sections.annotations.emit(self.gpa, .OpDecorate, .{
+        .target = target,
+        .decoration = decoration,
+    });
+}
+
+/// Decorate a result-id which is a member of some struct.
+pub fn decorateMember(
+    self: *Module,
+    structure_type: spec.IdRef,
+    member: u32,
+    decoration: spec.Decoration.Extended,
+) !void {
+    try self.sections.annotations.emit(self.gpa, .OpMemberDecorate, .{
+        .structure_type = structure_type,
+        .member = member,
+        .decoration = decoration,
+    });
 }

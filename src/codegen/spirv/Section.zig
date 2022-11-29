@@ -65,34 +65,6 @@ pub fn emit(
     section.writeOperands(opcode.Operands(), operands);
 }
 
-/// Decorate a result-id.
-pub fn decorate(
-    section: *Section,
-    allocator: Allocator,
-    target: spec.IdRef,
-    decoration: spec.Decoration.Extended,
-) !void {
-    try section.emit(allocator, .OpDecorate, .{
-        .target = target,
-        .decoration = decoration,
-    });
-}
-
-/// Decorate a result-id which is a member of some struct.
-pub fn decorateMember(
-    section: *Section,
-    allocator: Allocator,
-    structure_type: spec.IdRef,
-    member: u32,
-    decoration: spec.Decoration.Extended,
-) !void {
-    try section.emit(allocator, .OpMemberDecorate, .{
-        .structure_type = structure_type,
-        .member = member,
-        .decoration = decoration,
-    });
-}
-
 pub fn writeWord(section: *Section, word: Word) void {
     section.instructions.appendAssumeCapacity(word);
 }

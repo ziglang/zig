@@ -880,7 +880,9 @@ pub const DeclGen = struct {
             // TODO: We probably need to have a special implementation of this for the C abi.
             .ret_ptr => try self.airAlloc(inst),
             .block   => try self.airBlock(inst),
+
             .load    => try self.airLoad(inst),
+            .store      => return self.airStore(inst),
 
             .br         => return self.airBr(inst),
             .breakpoint => return,
@@ -891,7 +893,6 @@ pub const DeclGen = struct {
             .loop       => return self.airLoop(inst),
             .ret        => return self.airRet(inst),
             .ret_load   => return self.airRetLoad(inst),
-            .store      => return self.airStore(inst),
             .switch_br  => return self.airSwitchBr(inst),
             .unreach    => return self.airUnreach(),
 
@@ -964,13 +965,8 @@ pub const DeclGen = struct {
             33...64 => .{ .uint64 = mask_value },
             else => unreachable,
         };
-        // TODO: We should probably optimize these constants a bit.
-        const mask_id = self.spv.allocId();
-        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpConstant, .{
-            .id_result_type = ty_id,
-            .id_result = mask_id,
-            .value = mask_lit,
-        });
+        // TODO: We should probably optimize the amount of these constants a bit.
+        const mask_id = try self.spv.emitConstant(ty_id, mask_lit);
         const result_id = self.spv.allocId();
         try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
             .id_result_type = ty_id,
@@ -1119,13 +1115,11 @@ pub const DeclGen = struct {
         // Finally, construct the Zig type.
         // Layout is result, overflow.
         const result_id = self.spv.allocId();
+        const constituents = [_]IdRef{ result, casted_overflow };
         try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
-            .constituents = &.{
-                result,
-                casted_overflow,
-            },
+            .constituents = &constituents,
         });
         return result_id;
     }
@@ -1277,11 +1271,12 @@ pub const DeclGen = struct {
 
     fn extractField(self: *DeclGen, result_ty: IdResultType, object: IdRef, field: u32) !IdRef {
         const result_id = self.spv.allocId();
+        const indexes = [_]u32{field};
         try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
             .id_result_type = result_ty,
             .id_result = result_id,
             .composite = object,
-            .indexes = &.{field},
+            .indexes = &indexes,
         });
         return result_id;
     }
@@ -1318,11 +1313,12 @@ pub const DeclGen = struct {
         };
 
         const result_id = self.spv.allocId();
+        const indexes = [_]IdRef{index};
         try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
             .id_result_type = spv_ptr_ty,
             .id_result = result_id,
             .base = slice_ptr,
-            .indexes = &.{index},
+            .indexes = &indexes,
         });
         return result_id;
     }
@@ -1335,14 +1331,13 @@ pub const DeclGen = struct {
         const slice = try self.resolve(bin_op.lhs);
         const index = try self.resolve(bin_op.rhs);
 
-        const spv_elem_ty = try self.resolveTypeId(self.air.typeOfIndex(inst));
         var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const spv_ptr_ty = try self.resolveTypeId(slice_ty.slicePtrFieldType(&slice_buf));
+        const ptr_ty_id = try self.resolveTypeId(slice_ty.slicePtrFieldType(&slice_buf));
 
         const slice_ptr = blk: {
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-                .id_result_type = spv_ptr_ty,
+                .id_result_type = ptr_ty_id,
                 .id_result = result_id,
                 .composite = slice,
                 .indexes = &.{0},
@@ -1352,22 +1347,17 @@ pub const DeclGen = struct {
 
         const elem_ptr = blk: {
             const result_id = self.spv.allocId();
+            const indexes = [_]IdRef{index};
             try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
-                .id_result_type = spv_ptr_ty,
+                .id_result_type = ptr_ty_id,
                 .id_result = result_id,
                 .base = slice_ptr,
-                .indexes = &.{index},
+                .indexes = &indexes,
             });
             break :blk result_id;
         };
 
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
-            .id_result_type = spv_elem_ty,
-            .id_result = result_id,
-            .pointer = elem_ptr,
-        });
-        return result_id;
+        return try self.load(slice_ty, elem_ptr);
     }
 
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -1386,11 +1376,12 @@ pub const DeclGen = struct {
         const rhs = try self.resolve(bin_op.rhs);
 
         const result_id = self.spv.allocId();
+        const indexes = [_]IdRef{rhs};
         try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .base = base_ptr,
-            .indexes = &.{rhs},
+            .indexes = &indexes,
         });
         return result_id;
     }
@@ -1412,11 +1403,12 @@ pub const DeclGen = struct {
         assert(struct_ty.zigTypeTag() == .Struct); // Cannot do unions yet.
 
         const result_id = self.spv.allocId();
+        const indexes = [_]u32{field_index};
         try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
             .id_result_type = field_ty_id,
             .id_result = result_id,
             .composite = object,
-            .indexes = &.{field_index},
+            .indexes = &indexes,
         });
         return result_id;
     }
@@ -1433,20 +1425,16 @@ pub const DeclGen = struct {
             .Struct => switch (object_ty.containerLayout()) {
                 .Packed => unreachable, // TODO
                 else => {
-                    const field_index_id = self.spv.allocId();
                     const u32_ty_id = self.spv.typeResultId(try self.intType(.unsigned, 32));
-                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpConstant, .{
-                        .id_result_type = u32_ty_id,
-                        .id_result = field_index_id,
-                        .value = .{ .uint32 = field_index },
-                    });
+                    const field_index_id = try self.spv.emitConstant(u32_ty_id, .{ .uint32 = field_index });
                     const result_id = self.spv.allocId();
                     const result_type_id = try self.resolveTypeId(result_ptr_ty);
+                    const indexes = [_]IdRef{field_index_id};
                     try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
                         .id_result_type = result_type_id,
                         .id_result = result_id,
                         .base = object_ptr,
-                        .indexes = &.{field_index_id},
+                        .indexes = &indexes,
                     });
                     return result_id;
                 },
@@ -1591,26 +1579,49 @@ pub const DeclGen = struct {
         });
     }
 
-    fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !IdRef {
+    fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
-        const ty = self.air.typeOfIndex(inst);
+        const ptr_ty = self.air.typeOf(ty_op.operand);
+        const operand = try self.resolve(ty_op.operand);
+        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const result_type_id = try self.resolveTypeId(ty);
+        return try self.load(ptr_ty, operand);
+    }
+
+    fn load(self: *DeclGen, ptr_ty: Type, ptr: IdRef) !IdRef {
+        const value_ty = ptr_ty.childType();
+        const result_type_id = try self.resolveTypeId(value_ty);
         const result_id = self.spv.allocId();
-
         const access = spec.MemoryAccess.Extended{
-            .Volatile = ty.isVolatilePtr(),
+            .Volatile = ptr_ty.isVolatilePtr(),
         };
-
         try self.func.body.emit(self.spv.gpa, .OpLoad, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
-            .pointer = operand_id,
+            .pointer = ptr,
             .memory_access = access,
         });
-
         return result_id;
+    }
+
+    fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const ptr = try self.resolve(bin_op.lhs);
+        const value = try self.resolve(bin_op.rhs);
+
+        try self.store(ptr_ty, ptr, value);
+    }
+
+    fn store(self: *DeclGen, ptr_ty: Type, ptr: IdRef, value: IdRef) !void {
+        const access = spec.MemoryAccess.Extended{
+            .Volatile = ptr_ty.isVolatilePtr(),
+        };
+        try self.func.body.emit(self.spv.gpa, .OpStore, .{
+            .pointer = ptr,
+            .object = value,
+            .memory_access = access,
+        });
     }
 
     fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -1644,7 +1655,6 @@ pub const DeclGen = struct {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const ptr_ty = self.air.typeOf(un_op);
         const ret_ty = ptr_ty.childType();
-        const ret_ty_id = try self.resolveTypeId(ret_ty);
 
         if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
             try self.func.body.emit(self.spv.gpa, .OpReturn, {});
@@ -1652,29 +1662,9 @@ pub const DeclGen = struct {
         }
 
         const ptr = try self.resolve(un_op);
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
-            .id_result_type = ret_ty_id,
-            .id_result = result_id,
-            .pointer = ptr,
-        });
-        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = result_id });
-    }
-
-    fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-        const dst_ptr_id = try self.resolve(bin_op.lhs);
-        const src_val_id = try self.resolve(bin_op.rhs);
-        const lhs_ty = self.air.typeOf(bin_op.lhs);
-
-        const access = spec.MemoryAccess.Extended{
-            .Volatile = lhs_ty.isVolatilePtr(),
-        };
-
-        try self.func.body.emit(self.spv.gpa, .OpStore, .{
-            .pointer = dst_ptr_id,
-            .object = src_val_id,
-            .memory_access = access,
+        const value = try self.load(ptr_ty, ptr);
+        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{
+            .value = value,
         });
     }
 
@@ -1691,7 +1681,7 @@ pub const DeclGen = struct {
                 const backing_bits = self.backingIntBits(bits) orelse {
                     return self.todo("implement composite int switch", .{});
                 };
-                break :blk if (backing_bits <= 32) 1 else 2;
+                break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
             },
             .Enum => blk: {
                 var buffer: Type.Payload.Bits = undefined;
@@ -1700,7 +1690,7 @@ pub const DeclGen = struct {
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     return self.todo("implement composite int switch", .{});
                 };
-                break :blk if (backing_bits <= 32) 1 else 2;
+                break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
             },
             else => return self.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag())}), // TODO: Figure out which types apply here, and work around them as we can only do integers.
         };
