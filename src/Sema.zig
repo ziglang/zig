@@ -5391,7 +5391,8 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const container_namespace = container_ty.getNamespace().?;
 
         const maybe_index = try sema.lookupInNamespace(block, operand_src, container_namespace, decl_name, false);
-        break :index_blk maybe_index.?; // AstGen would produce error in case of unidentified name
+        break :index_blk maybe_index orelse
+            return sema.failWithBadMemberAccess(block, container_ty, operand_src, decl_name);
     } else try sema.lookupIdentifier(block, operand_src, decl_name);
     const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
         error.NeededSourceLocation => {
