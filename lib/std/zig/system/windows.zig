@@ -121,12 +121,12 @@ fn getCpuInfoFromRegistry(
                 else => unreachable,
             }
         };
-        const key_namee = std.unicode.utf8ToUtf16LeStringLiteral(pair.key);
+        const key_name = std.unicode.utf8ToUtf16LeStringLiteral(pair.key);
 
         table[i + 1] = .{
             .QueryRoutine = null,
             .Flags = std.os.windows.RTL_QUERY_REGISTRY_DIRECT | std.os.windows.RTL_QUERY_REGISTRY_REQUIRED,
-            .Name = @intToPtr([*:0]u16, @ptrToInt(key_namee)),
+            .Name = @intToPtr([*:0]u16, @ptrToInt(key_name)),
             .EntryContext = ctx,
             .DefaultType = REG.NONE,
             .DefaultData = null,
@@ -155,8 +155,6 @@ fn getCpuInfoFromRegistry(
     switch (res) {
         .SUCCESS => {
             inline for (pairs) |pair, i| switch (pair.value) {
-                REG.NONE => unreachable,
-
                 REG.SZ,
                 REG.EXPAND_SZ,
                 REG.MULTI_SZ,
@@ -187,6 +185,12 @@ fn getCpuInfoFromRegistry(
         },
         else => return error.Unexpected,
     }
+}
+
+fn setFeature(comptime Feature: type, cpu: *Target.Cpu, feature: Feature, enabled: bool) void {
+    const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
+
+    if (enabled) cpu.features.addFeature(idx) else cpu.features.removeFeature(idx);
 }
 
 fn getCpuCount() usize {
@@ -298,64 +302,41 @@ fn CpuInfoParser(comptime impl: anytype) type {
     };
 }
 
-fn genericCpu(comptime arch: Target.Cpu.Arch) Target.Cpu {
-    return .{
+/// If the fine-grained detection of CPU features via Win registry fails,
+/// we fallback to a generic CPU model but we override the feature set
+/// using `SharedUserData` contents.
+/// This is effectively what LLVM does for all ARM chips on Windows.
+fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
+    var cpu = Target.Cpu{
         .arch = arch,
         .model = Target.Cpu.Model.generic(arch),
         .features = Target.Cpu.Feature.Set.empty,
     };
+
+    switch (arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            const Feature = Target.aarch64.Feature;
+
+            // Override any features that are either present or absent
+            setFeature(Feature, &cpu, .neon, IsProcessorFeaturePresent(PF.ARM_NEON_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .crc, IsProcessorFeaturePresent(PF.ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .crypto, IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .lse, IsProcessorFeaturePresent(PF.ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .dotprod, IsProcessorFeaturePresent(PF.ARM_V82_DP_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .jsconv, IsProcessorFeaturePresent(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE));
+        },
+        else => {},
+    }
+
+    return cpu;
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
-            var cpu = cpu: {
-                var maybe_cpu = ArmCpuInfoParser.parse(current_arch) catch break :cpu genericCpu(current_arch);
-                break :cpu maybe_cpu orelse genericCpu(current_arch);
-            };
-
-            const Feature = Target.aarch64.Feature;
-
-            // Override any features that are either present or absent
-            if (IsProcessorFeaturePresent(PF.ARM_NEON_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.neon));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.neon));
-            }
-
-            if (IsProcessorFeaturePresent(PF.ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.crc));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.crc));
-            }
-
-            if (IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.crypto));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.crypto));
-            }
-
-            if (IsProcessorFeaturePresent(PF.ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.lse));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.lse));
-            }
-
-            if (IsProcessorFeaturePresent(PF.ARM_V82_DP_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.dotprod));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.dotprod));
-            }
-
-            if (IsProcessorFeaturePresent(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)) {
-                cpu.features.addFeature(@enumToInt(Feature.jsconv));
-            } else {
-                cpu.features.removeFeature(@enumToInt(Feature.jsconv));
-            }
-
-            return cpu;
+            return ArmCpuInfoParser.parse(current_arch) catch genericCpuAndNativeFeatures(current_arch);
         },
-        else => {},
+        else => return null,
     }
 }
