@@ -505,6 +505,7 @@ pub fn addStandaloneTests(
     enable_rosetta: bool,
     enable_wasmtime: bool,
     enable_wine: bool,
+    enable_symlinks_windows: bool,
 ) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
@@ -522,6 +523,7 @@ pub fn addStandaloneTests(
         .enable_rosetta = enable_rosetta,
         .enable_wasmtime = enable_wasmtime,
         .enable_wine = enable_wine,
+        .enable_symlinks_windows = enable_symlinks_windows,
     };
 
     standalone.addCases(cases);
@@ -535,6 +537,7 @@ pub fn addLinkTests(
     modes: []const Mode,
     enable_macos_sdk: bool,
     omit_stage2: bool,
+    enable_symlinks_windows: bool,
 ) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
@@ -547,6 +550,7 @@ pub fn addLinkTests(
         .enable_macos_sdk = enable_macos_sdk,
         .target = .{},
         .omit_stage2 = omit_stage2,
+        .enable_symlinks_windows = enable_symlinks_windows,
     };
     link.addCases(cases);
     return cases.step;
@@ -1022,6 +1026,7 @@ pub const StandaloneContext = struct {
     enable_rosetta: bool = false,
     enable_wasmtime: bool = false,
     enable_wine: bool = false,
+    enable_symlinks_windows: bool,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -1037,11 +1042,13 @@ pub const StandaloneContext = struct {
         requires_macos_sdk: bool = false,
         requires_stage2: bool = false,
         use_emulation: bool = false,
+        requires_symlinks: bool = false,
     }) void {
         const b = self.b;
 
         if (features.requires_macos_sdk and !self.enable_macos_sdk) return;
         if (features.requires_stage2 and self.omit_stage2) return;
+        if (features.requires_symlinks and !self.enable_symlinks_windows and builtin.os.tag == .windows) return;
 
         const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
