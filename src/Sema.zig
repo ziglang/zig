@@ -12437,7 +12437,7 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     else
         try sema.resolveInst(.zero);
 
-    return sema.analyzeArithmetic(block, .sub, lhs, rhs, src, lhs_src, rhs_src);
+    return sema.analyzeArithmetic(block, .sub, lhs, rhs, src, lhs_src, rhs_src, true);
 }
 
 fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12460,7 +12460,7 @@ fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     else
         try sema.resolveInst(.zero);
 
-    return sema.analyzeArithmetic(block, .subwrap, lhs, rhs, src, lhs_src, rhs_src);
+    return sema.analyzeArithmetic(block, .subwrap, lhs, rhs, src, lhs_src, rhs_src, true);
 }
 
 fn zirArithmetic(
@@ -12480,7 +12480,7 @@ fn zirArithmetic(
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
-    return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src);
+    return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src, true);
 }
 
 fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13776,6 +13776,7 @@ fn analyzeArithmetic(
     src: LazySrcLoc,
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
+    want_safety: bool,
 ) CompileError!Air.Inst.Ref {
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
@@ -14204,7 +14205,7 @@ fn analyzeArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, src, rs.src);
-    if (block.wantSafety()) {
+    if (block.wantSafety() and want_safety) {
         if (scalar_tag == .Int) {
             const maybe_op_ov: ?Air.Inst.Tag = switch (rs.air_tag) {
                 .add => .add_with_overflow,
@@ -22334,6 +22335,47 @@ fn panicIndexOutOfBounds(
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
+fn panicStartLargerThanEnd(
+    sema: *Sema,
+    parent_block: *Block,
+    src: LazySrcLoc,
+    start: Air.Inst.Ref,
+    end: Air.Inst.Ref,
+) !void {
+    assert(!parent_block.is_comptime);
+    const ok = try parent_block.addBinOp(.cmp_lte, start, end);
+    const gpa = sema.gpa;
+
+    var fail_block: Block = .{
+        .parent = parent_block,
+        .sema = sema,
+        .src_decl = parent_block.src_decl,
+        .namespace = parent_block.namespace,
+        .wip_capture_scope = parent_block.wip_capture_scope,
+        .instructions = .{},
+        .inlining = parent_block.inlining,
+        .is_comptime = false,
+    };
+
+    defer fail_block.instructions.deinit(gpa);
+
+    {
+        const this_feature_is_implemented_in_the_backend =
+            sema.mod.comp.bin_file.options.use_llvm;
+
+        if (!this_feature_is_implemented_in_the_backend) {
+            // TODO implement this feature in all the backends and then delete this branch
+            _ = try fail_block.addNoOp(.breakpoint);
+            _ = try fail_block.addNoOp(.unreach);
+        } else {
+            const panic_fn = try sema.getBuiltin("panicStartGreaterThanEnd");
+            const args: [2]Air.Inst.Ref = .{ start, end };
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
+        }
+    }
+    try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
+}
+
 fn panicSentinelMismatch(
     sema: *Sema,
     parent_block: *Block,
@@ -28028,7 +28070,11 @@ fn analyzeSlice(
         }
     }
 
-    const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src);
+    if (block.wantSafety() and !block.is_comptime) {
+        // requirement: start <= end
+        try sema.panicStartLargerThanEnd(block, src, start, end);
+    }
+    const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src, false);
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;
@@ -28063,10 +28109,10 @@ fn analyzeSlice(
                     const actual_len = if (slice_ty.sentinel() == null)
                         slice_len_inst
                     else
-                        try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+                        try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
 
                     const actual_end = if (slice_sentinel != null)
-                        try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+                        try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
                     else
                         end;
 
@@ -28131,11 +28177,11 @@ fn analyzeSlice(
             if (slice_ty.sentinel() == null) break :blk slice_len_inst;
 
             // we have to add one because slice lengths don't include the sentinel
-            break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+            break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
         } else null;
         if (opt_len_inst) |len_inst| {
             const actual_end = if (slice_sentinel != null)
-                try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+                try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
             else
                 end;
             try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
