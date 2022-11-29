@@ -891,6 +891,10 @@ pub const panic_messages = struct {
     pub const corrupt_switch = "switch on corrupt value";
     pub const shift_rhs_too_big = "shift amount is greater than the type size";
     pub const invalid_enum_value = "invalid enum value";
+    pub const sentinel_mismatch = "sentinel mismatch";
+    pub const unwrap_error = "attempt to unwrap error";
+    pub const index_out_of_bounds = "index out of bounds";
+    pub const start_index_greater_than_end = "start index is larger than end index";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {
