@@ -3803,7 +3803,7 @@ test "switch on non-exhaustive enum" {
       {#link|Accessing the non-active field|Wrong Union Field Access#} is
       safety-checked {#link|Undefined Behavior#}:
       </p>
-      {#code_begin|test_err|inactive union field#}
+      {#code_begin|test_err|access of union field 'float' while field 'int' is active#}
 const Payload = union {
     int: i64,
     float: f64,
