@@ -19299,6 +19299,7 @@ fn zirBitCount(
         .Int => {
             if (try sema.resolveMaybeUndefVal(operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(result_scalar_ty);
+                try sema.resolveLazyValue(val);
                 return sema.addIntUnsigned(result_scalar_ty, comptimeOp(val, operand_ty, target));
             } else {
                 try sema.requireRuntimeBlock(block, src, operand_src);

@@ -2376,6 +2376,34 @@ pub const Const = struct {
     pub fn eq(a: Const, b: Const) bool {
         return order(a, b) == .eq;
     }
+
+    pub fn clz(a: Const, bits: Limb) Limb {
+        // Limbs are stored in little-endian order but we need
+        // to iterate big-endian.
+        var total_limb_lz: Limb = 0;
+        var i: usize = a.limbs.len;
+        const bits_per_limb = @sizeOf(Limb) * 8;
+        while (i != 0) {
+            i -= 1;
+            const limb = a.limbs[i];
+            const this_limb_lz = @clz(limb);
+            total_limb_lz += this_limb_lz;
+            if (this_limb_lz != bits_per_limb) break;
+        }
+        const total_limb_bits = a.limbs.len * bits_per_limb;
+        return total_limb_lz + bits - total_limb_bits;
+    }
+
+    pub fn ctz(a: Const) Limb {
+        // Limbs are stored in little-endian order.
+        var result: Limb = 0;
+        for (a.limbs) |limb| {
+            const limb_tz = @ctz(limb);
+            result += limb_tz;
+            if (limb_tz != @sizeOf(Limb) * 8) break;
+        }
+        return result;
+    }
 };
 
 /// An arbitrary-precision big integer along with an allocator which manages the memory.
