@@ -1005,6 +1005,9 @@ test "PageAllocator" {
 
 test "HeapAllocator" {
     if (builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/13702
+        if (builtin.cpu.arch == .aarch64) return error.SkipZigTest;
+
         var heap_allocator = HeapAllocator.init();
         defer heap_allocator.deinit();
         const allocator = heap_allocator.allocator();
