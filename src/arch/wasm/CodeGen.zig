@@ -2166,9 +2166,8 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :shifted try func.binOp(extended_value, shift_val, int_elem_ty, .shl);
         } else extended_value;
         const result = try func.binOp(anded, shifted_value, int_elem_ty, .@"or");
-        std.debug.print("Host: {} ty {} ty {}\n", .{ ptr_info.host_size, int_elem_ty.fmtDebug(), ty.fmtDebug() });
         // lhs is still on the stack
-        try func.store(.stack, result, int_elem_ty, 0);
+        try func.store(.stack, result, int_elem_ty, lhs.offset());
     }
 
     func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
@@ -2284,8 +2283,10 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const int_elem_ty = Type.initPayload(&int_ty_payload.base);
         const shift_val = if (ptr_info.host_size <= 4)
             WValue{ .imm32 = ptr_info.bit_offset }
+        else if (ptr_info.host_size <= 8)
+            WValue{ .imm64 = ptr_info.bit_offset }
         else
-            WValue{ .imm64 = ptr_info.bit_offset };
+            return func.fail("TODO: airLoad where ptr to bitfield exceeds 64 bits", .{});
 
         const stack_loaded = try func.load(operand, int_elem_ty, 0);
         const shifted = try func.binOp(stack_loaded, shift_val, int_elem_ty, .shr);
@@ -3213,7 +3214,7 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const struct_ptr = try func.resolveInst(extra.data.struct_operand);
     const struct_ty = func.air.typeOf(extra.data.struct_operand).childType();
-    const result = try func.structFieldPtr(extra.data.struct_operand, struct_ptr, struct_ty, extra.data.field_index);
+    const result = try func.structFieldPtr(inst, extra.data.struct_operand, struct_ptr, struct_ty, extra.data.field_index);
     func.finishAir(inst, result, &.{extra.data.struct_operand});
 }
 
@@ -3223,14 +3224,27 @@ fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) Inne
     const struct_ptr = try func.resolveInst(ty_op.operand);
     const struct_ty = func.air.typeOf(ty_op.operand).childType();
 
-    const result = try func.structFieldPtr(ty_op.operand, struct_ptr, struct_ty, index);
+    const result = try func.structFieldPtr(inst, ty_op.operand, struct_ptr, struct_ty, index);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn structFieldPtr(func: *CodeGen, ref: Air.Inst.Ref, struct_ptr: WValue, struct_ty: Type, index: u32) InnerError!WValue {
+fn structFieldPtr(
+    func: *CodeGen,
+    inst: Air.Inst.Index,
+    ref: Air.Inst.Ref,
+    struct_ptr: WValue,
+    struct_ty: Type,
+    index: u32,
+) InnerError!WValue {
+    const result_ty = func.air.typeOfIndex(inst);
     const offset = switch (struct_ty.containerLayout()) {
         .Packed => switch (struct_ty.zigTypeTag()) {
-            .Struct => struct_ty.packedStructFieldByteOffset(index, func.target),
+            .Struct => offset: {
+                if (result_ty.ptrInfo().data.host_size != 0) {
+                    break :offset @as(u32, 0);
+                }
+                break :offset struct_ty.packedStructFieldByteOffset(index, func.target);
+            },
             .Union => 0,
             else => unreachable,
         },
@@ -3266,11 +3280,15 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 assert(struct_obj.layout == .Packed);
                 const offset = struct_obj.packedFieldBitOffset(func.target, field_index);
                 const backing_ty = struct_obj.backing_int_ty;
-                const wasm_bits = toWasmBits(backing_ty.intInfo(func.target).bits).?;
+                const wasm_bits = toWasmBits(backing_ty.intInfo(func.target).bits) orelse {
+                    return func.fail("TODO: airStructFieldVal for packed structs larger than 128 bits", .{});
+                };
                 const const_wvalue = if (wasm_bits == 32)
                     WValue{ .imm32 = offset }
+                else if (wasm_bits == 64)
+                    WValue{ .imm64 = offset }
                 else
-                    WValue{ .imm64 = offset };
+                    return func.fail("TODO: airStructFieldVal for packed structs larger than 64 bits", .{});
 
                 // for first field we don't require any shifting
                 const shifted_value = if (offset == 0)
