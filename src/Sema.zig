@@ -8709,6 +8709,9 @@ fn analyzeParameter(
             });
             errdefer msg.destroy(sema.gpa);
 
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty);
+
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
         };
