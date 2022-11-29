@@ -31,8 +31,7 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
     git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
-Write-Output "Building Zig..."
-
+Write-Output "::group:: Building Zig..."
 & "$ZIGPREFIXPATH\bin\zig.exe" build `
     --prefix "$ZIGINSTALLDIR" `
     --search-prefix "$ZIGPREFIXPATH" `
@@ -43,21 +42,22 @@ Write-Output "Building Zig..."
     -Duse-zig-libcxx `
     -Dtarget="$TARGET"
 CheckLastExitCode
+Write-Output "::endgroup::"
 
-Write-Output " zig build test docs..."
-
+Write-Output "::group:: zig build test docs..."
 & "$ZIGINSTALLDIR\bin\zig.exe" build test docs `
     --search-prefix "$ZIGPREFIXPATH" `
     -Dstatic-llvm `
     -Dskip-non-native `
     -Denable-symlinks-windows
 CheckLastExitCode
+Write-Output "::endgroup::"
 
 # Produce the experimental std lib documentation.
-Write-Output "zig test std/std.zig..."
-
+Write-Output "::group:: zig test std/std.zig..."
 & "$ZIGINSTALLDIR\bin\zig.exe" test "$ZIGLIBDIR\std\std.zig" `
     --zig-lib-dir "$ZIGLIBDIR" `
     -femit-docs `
     -fno-emit-bin
 CheckLastExitCode
+Write-Output "::endgroup::"

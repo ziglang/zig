@@ -26,6 +26,7 @@ export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 rm -rf build-release
 mkdir build-release
 cd build-release
+echo "::group:: Build Zig"
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -41,6 +42,7 @@ unset CC
 unset CXX
 
 ninja install
+echo "::endgroup::"
 
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
@@ -49,8 +51,11 @@ stage3-release/bin/zig fmt --check .. \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
+echo "::group:: zig build arm32"
 stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
+echo "::endgroup::"
 
+echo "::group:: zig build test docs"
 stage3-release/bin/zig build test docs \
   -fqemu \
   -fwasmtime \
@@ -58,6 +63,7 @@ stage3-release/bin/zig build test docs \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
+echo "::endgroup::"
 
 # Look for HTML errors.
 tidy --drop-empty-elements no -qe ../zig-cache/langref.html
@@ -65,6 +71,7 @@ tidy --drop-empty-elements no -qe ../zig-cache/langref.html
 # Produce the experimental std lib documentation.
 stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
 
+echo "::group:: zig build stage4"
 stage3-release/bin/zig build \
   --prefix stage4-release \
   -Denable-llvm \
@@ -75,6 +82,7 @@ stage3-release/bin/zig build \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \
   -Dversion-string="$(stage3-release/bin/zig version)"
+echo "::endgroup::"
 
 # diff returns an error code if the files differ.
 echo "If the following command fails, it means nondeterminism has been"
