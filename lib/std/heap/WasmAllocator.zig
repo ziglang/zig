@@ -43,14 +43,13 @@ var frees = [1]usize{0} ** size_class_count;
 /// For each big size class, points to the freed pointer.
 var big_frees = [1]usize{0} ** big_size_class_count;
 
-fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize) Error![]u8 {
+fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
     _ = ctx;
-    _ = len_align;
-    _ = ra;
-    if (alignment > wasm.page_size) return error.OutOfMemory; // calm down
+    _ = return_address;
     // Make room for the freelist next pointer.
+    const alignment = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_align);
     const actual_len = @max(len +| @sizeOf(usize), alignment);
-    const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return error.OutOfMemory;
+    const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
     const class = math.log2(slot_size) - min_class;
     if (class < size_class_count) {
         const addr = a: {
@@ -63,7 +62,8 @@ fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize)
 
             const next_addr = next_addrs[class];
             if (next_addr % wasm.page_size == 0) {
-                const addr = try allocBigPages(1);
+                const addr = allocBigPages(1);
+                if (addr == 0) return null;
                 //std.debug.print("allocated fresh slot_size={d} class={d} addr=0x{x}\n", .{
                 //    slot_size, class, addr,
                 //});
@@ -74,77 +74,50 @@ fn alloc(ctx: *anyopaque, len: usize, alignment: u29, len_align: u29, ra: usize)
                 break :a next_addr;
             }
         };
-        return @intToPtr([*]u8, addr)[0..len];
+        return @intToPtr([*]u8, addr);
     }
     const bigpages_needed = bigPagesNeeded(actual_len);
-    const addr = try allocBigPages(bigpages_needed);
-    return @intToPtr([*]u8, addr)[0..len];
+    const addr = allocBigPages(bigpages_needed);
+    return @intToPtr([*]u8, addr);
 }
 
 fn resize(
     ctx: *anyopaque,
     buf: []u8,
-    buf_align: u29,
+    log2_buf_align: u8,
     new_len: usize,
-    len_align: u29,
-    ra: usize,
-) ?usize {
+    return_address: usize,
+) bool {
     _ = ctx;
-    _ = len_align;
-    _ = ra;
-    // We don't want to move anything from one size class to another. But we can recover bytes
-    // in between powers of two.
+    _ = return_address;
+    // We don't want to move anything from one size class to another, but we
+    // can recover bytes in between powers of two.
+    const buf_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_buf_align);
     const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
     const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
     const old_small_class = math.log2(old_small_slot_size) - min_class;
     if (old_small_class < size_class_count) {
-        const new_small_slot_size = math.ceilPowerOfTwo(usize, new_actual_len) catch return null;
-        if (old_small_slot_size == new_small_slot_size) return new_len;
-        if (new_actual_len >= old_actual_len) return null;
-        const new_small_class = math.log2(new_small_slot_size) - min_class;
-        assert(new_small_class < old_small_class);
-        // Split the small allocation into frees.
-        var class = old_small_class - 1;
-        while (true) {
-            const slot_size = @as(usize, 1) << @intCast(ushift, class + min_class);
-            const upper_addr = @ptrToInt(buf.ptr) + slot_size;
-            const node = @intToPtr(*usize, upper_addr + (slot_size - @sizeOf(usize)));
-            node.* = frees[class];
-            frees[class] = upper_addr;
-            if (class == new_small_class) break;
-            class -= 1;
-        }
+        const new_small_slot_size = math.ceilPowerOfTwo(usize, new_actual_len) catch return false;
+        return old_small_slot_size == new_small_slot_size;
     } else {
         const old_bigpages_needed = bigPagesNeeded(old_actual_len);
         const old_big_slot_pages = math.ceilPowerOfTwoAssert(usize, old_bigpages_needed);
         const new_bigpages_needed = bigPagesNeeded(new_actual_len);
-        const new_big_slot_pages = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return null;
-        if (old_big_slot_pages == new_big_slot_pages) return new_len;
-        if (new_actual_len >= old_actual_len) return null;
-
-        const new_small_slot_size = math.ceilPowerOfTwoAssert(usize, new_actual_len);
-        if (new_small_slot_size < size_class_count) {
-            const new_small_class = math.log2(new_small_slot_size) - min_class;
-            // TODO: push the big allocation into the free list
-            _ = new_small_class;
-        } else {
-            const new_big_class = math.log2(new_big_slot_pages);
-            // TODO: push the upper area into the free list
-            _ = new_big_class;
-        }
+        const new_big_slot_pages = math.ceilPowerOfTwo(usize, new_bigpages_needed) catch return false;
+        return old_big_slot_pages == new_big_slot_pages;
     }
-    return new_len;
 }
 
 fn free(
     ctx: *anyopaque,
     buf: []u8,
-    buf_align: u29,
+    log2_buf_align: u8,
     return_address: usize,
 ) void {
     _ = ctx;
     _ = return_address;
+    const buf_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_buf_align);
     const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
     const class = math.log2(slot_size) - min_class;
@@ -168,7 +141,7 @@ inline fn bigPagesNeeded(byte_count: usize) usize {
     return (byte_count + (bigpage_size + (@sizeOf(usize) - 1))) / bigpage_size;
 }
 
-fn allocBigPages(n: usize) !usize {
+fn allocBigPages(n: usize) usize {
     const pow2_pages = math.ceilPowerOfTwoAssert(usize, n);
     const slot_size_bytes = pow2_pages * bigpage_size;
     const class = math.log2(pow2_pages);
@@ -181,7 +154,7 @@ fn allocBigPages(n: usize) !usize {
     }
 
     const page_index = @wasmMemoryGrow(0, pow2_pages * pages_per_bigpage);
-    if (page_index <= 0) return error.OutOfMemory;
+    if (page_index <= 0) return 0;
     const addr = @intCast(u32, page_index) * wasm.page_size;
     return addr;
 }
@@ -259,13 +232,15 @@ test "shrink" {
 
     mem.set(u8, slice, 0x11);
 
-    slice = test_ally.shrink(slice, 17);
+    try std.testing.expect(test_ally.resize(slice, 17));
+    slice = slice[0..17];
 
     for (slice) |b| {
         try std.testing.expect(b == 0x11);
     }
 
-    slice = test_ally.shrink(slice, 16);
+    try std.testing.expect(test_ally.resize(slice, 16));
+    slice = slice[0..16];
 
     for (slice) |b| {
         try std.testing.expect(b == 0x11);
@@ -303,11 +278,12 @@ test "shrink large object to large object" {
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    slice = test_ally.resize(slice, bigpage_size * 2 + 1) orelse return;
+    try std.testing.expect(test_ally.resize(slice, bigpage_size * 2 + 1));
+    slice = slice[0 .. bigpage_size * 2 + 1];
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
-    slice = test_ally.shrink(slice, bigpage_size * 2 + 1);
+    try std.testing.expect(test_ally.resize(slice, bigpage_size * 2 + 1));
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
