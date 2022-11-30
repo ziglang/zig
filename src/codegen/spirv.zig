@@ -1604,17 +1604,30 @@ pub const DeclGen = struct {
 
     fn load(self: *DeclGen, ptr_ty: Type, ptr: IdRef) !IdRef {
         const value_ty = ptr_ty.childType();
-        const result_type_id = try self.resolveTypeId(value_ty);
+        const direct_result_ty_ref = try self.resolveType(value_ty, .direct);
+        const indirect_result_ty_ref = try self.resolveType(value_ty, .indirect);
         const result_id = self.spv.allocId();
         const access = spec.MemoryAccess.Extended{
             .Volatile = ptr_ty.isVolatilePtr(),
         };
         try self.func.body.emit(self.spv.gpa, .OpLoad, .{
-            .id_result_type = result_type_id,
+            .id_result_type = self.typeId(indirect_result_ty_ref),
             .id_result = result_id,
             .pointer = ptr,
             .memory_access = access,
         });
+        if (value_ty.zigTypeTag() == .Bool) {
+            // Convert indirect bool to direct bool
+            const zero_id = try self.constInt(indirect_result_ty_ref, 0);
+            const casted_result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
+                .id_result_type = self.typeId(direct_result_ty_ref),
+                .id_result = casted_result_id,
+                .operand_1 = result_id,
+                .operand_2 = zero_id,
+            });
+            return casted_result_id;
+        }
         return result_id;
     }
 
@@ -1628,12 +1641,30 @@ pub const DeclGen = struct {
     }
 
     fn store(self: *DeclGen, ptr_ty: Type, ptr: IdRef, value: IdRef) !void {
+        const value_ty = ptr_ty.childType();
+        const converted_value = switch (value_ty.zigTypeTag()) {
+            .Bool => blk: {
+                const indirect_bool_ty_ref = try self.resolveType(value_ty, .indirect);
+                const result_id = self.spv.allocId();
+                const zero = try self.constInt(indirect_bool_ty_ref, 0);
+                const one = try self.constInt(indirect_bool_ty_ref, 1);
+                try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+                    .id_result_type = self.typeId(indirect_bool_ty_ref),
+                    .id_result = result_id,
+                    .condition = value,
+                    .object_1 = one,
+                    .object_2 = zero,
+                });
+                break :blk result_id;
+            },
+            else => value,
+        };
         const access = spec.MemoryAccess.Extended{
             .Volatile = ptr_ty.isVolatilePtr(),
         };
         try self.func.body.emit(self.spv.gpa, .OpStore, .{
             .pointer = ptr,
-            .object = value,
+            .object = converted_value,
             .memory_access = access,
         });
     }
