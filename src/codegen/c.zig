@@ -3339,6 +3339,9 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !void {
     const target = f.object.dg.module.getTarget();
     if (inst_ty.bitSize(target) > 64) {}
 
+    try writer.writeByte('(');
+    try f.renderTypecast(writer, inst_ty);
+    try writer.writeByte(')');
     try writer.writeByte(if (inst_ty.tag() == .bool) '!' else '~');
     try f.writeCValue(writer, op, .Other);
 }
@@ -3357,15 +3360,20 @@ fn airBinOp(
     if ((operand_ty.isInt() and operand_ty.bitSize(target) > 64) or operand_ty.isRuntimeFloat())
         return airBinBuiltinCall(f, inst, operation, info);
 
+    const inst_ty = f.air.typeOfIndex(inst);
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
 
     const writer = f.object.writer();
+    try writer.writeByte('(');
+    try f.renderTypecast(writer, inst_ty);
+    try writer.writeAll(")(");
     try f.writeCValue(writer, lhs, .Other);
     try writer.writeByte(' ');
     try writer.writeAll(operator);
     try writer.writeByte(' ');
     try f.writeCValue(writer, rhs, .Other);
+    try writer.writeByte(')');
 }
 
 fn airCmpOp(
@@ -3827,32 +3835,40 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
-    const inst_ty = f.air.typeOfIndex(inst);
+    const src_ty = f.air.typeOfIndex(inst);
     // No IgnoreComptime until Sema stops giving us garbage Air.
     // https://github.com/ziglang/zig/issues/13410
-    if (f.liveness.isUnused(inst) or !inst_ty.hasRuntimeBits()) return CValue.none;
+    if (f.liveness.isUnused(inst) or !src_ty.hasRuntimeBits()) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInstNoInline(ty_op.operand);
+    const dest_ty = f.air.typeOf(ty_op.operand);
+    const target = f.object.dg.module.getTarget();
+
+    if (dest_ty.isAbiInt() and src_ty.isAbiInt()) {
+        const src_info = src_ty.intInfo(target);
+        const dest_info = dest_ty.intInfo(target);
+        if (std.meta.eql(src_info, dest_info)) {
+            return operand;
+        }
+    }
 
     const writer = f.object.writer();
-    if (inst_ty.isPtrAtRuntime() and
-        f.air.typeOf(ty_op.operand).isPtrAtRuntime())
-    {
-        const local = try f.allocLocal(inst_ty, .Const);
+    if (src_ty.isPtrAtRuntime() and dest_ty.isPtrAtRuntime()) {
+        const local = try f.allocLocal(src_ty, .Const);
         try writer.writeAll(" = (");
-        try f.renderTypecast(writer, inst_ty);
+        try f.renderTypecast(writer, src_ty);
         try writer.writeByte(')');
         try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
         return local;
     }
 
-    const local = try f.allocLocal(inst_ty, .Mut);
+    const local = try f.allocLocal(src_ty, .Mut);
     try writer.writeAll(";\n");
 
     const operand_lval = if (operand == .constant) blk: {
-        const operand_local = try f.allocLocal(f.air.typeOf(ty_op.operand), .Const);
+        const operand_local = try f.allocLocal(dest_ty, .Const);
         try writer.writeAll(" = ");
         try f.writeCValue(writer, operand, .Initializer);
         try writer.writeAll(";\n");
@@ -3864,17 +3880,17 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", &");
     try f.writeCValue(writer, operand_lval, .Other);
     try writer.writeAll(", sizeof(");
-    try f.renderTypecast(writer, inst_ty);
+    try f.renderTypecast(writer, src_ty);
     try writer.writeAll("));\n");
 
     // Ensure padding bits have the expected value.
-    if (inst_ty.isAbiInt()) {
+    if (src_ty.isAbiInt()) {
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = zig_wrap_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, src_ty);
         try writer.writeByte('(');
         try f.writeCValue(writer, local, .Other);
-        try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
+        try f.object.dg.renderBuiltinInfo(writer, src_ty, .Bits);
         try writer.writeAll(");\n");
     }
 
