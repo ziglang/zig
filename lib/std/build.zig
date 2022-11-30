@@ -523,7 +523,7 @@ pub const Builder = struct {
         const name = self.dupe(name_raw);
         const description = self.dupe(description_raw);
         const type_id = comptime typeToEnum(T);
-        const enum_options = if (type_id == .@"enum") blk: {
+        const enum_options: ?ArrayList([]const u8) = if (type_id == .@"enum") blk: {
             const fields = comptime std.meta.fields(T);
             var options = ArrayList([]const u8).initCapacity(self.allocator, fields.len) catch unreachable;
 
@@ -531,13 +531,13 @@ pub const Builder = struct {
                 options.appendAssumeCapacity(field.name);
             }
 
-            break :blk options.toOwnedSlice();
+            break :blk options;
         } else null;
         const available_option = AvailableOption{
             .name = name,
             .type_id = type_id,
             .description = description,
-            .enum_options = enum_options,
+            .enum_options = if (enum_options) |options| options.items else null,
         };
         if ((self.available_options_map.fetchPut(name, available_option) catch unreachable) != null) {
             panic("Option '{s}' declared twice", .{name});
