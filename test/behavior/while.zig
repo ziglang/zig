@@ -343,3 +343,24 @@ test "else continue outer while" {
         } else continue;
     }
 }
+
+test "try terminating an infinite loop" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    // Test coverage for https://github.com/ziglang/zig/issues/13546
+    const Foo = struct {
+        trash: i32,
+
+        fn bar() anyerror!@This() {
+            return .{ .trash = 1234 };
+        }
+    };
+    var t = true;
+    errdefer t = false;
+    try expect(while (true) {
+        if (t) break t;
+        _ = try Foo.bar();
+    } else unreachable);
+}
