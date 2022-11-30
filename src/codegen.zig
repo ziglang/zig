@@ -570,8 +570,8 @@ pub fn generateSymbol(
                     // pointer may point to a decl which must be marked used
                     // but can also result in a relocation. Therefore we handle those seperately.
                     if (field_ty.zigTypeTag() == .Pointer) {
-                        std.debug.print("Hit!\n", .{});
-                        var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_ty.abiSize(target));
+                        const field_size = math.cast(usize, field_ty.abiSize(target)) orelse return error.Overflow;
+                        var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
                         defer tmp_list.deinit();
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = field_ty,
