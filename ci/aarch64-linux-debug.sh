@@ -12,7 +12,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.256+271cc52a1"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-6.1.0.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -45,14 +45,14 @@ ninja install
 echo "Looking for non-conforming code formatting..."
 stage3-debug/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
-  --exclude ../build-debug \
-  --exclude ../build-release
+  --exclude ../build-debug
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
 
+# TODO: add -fqemu back to this line
+
 stage3-debug/bin/zig build test docs \
-  -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \

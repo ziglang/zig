@@ -15,16 +15,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
-        run: sh ./ci/linux/build-x86_64-debug.sh
-      - name: Print Version
-        run: echo "$(build-debug/stage3-debug/bin/zig version)"
+        run: sh ci/x86_64-linux-debug.sh
   x86_64-linux-release:
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
-        run: sh ./ci/linux/build-x86_64-release.sh
+        run: sh ci/x86_64-linux-release.sh
+  aarch64-linux-debug:
+    runs-on: [self-hosted, Linux, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: sh ci/aarch64-linux-debug.sh
+  aarch64-linux-release:
+    runs-on: [self-hosted, Linux, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: sh ci/aarch64-linux-release.sh
   x86_64-macos:
     runs-on: "macos-11"
     env: 
@@ -33,23 +45,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
-        run: ./ci/macos/build-x86_64.sh
-  x86_64-windows:
-    runs-on: windows-latest
-    env: 
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Build and Test
-        run: ./ci/windows/build.ps1
-  aarch64-linux:
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Build and Test
-        run: sh ./ci/linux/build-aarch64.sh
+        run: ci/x86_64-macos.sh
   aarch64-macos:
     runs-on: [self-hosted, macOS, aarch64]
     env: 
@@ -58,4 +54,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
-        run: ./ci/macos/build-aarch64.sh
+        run: ci/aarch64-macos.sh
+  x86_64-windows:
+    runs-on: windows-latest
+    env: 
+      ARCH: "x86_64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: ci/x86_64-windows.ps1
