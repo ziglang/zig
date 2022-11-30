@@ -281,6 +281,7 @@ test "expectApproxEqRel" {
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
+/// If your inputs are slices of bytes, consider calling `expectEqualBytes` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     // TODO better printing of the difference
     // If the arrays are small enough we could print the whole thing
@@ -548,6 +549,89 @@ fn printLine(line: []const u8) void {
 
 test {
     try expectEqualStrings("foo", "foo");
+}
+
+/// This function is intended to be used only in tests. When the two slices are not
+/// equal, prints hexdumps of the inputs with the differences highlighted in red to stderr,
+/// then returns a test failure error. The colorized output is optional and controlled
+/// by the return of `std.debug.detectTTYConfig()`.
+pub fn expectEqualBytes(expected: []const u8, actual: []const u8) !void {
+    std.testing.expectEqualSlices(u8, expected, actual) catch |err| {
+        var differ = BytesDiffer{
+            .expected = expected,
+            .actual = actual,
+            .ttyconf = std.debug.detectTTYConfig(),
+        };
+        const stderr = std.io.getStdErr();
+
+        std.debug.print("\n============ expected this output: =============\n\n", .{});
+        differ.write(stderr.writer()) catch {};
+
+        // now reverse expected/actual and print again
+        differ.expected = actual;
+        differ.actual = expected;
+        std.debug.print("\n============= instead found this: ==============\n\n", .{});
+        differ.write(stderr.writer()) catch {};
+        std.debug.print("\n================================================\n\n", .{});
+
+        return err;
+    };
+}
+
+const BytesDiffer = struct {
+    expected: []const u8,
+    actual: []const u8,
+    ttyconf: std.debug.TTY.Config,
+
+    pub fn write(self: BytesDiffer, writer: anytype) !void {
+        var expected_iterator = ChunkIterator{ .bytes = self.expected };
+        while (expected_iterator.next()) |chunk| {
+            // to avoid having to calculate diffs twice per chunk
+            var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
+            for (chunk) |byte, i| {
+                var absolute_byte_index = (expected_iterator.index - chunk.len) + i;
+                const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
+                if (diff) diffs.set(i);
+                try self.writeByteDiff(writer, "{X:0>2} ", byte, diff);
+                if (i == 7) try writer.writeByte(' ');
+            }
+            try writer.writeByte(' ');
+            if (chunk.len < 16) {
+                var missing_columns = (16 - chunk.len) * 3;
+                if (chunk.len < 8) missing_columns += 1;
+                try writer.writeByteNTimes(' ', missing_columns);
+            }
+            for (chunk) |byte, i| {
+                const byte_to_print = if (std.ascii.isPrint(byte)) byte else '.';
+                try self.writeByteDiff(writer, "{c}", byte_to_print, diffs.isSet(i));
+            }
+            try writer.writeByte('\n');
+        }
+    }
+
+    fn writeByteDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, byte: u8, diff: bool) !void {
+        if (diff) self.ttyconf.setColor(writer, .Red);
+        try writer.print(fmt, .{byte});
+        if (diff) self.ttyconf.setColor(writer, .Reset);
+    }
+
+    const ChunkIterator = struct {
+        bytes: []const u8,
+        index: usize = 0,
+
+        pub fn next(self: *ChunkIterator) ?[]const u8 {
+            if (self.index == self.bytes.len) return null;
+
+            const start_index = self.index;
+            const end_index = @min(self.bytes.len, start_index + 16);
+            self.index = end_index;
+            return self.bytes[start_index..end_index];
+        }
+    };
+};
+
+test {
+    try expectEqualBytes("foo\x00", "foo\x00");
 }
 
 /// Exhaustively check that allocation failures within `test_fn` are handled without
