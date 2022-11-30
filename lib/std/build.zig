@@ -72,6 +72,7 @@ pub const Builder = struct {
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
     debug_log_scopes: []const []const u8 = &.{},
+    debug_compile_errors: bool = false,
 
     /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
     enable_darling: bool = false,
@@ -2672,6 +2673,10 @@ pub const LibExeObjStep = struct {
         for (builder.debug_log_scopes) |log_scope| {
             try zig_args.append("--debug-log");
             try zig_args.append(log_scope);
+        }
+
+        if (builder.debug_compile_errors) {
+            try zig_args.append("--debug-compile-errors");
         }
 
         if (builder.verbose_cimport) zig_args.append("--verbose-cimport") catch unreachable;

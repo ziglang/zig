@@ -3752,6 +3752,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
         var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
         var child_argv = std.ArrayList([]const u8).init(arena);
+        var debug_compile_errors = false;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -3807,6 +3808,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         try child_argv.append(arg);
+                    } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                        try child_argv.append(arg);
+                        debug_compile_errors = true;
                     }
                 }
                 try child_argv.append(arg);
@@ -3940,6 +3944,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .thread_pool = &thread_pool,
             .use_stage1 = use_stage1,
             .cache_mode = .whole,
+            .debug_compile_errors = debug_compile_errors,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };

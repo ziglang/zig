@@ -2091,10 +2091,16 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     @setCold(true);
 
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
-        std.debug.print("compile error during Sema: {s}, src: {s}:{}\n", .{
+        const err_path = err_msg.src_loc.file_scope.fullPath(sema.mod.gpa) catch unreachable;
+        const err_source = err_msg.src_loc.file_scope.getSource(sema.mod.gpa) catch unreachable;
+        const err_span = err_msg.src_loc.span(sema.mod.gpa) catch unreachable;
+        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
+        std.debug.print("compile error during Sema:\n{s}:{d}:{d}: error: {s}\n{s}\n\n", .{
+            err_path,
+            err_loc.line + 1,
+            err_loc.column + 1,
             err_msg.msg,
-            err_msg.src_loc.file_scope.sub_file_path,
-            err_msg.src_loc.lazy,
+            err_loc.source_line,
         });
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
