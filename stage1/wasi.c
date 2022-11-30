@@ -555,10 +555,17 @@ uint32_t wasi_snapshot_preview1_fd_filestat_set_size(uint32_t fd, uint64_t size)
     if (fseek(fds[fd].stream, 0, SEEK_END) < 0) return wasi_errno_io;
     long old_size = ftell(fds[fd].stream);
     if (old_size < 0) return wasi_errno_io;
-    if (size > (unsigned long)old_size) {
-        if (fseek(fds[fd].stream, size - 1, SEEK_SET) < 0) return wasi_errno_io;
-        fputc(0, fds[fd].stream);
-    } else if (size < (unsigned long)old_size) panic("unimplemented");
+    if (size != (unsigned long)old_size) {
+        if (size > 0 && fseek(fds[fd].stream, size - 1, SEEK_SET) < 0) return wasi_errno_io;
+        if (size < (unsigned long)old_size) {
+            // Note that this destroys the contents on resize might have to save truncated
+            // file in memory if this becomes an issue.
+            FILE *trunc = fopen(des[fds[fd].de].host_path, "wb");
+            if (trunc == NULL) return wasi_errno_io;
+            fclose(trunc);
+        }
+        if (size > 0) fputc(0, fds[fd].stream);
+    }
     if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
     return wasi_errno_success;
 }
