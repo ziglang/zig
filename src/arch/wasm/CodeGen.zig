@@ -2146,6 +2146,10 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         };
         const int_elem_ty = Type.initPayload(&int_ty_payload.base);
 
+        if (isByRef(int_elem_ty, func.target)) {
+            return func.fail("TODO: airStore for pointers to bitfields with backing type larger than 64bits", .{});
+        }
+
         var mask = @intCast(u64, (@as(u65, 1) << @intCast(u7, ty.bitSize(func.target))) - 1);
         mask <<= @intCast(u6, ptr_info.bit_offset);
         mask ^= ~@as(u64, 0);
