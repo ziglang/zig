@@ -1054,6 +1054,11 @@ test "access smoke test" {
 }
 
 test "timerfd" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/13721
+        return error.SkipZigTest;
+    }
+
     if (native_os != .linux)
         return error.SkipZigTest;
 
