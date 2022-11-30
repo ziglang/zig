@@ -142,6 +142,8 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 try debug_log_scopes.append(next_arg);
+            } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
                 builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
