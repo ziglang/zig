@@ -176,11 +176,11 @@ pub fn Reader(
                 error.EndOfStream => if (array_list.items.len == 0) {
                     return null;
                 } else {
-                    return array_list.toOwnedSlice();
+                    return try array_list.toOwnedSlice();
                 },
                 else => |e| return e,
             };
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
 
         /// Reads from the stream until specified byte is found. If the buffer is not

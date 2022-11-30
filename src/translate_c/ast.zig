@@ -788,7 +788,7 @@ pub fn render(gpa: Allocator, zig_is_stage1: bool, nodes: []const Node) !std.zig
         .source = try ctx.buf.toOwnedSliceSentinel(0),
         .tokens = ctx.tokens.toOwnedSlice(),
         .nodes = ctx.nodes.toOwnedSlice(),
-        .extra_data = ctx.extra_data.toOwnedSlice(gpa),
+        .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
         .errors = &.{},
     };
 }

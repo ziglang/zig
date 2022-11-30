@@ -421,8 +421,8 @@ pub const ChildProcess = struct {
 
         return ExecResult{
             .term = try child.wait(),
-            .stdout = stdout.toOwnedSlice(),
-            .stderr = stderr.toOwnedSlice(),
+            .stdout = try stdout.toOwnedSlice(),
+            .stderr = try stderr.toOwnedSlice(),
         };
     }
 
@@ -1270,7 +1270,7 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     i += 1;
     result[i] = 0;
     i += 1;
-    return allocator.shrink(result, i);
+    return try allocator.realloc(result, i);
 }
 
 pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {

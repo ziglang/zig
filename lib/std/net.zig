@@ -825,7 +825,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
         if (canon.items.len != 0) {
-            result.canon_name = canon.toOwnedSlice();
+            result.canon_name = try canon.toOwnedSlice();
         }
 
         for (lookup_addrs.items) |lookup_addr, i| {

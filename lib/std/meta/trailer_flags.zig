@@ -144,7 +144,7 @@ test "TrailerFlags" {
         .b = true,
         .c = true,
     });
-    const slice = try testing.allocator.allocAdvanced(u8, 8, flags.sizeInBytes(), .exact);
+    const slice = try testing.allocator.alignedAlloc(u8, 8, flags.sizeInBytes());
     defer testing.allocator.free(slice);
 
     flags.set(slice.ptr, .b, false);

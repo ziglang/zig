@@ -1064,8 +1064,8 @@ fn genFunctype(gpa: Allocator, cc: std.builtin.CallingConvention, params: []cons
     }
 
     return wasm.Type{
-        .params = temp_params.toOwnedSlice(),
-        .returns = returns.toOwnedSlice(),
+        .params = try temp_params.toOwnedSlice(),
+        .returns = try returns.toOwnedSlice(),
     };
 }
 
@@ -1176,7 +1176,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
 
     var mir: Mir = .{
         .instructions = func.mir_instructions.toOwnedSlice(),
-        .extra = func.mir_extra.toOwnedSlice(func.gpa),
+        .extra = try func.mir_extra.toOwnedSlice(func.gpa),
     };
     defer mir.deinit(func.gpa);
 
@@ -1258,7 +1258,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
         },
         else => return func.fail("calling convention '{s}' not supported for Wasm", .{@tagName(cc)}),
     }
-    result.args = args.toOwnedSlice();
+    result.args = try args.toOwnedSlice();
     return result;
 }
 

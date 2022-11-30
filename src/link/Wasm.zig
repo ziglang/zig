@@ -3206,7 +3206,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
                     const skip_export_non_fn = target.os.tag == .wasi and
                         wasm.base.options.wasi_exec_model == .command;
                     for (mod.decl_exports.values()) |exports| {
-                        for (exports) |exprt| {
+                        for (exports.items) |exprt| {
                             const exported_decl = mod.declPtr(exprt.exported_decl);
                             if (skip_export_non_fn and exported_decl.ty.zigTypeTag() != .Fn) {
                                 // skip exporting symbols when we're building a WASI command

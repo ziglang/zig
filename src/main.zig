@@ -4803,7 +4803,7 @@ pub const ClangArgIterator = struct {
                 };
                 self.root_args = args;
             }
-            const resp_arg_slice = resp_arg_list.toOwnedSlice();
+            const resp_arg_slice = try resp_arg_list.toOwnedSlice();
             self.next_index = 0;
             self.argv = resp_arg_slice;
 

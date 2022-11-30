@@ -47,9 +47,9 @@ pub export fn entry() void {
 // :11:22: error: comparison of 'void' with null
 // :25:51: error: values of type 'anyopaque' must be comptime-known, but operand value is runtime-known
 // :25:51: note: opaque type 'anyopaque' has undefined size
-// :25:51: error: values of type 'fn(*anyopaque, usize, u29, u29, usize) error{OutOfMemory}![]u8' must be comptime-known, but operand value is runtime-known
-// :25:51: note: use '*const fn(*anyopaque, usize, u29, u29, usize) error{OutOfMemory}![]u8' for a function pointer type
-// :25:51: error: values of type 'fn(*anyopaque, []u8, u29, usize, u29, usize) ?usize' must be comptime-known, but operand value is runtime-known
-// :25:51: note: use '*const fn(*anyopaque, []u8, u29, usize, u29, usize) ?usize' for a function pointer type
-// :25:51: error: values of type 'fn(*anyopaque, []u8, u29, usize) void' must be comptime-known, but operand value is runtime-known
-// :25:51: note: use '*const fn(*anyopaque, []u8, u29, usize) void' for a function pointer type
+// :25:51: error: values of type 'fn(*anyopaque, usize, u8, usize) ?[*]u8' must be comptime-known, but operand value is runtime-known
+// :25:51: note: use '*const fn(*anyopaque, usize, u8, usize) ?[*]u8' for a function pointer type
+// :25:51: error: values of type 'fn(*anyopaque, []u8, u8, usize, usize) bool' must be comptime-known, but operand value is runtime-known
+// :25:51: note: use '*const fn(*anyopaque, []u8, u8, usize, usize) bool' for a function pointer type
+// :25:51: error: values of type 'fn(*anyopaque, []u8, u8, usize) void' must be comptime-known, but operand value is runtime-known
+// :25:51: note: use '*const fn(*anyopaque, []u8, u8, usize) void' for a function pointer type

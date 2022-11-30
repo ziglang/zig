@@ -79,7 +79,7 @@ pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
     return Liveness{
         .tomb_bits = a.tomb_bits,
         .special = a.special,
-        .extra = a.extra.toOwnedSlice(gpa),
+        .extra = try a.extra.toOwnedSlice(gpa),
     };
 }
 
@@ -594,7 +594,7 @@ pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len:
         deaths.appendAssumeCapacity(else_deaths);
     }
     return SwitchBrTable{
-        .deaths = deaths.toOwnedSlice(),
+        .deaths = try deaths.toOwnedSlice(),
     };
 }
 

@@ -146,46 +146,46 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .c_ulonglong_type,
                     .c_longdouble_type,
                     => .{
-                        .Int = .{ .name = tmpbuf.toOwnedSlice() },
+                        .Int = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .f16_type,
                     .f32_type,
                     .f64_type,
                     .f128_type,
                     => .{
-                        .Float = .{ .name = tmpbuf.toOwnedSlice() },
+                        .Float = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .comptime_int_type => .{
-                        .ComptimeInt = .{ .name = tmpbuf.toOwnedSlice() },
+                        .ComptimeInt = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .comptime_float_type => .{
-                        .ComptimeFloat = .{ .name = tmpbuf.toOwnedSlice() },
+                        .ComptimeFloat = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
 
                     .anyopaque_type => .{
-                        .ComptimeExpr = .{ .name = tmpbuf.toOwnedSlice() },
+                        .ComptimeExpr = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .bool_type => .{
-                        .Bool = .{ .name = tmpbuf.toOwnedSlice() },
+                        .Bool = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
 
                     .noreturn_type => .{
-                        .NoReturn = .{ .name = tmpbuf.toOwnedSlice() },
+                        .NoReturn = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .void_type => .{
-                        .Void = .{ .name = tmpbuf.toOwnedSlice() },
+                        .Void = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .type_info_type => .{
-                        .ComptimeExpr = .{ .name = tmpbuf.toOwnedSlice() },
+                        .ComptimeExpr = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .type_type => .{
-                        .Type = .{ .name = tmpbuf.toOwnedSlice() },
+                        .Type = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .anyerror_type => .{
-                        .ErrorSet = .{ .name = tmpbuf.toOwnedSlice() },
+                        .ErrorSet = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
-                        .EnumLiteral = .{ .name = tmpbuf.toOwnedSlice() },
+                        .EnumLiteral = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                 },
             );

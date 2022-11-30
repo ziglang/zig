@@ -2934,7 +2934,7 @@ pub const LibExeObjStep = struct {
                     }
                 }
 
-                try zig_args.append(mcpu_buffer.toOwnedSlice());
+                try zig_args.append(try mcpu_buffer.toOwnedSlice());
             }
 
             if (self.target.dynamic_linker.get()) |dynamic_linker| {

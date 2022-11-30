@@ -471,7 +471,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             },
                             Token.Id.Separator => {},
                             Token.Id.BracketClose => {
-                                try nodes.append(Node{ .SeeAlso = list.toOwnedSlice() });
+                                try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
                                 break;
                             },
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token", .{}),
@@ -610,7 +610,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .source_token = source_token,
                             .just_check_syntax = just_check_syntax,
                             .mode = mode,
-                            .link_objects = link_objects.toOwnedSlice(),
+                            .link_objects = try link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
                             .backend_stage1 = backend_stage1,
@@ -707,8 +707,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     }
 
     return Toc{
-        .nodes = nodes.toOwnedSlice(),
-        .toc = toc_buf.toOwnedSlice(),
+        .nodes = try nodes.toOwnedSlice(),
+        .toc = try toc_buf.toOwnedSlice(),
         .urls = urls,
     };
 }
@@ -729,7 +729,7 @@ fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
             else => {},
         }
     }
-    return buf.toOwnedSlice();
+    return try buf.toOwnedSlice();
 }
 
 fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
@@ -738,7 +738,7 @@ fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
 
     const out = buf.writer();
     try writeEscaped(out, input);
-    return buf.toOwnedSlice();
+    return try buf.toOwnedSlice();
 }
 
 fn writeEscaped(out: anytype, input: []const u8) !void {
@@ -854,7 +854,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
         }
     }
-    return buf.toOwnedSlice();
+    return try buf.toOwnedSlice();
 }
 
 const builtin_types = [_][]const u8{

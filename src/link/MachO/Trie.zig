@@ -165,7 +165,7 @@ pub const Node = struct {
                         break;
                     try label_buf.append(next);
                 }
-                break :blk label_buf.toOwnedSlice();
+                break :blk try label_buf.toOwnedSlice();
             };
 
             const seek_to = try leb.readULEB128(u64, reader);

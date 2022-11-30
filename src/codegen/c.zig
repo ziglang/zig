@@ -1286,7 +1286,7 @@ pub const DeclGen = struct {
         }
         try bw.writeAll(");\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1326,7 +1326,7 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len;
         try bw.writeAll(";\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1369,7 +1369,7 @@ pub const DeclGen = struct {
         buffer.appendSliceAssumeCapacity(buffer.items[name_begin..name_end]);
         buffer.appendSliceAssumeCapacity(";\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1413,7 +1413,7 @@ pub const DeclGen = struct {
         }
         try buffer.appendSlice("};\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
 
         try dg.typedefs.ensureUnusedCapacity(1);
@@ -1448,7 +1448,7 @@ pub const DeclGen = struct {
         try buffer.writer().print("}} zig_T_{};\n", .{typeToCIdentifier(t, dg.module)});
         const name_end = buffer.items.len - ";\n".len;
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1510,7 +1510,7 @@ pub const DeclGen = struct {
         if (t.unionTagTypeSafety()) |_| try buffer.appendSlice(" } payload;\n");
         try buffer.appendSlice("};\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
 
         try dg.typedefs.ensureUnusedCapacity(1);
@@ -1553,7 +1553,7 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len;
         try bw.writeAll(";\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1586,7 +1586,7 @@ pub const DeclGen = struct {
         const c_len_val = Value.initPayload(&c_len_pl.base);
         try bw.print("[{}];\n", .{try dg.fmtIntLiteral(Type.usize, c_len_val)});
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1614,7 +1614,7 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len;
         try bw.writeAll(";\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -1643,7 +1643,7 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len;
         try buffer.appendSlice(";\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -2006,7 +2006,7 @@ pub const DeclGen = struct {
         _ = try airBreakpoint(bw);
         try buffer.appendSlice("}\n");
 
-        const rendered = buffer.toOwnedSlice();
+        const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
         const name = rendered[name_begin..name_end];
 
@@ -2108,7 +2108,7 @@ pub const DeclGen = struct {
         dg.module.markDeclAlive(decl);
 
         if (dg.module.decl_exports.get(decl_index)) |exports| {
-            return writer.writeAll(exports[0].options.name);
+            return writer.writeAll(exports.items[0].options.name);
         } else if (decl.isExtern()) {
             return writer.writeAll(mem.sliceTo(decl.name, 0));
         } else {
