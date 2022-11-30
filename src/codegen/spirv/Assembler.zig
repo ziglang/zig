@@ -135,7 +135,7 @@ const AsmValue = union(enum) {
         return switch (self) {
             .just_declared, .unresolved_forward_reference => unreachable,
             .value => |result| result,
-            .ty => |ref| spv.typeResultId(ref),
+            .ty => |ref| spv.typeId(ref),
         };
     }
 };

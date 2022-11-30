@@ -133,6 +133,16 @@ pub const DeclGen = struct {
         class: Class,
     };
 
+    /// Data can be lowered into in two basic representations: indirect, which is when
+    /// a type is stored in memory, and direct, which is how a type is stored when its
+    /// a direct SPIR-V value.
+    const Repr = enum {
+        /// A SPIR-V value as it would be used in operations.
+        direct,
+        /// A SPIR-V value as it is stored in memory.
+        indirect,
+    };
+
     /// Initialize the common resources of a DeclGen. Some fields are left uninitialized,
     /// only set when `gen` is called.
     pub fn init(
@@ -215,7 +225,7 @@ pub const DeclGen = struct {
     /// Fetch the result-id for a previously generated instruction or constant.
     fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !IdRef {
         if (self.air.value(inst)) |val| {
-            return self.genConstant(self.air.typeOf(inst), val);
+            return self.genConstant(self.air.typeOf(inst), val, .direct);
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -329,9 +339,29 @@ pub const DeclGen = struct {
         };
     }
 
+    fn constInt(self: *DeclGen, ty_ref: SpvType.Ref, value: anytype) !IdRef {
+        const ty = self.spv.typeRefType(ty_ref);
+        const ty_id = self.typeId(ty_ref);
+
+        const literal: spec.LiteralContextDependentNumber = switch (ty.intSignedness()) {
+            .signed => switch (ty.intFloatBits()) {
+                1...32 => .{ .int32 = @intCast(i32, value) },
+                33...64 => .{ .int64 = @intCast(i64, value) },
+                else => unreachable, // TODO: composite integer literals
+            },
+            .unsigned => switch (ty.intFloatBits()) {
+                1...32 => .{ .uint32 = @intCast(u32, value) },
+                33...64 => .{ .uint64 = @intCast(u64, value) },
+                else => unreachable,
+            },
+        };
+
+        return try self.spv.emitConstant(ty_id, literal);
+    }
+
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
-    fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!IdRef {
+    fn genConstant(self: *DeclGen, ty: Type, val: Value, repr: Repr) Error!IdRef {
         if (ty.zigTypeTag() == .Fn) {
             const fn_decl_index = switch (val.tag()) {
                 .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
@@ -345,56 +375,37 @@ pub const DeclGen = struct {
 
         const target = self.getTarget();
         const section = &self.spv.sections.types_globals_constants;
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(ty);
+        const result_ty_ref = try self.resolveType(ty, repr);
+        const result_ty_id = self.typeId(result_ty_ref);
 
         if (val.isUndef()) {
-            try section.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = result_type_id, .id_result = result_id });
+            const result_id = self.spv.allocId();
+            try section.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = result_ty_id, .id_result = result_id });
             return result_id;
         }
 
         switch (ty.zigTypeTag()) {
             .Int => {
-                const int_info = ty.intInfo(target);
-                const backing_bits = self.backingIntBits(int_info.bits) orelse {
-                    // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.todo("implement composite int constants for {}", .{ty.fmtDebug()});
-                };
-
-                // We can just use toSignedInt/toUnsignedInt here as it returns u64 - a type large enough to hold any
-                // SPIR-V native type (up to i/u64 with Int64). If SPIR-V ever supports native ints of a larger size, this
-                // might need to be updated.
-                assert(self.largestSupportedIntBits() <= @bitSizeOf(u64));
-
-                // Note, value is required to be sign-extended, so we don't need to mask off the upper bits.
-                // See https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#Literal
-                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt(target)) else val.toUnsignedInt(target);
-
-                const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
-                    1...32 => .{ .uint32 = @truncate(u32, int_bits) },
-                    33...64 => .{ .uint64 = int_bits },
-                    else => unreachable,
-                };
-
-                try section.emit(self.spv.gpa, .OpConstant, .{
-                    .id_result_type = result_type_id,
-                    .id_result = result_id,
-                    .value = value,
-                });
+                const int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt(target)) else val.toUnsignedInt(target);
+                return self.constInt(result_ty_ref, int_bits);
             },
-            .Bool => {
-                const operands = .{ .id_result_type = result_type_id, .id_result = result_id };
-                if (val.toBool()) {
-                    try section.emit(self.spv.gpa, .OpConstantTrue, operands);
-                } else {
-                    try section.emit(self.spv.gpa, .OpConstantFalse, operands);
-                }
+            .Bool => switch (repr) {
+                .direct => {
+                    const result_id = self.spv.allocId();
+                    const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
+                    if (val.toBool()) {
+                        try section.emit(self.spv.gpa, .OpConstantTrue, operands);
+                    } else {
+                        try section.emit(self.spv.gpa, .OpConstantFalse, operands);
+                    }
+                    return result_id;
+                },
+                .indirect => return try self.constInt(result_ty_ref, @boolToInt(val.toBool())),
             },
             .Float => {
                 // At this point we are guaranteed that the target floating point type is supported, otherwise the function
                 // would have exited at resolveTypeId(ty).
-
-                const value: spec.LiteralContextDependentNumber = switch (ty.floatBits(target)) {
+                const literal: spec.LiteralContextDependentNumber = switch (ty.floatBits(target)) {
                     // Prevent upcasting to f32 by bitcasting and writing as a uint32.
                     16 => .{ .uint32 = @bitCast(u16, val.toFloat(f16)) },
                     32 => .{ .float32 = val.toFloat(f32) },
@@ -404,11 +415,7 @@ pub const DeclGen = struct {
                     else => unreachable,
                 };
 
-                try section.emit(self.spv.gpa, .OpConstant, .{
-                    .id_result_type = result_type_id,
-                    .id_result = result_id,
-                    .value = value,
-                });
+                return try self.spv.emitConstant(result_ty_id, literal);
             },
             .Array => switch (val.tag()) {
                 .aggregate => { // todo: combine with Vector
@@ -417,14 +424,16 @@ pub const DeclGen = struct {
                     const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
                     const constituents = try self.spv.gpa.alloc(IdRef, len);
                     defer self.spv.gpa.free(constituents);
-                    for (elem_vals[0..len]) |elem_val, i| {
-                        constituents[i] = try self.genConstant(elem_ty, elem_val);
+                    for (elem_vals[0..len], 0..) |elem_val, i| {
+                        constituents[i] = try self.genConstant(elem_ty, elem_val, repr);
                     }
+                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
-                        .id_result_type = result_type_id,
+                        .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
                     });
+                    return result_id;
                 },
                 .repeated => {
                     const elem_val = val.castTag(.repeated).?.data;
@@ -433,18 +442,20 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, len);
                     defer self.spv.gpa.free(constituents);
 
-                    const elem_val_id = try self.genConstant(elem_ty, elem_val);
+                    const elem_val_id = try self.genConstant(elem_ty, elem_val, repr);
                     for (constituents[0..len]) |*elem| {
                         elem.* = elem_val_id;
                     }
                     if (ty.sentinel()) |sentinel| {
-                        constituents[len] = try self.genConstant(elem_ty, sentinel);
+                        constituents[len] = try self.genConstant(elem_ty, sentinel, repr);
                     }
+                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
-                        .id_result_type = result_type_id,
+                        .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
                     });
+                    return result_id;
                 },
                 else => return self.todo("array constant with tag {s}", .{@tagName(val.tag())}),
             },
@@ -457,39 +468,22 @@ pub const DeclGen = struct {
                     const elem_refs = try self.gpa.alloc(IdRef, vector_len);
                     defer self.gpa.free(elem_refs);
                     for (elem_refs, 0..) |*elem, i| {
-                        elem.* = try self.genConstant(elem_ty, elem_vals[i]);
+                        elem.* = try self.genConstant(elem_ty, elem_vals[i], repr);
                     }
+                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
-                        .id_result_type = result_type_id,
+                        .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = elem_refs,
                     });
+                    return result_id;
                 },
                 else => return self.todo("vector constant with tag {s}", .{@tagName(val.tag())}),
             },
             .Enum => {
-                var ty_buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&ty_buffer);
-                const int_info = int_ty.intInfo(target);
-
-                const backing_bits = self.backingIntBits(int_info.bits) orelse {
-                    return self.todo("implement composite int constants for {}", .{int_ty.fmtDebug()});
-                };
-
                 var int_buffer: Value.Payload.U64 = undefined;
                 const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target); // TODO: composite integer constants
-
-                const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
-                    1...32 => .{ .uint32 = @truncate(u32, int_val) },
-                    33...64 => .{ .uint64 = int_val },
-                    else => unreachable,
-                };
-
-                try section.emit(self.spv.gpa, .OpConstant, .{
-                    .id_result_type = result_type_id,
-                    .id_result = result_id,
-                    .value = value,
-                });
+                return self.constInt(result_ty_ref, int_val);
             },
             .Struct => {
                 const constituents = if (ty.isSimpleTupleOrAnonStruct()) blk: {
@@ -498,10 +492,10 @@ pub const DeclGen = struct {
                     errdefer self.spv.gpa.free(constituents);
 
                     var member_index: usize = 0;
-                    for (tuple.types) |field_ty, i| {
+                    for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
                         if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-                        constituents[member_index] = try self.genConstant(field_ty, field_val);
+                        constituents[member_index] = try self.genConstant(field_ty, field_val, repr);
                         member_index += 1;
                     }
 
@@ -517,9 +511,9 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, struct_ty.fields.count());
                     errdefer self.spv.gpa.free(constituents);
                     var member_index: usize = 0;
-                    for (struct_ty.fields.values()) |field, i| {
+                    for (struct_ty.fields.values(), 0..) |field, i| {
                         if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-                        constituents[member_index] = try self.genConstant(field.ty, field_vals[i]);
+                        constituents[member_index] = try self.genConstant(field.ty, field_vals[i], repr);
                         member_index += 1;
                     }
 
@@ -527,24 +521,28 @@ pub const DeclGen = struct {
                 };
                 defer self.spv.gpa.free(constituents);
 
+                const result_id = self.spv.allocId();
                 try section.emit(self.spv.gpa, .OpConstantComposite, .{
-                    .id_result_type = result_type_id,
+                    .id_result_type = result_ty_id,
                     .id_result = result_id,
                     .constituents = constituents,
                 });
+                return result_id;
             },
             .Void => unreachable,
             .Fn => unreachable,
             else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
-
-        return result_id;
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
     fn resolveTypeId(self: *DeclGen, ty: Type) !IdResultType {
-        const type_ref = try self.resolveType(ty);
-        return self.spv.typeResultId(type_ref);
+        const type_ref = try self.resolveType(ty, .direct);
+        return self.typeId(type_ref);
+    }
+
+    fn typeId(self: *DeclGen, ty_ref: SpvType.Ref) IdRef {
+        return self.spv.typeId(ty_ref);
     }
 
     /// Create an integer type suitable for storing at least 'bits' bits.
@@ -576,19 +574,20 @@ pub const DeclGen = struct {
 
     fn simpleStructTypeId(self: *DeclGen, members: []const SpvType.Payload.Struct.Member) !IdResultType {
         const type_ref = try self.simpleStructType(members);
-        return self.spv.typeResultId(type_ref);
+        return self.typeId(type_ref);
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
-    fn resolveType(self: *DeclGen, ty: Type) Error!SpvType.Ref {
+    fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!SpvType.Ref {
         const target = self.getTarget();
         switch (ty.zigTypeTag()) {
             .Void, .NoReturn => return try self.spv.resolveType(SpvType.initTag(.void)),
-            .Bool => {
+            .Bool => switch (repr) {
+                .direct => return try self.spv.resolveType(SpvType.initTag(.bool)),
                 // SPIR-V booleans are opaque, which is fine for operations, but they cant be stored.
                 // This function returns the *stored* type, for values directly we convert this into a bool when
                 // it is loaded, and convert it back to this type when stored.
-                return try self.intType(.unsigned, 1);
+                .indirect => return try self.intType(.unsigned, 1),
             },
             .Int => {
                 const int_info = ty.intInfo(target);
@@ -596,9 +595,8 @@ pub const DeclGen = struct {
             },
             .Enum => {
                 var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
-                const int_info = int_ty.intInfo(target);
-                return try self.intType(.unsigned, int_info.bits);
+                const tag_ty = ty.intTagType(&buffer);
+                return self.resolveType(tag_ty, repr);
             },
             .Float => {
                 // We can (and want) not really emulate floating points with other floating point types like with the integer types,
@@ -626,7 +624,7 @@ pub const DeclGen = struct {
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Array);
                 payload.* = .{
-                    .element_type = try self.resolveType(elem_ty),
+                    .element_type = try self.resolveType(elem_ty, repr),
                     .length = total_len,
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
@@ -636,12 +634,14 @@ pub const DeclGen = struct {
                 if (ty.fnIsVarArgs())
                     return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
 
+                // TODO: Parameter passing convention etc.
+
                 const param_types = try self.spv.arena.alloc(SpvType.Ref, ty.fnParamLen());
                 for (param_types, 0..) |*param, i| {
-                    param.* = try self.resolveType(ty.fnParamType(i));
+                    param.* = try self.resolveType(ty.fnParamType(i), .direct);
                 }
 
-                const return_type = try self.resolveType(ty.fnReturnType());
+                const return_type = try self.resolveType(ty.fnReturnType(), .direct);
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Function);
                 payload.* = .{ .return_type = return_type, .parameters = param_types };
@@ -653,7 +653,7 @@ pub const DeclGen = struct {
                 const ptr_payload = try self.spv.arena.create(SpvType.Payload.Pointer);
                 ptr_payload.* = .{
                     .storage_class = spirvStorageClass(ptr_info.@"addrspace"),
-                    .child_type = try self.resolveType(ptr_info.pointee_type),
+                    .child_type = try self.resolveType(ptr_info.pointee_type, .indirect),
                     // Note: only available in Kernels!
                     .alignment = ty.ptrAlignment(target) * 8,
                 };
@@ -680,7 +680,7 @@ pub const DeclGen = struct {
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Vector);
                 payload.* = .{
-                    .component_type = try self.resolveType(ty.elemType()),
+                    .component_type = try self.resolveType(ty.elemType(), repr),
                     .component_count = @intCast(u32, ty.vectorLen()),
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
@@ -690,11 +690,11 @@ pub const DeclGen = struct {
                     const tuple = ty.tupleFields();
                     const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, tuple.types.len);
                     var member_index: u32 = 0;
-                    for (tuple.types) |field_ty, i| {
+                    for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
                         if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
                         members[member_index] = .{
-                            .ty = try self.resolveType(field_ty),
+                            .ty = try self.resolveType(field_ty, repr),
                         };
                         member_index += 1;
                     }
@@ -708,16 +708,16 @@ pub const DeclGen = struct {
                 const struct_ty = ty.castTag(.@"struct").?.data;
 
                 if (struct_ty.layout == .Packed) {
-                    return try self.resolveType(struct_ty.backing_int_ty);
+                    return try self.resolveType(struct_ty.backing_int_ty, repr);
                 }
 
                 const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, struct_ty.fields.count());
                 var member_index: usize = 0;
-                for (struct_ty.fields.values()) |field, i| {
+                for (struct_ty.fields.values(), 0..) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     members[member_index] = .{
-                        .ty = try self.resolveType(field.ty),
+                        .ty = try self.resolveType(field.ty, repr),
                         .name = struct_ty.fields.keys()[i],
                     };
                     member_index += 1;
@@ -957,21 +957,14 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn maskStrangeInt(self: *DeclGen, ty_id: IdResultType, int_id: IdRef, bits: u16) !IdRef {
-        const backing_bits = self.backingIntBits(bits).?;
+    fn maskStrangeInt(self: *DeclGen, ty_ref: SpvType.Ref, value_id: IdRef, bits: u16) !IdRef {
         const mask_value = if (bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @intCast(u6, bits)) - 1;
-        const mask_lit: spec.LiteralContextDependentNumber = switch (backing_bits) {
-            1...32 => .{ .uint32 = @truncate(u32, mask_value) },
-            33...64 => .{ .uint64 = mask_value },
-            else => unreachable,
-        };
-        // TODO: We should probably optimize the amount of these constants a bit.
-        const mask_id = try self.spv.emitConstant(ty_id, mask_lit);
         const result_id = self.spv.allocId();
+        const mask_id = try self.constInt(ty_ref, mask_value);
         try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
-            .id_result_type = ty_id,
+            .id_result_type = self.typeId(ty_ref),
             .id_result = result_id,
-            .operand_1 = int_id,
+            .operand_1 = value_id,
             .operand_2 = mask_id,
         });
         return result_id;
@@ -994,8 +987,7 @@ pub const DeclGen = struct {
         var lhs_id = try self.resolve(bin_op.lhs);
         var rhs_id = try self.resolve(bin_op.rhs);
 
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(ty);
+        const result_ty_ref = try self.resolveType(ty, .direct);
 
         assert(self.air.typeOf(bin_op.lhs).eql(ty, self.module));
         assert(self.air.typeOf(bin_op.rhs).eql(ty, self.module));
@@ -1010,8 +1002,8 @@ pub const DeclGen = struct {
             },
             .strange_integer => blk: {
                 if (!modular) {
-                    lhs_id = try self.maskStrangeInt(result_type_id, lhs_id, info.bits);
-                    rhs_id = try self.maskStrangeInt(result_type_id, rhs_id, info.bits);
+                    lhs_id = try self.maskStrangeInt(result_ty_ref, lhs_id, info.bits);
+                    rhs_id = try self.maskStrangeInt(result_ty_ref, rhs_id, info.bits);
                 }
                 break :blk switch (info.signedness) {
                     .signed => @as(usize, 1),
@@ -1026,8 +1018,9 @@ pub const DeclGen = struct {
             .bool => unreachable,
         };
 
+        const result_id = self.spv.allocId();
         const operands = .{
-            .id_result_type = result_type_id,
+            .id_result_type = self.typeId(result_ty_ref),
             .id_result = result_id,
             .operand_1 = lhs_id,
             .operand_2 = rhs_id,
@@ -1068,7 +1061,7 @@ pub const DeclGen = struct {
         const result_type_id = try self.resolveTypeId(result_ty);
 
         const overflow_member_ty = try self.intType(.unsigned, info.bits);
-        const overflow_member_ty_id = self.spv.typeResultId(overflow_member_ty);
+        const overflow_member_ty_id = self.typeId(overflow_member_ty);
 
         const op_result_id = blk: {
             // Construct the SPIR-V result type.
@@ -1181,9 +1174,9 @@ pub const DeclGen = struct {
             .float => 0,
             .bool => 1,
             .strange_integer => blk: {
-                const op_ty_id = try self.resolveTypeId(op_ty);
-                lhs_id = try self.maskStrangeInt(op_ty_id, lhs_id, info.bits);
-                rhs_id = try self.maskStrangeInt(op_ty_id, rhs_id, info.bits);
+                const op_ty_ref = try self.resolveType(op_ty, .direct);
+                lhs_id = try self.maskStrangeInt(op_ty_ref, lhs_id, info.bits);
+                rhs_id = try self.maskStrangeInt(op_ty_ref, rhs_id, info.bits);
                 break :blk switch (info.signedness) {
                     .signed => @as(usize, 1),
                     .unsigned => @as(usize, 2),
@@ -1425,7 +1418,7 @@ pub const DeclGen = struct {
             .Struct => switch (object_ty.containerLayout()) {
                 .Packed => unreachable, // TODO
                 else => {
-                    const u32_ty_id = self.spv.typeResultId(try self.intType(.unsigned, 32));
+                    const u32_ty_id = self.typeId(try self.intType(.unsigned, 32));
                     const field_index_id = try self.spv.emitConstant(u32_ty_id, .{ .uint32 = field_index });
                     const result_id = self.spv.allocId();
                     const result_type_id = try self.resolveTypeId(result_ptr_ty);
@@ -1740,7 +1733,7 @@ pub const DeclGen = struct {
                         return self.todo("switch on runtime value???", .{});
                     };
                     const int_val = switch (cond_ty.zigTypeTag()) {
-                        .Int => if (cond_ty.isSignedInt()) @bitCast(u64, value.toSignedInt()) else value.toUnsignedInt(target),
+                        .Int => if (cond_ty.isSignedInt()) @bitCast(u64, value.toSignedInt(target)) else value.toUnsignedInt(target),
                         .Enum => blk: {
                             var int_buffer: Value.Payload.U64 = undefined;
                             // TODO: figure out of cond_ty is correct (something with enum literals)
