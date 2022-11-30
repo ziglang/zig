@@ -21,4 +21,5 @@ pub export fn entry1() void {
 // target=native
 //
 // :3:6: error: parameter of type '*const fn(anytype) void' must be declared comptime
+// :3:6: note: function is generic
 // :10:34: error: parameter of type 'comptime_int' must be declared comptime

@@ -101,6 +101,7 @@ debug_compile_errors: bool,
 job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
 alloc_failure_occurred: bool = false,
+formatted_panics: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -937,6 +938,7 @@ pub const InitOptions = struct {
     use_stage1: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
+    formatted_panics: ?bool = null,
     rdynamic: bool = false,
     function_sections: bool = false,
     no_builtin: bool = false,
@@ -1457,6 +1459,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .Debug => @as(u8, 0),
             else => @as(u8, 3),
         };
+        const formatted_panics = options.formatted_panics orelse (options.optimize_mode == .Debug);
 
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
@@ -1551,6 +1554,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.addOptionalBytes(options.test_name_prefix);
             hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
+            hash.add(formatted_panics);
 
             // In the case of incremental cache mode, this `zig_cache_artifact_directory`
             // is computed based on a hash of non-linker inputs, and it is where all
@@ -1957,6 +1961,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .owned_link_dir = owned_link_dir,
             .color = options.color,
             .reference_trace = options.reference_trace,
+            .formatted_panics = formatted_panics,
             .time_report = options.time_report,
             .stack_report = options.stack_report,
             .unwind_tables = unwind_tables,

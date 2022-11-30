@@ -1127,3 +1127,14 @@ test "pointer to zero sized global is mutable" {
     };
     try expect(@TypeOf(&S.thing) == *S.Thing);
 }
+
+test "returning an opaque type from a function" {
+    const S = struct {
+        fn foo(comptime a: u32) type {
+            return opaque {
+                const b = a;
+            };
+        }
+    };
+    try expect(S.foo(123).b == 123);
+}

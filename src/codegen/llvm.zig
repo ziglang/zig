@@ -9228,6 +9228,21 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const layout = union_ty.unionGetLayout(target);
         const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+
+        if (union_obj.layout == .Packed) {
+            const big_bits = union_ty.bitSize(target);
+            const int_llvm_ty = self.dg.context.intType(@intCast(c_uint, big_bits));
+            const field = union_obj.fields.values()[extra.field_index];
+            const non_int_val = try self.resolveInst(extra.init);
+            const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
+            const small_int_ty = self.dg.context.intType(ty_bit_size);
+            const small_int_val = if (field.ty.isPtrAtRuntime())
+                self.builder.buildPtrToInt(non_int_val, small_int_ty, "")
+            else
+                self.builder.buildBitCast(non_int_val, small_int_ty, "");
+            return self.builder.buildZExtOrBitCast(small_int_val, int_llvm_ty, "");
+        }
+
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical();
             const union_field_name = union_obj.fields.keys()[extra.field_index];

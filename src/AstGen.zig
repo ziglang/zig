@@ -5070,6 +5070,7 @@ fn containerDecl(
             try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len);
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
 
+            block_scope.unstack();
             try gz.addNamespaceCaptures(&namespace);
             return rvalue(gz, ri, indexToRef(decl_inst), node);
         },

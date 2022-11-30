@@ -863,10 +863,14 @@ pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
-pub noinline fn returnError(st: *StackTrace) void {
+pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
     @setCold(true);
-    @setRuntimeSafety(false);
-    addErrRetTraceAddr(st, @returnAddress());
+    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
+}
+
+pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
 pub const panic_messages = struct {
@@ -887,7 +891,17 @@ pub const panic_messages = struct {
     pub const corrupt_switch = "switch on corrupt value";
     pub const shift_rhs_too_big = "shift amount is greater than the type size";
     pub const invalid_enum_value = "invalid enum value";
+    pub const sentinel_mismatch = "sentinel mismatch";
+    pub const unwrap_error = "attempt to unwrap error";
+    pub const index_out_of_bounds = "index out of bounds";
+    pub const start_index_greater_than_end = "start index is larger than end index";
 };
+
+pub noinline fn returnError(st: *StackTrace) void {
+    @setCold(true);
+    @setRuntimeSafety(false);
+    addErrRetTraceAddr(st, @returnAddress());
+}
 
 pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
     if (st.index < st.instruction_addresses.len)

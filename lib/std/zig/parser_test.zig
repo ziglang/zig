@@ -4233,6 +4233,30 @@ test "zig fmt: remove newlines surrounding doc comment within container decl" {
     );
 }
 
+test "zig fmt: invalid else branch statement" {
+    try testError(
+        \\comptime {
+        \\    if (true) {} else var a = 0;
+        \\    if (true) {} else defer {}
+        \\}
+        \\comptime {
+        \\    while (true) {} else var a = 0;
+        \\    while (true) {} else defer {}
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else var a = 0;
+        \\    for ("") |_| {} else defer {}
+        \\}
+    , &[_]Error{
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+    });
+}
+
 test "zig fmt: anytype struct field" {
     try testError(
         \\pub const Pointer = struct {

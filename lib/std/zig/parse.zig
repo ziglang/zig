@@ -950,13 +950,15 @@ const Parser = struct {
     ///      / LabeledStatement
     ///      / SwitchExpr
     ///      / AssignExpr SEMICOLON
-    fn parseStatement(p: *Parser) Error!Node.Index {
+    fn parseStatement(p: *Parser, allow_defer_var: bool) Error!Node.Index {
         const comptime_token = p.eatToken(.keyword_comptime);
 
-        const var_decl = try p.parseVarDecl();
-        if (var_decl != 0) {
-            try p.expectSemicolon(.expected_semi_after_decl, true);
-            return var_decl;
+        if (allow_defer_var) {
+            const var_decl = try p.parseVarDecl();
+            if (var_decl != 0) {
+                try p.expectSemicolon(.expected_semi_after_decl, true);
+                return var_decl;
+            }
         }
 
         if (comptime_token) |token| {
@@ -993,7 +995,7 @@ const Parser = struct {
                     },
                 });
             },
-            .keyword_defer => return p.addNode(.{
+            .keyword_defer => if (allow_defer_var) return p.addNode(.{
                 .tag = .@"defer",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -1001,7 +1003,7 @@ const Parser = struct {
                     .rhs = try p.expectBlockExprStatement(),
                 },
             }),
-            .keyword_errdefer => return p.addNode(.{
+            .keyword_errdefer => if (allow_defer_var) return p.addNode(.{
                 .tag = .@"errdefer",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -1040,8 +1042,8 @@ const Parser = struct {
         return null_node;
     }
 
-    fn expectStatement(p: *Parser) !Node.Index {
-        const statement = try p.parseStatement();
+    fn expectStatement(p: *Parser, allow_defer_var: bool) !Node.Index {
+        const statement = try p.parseStatement(allow_defer_var);
         if (statement == 0) {
             return p.fail(.expected_statement);
         }
@@ -1053,7 +1055,7 @@ const Parser = struct {
     /// statement, returns 0.
     fn expectStatementRecoverable(p: *Parser) Error!Node.Index {
         while (true) {
-            return p.expectStatement() catch |err| switch (err) {
+            return p.expectStatement(true) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ParseError => {
                     p.findNextStmt(); // Try to skip to the next statement.
@@ -1114,7 +1116,7 @@ const Parser = struct {
             });
         };
         _ = try p.parsePayload();
-        const else_expr = try p.expectStatement();
+        const else_expr = try p.expectStatement(false);
         return p.addNode(.{
             .tag = .@"if",
             .main_token = if_token,
@@ -1226,7 +1228,7 @@ const Parser = struct {
                 .lhs = array_expr,
                 .rhs = try p.addExtra(Node.If{
                     .then_expr = then_expr,
-                    .else_expr = try p.expectStatement(),
+                    .else_expr = try p.expectStatement(false),
                 }),
             },
         });
@@ -1309,7 +1311,7 @@ const Parser = struct {
             }
         };
         _ = try p.parsePayload();
-        const else_expr = try p.expectStatement();
+        const else_expr = try p.expectStatement(false);
         return p.addNode(.{
             .tag = .@"while",
             .main_token = while_token,

@@ -406,6 +406,8 @@ const usage_build_generic =
     \\  -fno-function-sections    All functions go into same section
     \\  -fstrip                   Omit debug symbols
     \\  -fno-strip                Keep debug symbols
+    \\  -fformatted-panics        Enable formatted safety panics
+    \\  -fno-formatted-panics     Disable formatted safety panics
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -632,6 +634,7 @@ fn buildOutputType(
     var have_version = false;
     var compatibility_version: ?std.builtin.Version = null;
     var strip: ?bool = null;
+    var formatted_panics: ?bool = null;
     var function_sections = false;
     var no_builtin = false;
     var watch = false;
@@ -1242,6 +1245,10 @@ fn buildOutputType(
                         strip = true;
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
                         strip = false;
+                    } else if (mem.eql(u8, arg, "-fformatted-panics")) {
+                        formatted_panics = true;
+                    } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
+                        formatted_panics = false;
                     } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         single_threaded = true;
                     } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
@@ -2938,6 +2945,7 @@ fn buildOutputType(
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
         .strip = strip,
+        .formatted_panics = formatted_panics,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
         .no_builtin = no_builtin,
