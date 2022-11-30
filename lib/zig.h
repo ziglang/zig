@@ -1303,7 +1303,7 @@ static inline zig_i128 zig_shlw_i128(zig_i128 lhs, zig_u8 rhs, zig_u8 bits) {
     return zig_wrap_i128(zig_bitcast_i128(zig_shl_u128(zig_bitcast_u128(lhs), zig_bitcast_u128(rhs))), bits);
 }
 
-static inline zig_u128 zig_addw_u128(zig_u128 lhs, zig_u8 rhs, zig_u8 bits) {
+static inline zig_u128 zig_addw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_add_u128(lhs, rhs), bits);
 }
 
