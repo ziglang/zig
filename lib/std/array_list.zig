@@ -314,32 +314,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Reduce allocated capacity to `new_len`.
         /// May invalidate element pointers.
         pub fn shrinkAndFree(self: *Self, new_len: usize) void {
-            assert(new_len <= self.items.len);
-
-            if (@sizeOf(T) == 0) {
-                self.items.len = new_len;
-                return;
-            }
-
-            const old_memory = self.allocatedSlice();
-            if (self.allocator.resize(old_memory, new_len)) {
-                self.capacity = new_len;
-                self.items.len = new_len;
-                return;
-            }
-
-            const new_memory = self.allocator.alignedAlloc(T, alignment, new_len) catch |e| switch (e) {
-                error.OutOfMemory => {
-                    // No problem, capacity is still correct then.
-                    self.items.len = new_len;
-                    return;
-                },
-            };
-
-            mem.copy(T, new_memory, self.items);
-            self.allocator.free(old_memory);
-            self.items = new_memory;
-            self.capacity = new_memory.len;
+            var unmanaged = self.moveToUnmanaged();
+            unmanaged.shrinkAndFree(self.allocator, new_len);
+            self.* = unmanaged.toManaged(self.allocator);
         }
 
         /// Reduce length to `new_len`.
@@ -782,7 +759,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 },
             };
 
-            mem.copy(T, new_memory, self.items);
+            mem.copy(T, new_memory, self.items[0..new_len]);
             allocator.free(old_memory);
             self.items = new_memory;
             self.capacity = new_memory.len;
@@ -1488,14 +1465,18 @@ test "std.ArrayListUnmanaged(u8) implements writer" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMemory" {
-    // use an arena allocator to make sure realloc returns error.OutOfMemory
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
+test "shrink still sets length when resizing is disabled" {
+    // Use the testing allocator but with resize disabled.
+    var a = testing.allocator;
+    a.vtable = &.{
+        .alloc = a.vtable.alloc,
+        .resize = Allocator.noResize,
+        .free = a.vtable.free,
+    };
 
     {
         var list = ArrayList(i32).init(a);
+        defer list.deinit();
 
         try list.append(1);
         try list.append(2);
@@ -1506,6 +1487,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
     }
     {
         var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
 
         try list.append(a, 1);
         try list.append(a, 2);
@@ -1514,6 +1496,22 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
         list.shrinkAndFree(a, 1);
         try testing.expect(list.items.len == 1);
     }
+}
+
+test "shrinkAndFree with a copy" {
+    // Use the testing allocator but with resize disabled.
+    var a = testing.allocator;
+    a.vtable = &.{
+        .alloc = a.vtable.alloc,
+        .resize = Allocator.noResize,
+        .free = a.vtable.free,
+    };
+    var list = ArrayList(i32).init(a);
+    defer list.deinit();
+
+    try list.appendNTimes(3, 16);
+    list.shrinkAndFree(4);
+    try testing.expect(mem.eql(i32, list.items, &.{ 3, 3, 3, 3 }));
 }
 
 test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {

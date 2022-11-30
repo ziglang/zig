@@ -107,8 +107,9 @@ pub const ArenaAllocator = struct {
         const cur_node = self.state.buffer_list.first orelse return false;
         const cur_buf = cur_node.data[@sizeOf(BufNode)..];
         if (@ptrToInt(cur_buf.ptr) + self.state.end_index != @ptrToInt(buf.ptr) + buf.len) {
-            if (new_len > buf.len) return false;
-            return true;
+            // It's not the most recent allocation, so it cannot be expanded,
+            // but it's fine if they want to make it smaller.
+            return new_len <= buf.len;
         }
 
         if (buf.len >= new_len) {
