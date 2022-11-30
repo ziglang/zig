@@ -3087,6 +3087,7 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => if (!watch) process.exit(1),
         else => |e| return e,
     };
+    if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
 
     if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {

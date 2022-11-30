@@ -38,7 +38,7 @@ pub fn preopensAlloc(gpa: Allocator) Allocator.Error!Preopens {
         var prestat: prestat_t = undefined;
         switch (wasi.fd_prestat_get(fd, &prestat)) {
             .SUCCESS => {},
-            .OPNOTSUPP, .BADF => return .{ .names = names.toOwnedSlice(gpa) },
+            .OPNOTSUPP, .BADF => return .{ .names = try names.toOwnedSlice(gpa) },
             else => @panic("fd_prestat_get: unexpected error"),
         }
         try names.ensureUnusedCapacity(gpa, 1);
