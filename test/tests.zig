@@ -1043,6 +1043,7 @@ pub const StandaloneContext = struct {
         requires_stage2: bool = false,
         use_emulation: bool = false,
         requires_symlinks: bool = false,
+        extra_argv: []const []const u8 = &.{},
     }) void {
         const b = self.b;
 
@@ -1062,6 +1063,8 @@ pub const StandaloneContext = struct {
 
         zig_args.append("--build-file") catch unreachable;
         zig_args.append(b.pathFromRoot(build_file)) catch unreachable;
+
+        zig_args.appendSlice(features.extra_argv) catch unreachable;
 
         zig_args.append("test") catch unreachable;
 
