@@ -1,8 +1,11 @@
 const std = @import("std");
 const common = @import("./common.zig");
+const builtin = @import("builtin");
 
 comptime {
-    @export(memcpy, .{ .name = "memcpy", .linkage = common.linkage });
+    if (builtin.object_format != .c) {
+        @export(memcpy, .{ .name = "memcpy", .linkage = common.linkage });
+    }
 }
 
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {

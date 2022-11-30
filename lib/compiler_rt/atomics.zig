@@ -453,7 +453,7 @@ fn __atomic_fetch_nand_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
 }
 
 comptime {
-    if (supports_atomic_ops) {
+    if (supports_atomic_ops and builtin.object_format != .c) {
         @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage });
         @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage });
         @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage });
