@@ -1306,12 +1306,11 @@ pub const DeclGen = struct {
         };
 
         const result_id = self.spv.allocId();
-        const indexes = [_]IdRef{index};
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+        try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
             .id_result_type = spv_ptr_ty,
             .id_result = result_id,
             .base = slice_ptr,
-            .indexes = &indexes,
+            .element = index,
         });
         return result_id;
     }
@@ -1340,12 +1339,11 @@ pub const DeclGen = struct {
 
         const elem_ptr = blk: {
             const result_id = self.spv.allocId();
-            const indexes = [_]IdRef{index};
-            try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+            try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
                 .id_result_type = ptr_ty_id,
                 .id_result = result_id,
                 .base = slice_ptr,
-                .indexes = &indexes,
+                .element = index,
             });
             break :blk result_id;
         };
@@ -1448,22 +1446,45 @@ pub const DeclGen = struct {
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
-        const result_type_id = try self.resolveTypeId(ty);
+        const result_ty_ref = try self.resolveType(ty, .direct);
+        const result_ty_id = self.typeId(result_ty_ref);
         const result_id = self.spv.allocId();
 
-        // Rather than generating into code here, we're just going to generate directly into the functions section so that
-        // variable declarations appear in the first block of the function.
         const storage_class = spirvStorageClass(ty.ptrAddressSpace());
-        const section = if (storage_class == .Function or storage_class == .Generic)
-            &self.func.prologue
-        else
-            &self.spv.sections.types_globals_constants;
 
+        const ptr_ty_id = switch (storage_class) {
+            .Generic => blk: {
+                const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
+                payload.* = self.spv.typeRefType(result_ty_ref).payload(.pointer).*;
+                payload.storage_class = .Function;
+                break :blk try self.spv.resolveTypeId(SpvType.initPayload(&payload.base));
+            },
+            else => result_ty_id,
+        };
+        const actual_storage_class = switch (storage_class) {
+            .Generic, .Function => .Function,
+            else => storage_class,
+        };
+        const section = switch (storage_class) {
+            // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
+            // directly generate them into func.prologue instead of the body.
+            .Generic, .Function => &self.func.prologue,
+            else => &self.spv.sections.types_globals_constants,
+        };
         try section.emit(self.spv.gpa, .OpVariable, .{
-            .id_result_type = result_type_id,
+            .id_result_type = ptr_ty_id,
             .id_result = result_id,
-            .storage_class = storage_class,
+            .storage_class = actual_storage_class,
         });
+        if (storage_class == .Generic) {
+            const casted_result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = result_ty_id,
+                .id_result = casted_result_id,
+                .pointer = result_id,
+            });
+            return casted_result_id;
+        }
         return result_id;
     }
 
