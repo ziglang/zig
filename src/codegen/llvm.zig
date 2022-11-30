@@ -6088,6 +6088,12 @@ pub const FuncGen = struct {
         const insert_block = self.builder.getInsertBlock();
         if (isByRef(operand_ty)) {
             _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
+        } else if (self.dg.module.comp.bin_file.options.optimize_mode == .Debug) {
+            const alignment = operand_ty.abiAlignment(self.dg.module.getTarget());
+            const alloca = self.buildAlloca(operand.typeOf(), alignment);
+            const store_inst = self.builder.buildStore(operand, alloca);
+            store_inst.setAlignment(alignment);
+            _ = dib.insertDeclareAtEnd(alloca, di_local_var, debug_loc, insert_block);
         } else {
             _ = dib.insertDbgValueIntrinsicAtEnd(operand, di_local_var, debug_loc, insert_block);
         }
@@ -8026,6 +8032,12 @@ pub const FuncGen = struct {
             const insert_block = self.builder.getInsertBlock();
             if (isByRef(inst_ty)) {
                 _ = dib.insertDeclareAtEnd(arg_val, di_local_var, debug_loc, insert_block);
+            } else if (self.dg.module.comp.bin_file.options.optimize_mode == .Debug) {
+                const alignment = inst_ty.abiAlignment(self.dg.module.getTarget());
+                const alloca = self.buildAlloca(arg_val.typeOf(), alignment);
+                const store_inst = self.builder.buildStore(arg_val, alloca);
+                store_inst.setAlignment(alignment);
+                _ = dib.insertDeclareAtEnd(alloca, di_local_var, debug_loc, insert_block);
             } else {
                 _ = dib.insertDbgValueIntrinsicAtEnd(arg_val, di_local_var, debug_loc, insert_block);
             }
