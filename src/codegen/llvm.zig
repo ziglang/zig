@@ -8136,7 +8136,10 @@ pub const FuncGen = struct {
                 .write, .noret, .complex => return false,
                 .tomb => return true,
             }
-        } else unreachable;
+        }
+        // The only way to get here is to hit the end of a loop instruction
+        // (implicit repeat).
+        return false;
     }
 
     fn airLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) !?*llvm.Value {
