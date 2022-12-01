@@ -809,7 +809,11 @@ pub const IterableDir = struct {
                 // and we avoid the code complexity here.
                 const w = os.wasi;
                 start_over: while (true) {
-                    if (self.index >= self.end_index) {
+                    // TODO https://github.com/ziglang/zig/issues/12498
+                    _ = @sizeOf(w.dirent_t) + 1;
+                    // According to the WASI spec, the last entry might be truncated,
+                    // so we need to check if the left buffer contains the whole dirent.
+                    if (self.end_index - self.index < @sizeOf(w.dirent_t)) {
                         var bufused: usize = undefined;
                         switch (w.fd_readdir(self.dir.fd, &self.buf, self.buf.len, self.cookie, &bufused)) {
                             .SUCCESS => {},
@@ -828,6 +832,11 @@ pub const IterableDir = struct {
                     const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
                     const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
+                    if (name_index + entry.d_namlen > self.end_index) {
+                        // This case, the name is truncated, so we need to call readdir to store the entire name.
+                        self.end_index = self.index; // Force fd_readdir in the next loop.
+                        continue :start_over;
+                    }
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
                     const next_index = name_index + entry.d_namlen;
