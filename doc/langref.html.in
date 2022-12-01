@@ -7029,8 +7029,7 @@ test "fibonacci" {
       undefined behavior, which is always a compile error if the compiler knows it happened.
       But what would have happened if we used a signed integer?
       </p>
-      {#code_begin|test_err|evaluation exceeded 1000 backwards branches#}
-      {#backend_stage1#}
+      {#code_begin|syntax#}
 const assert = @import("std").debug.assert;
 
 fn fibonacci(index: i32) i32 {
@@ -7045,13 +7044,22 @@ test "fibonacci" {
 }
       {#code_end#}
       <p>
-      The compiler noticed that evaluating this function at compile-time took a long time,
-      and thus emitted a compile error and gave up. If the programmer wants to increase
-      the budget for compile-time computation, they can use a built-in function called
-      {#link|@setEvalBranchQuota#} to change the default number 1000 to something else.
+      The compiler is supposed to notice that evaluating this function at
+      compile-time took more than 1000 branches, and thus emits an error and
+      gives up. If the programmer wants to increase the budget for compile-time
+      computation, they can use a built-in function called
+      {#link|@setEvalBranchQuota#} to change the default number 1000 to
+      something else.
       </p>
       <p>
-      What if we fix the base case, but put the wrong value in the {#syntax#}expect{#endsyntax#} line?
+      However, there is a <a href="https://github.com/ziglang/zig/issues/13724">design
+      flaw in the compiler</a> causing it to stack overflow instead of having the proper
+      behavior here. I'm terribly sorry about that. I hope to get this resolved
+      before the next release.
+      </p>
+      <p>
+      What if we fix the base case, but put the wrong value in the
+      {#syntax#}expect{#endsyntax#} line?
       </p>
       {#code_begin|test_err|reached unreachable#}
 const assert = @import("std").debug.assert;
