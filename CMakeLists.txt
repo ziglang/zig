@@ -769,9 +769,9 @@ target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/lib")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)
-  target_link_libraries(zig2 ntdll.lib)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib)
 elseif(MINGW)
-  target_link_libraries(zig2 ntdll)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll)
 endif()
 
 if(NOT MSVC)

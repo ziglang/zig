@@ -1,20 +1,17 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
 $ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.11.0-dev.448+e6e459e9e"
+$MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
+$PREFIX_PATH = "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"
+$ZIG = "$PREFIX_PATH\bin\zig.exe"
 
 Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
-
 Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$ZIG_LLVM_CLANG_LLD_NAME.zip"
 
 Write-Output "Extracting..."
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem ; 
+Add-Type -AssemblyName System.IO.Compression.FileSystem ;
 [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD")
 
-Set-Variable -Name ZIGLIBDIR -Value "$(Get-Location)\lib"
-Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\stage3-release"
-Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"
-      
 function CheckLastExitCode {
     if (!$?) {
         exit 1
@@ -31,33 +28,41 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
     git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
-Write-Output "Building Zig..."
+Write-Output "Building from source..."
+Remove-Item -Path 'build-release' -Recurse -Force -ErrorAction Ignore
+New-Item -Path 'build-release' -ItemType Directory
+Set-Location -Path 'build-release'
 
-& "$ZIGPREFIXPATH\bin\zig.exe" build `
-    --prefix "$ZIGINSTALLDIR" `
-    --search-prefix "$ZIGPREFIXPATH" `
-    --zig-lib-dir "$ZIGLIBDIR" `
-    -Denable-stage1 `
-    -Dstatic-llvm `
-    -Drelease `
-    -Duse-zig-libcxx `
-    -Dtarget="$TARGET"
+# CMake gives a syntax error when file paths with backward slashes are used.
+# Here, we use forward slashes only to work around this.
+& cmake .. `
+  -GNinja `
+  -DCMAKE_INSTALL_PREFIX="stage3-release" `
+  -DCMAKE_PREFIX_PATH="$($PREFIX_PATH -Replace "\\", "/")" `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
+  -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
+  -DZIG_TARGET_TRIPLE="$TARGET" `
+  -DZIG_TARGET_MCPU="$MCPU" `
+  -DZIG_STATIC=ON
 CheckLastExitCode
 
-Write-Output " zig build test docs..."
-
-& "$ZIGINSTALLDIR\bin\zig.exe" build test docs `
-    --search-prefix "$ZIGPREFIXPATH" `
-    -Dstatic-llvm `
-    -Dskip-non-native `
-    -Denable-symlinks-windows
+ninja install
 CheckLastExitCode
 
-# Produce the experimental std lib documentation.
-Write-Output "zig test std/std.zig..."
+Write-Output "Main test suite..."
+& "stage3-release\bin\zig.exe" build test docs `
+  --zig-lib-dir "..\lib" `
+  --search-prefix "../$ZIG_LLVM_CLANG_LLD_NAME" `
+  -Dstatic-llvm `
+  -Dskip-non-native `
+  -Denable-symlinks-windows
+CheckLastExitCode
 
-& "$ZIGINSTALLDIR\bin\zig.exe" test "$ZIGLIBDIR\std\std.zig" `
-    --zig-lib-dir "$ZIGLIBDIR" `
+Write-Output "Testing Autodocs..."
+& "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
+    --zig-lib-dir "..\lib" `
     -femit-docs `
     -fno-emit-bin
 CheckLastExitCode
+
