@@ -1422,7 +1422,8 @@ fn foo() i32 {
 
       {#header_open|Thread Local Variables#}
       <p>A variable may be specified to be a thread-local variable using the
-      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
+      {#syntax#}threadlocal{#endsyntax#} keyword,
+      which makes each thread work with a separate instance of the variable:</p>
       {#code_begin|test|test_thread_local_variables#}
 const std = @import("std");
 const assert = std.debug.assert;
