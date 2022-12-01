@@ -535,3 +535,25 @@ test "Type.Fn" {
         try std.testing.expectEqual(T, fn_type);
     }
 }
+
+test "reified struct field name from optional payload" {
+    comptime {
+        const m_name: ?[1]u8 = "a".*;
+        if (m_name) |*name| {
+            const T = @Type(.{ .Struct = .{
+                .layout = .Auto,
+                .fields = &.{.{
+                    .name = name,
+                    .field_type = u8,
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 1,
+                }},
+                .decls = &.{},
+                .is_tuple = false,
+            } });
+            var t: T = .{ .a = 123 };
+            try std.testing.expect(t.a == 123);
+        }
+    }
+}

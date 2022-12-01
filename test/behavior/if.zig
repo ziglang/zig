@@ -133,7 +133,6 @@ test "if-else expression with runtime condition result location is inferred opti
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const A = struct { b: u64, c: u64 };
     var d: bool = true;

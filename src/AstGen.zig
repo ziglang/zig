@@ -8551,11 +8551,18 @@ fn shiftOp(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    var line = gz.astgen.source_line - gz.decl_line;
+    var column = gz.astgen.source_column;
     const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
 
-    maybeAdvanceSourceCursorToMainToken(gz, node);
-    const line = gz.astgen.source_line - gz.decl_line;
-    const column = gz.astgen.source_column;
+    switch (gz.astgen.tree.nodes.items(.tag)[node]) {
+        .shl, .shr => {
+            maybeAdvanceSourceCursorToMainToken(gz, node);
+            line = gz.astgen.source_line - gz.decl_line;
+            column = gz.astgen.source_column;
+        },
+        else => {},
+    }
 
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .ty = log2_int_type }, .ctx = .shift_op }, rhs_node);
