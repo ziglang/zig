@@ -14,17 +14,11 @@ const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *Builder) !void {
-    const wasi_bootstrap = b.option(bool, "wasi-bootstrap", "Produce a WASI build for bootstrapping the compiler") orelse false;
-    const release = b.option(bool, "release", "Build in release mode") orelse wasi_bootstrap;
-    const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse wasi_bootstrap;
+    const release = b.option(bool, "release", "Build in release mode") orelse false;
+    const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
-        if (wasi_bootstrap) {
-            default_target.cpu_arch = .wasm32;
-            default_target.os_tag = .wasi;
-            default_target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
-            break :t default_target;
-        } else if (only_c) {
+        if (only_c) {
             default_target.ofmt = .c;
         }
         break :t b.standardTargetOptions(.{ .default_target = default_target });
@@ -81,7 +75,7 @@ pub fn build(b: *Builder) !void {
     if (deprecated_skip_install_lib_files) {
         std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
     }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse (deprecated_skip_install_lib_files or wasi_bootstrap);
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -145,7 +139,7 @@ pub fn build(b: *Builder) !void {
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
-    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or (only_c and !wasi_bootstrap));
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
@@ -156,20 +150,17 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
-    const main_file: ?[]const u8 = "src/main.zig";
-
-    const exe = b.addExecutable("zig", main_file);
-
-    const compile_step = b.step("compile", "Build the self-hosted compiler");
-    compile_step.dependOn(&exe.step);
-
-    exe.stack_size = stack_size;
+    const exe = addCompilerStep(b);
     exe.strip = strip;
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
+
+    const compile_step = b.step("compile", "Build the self-hosted compiler");
+    compile_step.dependOn(&exe.step);
+
     if (!skip_stage2_tests) {
         test_step.dependOn(&exe.step);
     }
@@ -205,7 +196,7 @@ pub fn build(b: *Builder) !void {
     const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
-    const version = if (opt_version_string) |version| version else v: {
+    const version_slice = if (opt_version_string) |version| version else v: {
         if (!std.process.can_spawn) {
             std.debug.print("error: version info cannot be retrieved from git. Zig version must be provided using -Dversion-string\n", .{});
             std.process.exit(1);
@@ -257,7 +248,8 @@ pub fn build(b: *Builder) !void {
             },
         }
     };
-    exe_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    const version = try b.allocator.dupeZ(u8, version_slice);
+    exe_options.addOption([:0]const u8, "version", version);
 
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
@@ -347,7 +339,7 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
     test_cases_options.addOption(bool, "value_tracing", value_tracing);
     test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
-    test_cases_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
@@ -465,6 +457,61 @@ pub fn build(b: *Builder) !void {
         skip_stage1,
         true, // TODO get these all passing
     ));
+
+    try addWasiUpdateStep(b, version);
+}
+
+fn addWasiUpdateStep(b: *Builder, version: [:0]const u8) !void {
+    const semver = try std.SemanticVersion.parse(version);
+
+    var target: std.zig.CrossTarget = .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+    };
+    target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
+
+    const exe = addCompilerStep(b);
+    exe.setBuildMode(.ReleaseSmall);
+    exe.setTarget(target);
+
+    const exe_options = b.addOptions();
+    exe.addOptions("build_options", exe_options);
+
+    exe_options.addOption(u32, "mem_leak_frames", 0);
+    exe_options.addOption(bool, "have_llvm", false);
+    exe_options.addOption(bool, "force_gpa", false);
+    exe_options.addOption(bool, "only_c", true);
+    exe_options.addOption([:0]const u8, "version", version);
+    exe_options.addOption(std.SemanticVersion, "semver", semver);
+    exe_options.addOption(bool, "enable_logging", false);
+    exe_options.addOption(bool, "enable_link_snapshots", false);
+    exe_options.addOption(bool, "enable_tracy", false);
+    exe_options.addOption(bool, "enable_tracy_callstack", false);
+    exe_options.addOption(bool, "enable_tracy_allocation", false);
+    exe_options.addOption(bool, "value_tracing", false);
+
+    const run_opt = b.addSystemCommand(&.{ "wasm-opt", "-Oz", "--enable-bulk-memory" });
+    run_opt.addArtifactArg(exe);
+    run_opt.addArg("-o");
+    run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
+
+    const run_zstd = b.addSystemCommand(&.{ "zstd", "-19", "-f" });
+    run_zstd.step.dependOn(&run_opt.step);
+    run_zstd.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
+    run_zstd.addArg("-o");
+    run_zstd.addFileSourceArg(.{ .path = "stage1/zig1.wasm.zst" });
+
+    const cleanup = b.addRemoveDirTree("stage1/zig1.wasm");
+    cleanup.step.dependOn(&run_zstd.step);
+
+    const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm.zst");
+    update_zig1_step.dependOn(&cleanup.step);
+}
+
+fn addCompilerStep(b: *Builder) *std.build.LibExeObjStep {
+    const exe = b.addExecutable("zig", "src/main.zig");
+    exe.stack_size = stack_size;
+    return exe;
 }
 
 const exe_cflags = [_][]const u8{
