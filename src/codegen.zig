@@ -556,14 +556,42 @@ pub fn generateSymbol(
         },
         .Struct => {
             if (typed_value.ty.containerLayout() == .Packed) {
-                return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO implement generateSymbol for packed struct",
-                        .{},
-                    ),
-                };
+                const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
+                const fields = struct_obj.fields.values();
+                const field_vals = typed_value.val.castTag(.aggregate).?.data;
+                const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
+                const current_pos = code.items.len;
+                const mod = bin_file.options.module.?;
+                try code.resize(current_pos + abi_size);
+                var bits: u16 = 0;
+
+                for (field_vals) |field_val, index| {
+                    const field_ty = fields[index].ty;
+                    // pointer may point to a decl which must be marked used
+                    // but can also result in a relocation. Therefore we handle those seperately.
+                    if (field_ty.zigTypeTag() == .Pointer) {
+                        const field_size = math.cast(usize, field_ty.abiSize(target)) orelse return error.Overflow;
+                        var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
+                        defer tmp_list.deinit();
+                        switch (try generateSymbol(bin_file, src_loc, .{
+                            .ty = field_ty,
+                            .val = field_val,
+                        }, &tmp_list, debug_output, reloc_info)) {
+                            .appended => {
+                                mem.copy(u8, code.items[current_pos..], tmp_list.items);
+                            },
+                            .externally_managed => |external_slice| {
+                                mem.copy(u8, code.items[current_pos..], external_slice);
+                            },
+                            .fail => |em| return Result{ .fail = em },
+                        }
+                    } else {
+                        field_val.writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits);
+                    }
+                    bits += @intCast(u16, field_ty.bitSize(target));
+                }
+
+                return Result{ .appended = {} };
             }
 
             const struct_begin = code.items.len;

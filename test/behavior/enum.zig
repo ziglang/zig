@@ -1146,8 +1146,6 @@ test "size of enum with only one tag which has explicit integer tag type" {
 }
 
 test "switch on an extern enum with negative value" {
-    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest;
-
     const Foo = enum(c_int) {
         Bar = -1,
     };
