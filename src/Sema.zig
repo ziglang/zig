@@ -20951,6 +20951,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     }
 
     try sema.requireRuntimeBlock(block, src, ptr_src);
+    try sema.queueFullTypeResolution(result_ptr);
     return block.addInst(.{
         .tag = .field_parent_ptr,
         .data = .{ .ty_pl = .{
