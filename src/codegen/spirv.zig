@@ -37,6 +37,8 @@ pub const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
     incoming_blocks: *std.ArrayListUnmanaged(IncomingBlock),
 });
 
+pub const DeclMap = std.AutoHashMap(Module.Decl.Index, IdResult);
+
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
     /// A general-purpose allocator that can be used for any allocations for this DeclGen.
@@ -59,7 +61,8 @@ pub const DeclGen = struct {
     /// Note: If the declaration is not a function, this value will be undefined!
     liveness: Liveness,
 
-    ids: *const std.AutoHashMap(Decl.Index, IdResult),
+    /// Maps Zig Decl indices to SPIR-V result indices.
+    decl_ids: *DeclMap,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -149,7 +152,7 @@ pub const DeclGen = struct {
         allocator: Allocator,
         module: *Module,
         spv: *SpvModule,
-        ids: *const std.AutoHashMap(Decl.Index, IdResult),
+        decl_ids: *DeclMap,
     ) DeclGen {
         return .{
             .gpa = allocator,
@@ -158,7 +161,7 @@ pub const DeclGen = struct {
             .decl_index = undefined,
             .air = undefined,
             .liveness = undefined,
-            .ids = ids,
+            .decl_ids = decl_ids,
             .next_arg_index = undefined,
             .current_block_label_id = undefined,
             .error_msg = undefined,
@@ -232,9 +235,7 @@ pub const DeclGen = struct {
                     .function => val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
-                const decl = self.module.declPtr(fn_decl_index);
-                self.module.markDeclAlive(decl);
-                return self.ids.get(fn_decl_index).?;
+                return try self.resolveDecl(fn_decl_index);
             }
 
             const result_id = self.spv.allocId();
@@ -243,6 +244,21 @@ pub const DeclGen = struct {
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
+    }
+
+    /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
+    /// Note: Function does not actually generate the decl.
+    fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !IdResult {
+        const decl = self.module.declPtr(decl_index);
+        self.module.markDeclAlive(decl);
+
+        const entry = try self.decl_ids.getOrPut(decl_index);
+        if (entry.found_existing) {
+            return entry.value_ptr.*;
+        }
+        const result_id = self.spv.allocId();
+        entry.value_ptr.* = result_id;
+        return result_id;
     }
 
     /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -767,8 +783,8 @@ pub const DeclGen = struct {
     }
 
     fn genDecl(self: *DeclGen) !void {
-        const result_id = self.ids.get(self.decl_index).?;
         const decl = self.module.declPtr(self.decl_index);
+        const result_id = try self.resolveDecl(self.decl_index);
 
         if (decl.val.castTag(.function)) |_| {
             assert(decl.ty.zigTypeTag() == .Fn);
