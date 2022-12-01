@@ -186,6 +186,43 @@ test "Dir.Iterator" {
     try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
 }
 
+test "Dir.Iterator many entries" {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+
+    var tmp_dir = tmpIterableDir(.{});
+    defer tmp_dir.cleanup();
+
+    const num = 1024;
+    var i: usize = 0;
+    var buf: [4]u8 = undefined; // Enough to store "1024".
+    while (i < num) : (i += 1) {
+        const name = try std.fmt.bufPrint(&buf, "{}", .{i});
+        const file = try tmp_dir.iterable_dir.dir.createFile(name, .{});
+        file.close();
+    }
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+
+    // Create iterator.
+    var iter = tmp_dir.iterable_dir.iterate();
+    while (try iter.next()) |entry| {
+        // We cannot just store `entry` as on Windows, we're re-using the name buffer
+        // which means we'll actually share the `name` pointer between entries!
+        const name = try allocator.dupe(u8, entry.name);
+        try entries.append(.{ .name = name, .kind = entry.kind });
+    }
+
+    i = 0;
+    while (i < num) : (i += 1) {
+        const name = try std.fmt.bufPrint(&buf, "{}", .{i});
+        try testing.expect(contains(&entries, .{ .name = name, .kind = .File }));
+    }
+}
+
 test "Dir.Iterator twice" {
     var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
