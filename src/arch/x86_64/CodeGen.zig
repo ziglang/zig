@@ -128,11 +128,8 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
-    /// The value is in memory but requires a linker relocation fixup:
-    /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
-    /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
-    /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-    linker_load: struct { type: enum { got, direct, import }, sym_index: u32 },
+    /// The value is in memory but requires a linker relocation fixup.
+    linker_load: codegen.LinkerLoad,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     stack_offset: i32,
@@ -3865,12 +3862,15 @@ fn genVarDbgInfo(
                     .fp_register = Register.rbp.dwarfLocOpDeref(),
                     .offset = -off,
                 } },
-                .memory => |address| .{
-                    .memory = .{
-                        .address = address,
-                        .is_ptr = is_ptr,
-                    },
-                },
+                .memory => |address| .{ .memory = .{
+                    .address = address,
+                    .is_ptr = is_ptr,
+                } },
+                .linker_load => |linker_load| .{ .memory = .{
+                    .address = 0,
+                    .is_ptr = is_ptr,
+                    .linker_load = linker_load,
+                } },
                 .immediate => |x| .{ .immediate = x },
                 .undef => .undef,
                 .none => .none,

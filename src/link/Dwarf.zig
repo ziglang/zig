@@ -16,6 +16,7 @@ const DW = std.dwarf;
 const File = link.File;
 const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
+const LinkerLoad = @import("../codegen.zig").LinkerLoad;
 const Module = @import("../Module.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
@@ -616,10 +617,7 @@ pub const DeclState = struct {
         memory: struct {
             address: u64,
             is_ptr: bool,
-            linker_load: ?struct {
-                type: enum { got, direct, import },
-                sym_index: u32,
-            } = null,
+            linker_load: ?LinkerLoad = null,
         },
         immediate: u64,
         undef,
