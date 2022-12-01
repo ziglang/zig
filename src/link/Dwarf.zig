@@ -560,6 +560,52 @@ pub const DeclState = struct {
             },
         }
     }
+
+    pub fn genArgDbgInfo(
+        self: *DeclState,
+        name: [:0]const u8,
+        ty: Type,
+        atom: *Atom,
+        loc: union(enum) {
+            register: u8,
+            stack: struct { fp_register: u8, offset: i32 },
+        },
+    ) error{OutOfMemory}!void {
+        const dbg_info = &self.dbg_info;
+        const name_with_null = name.ptr[0 .. name.len + 1];
+
+        switch (loc) {
+            .register => |reg| {
+                try dbg_info.ensureUnusedCapacity(3);
+                dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1, // ULEB128 dwarf expression length
+                    reg,
+                });
+                try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                const index = dbg_info.items.len;
+                try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
+                dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+
+            },
+            .stack => |info| {
+                try dbg_info.ensureUnusedCapacity(8);
+                dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
+                const fixup = dbg_info.items.len;
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1, // we will backpatch it after we encode the displacement in LEB128
+                    info.fp_register, // frame pointer
+                });
+                leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
+                dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+                try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                const index = dbg_info.items.len;
+                try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
+                dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+
+            },
+        }
+    }
 };
 
 pub const AbbrevEntry = struct {

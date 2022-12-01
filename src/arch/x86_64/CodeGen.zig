@@ -3818,38 +3818,27 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
-    const name_with_null = name.ptr[0 .. name.len + 1];
+    const mod = self.bin_file.options.module.?;
+    const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+    const atom = switch (self.bin_file.tag) {
+        .elf => &fn_owner_decl.link.elf.dbg_info_atom,
+        .macho => &fn_owner_decl.link.macho.dbg_info_atom,
+        else => unreachable,
+    };
+
     switch (self.debug_output) {
         .dwarf => |dw| {
-            const dbg_info = &dw.dbg_info;
             switch (mcv) {
-                .register => |reg| {
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
+                .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
+                    .register = reg.dwarfLocOp(),
+                }),
 
-                .stack_offset => |off| {
-                    try dbg_info.ensureUnusedCapacity(8);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                    const fixup = dbg_info.items.len;
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // we will backpatch it after we encode the displacement in LEB128
-                        Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
-                    });
-                    leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
-                    dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
-                },
+                .stack_offset => |off| try dw.genArgDbgInfo(name, ty, atom, .{
+                    .stack = .{
+                        .fp_register = Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
+                        .offset = -off,
+                    },
+                }),
 
                 else => unreachable, // not a valid function parameter
             }

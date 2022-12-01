@@ -186,22 +186,21 @@ const DbgInfoReloc = struct {
     }
 
     fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
-        const name_with_null = reloc.name.ptr[0 .. reloc.name.len + 1];
+        const mod = function.bin_file.options.module.?;
+        const fn_owner_decl = mod.declPtr(function.mod_fn.owner_decl);
+        const atom = switch (function.bin_file.tag) {
+            .elf => &fn_owner_decl.link.elf.dbg_info_atom,
+            .macho => &fn_owner_decl.link.macho.dbg_info_atom,
+            else => unreachable,
+        };
 
         switch (function.debug_output) {
             .dwarf => |dw| {
-                const dbg_info = &dw.dbg_info;
                 switch (reloc.mcv) {
                     .register => |reg| {
-                        try dbg_info.ensureUnusedCapacity(3);
-                        dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                        dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                            1, // ULEB128 dwarf expression length
-                            reg.dwarfLocOp(),
+                        try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, .{
+                            .register = reg.dwarfLocOp(),
                         });
-                        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                        try function.addDbgInfoTypeReloc(reloc.ty); // DW.AT.type,  DW.FORM.ref4
-                        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                     },
 
                     .stack_offset,
@@ -212,20 +211,12 @@ const DbgInfoReloc = struct {
                             .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
                             else => unreachable,
                         };
-
-                        try dbg_info.ensureUnusedCapacity(8);
-                        dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                        const fixup = dbg_info.items.len;
-                        dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                            1, // we will backpatch it after we encode the displacement in LEB128
-                            Register.x29.dwarfLocOpDeref(), // frame pointer
+                        try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, .{
+                            .stack = .{
+                                .fp_register = Register.x29.dwarfLocOpDeref(),
+                                .offset = adjusted_offset,
+                            },
                         });
-                        leb128.writeILEB128(dbg_info.writer(), adjusted_offset) catch unreachable;
-                        dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                        try function.addDbgInfoTypeReloc(reloc.ty); // DW.AT.type,  DW.FORM.ref4
-                        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
                     },
 
                     else => unreachable, // not a possible argument
