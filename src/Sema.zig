@@ -18264,9 +18264,9 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 .mod = mod,
             });
 
-            var i: usize = 0;
-            while (i < fields_len) : (i += 1) {
-                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+            var field_i: usize = 0;
+            while (field_i < fields_len) : (field_i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, field_i);
                 const field_struct_val: []const Value = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // name: []const u8
@@ -18289,17 +18289,31 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                     });
                 }
 
-                const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-                if (gop.found_existing) {
-                    // TODO: better source location
-                    return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
+                const gop_field = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop_field.found_existing) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "duplicate enum field '{s}'", .{field_name});
+                        errdefer msg.destroy(gpa);
+                        try sema.errNote(block, src, msg, "other field here", .{});
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
 
                 const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
-                enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+                const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
                     .ty = enum_obj.tag_ty,
                     .mod = mod,
                 });
+                if (gop_val.found_existing) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "enum tag value {} already taken", .{value_val.fmtValue(Type.comptime_int, mod)});
+                        errdefer msg.destroy(gpa);
+                        try sema.errNote(block, src, msg, "other enum tag value here", .{});
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
             }
 
             try new_decl.finalizeNewArena(&new_decl_arena);
