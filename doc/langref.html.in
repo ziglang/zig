@@ -1179,33 +1179,8 @@ test "this will be skipped" {
     return error.SkipZigTest;
 }
       {#code_end#}
-      <p>
-        The default test runner skips tests containing a {#link|suspend point|Async Functions#} while the
-        test is running using the default, blocking IO mode.
-        (The evented IO mode is enabled using the <kbd>--test-evented-io</kbd> command line parameter.)
-      </p>
-      {#code_begin|test|async_skip#}
-      {#backend_stage1#}
-const std = @import("std");
-
-test "async skip test" {
-    var frame = async func();
-    const result = await frame;
-    try std.testing.expect(result == 1);
-}
-
-fn func() i32 {
-    suspend {
-        resume @frame();
-    }
-    return 1;
-}
-      {#code_end#}
-      <p>
-        In the code sample above, the test would not be skipped in blocking IO mode if the {#syntax#}nosuspend{#endsyntax#}
-        keyword was used (see {#link|Async and Await#}).
-      </p>
       {#header_close#}
+
       {#header_open|Report Memory Leaks#}
       <p>
         When code allocates {#link|Memory#} using the {#link|Zig Standard Library#}'s testing allocator,
@@ -6288,7 +6263,6 @@ test "float widening" {
         <li>Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
       </ul>
       {#code_begin|test_err#}
-      {#backend_stage1#}
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {
     var f: f32 = 54.0 / 5;
@@ -7400,7 +7374,6 @@ pub fn main() void {
       </p>
       {#code_begin|exe#}
       {#target_linux_x86_64#}
-      {#backend_stage1#}
 pub fn main() noreturn {
     const msg = "hello world\n";
     _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
@@ -7588,388 +7561,15 @@ test "global assembly" {
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
       {#header_close#}
+
       {#header_open|Async Functions#}
-      <p>
-      When a function is called, a frame is pushed to the stack,
-      the function runs until it reaches a return statement, and then the frame is popped from the stack.
-      The code following the callsite does not run until the function returns.
-      </p>
-      <p>
-      An async function is a function whose execution is split into an {#syntax#}async{#endsyntax#} initiation,
-      followed by an {#syntax#}await{#endsyntax#} completion. Its frame is
-      provided explicitly by the caller, and it can be suspended and resumed any number of times.
-      </p>
-      <p>
-      The code following the {#syntax#}async{#endsyntax#} callsite runs immediately after the async
-      function first suspends. When the return value of the async function is needed,
-      the calling code can {#syntax#}await{#endsyntax#} on the async function frame.
-      This will suspend the calling code until the async function completes, at which point
-      execution resumes just after the {#syntax#}await{#endsyntax#} callsite.
-      </p>
-      <p>
-      Zig infers that a function is {#syntax#}async{#endsyntax#} when it observes that the function contains
-      a <strong>suspension point</strong>. Async functions can be called the same as normal functions. A
-      function call of an async function is a suspend point.
-      </p>
-      {#header_open|Suspend and Resume#}
-      <p>
-      At any point, a function may suspend itself. This causes control flow to
-      return to the callsite (in the case of the first suspension),
-      or resumer (in the case of subsequent suspensions).
-      </p>
-      {#code_begin|test|suspend_no_resume#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-var x: i32 = 1;
-
-test "suspend with no resume" {
-    var frame = async func();
-    try expect(x == 2);
-    _ = frame;
-}
-
-fn func() void {
-    x += 1;
-    suspend {}
-    // This line is never reached because the suspend has no matching resume.
-    x += 1;
-}
-      {#code_end#}
-      <p>
-      In the same way that each allocation should have a corresponding free,
-      Each {#syntax#}suspend{#endsyntax#} should have a corresponding {#syntax#}resume{#endsyntax#}.
-      A <strong>suspend block</strong> allows a function to put a pointer to its own
-      frame somewhere, for example into an event loop, even if that action will perform a
-      {#syntax#}resume{#endsyntax#} operation on a different thread.
-      {#link|@frame#} provides access to the async function frame pointer.
-      </p>
-      {#code_begin|test|async_suspend_block#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-var the_frame: anyframe = undefined;
-var result = false;
-
-test "async function suspend with block" {
-    _ = async testSuspendBlock();
-    try expect(!result);
-    resume the_frame;
-    try expect(result);
-}
-
-fn testSuspendBlock() void {
-    suspend {
-        comptime try expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
-        the_frame = @frame();
-    }
-    result = true;
-}
-      {#code_end#}
-      <p>
-      {#syntax#}suspend{#endsyntax#} causes a function to be {#syntax#}async{#endsyntax#}.
-      </p>
-
-      {#header_open|Resuming from Suspend Blocks#}
-      <p>
-      Upon entering a {#syntax#}suspend{#endsyntax#} block, the async function is already considered
-      suspended, and can be resumed. For example, if you started another kernel thread,
-      and had that thread call {#syntax#}resume{#endsyntax#} on the frame pointer provided by the
-      {#link|@frame#}, the new thread would begin executing after the suspend
-      block, while the old thread continued executing the suspend block.
-      </p>
-      <p>
-      However, the async function can be directly resumed from the suspend block, in which case it
-      never returns to its resumer and continues executing.
-      </p>
-      {#code_begin|test|resume_from_suspend#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "resume from suspend" {
-    var my_result: i32 = 1;
-    _ = async testResumeFromSuspend(&my_result);
-    try std.testing.expect(my_result == 2);
-}
-fn testResumeFromSuspend(my_result: *i32) void {
-    suspend {
-        resume @frame();
-    }
-    my_result.* += 1;
-    suspend {}
-    my_result.* += 1;
-}
-      {#code_end#}
-      <p>
-      This is guaranteed to tail call, and therefore will not cause a new stack frame.
-      </p>
-      {#header_close#}
+      <p>Async functions are being temporarily regressed and will be
+      <a href="https://github.com/ziglang/zig/issues/6025">restored before Zig
+        0.11.0 is tagged</a>. I apologize for the instability. Please use Zig 0.10.0 with
+      the <code>-fstage1</code> flag for now if you need this feature.</p>
       {#header_close#}
 
-      {#header_open|Async and Await#}
-      <p>
-      In the same way that every {#syntax#}suspend{#endsyntax#} has a matching
-      {#syntax#}resume{#endsyntax#}, every {#syntax#}async{#endsyntax#} has a matching {#syntax#}await{#endsyntax#}
-      in standard code.
-      </p>
-      <p>
-      However, it is possible to have an {#syntax#}async{#endsyntax#} call
-      without a matching {#syntax#}await{#endsyntax#}. Upon completion of the async function,
-      execution would continue at the most recent {#syntax#}async{#endsyntax#} callsite or {#syntax#}resume{#endsyntax#} callsite,
-      and the return value of the async function would be lost.
-      </p>
-      {#code_begin|test|async_await#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "async and await" {
-    // The test block is not async and so cannot have a suspend
-    // point in it. By using the nosuspend keyword, we promise that
-    // the code in amain will finish executing without suspending
-    // back to the test block.
-    nosuspend amain();
-}
-
-fn amain() void {
-    var frame = async func();
-    comptime try expect(@TypeOf(frame) == @Frame(func));
-
-    const ptr: anyframe->void = &frame;
-    const any_ptr: anyframe = ptr;
-
-    resume any_ptr;
-    await ptr;
-}
-
-fn func() void {
-    suspend {}
-}
-      {#code_end#}
-      <p>
-      The {#syntax#}await{#endsyntax#} keyword is used to coordinate with an async function's
-      {#syntax#}return{#endsyntax#} statement.
-      </p>
-      <p>
-      {#syntax#}await{#endsyntax#} is a suspend point, and takes as an operand anything that
-      coerces to {#syntax#}anyframe->T{#endsyntax#}. Calling {#syntax#}await{#endsyntax#} on
-      the frame of an async function will cause execution to continue at the
-      {#syntax#}await{#endsyntax#} callsite once the target function completes.
-      </p>
-      <p>
-      There is a common misconception that {#syntax#}await{#endsyntax#} resumes the target function.
-      It is the other way around: it suspends until the target function completes.
-      In the event that the target function has already completed, {#syntax#}await{#endsyntax#}
-      does not suspend; instead it copies the
-      return value directly from the target function's frame.
-      </p>
-      {#code_begin|test|async_await_sequence#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-var the_frame: anyframe = undefined;
-var final_result: i32 = 0;
-
-test "async function await" {
-    seq('a');
-    _ = async amain();
-    seq('f');
-    resume the_frame;
-    seq('i');
-    try expect(final_result == 1234);
-    try expect(std.mem.eql(u8, &seq_points, "abcdefghi"));
-}
-fn amain() void {
-    seq('b');
-    var f = async another();
-    seq('e');
-    final_result = await f;
-    seq('h');
-}
-fn another() i32 {
-    seq('c');
-    suspend {
-        seq('d');
-        the_frame = @frame();
-    }
-    seq('g');
-    return 1234;
-}
-
-var seq_points = [_]u8{0} ** "abcdefghi".len;
-var seq_index: usize = 0;
-
-fn seq(c: u8) void {
-    seq_points[seq_index] = c;
-    seq_index += 1;
-}
-      {#code_end#}
-      <p>
-      In general, {#syntax#}suspend{#endsyntax#} is lower level than {#syntax#}await{#endsyntax#}. Most application
-      code will use only {#syntax#}async{#endsyntax#} and {#syntax#}await{#endsyntax#}, but event loop
-      implementations will make use of {#syntax#}suspend{#endsyntax#} internally.
-      </p>
-      {#header_close#}
-
-      {#header_open|Async Function Example#}
-      <p>
-      Putting all of this together, here is an example of typical
-      {#syntax#}async{#endsyntax#}/{#syntax#}await{#endsyntax#} usage:
-      </p>
-      {#code_begin|exe|async#}
-      {#backend_stage1#}
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-
-pub fn main() void {
-    _ = async amainWrap();
-
-    // Typically we would use an event loop to manage resuming async functions,
-    // but in this example we hard code what the event loop would do,
-    // to make things deterministic.
-    resume global_file_frame;
-    resume global_download_frame;
-}
-
-fn amainWrap() void {
-    amain() catch |e| {
-        std.debug.print("{}\n", .{e});
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
-        }
-        std.process.exit(1);
-    };
-}
-
-fn amain() !void {
-    const allocator = std.heap.page_allocator;
-    var download_frame = async fetchUrl(allocator, "https://example.com/");
-    var awaited_download_frame = false;
-    errdefer if (!awaited_download_frame) {
-        if (await download_frame) |r| allocator.free(r) else |_| {}
-    };
-
-    var file_frame = async readFile(allocator, "something.txt");
-    var awaited_file_frame = false;
-    errdefer if (!awaited_file_frame) {
-        if (await file_frame) |r| allocator.free(r) else |_| {}
-    };
-
-    awaited_file_frame = true;
-    const file_text = try await file_frame;
-    defer allocator.free(file_text);
-
-    awaited_download_frame = true;
-    const download_text = try await download_frame;
-    defer allocator.free(download_text);
-
-    std.debug.print("download_text: {s}\n", .{download_text});
-    std.debug.print("file_text: {s}\n", .{file_text});
-}
-
-var global_download_frame: anyframe = undefined;
-fn fetchUrl(allocator: Allocator, url: []const u8) ![]u8 {
-    _ = url; // this is just an example, we don't actually do it!
-    const result = try allocator.dupe(u8, "this is the downloaded url contents");
-    errdefer allocator.free(result);
-    suspend {
-        global_download_frame = @frame();
-    }
-    std.debug.print("fetchUrl returning\n", .{});
-    return result;
-}
-
-var global_file_frame: anyframe = undefined;
-fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
-    _ = filename; // this is just an example, we don't actually do it!
-    const result = try allocator.dupe(u8, "this is the file contents");
-    errdefer allocator.free(result);
-    suspend {
-        global_file_frame = @frame();
-    }
-    std.debug.print("readFile returning\n", .{});
-    return result;
-}
-      {#code_end#}
-      <p>
-      Now we remove the {#syntax#}suspend{#endsyntax#} and {#syntax#}resume{#endsyntax#} code, and
-      observe the same behavior, with one tiny difference:
-      </p>
-      {#code_begin|exe|blocking#}
-      {#backend_stage1#}
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-
-pub fn main() void {
-    _ = async amainWrap();
-}
-
-fn amainWrap() void {
-    amain() catch |e| {
-        std.debug.print("{}\n", .{e});
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
-        }
-        std.process.exit(1);
-    };
-}
-
-fn amain() !void {
-    const allocator = std.heap.page_allocator;
-    var download_frame = async fetchUrl(allocator, "https://example.com/");
-    var awaited_download_frame = false;
-    errdefer if (!awaited_download_frame) {
-        if (await download_frame) |r| allocator.free(r) else |_| {}
-    };
-
-    var file_frame = async readFile(allocator, "something.txt");
-    var awaited_file_frame = false;
-    errdefer if (!awaited_file_frame) {
-        if (await file_frame) |r| allocator.free(r) else |_| {}
-    };
-
-    awaited_file_frame = true;
-    const file_text = try await file_frame;
-    defer allocator.free(file_text);
-
-    awaited_download_frame = true;
-    const download_text = try await download_frame;
-    defer allocator.free(download_text);
-
-    std.debug.print("download_text: {s}\n", .{download_text});
-    std.debug.print("file_text: {s}\n", .{file_text});
-}
-
-fn fetchUrl(allocator: Allocator, url: []const u8) ![]u8 {
-    _ = url; // this is just an example, we don't actually do it!
-    const result = try allocator.dupe(u8, "this is the downloaded url contents");
-    errdefer allocator.free(result);
-    std.debug.print("fetchUrl returning\n", .{});
-    return result;
-}
-
-fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
-    _ = filename; // this is just an example, we don't actually do it!
-    const result = try allocator.dupe(u8, "this is the file contents");
-    errdefer allocator.free(result);
-    std.debug.print("readFile returning\n", .{});
-    return result;
-}
-      {#code_end#}
-      <p>
-      Previously, the {#syntax#}fetchUrl{#endsyntax#} and {#syntax#}readFile{#endsyntax#} functions suspended,
-      and were resumed in an order determined by the {#syntax#}main{#endsyntax#} function. Now,
-      since there are no suspend points, the order of the printed "... returning" messages
-      is determined by the order of {#syntax#}async{#endsyntax#} callsites.
-      </p>
-      {#header_close#}
-
-      {#header_close#}
-        {#header_open|Builtin Functions|2col#}
+      {#header_open|Builtin Functions|2col#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
       The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
@@ -8026,49 +7626,6 @@ comptime {
       Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
       and is the preferred way to convert between types, whenever possible.
       </p>
-      {#header_close#}
-
-      {#header_open|@asyncCall#}
-      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: anytype) anyframe->T{#endsyntax#}</pre>
-      <p>
-      {#syntax#}@asyncCall{#endsyntax#} performs an {#syntax#}async{#endsyntax#} call on a function pointer,
-      which may or may not be an {#link|async function|Async Functions#}.
-      </p>
-      <p>
-      The provided {#syntax#}frame_buffer{#endsyntax#} must be large enough to fit the entire function frame.
-      This size can be determined with {#link|@frameSize#}. To provide a too-small buffer
-      invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
-      <p>
-      {#syntax#}result_ptr{#endsyntax#} is optional ({#link|null#} may be provided). If provided,
-      the function call will write its result directly to the result pointer, which will be available to
-      read after {#link|await|Async and Await#} completes. Any result location provided to
-      {#syntax#}await{#endsyntax#} will copy the result from {#syntax#}result_ptr{#endsyntax#}.
-      </p>
-      {#code_begin|test|async_struct_field_fn_pointer#}
-      {#backend_stage1#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "async fn pointer in a struct field" {
-    var data: i32 = 1;
-    const Foo = struct {
-        bar: fn (*i32) callconv(.Async) void,
-    };
-    var foo = Foo{ .bar = func };
-    var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
-    const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    try expect(data == 2);
-    resume f;
-    try expect(data == 4);
-}
-
-fn func(y: *i32) void {
-    defer y.* += 2;
-    y.* += 1;
-    suspend {}
-}
-      {#code_end#}
       {#header_close#}
 
       {#header_open|@atomicLoad#}
@@ -8786,45 +8343,6 @@ test "decl access by string" {
       {#see_also|@intToFloat#}
       {#header_close#}
 
-      {#header_open|@frame#}
-      <pre>{#syntax#}@frame() *@Frame(func){#endsyntax#}</pre>
-      <p>
-      This function returns a pointer to the frame for a given function. This type
-      can be {#link|coerced|Type Coercion#} to {#syntax#}anyframe->T{#endsyntax#} and
-      to {#syntax#}anyframe{#endsyntax#}, where {#syntax#}T{#endsyntax#} is the return type
-      of the function in scope.
-      </p>
-      <p>
-      This function does not mark a suspension point, but it does cause the function in scope
-      to become an {#link|async function|Async Functions#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|@Frame#}
-      <pre>{#syntax#}@Frame(func: anytype) type{#endsyntax#}</pre>
-      <p>
-      This function returns the frame type of a function. This works for {#link|Async Functions#}
-      as well as any function without a specific calling convention.
-      </p>
-      <p>
-      This type is suitable to be used as the return type of {#link|async|Async and Await#} which
-      allows one to, for example, heap-allocate an async function frame:
-      </p>
-      {#code_begin|test|heap_allocated_frame#}
-      {#backend_stage1#}
-const std = @import("std");
-
-test "heap allocated frame" {
-    const frame = try std.heap.page_allocator.create(@Frame(func));
-    frame.* = async func();
-}
-
-fn func() void {
-    suspend {}
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@frameAddress#}
       <pre>{#syntax#}@frameAddress() usize{#endsyntax#}</pre>
       <p>
@@ -8837,17 +8355,6 @@ fn func() void {
       </p>
       <p>
       This function is only valid within function scope.
-      </p>
-      {#header_close#}
-
-      {#header_open|@frameSize#}
-      <pre>{#syntax#}@frameSize(func: anytype) usize{#endsyntax#}</pre>
-      <p>
-      This is the same as {#syntax#}@sizeOf(@Frame(func)){#endsyntax#}, where {#syntax#}func{#endsyntax#}
-      may be runtime-known.
-      </p>
-      <p>
-      This function is typically used in conjunction with {#link|@asyncCall#}.
       </p>
       {#header_close#}
 
@@ -9851,7 +9358,6 @@ test "integer truncation" {
           <li>{#link|Error Union Type#}</li>
           <li>{#link|Vectors#}</li>
           <li>{#link|opaque#}</li>
-          <li>{#link|@Frame#}</li>
           <li>{#syntax#}anyframe{#endsyntax#}</li>
           <li>{#link|struct#}</li>
           <li>{#link|enum#}</li>
@@ -10242,7 +9748,6 @@ test "wraparound addition and subtraction" {
       {#header_open|Exact Left Shift Overflow#}
       <p>At compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
-      {#backend_stage1#}
 comptime {
     const x = @shlExact(@as(u8, 0b01010101), 2);
     _ = x;
@@ -10262,7 +9767,6 @@ pub fn main() void {
       {#header_open|Exact Right Shift Overflow#}
       <p>At compile-time:</p>
       {#code_begin|test_err|exact shift shifted out 1 bits#}
-      {#backend_stage1#}
 comptime {
     const x = @shrExact(@as(u8, 0b10101010), 2);
     _ = x;
@@ -10325,8 +9829,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Exact Division Remainder#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|exact division had a remainder#}
-      {#backend_stage1#}
+      {#code_begin|test_err|exact division produced remainder#}
 comptime {
     const a: u32 = 10;
     const b: u32 = 3;
@@ -10636,7 +10139,6 @@ fn bar(f: *Foo) void {
       </p>
       <p>At compile-time:</p>
       {#code_begin|test_err|null pointer casted to type#}
-      {#backend_stage1#}
 comptime {
     const opt_ptr: ?*i32 = null;
     const ptr = @ptrCast(*i32, opt_ptr);
@@ -12271,9 +11773,6 @@ fn readU32Be() u32 {}
           </th>
           <td>
             {#syntax#}resume{#endsyntax#} will continue execution of a function frame after the point the function was suspended.
-            <ul>
-              <li>See also {#link|Suspend and Resume#}</li>
-            </ul>
           </td>
         </tr>
         <tr>
@@ -12317,9 +11816,6 @@ fn readU32Be() u32 {}
             {#syntax#}suspend{#endsyntax#} will cause control flow to return to the call site or resumer of the function.
             {#syntax#}suspend{#endsyntax#} can also be used before a block within a function,
             to allow the function access to its frame before control flow returns to the call site.
-            <ul>
-              <li>See also {#link|Suspend and Resume#}</li>
-            </ul>
           </td>
         </tr>
         <tr>
