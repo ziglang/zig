@@ -725,11 +725,12 @@ target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
 target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
 
 set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
+set(ZIG1_WASM_ZST_SOURCE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst")
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
   "${CMAKE_BINARY_DIR}"
   zig2
-  "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
+  "${ZIG1_WASM_ZST_SOURCE}"
   build-exe src/main.zig -ofmt=c -lc
   -OReleaseFast
 )
@@ -737,7 +738,7 @@ set(BUILD_ZIG2_ARGS
 add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
-  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
+  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
   COMMENT STATUS "Interpreting zig1.wasm to produce ${ZIG2_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
@@ -755,7 +756,7 @@ set(BUILD_COMPILER_RT_ARGS
 add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
-  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
+  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
   COMMENT STATUS "Interpreting zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
