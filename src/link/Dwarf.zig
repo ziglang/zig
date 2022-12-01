@@ -606,6 +606,140 @@ pub const DeclState = struct {
             },
         }
     }
+
+    pub const VarArgDbgInfoLoc = union(enum) {
+        register: u8,
+        stack: struct {
+            fp_register: u8,
+            offset: i32,
+        },
+        memory: struct {
+            address: u64,
+            is_ptr: bool,
+            linker_load: ?struct {
+                type: enum { got, direct, import },
+                sym_index: u32,
+            } = null,
+        },
+        immediate: u64,
+        undef,
+        none,
+        nop,
+    };
+
+    pub fn genVarDbgInfo(
+        self: *DeclState,
+        name: [:0]const u8,
+        ty: Type,
+        atom: *Atom,
+        loc: VarArgDbgInfoLoc,
+    ) error{OutOfMemory}!void {
+        const dbg_info = &self.dbg_info;
+        const name_with_null = name.ptr[0 .. name.len + 1];
+        try dbg_info.append(@enumToInt(AbbrevKind.variable));
+        const target = self.mod.getTarget();
+        const endian = target.cpu.arch.endian();
+
+        switch (loc) {
+            .register => |reg| {
+                try dbg_info.ensureUnusedCapacity(2);
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1, // ULEB128 dwarf expression length
+                    reg,
+                });
+            },
+
+            .stack => |info| {
+                try dbg_info.ensureUnusedCapacity(7);
+                const fixup = dbg_info.items.len;
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1, // we will backpatch it after we encode the displacement in LEB128
+                    info.fp_register,
+                });
+                leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
+                dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+            },
+
+            .memory => |info| {
+                const ptr_width = @intCast(u8, @divExact(target.cpu.arch.ptrBitWidth(), 8));
+                try dbg_info.ensureUnusedCapacity(2 + ptr_width);
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1 + ptr_width + @boolToInt(info.is_ptr),
+                    DW.OP.addr, // literal address
+                });
+                const offset = @intCast(u32, dbg_info.items.len);
+                switch (ptr_width) {
+                    0...4 => {
+                        try dbg_info.writer().writeInt(u32, @intCast(u32, info.address), endian);
+                    },
+                    5...8 => {
+                        try dbg_info.writer().writeInt(u64, info.address, endian);
+                    },
+                    else => unreachable,
+                }
+                if (info.is_ptr) {
+                    // We need deref the address as we point to the value via GOT entry.
+                    try dbg_info.append(DW.OP.deref);
+                }
+                if (info.linker_load) |load_struct| try self.addExprlocReloc(
+                    load_struct.sym_index,
+                    offset,
+                    info.is_ptr,
+                );
+            },
+
+            .immediate => |x| {
+                try dbg_info.ensureUnusedCapacity(2);
+                const fixup = dbg_info.items.len;
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1,
+                    if (ty.isSignedInt()) DW.OP.consts else DW.OP.constu,
+                });
+                if (ty.isSignedInt()) {
+                    try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x));
+                } else {
+                    try leb128.writeULEB128(dbg_info.writer(), x);
+                }
+                try dbg_info.append(DW.OP.stack_value);
+                dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+            },
+
+            .undef => {
+                // DW.AT.location, DW.FORM.exprloc
+                // uleb128(exprloc_len)
+                // DW.OP.implicit_value uleb128(len_of_bytes) bytes
+                const abi_size = @intCast(u32, ty.abiSize(target));
+                var implicit_value_len = std.ArrayList(u8).init(self.gpa);
+                defer implicit_value_len.deinit();
+                try leb128.writeULEB128(implicit_value_len.writer(), abi_size);
+                const total_exprloc_len = 1 + implicit_value_len.items.len + abi_size;
+                try leb128.writeULEB128(dbg_info.writer(), total_exprloc_len);
+                try dbg_info.ensureUnusedCapacity(total_exprloc_len);
+                dbg_info.appendAssumeCapacity(DW.OP.implicit_value);
+                dbg_info.appendSliceAssumeCapacity(implicit_value_len.items);
+                dbg_info.appendNTimesAssumeCapacity(0xaa, abi_size);
+            },
+
+            .none => {
+                try dbg_info.ensureUnusedCapacity(3);
+                dbg_info.appendSliceAssumeCapacity(&[3]u8{ // DW.AT.location, DW.FORM.exprloc
+                    2, DW.OP.lit0, DW.OP.stack_value,
+                });
+            },
+
+            .nop => {
+                try dbg_info.ensureUnusedCapacity(2);
+                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                    1, DW.OP.nop,
+                });
+            },
+        }
+
+        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+        const index = dbg_info.items.len;
+        try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
+        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+    }
 };
 
 pub const AbbrevEntry = struct {
