@@ -102,7 +102,7 @@ pub const DeclState = struct {
         self.exprloc_relocs.deinit(self.gpa);
     }
 
-    pub fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
+    fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
         log.debug("{x}: target sym %{d}, via GOT {}", .{ offset, target, is_ptr });
         try self.exprloc_relocs.append(self.gpa, .{
             .type = if (is_ptr) .got_load else .direct_load,
@@ -113,7 +113,7 @@ pub const DeclState = struct {
 
     /// Adds local type relocation of the form: @offset => @this + addend
     /// @this signifies the offset within the .debug_abbrev section of the containing atom.
-    pub fn addTypeRelocLocal(self: *DeclState, atom: *const Atom, offset: u32, addend: u32) !void {
+    fn addTypeRelocLocal(self: *DeclState, atom: *const Atom, offset: u32, addend: u32) !void {
         log.debug("{x}: @this + {x}", .{ offset, addend });
         try self.abbrev_relocs.append(self.gpa, .{
             .target = null,
@@ -126,7 +126,7 @@ pub const DeclState = struct {
     /// Adds global type relocation of the form: @offset => @symbol + 0
     /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
     /// which we use as our target of the relocation.
-    pub fn addTypeRelocGlobal(self: *DeclState, atom: *const Atom, ty: Type, offset: u32) !void {
+    fn addTypeRelocGlobal(self: *DeclState, atom: *const Atom, ty: Type, offset: u32) !void {
         const resolv = self.abbrev_resolver.getContext(ty, .{
             .mod = self.mod,
         }) orelse blk: {
@@ -570,6 +570,7 @@ pub const DeclState = struct {
         loc: union(enum) {
             register: u8,
             stack: struct { fp_register: u8, offset: i32 },
+            wasm_local: u32,
         },
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
@@ -583,12 +584,6 @@ pub const DeclState = struct {
                     1, // ULEB128 dwarf expression length
                     reg,
                 });
-                try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                const index = dbg_info.items.len;
-                try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
-                try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
-                dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
             },
             .stack => |info| {
                 try dbg_info.ensureUnusedCapacity(8);
@@ -600,14 +595,30 @@ pub const DeclState = struct {
                 });
                 leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
                 dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                const index = dbg_info.items.len;
-                try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
-                try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
-                dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
+            },
+            .wasm_local => |value| {
+                const leb_size = link.File.Wasm.getULEB128Size(value);
+                try dbg_info.ensureUnusedCapacity(3 + leb_size);
+                // wasm locations are encoded as follow:
+                // DW_OP_WASM_location wasm-op
+                // where wasm-op is defined as
+                // wasm-op := wasm-local | wasm-global | wasm-operand_stack
+                // where each argument is encoded as
+                // <opcode> i:uleb128
+                dbg_info.appendSliceAssumeCapacity(&.{
+                    @enumToInt(AbbrevKind.parameter),
+                    DW.OP.WASM_location,
+                    DW.OP.WASM_local,
+                });
+                leb128.writeULEB128(dbg_info.writer(), value) catch unreachable;
             },
         }
+
+        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+        const index = dbg_info.items.len;
+        try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
+        try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
+        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
 
     pub const VarArgDbgInfoLoc = union(enum) {
@@ -616,6 +627,7 @@ pub const DeclState = struct {
             fp_register: u8,
             offset: i32,
         },
+        wasm_local: u32,
         memory: u64,
         linker_load: LinkerLoad,
         immediate: u64,
@@ -657,6 +669,22 @@ pub const DeclState = struct {
                 });
                 leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
                 dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+            },
+
+            .wasm_local => |value| {
+                const leb_size = link.File.Wasm.getULEB128Size(value);
+                try dbg_info.ensureUnusedCapacity(2 + leb_size);
+                // wasm locals are encoded as follow:
+                // DW_OP_WASM_location wasm-op
+                // where wasm-op is defined as
+                // wasm-op := wasm-local | wasm-global | wasm-operand_stack
+                // where wasm-local is encoded as
+                // wasm-local := 0x00 i:uleb128
+                dbg_info.appendSliceAssumeCapacity(&.{
+                    DW.OP.WASM_location,
+                    DW.OP.WASM_local,
+                });
+                leb128.writeULEB128(dbg_info.writer(), value) catch unreachable;
             },
 
             .memory,
