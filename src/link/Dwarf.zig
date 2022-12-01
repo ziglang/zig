@@ -585,6 +585,7 @@ pub const DeclState = struct {
                 });
                 try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                 const index = dbg_info.items.len;
+                try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
                 try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
                 dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
 
@@ -601,6 +602,7 @@ pub const DeclState = struct {
                 dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                 const index = dbg_info.items.len;
+                try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
                 try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
                 dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
 
@@ -614,11 +616,8 @@ pub const DeclState = struct {
             fp_register: u8,
             offset: i32,
         },
-        memory: struct {
-            address: u64,
-            is_ptr: bool,
-            linker_load: ?LinkerLoad = null,
-        },
+        memory: u64,
+        linker_load: LinkerLoad,
         immediate: u64,
         undef,
         none,
@@ -630,6 +629,7 @@ pub const DeclState = struct {
         name: [:0]const u8,
         ty: Type,
         atom: *Atom,
+        is_ptr: bool,
         loc: VarArgDbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
@@ -637,6 +637,7 @@ pub const DeclState = struct {
         try dbg_info.append(@enumToInt(AbbrevKind.variable));
         const target = self.mod.getTarget();
         const endian = target.cpu.arch.endian();
+        const child_ty = if (is_ptr) ty.childType() else ty;
 
         switch (loc) {
             .register => |reg| {
@@ -658,32 +659,41 @@ pub const DeclState = struct {
                 dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
             },
 
-            .memory => |info| {
+            .memory,
+            .linker_load,
+            => {
                 const ptr_width = @intCast(u8, @divExact(target.cpu.arch.ptrBitWidth(), 8));
                 try dbg_info.ensureUnusedCapacity(2 + ptr_width);
                 dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1 + ptr_width + @boolToInt(info.is_ptr),
+                    1 + ptr_width + @boolToInt(is_ptr),
                     DW.OP.addr, // literal address
                 });
                 const offset = @intCast(u32, dbg_info.items.len);
+                const addr = switch (loc) {
+                    .memory => |x| x,
+                    else => 0,
+                };
                 switch (ptr_width) {
                     0...4 => {
-                        try dbg_info.writer().writeInt(u32, @intCast(u32, info.address), endian);
+                        try dbg_info.writer().writeInt(u32, @intCast(u32, addr), endian);
                     },
                     5...8 => {
-                        try dbg_info.writer().writeInt(u64, info.address, endian);
+                        try dbg_info.writer().writeInt(u64, addr, endian);
                     },
                     else => unreachable,
                 }
-                if (info.is_ptr) {
+                if (is_ptr) {
                     // We need deref the address as we point to the value via GOT entry.
                     try dbg_info.append(DW.OP.deref);
                 }
-                if (info.linker_load) |load_struct| try self.addExprlocReloc(
-                    load_struct.sym_index,
-                    offset,
-                    info.is_ptr,
-                );
+                switch (loc) {
+                    .linker_load => |load_struct| try self.addExprlocReloc(
+                        load_struct.sym_index,
+                        offset,
+                        is_ptr,
+                    ),
+                    else => {},
+                }
             },
 
             .immediate => |x| {
@@ -691,9 +701,9 @@ pub const DeclState = struct {
                 const fixup = dbg_info.items.len;
                 dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                     1,
-                    if (ty.isSignedInt()) DW.OP.consts else DW.OP.constu,
+                    if (child_ty.isSignedInt()) DW.OP.consts else DW.OP.constu,
                 });
-                if (ty.isSignedInt()) {
+                if (child_ty.isSignedInt()) {
                     try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x));
                 } else {
                     try leb128.writeULEB128(dbg_info.writer(), x);
@@ -706,7 +716,7 @@ pub const DeclState = struct {
                 // DW.AT.location, DW.FORM.exprloc
                 // uleb128(exprloc_len)
                 // DW.OP.implicit_value uleb128(len_of_bytes) bytes
-                const abi_size = @intCast(u32, ty.abiSize(target));
+                const abi_size = @intCast(u32, child_ty.abiSize(target));
                 var implicit_value_len = std.ArrayList(u8).init(self.gpa);
                 defer implicit_value_len.deinit();
                 try leb128.writeULEB128(implicit_value_len.writer(), abi_size);
@@ -735,7 +745,8 @@ pub const DeclState = struct {
 
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
         const index = dbg_info.items.len;
-        try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
+        try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
+        try self.addTypeRelocGlobal(atom, child_ty, @intCast(u32, index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
 };

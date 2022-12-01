@@ -245,15 +245,8 @@ const DbgInfoReloc = struct {
                             },
                         };
                     },
-                    .memory => |address| .{ .memory = .{
-                        .address = address,
-                        .is_ptr = is_ptr,
-                    } },
-                    .linker_load => |linker_load| .{ .memory = .{
-                        .address = 0,
-                        .is_ptr = is_ptr,
-                        .linker_load = linker_load,
-                    } },
+                    .memory => |address| .{ .memory = address },
+                    .linker_load => |linker_load| .{ .linker_load = linker_load },
                     .immediate => |x| .{ .immediate = x },
                     .undef => .undef,
                     .none => .none,
@@ -262,7 +255,7 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(reloc.name, reloc.ty, atom, loc);
+                try dw.genVarDbgInfo(reloc.name, reloc.ty, atom, is_ptr, loc);
             },
             .plan9 => {},
             .none => {},

@@ -3862,15 +3862,8 @@ fn genVarDbgInfo(
                     .fp_register = Register.rbp.dwarfLocOpDeref(),
                     .offset = -off,
                 } },
-                .memory => |address| .{ .memory = .{
-                    .address = address,
-                    .is_ptr = is_ptr,
-                } },
-                .linker_load => |linker_load| .{ .memory = .{
-                    .address = 0,
-                    .is_ptr = is_ptr,
-                    .linker_load = linker_load,
-                } },
+                .memory => |address| .{ .memory = address },
+                .linker_load => |linker_load| .{ .linker_load = linker_load },
                 .immediate => |x| .{ .immediate = x },
                 .undef => .undef,
                 .none => .none,
@@ -3879,7 +3872,7 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, atom, loc);
+            try dw.genVarDbgInfo(name, ty, atom, is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
