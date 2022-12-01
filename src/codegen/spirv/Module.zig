@@ -353,7 +353,8 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
 
             const size_type = Type.initTag(.u32);
             const size_type_id = try self.resolveTypeId(size_type);
-            const length_id = try self.emitConstant(size_type_id, .{ .uint32 = info.length });
+            const length_id = self.allocId();
+            try self.emitConstant(size_type_id, length_id, .{ .uint32 = info.length });
 
             try types.emit(self.gpa, .OpTypeArray, .{
                 .id_result = result_id,
@@ -558,15 +559,14 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
 pub fn emitConstant(
     self: *Module,
     ty_id: spec.IdRef,
+    result_id: IdRef,
     value: spec.LiteralContextDependentNumber,
-) !IdRef {
-    const result_id = self.allocId();
+) !void {
     try self.sections.types_globals_constants.emit(self.gpa, .OpConstant, .{
         .id_result_type = ty_id,
         .id_result = result_id,
         .value = value,
     });
-    return result_id;
 }
 
 /// Decorate a result-id.

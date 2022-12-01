@@ -225,7 +225,21 @@ pub const DeclGen = struct {
     /// Fetch the result-id for a previously generated instruction or constant.
     fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !IdRef {
         if (self.air.value(inst)) |val| {
-            return self.genConstant(self.air.typeOf(inst), val, .direct);
+            const ty = self.air.typeOf(inst);
+            if (ty.zigTypeTag() == .Fn) {
+                const fn_decl_index = switch (val.tag()) {
+                    .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
+                    .function => val.castTag(.function).?.data.owner_decl,
+                    else => unreachable,
+                };
+                const decl = self.module.declPtr(fn_decl_index);
+                self.module.markDeclAlive(decl);
+                return self.ids.get(fn_decl_index).?;
+            }
+
+            const result_id = self.spv.allocId();
+            try self.genConstant(result_id, ty, val, .direct);
+            return result_id;
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -339,7 +353,7 @@ pub const DeclGen = struct {
         };
     }
 
-    fn constInt(self: *DeclGen, ty_ref: SpvType.Ref, value: anytype) !IdRef {
+    fn genConstInt(self: *DeclGen, ty_ref: SpvType.Ref, result_id: IdRef, value: anytype) !void {
         const ty = self.spv.typeRefType(ty_ref);
         const ty_id = self.typeId(ty_ref);
 
@@ -356,51 +370,44 @@ pub const DeclGen = struct {
             },
         };
 
-        return try self.spv.emitConstant(ty_id, literal);
+        try self.spv.emitConstant(ty_id, result_id, literal);
+    }
+
+    fn constInt(self: *DeclGen, ty_ref: SpvType.Ref, value: anytype) !IdRef {
+        const result_id = self.spv.allocId();
+        try self.genConstInt(ty_ref, result_id, value);
+        return result_id;
     }
 
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
-    fn genConstant(self: *DeclGen, ty: Type, val: Value, repr: Repr) Error!IdRef {
-        if (ty.zigTypeTag() == .Fn) {
-            const fn_decl_index = switch (val.tag()) {
-                .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
-                .function => val.castTag(.function).?.data.owner_decl,
-                else => unreachable,
-            };
-            const decl = self.module.declPtr(fn_decl_index);
-            self.module.markDeclAlive(decl);
-            return self.ids.get(fn_decl_index).?;
-        }
-
+    fn genConstant(self: *DeclGen, result_id: IdRef, ty: Type, val: Value, repr: Repr) Error!void {
         const target = self.getTarget();
         const section = &self.spv.sections.types_globals_constants;
         const result_ty_ref = try self.resolveType(ty, repr);
         const result_ty_id = self.typeId(result_ty_ref);
 
+        log.debug("genConstant: ty = {}, val = {}", .{ ty.fmtDebug(), val.fmtDebug() });
+
         if (val.isUndef()) {
-            const result_id = self.spv.allocId();
             try section.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = result_ty_id, .id_result = result_id });
-            return result_id;
         }
 
         switch (ty.zigTypeTag()) {
             .Int => {
                 const int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt(target)) else val.toUnsignedInt(target);
-                return self.constInt(result_ty_ref, int_bits);
+                try self.genConstInt(result_ty_ref, result_id, int_bits);
             },
             .Bool => switch (repr) {
                 .direct => {
-                    const result_id = self.spv.allocId();
                     const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
                     if (val.toBool()) {
                         try section.emit(self.spv.gpa, .OpConstantTrue, operands);
                     } else {
                         try section.emit(self.spv.gpa, .OpConstantFalse, operands);
                     }
-                    return result_id;
                 },
-                .indirect => return try self.constInt(result_ty_ref, @boolToInt(val.toBool())),
+                .indirect => try self.genConstInt(result_ty_ref, result_id, @boolToInt(val.toBool())),
             },
             .Float => {
                 // At this point we are guaranteed that the target floating point type is supported, otherwise the function
@@ -415,7 +422,7 @@ pub const DeclGen = struct {
                     else => unreachable,
                 };
 
-                return try self.spv.emitConstant(result_ty_id, literal);
+                try self.spv.emitConstant(result_ty_id, result_id, literal);
             },
             .Array => switch (val.tag()) {
                 .aggregate => { // todo: combine with Vector
@@ -425,15 +432,14 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, len);
                     defer self.spv.gpa.free(constituents);
                     for (elem_vals[0..len], 0..) |elem_val, i| {
-                        constituents[i] = try self.genConstant(elem_ty, elem_val, repr);
+                        constituents[i] = self.spv.allocId();
+                        try self.genConstant(constituents[i], elem_ty, elem_val, repr);
                     }
-                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
                     });
-                    return result_id;
                 },
                 .repeated => {
                     const elem_val = val.castTag(.repeated).?.data;
@@ -442,20 +448,20 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, len);
                     defer self.spv.gpa.free(constituents);
 
-                    const elem_val_id = try self.genConstant(elem_ty, elem_val, repr);
+                    const elem_val_id = self.spv.allocId();
+                    try self.genConstant(elem_val_id, elem_ty, elem_val, repr);
                     for (constituents[0..len]) |*elem| {
                         elem.* = elem_val_id;
                     }
                     if (ty.sentinel()) |sentinel| {
-                        constituents[len] = try self.genConstant(elem_ty, sentinel, repr);
+                        constituents[len] = self.spv.allocId();
+                        try self.genConstant(constituents[len], elem_ty, sentinel, repr);
                     }
-                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
                     });
-                    return result_id;
                 },
                 else => return self.todo("array constant with tag {s}", .{@tagName(val.tag())}),
             },
@@ -468,22 +474,21 @@ pub const DeclGen = struct {
                     const elem_refs = try self.gpa.alloc(IdRef, vector_len);
                     defer self.gpa.free(elem_refs);
                     for (elem_refs, 0..) |*elem, i| {
-                        elem.* = try self.genConstant(elem_ty, elem_vals[i], repr);
+                        elem.* = self.spv.allocId();
+                        try self.genConstant(elem.*, elem_ty, elem_vals[i], repr);
                     }
-                    const result_id = self.spv.allocId();
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = elem_refs,
                     });
-                    return result_id;
                 },
                 else => return self.todo("vector constant with tag {s}", .{@tagName(val.tag())}),
             },
             .Enum => {
                 var int_buffer: Value.Payload.U64 = undefined;
                 const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target); // TODO: composite integer constants
-                return self.constInt(result_ty_ref, int_val);
+                return self.genConstInt(result_ty_ref, result_id, int_val);
             },
             .Struct => {
                 const constituents = if (ty.isSimpleTupleOrAnonStruct()) blk: {
@@ -495,7 +500,9 @@ pub const DeclGen = struct {
                     for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
                         if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-                        constituents[member_index] = try self.genConstant(field_ty, field_val, repr);
+                        const member_id = self.spv.allocId();
+                        try self.genConstant(member_id, field_ty, field_val, repr);
+                        constituents[member_index] = member_id;
                         member_index += 1;
                     }
 
@@ -513,7 +520,9 @@ pub const DeclGen = struct {
                     var member_index: usize = 0;
                     for (struct_ty.fields.values(), 0..) |field, i| {
                         if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-                        constituents[member_index] = try self.genConstant(field.ty, field_vals[i], repr);
+                        const member_id = self.spv.allocId();
+                        try self.genConstant(member_id, field.ty, field_vals[i], repr);
+                        constituents[member_index] = member_id;
                         member_index += 1;
                     }
 
@@ -521,16 +530,17 @@ pub const DeclGen = struct {
                 };
                 defer self.spv.gpa.free(constituents);
 
-                const result_id = self.spv.allocId();
                 try section.emit(self.spv.gpa, .OpConstantComposite, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
                     .constituents = constituents,
                 });
-                return result_id;
+            },
+            .Fn => switch (repr) {
+                .direct => unreachable,
+                .indirect => return self.todo("function pointers", .{}),
             },
             .Void => unreachable,
-            .Fn => unreachable,
             else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
     }
@@ -579,6 +589,7 @@ pub const DeclGen = struct {
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!SpvType.Ref {
+        log.debug("resolveType: ty = {}", .{ty.fmtDebug()});
         const target = self.getTarget();
         switch (ty.zigTypeTag()) {
             .Void, .NoReturn => return try self.spv.resolveType(SpvType.initTag(.void)),
@@ -808,8 +819,7 @@ pub const DeclGen = struct {
                 .name = fqn,
             });
         } else {
-            // TODO
-            // return self.todo("generate decl type {}", .{decl.ty.zigTypeTag()});
+            try self.genConstant(result_id, decl.ty, decl.val, .direct);
         }
     }
 
@@ -1417,7 +1427,8 @@ pub const DeclGen = struct {
                 .Packed => unreachable, // TODO
                 else => {
                     const u32_ty_id = self.typeId(try self.intType(.unsigned, 32));
-                    const field_index_id = try self.spv.emitConstant(u32_ty_id, .{ .uint32 = field_index });
+                    const field_index_id = self.spv.allocId();
+                    try self.spv.emitConstant(u32_ty_id, field_index_id, .{ .uint32 = field_index });
                     const result_id = self.spv.allocId();
                     const result_type_id = try self.resolveTypeId(result_ptr_ty);
                     const indexes = [_]IdRef{field_index_id};
@@ -1960,7 +1971,7 @@ pub const DeclGen = struct {
         return null;
     }
 
-    fn airCall(self: *DeclGen, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) !?IdRef {
+    fn airCall(self: *DeclGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?IdRef {
         _ = modifier;
 
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
