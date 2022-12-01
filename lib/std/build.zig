@@ -532,7 +532,7 @@ pub const Builder = struct {
                 options.appendAssumeCapacity(field.name);
             }
 
-            break :blk options.toOwnedSlice();
+            break :blk options.toOwnedSlice() catch unreachable;
         } else null;
         const available_option = AvailableOption{
             .name = name,

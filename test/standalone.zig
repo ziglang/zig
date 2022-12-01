@@ -5,6 +5,17 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/hello_world/hello.zig");
     cases.addC("test/standalone/hello_world/hello_libc.zig");
+
+    cases.addBuildFile("test/standalone/options/build.zig", .{
+        .extra_argv = &.{
+            "-Dbool_true",
+            "-Dbool_false=false",
+            "-Dint=1234",
+            "-De=two",
+            "-Dstring=hello",
+        },
+    });
+
     cases.add("test/standalone/cat/main.zig");
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/6025
         cases.add("test/standalone/issue_9693/main.zig");
