@@ -3827,21 +3827,18 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
     };
 
     switch (self.debug_output) {
-        .dwarf => |dw| {
-            switch (mcv) {
-                .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
-                    .register = reg.dwarfLocOp(),
-                }),
+        .dwarf => |dw| switch (mcv) {
+            .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
+                .register = reg.dwarfLocOp(),
+            }),
+            .stack_offset => |off| try dw.genArgDbgInfo(name, ty, atom, .{
+                .stack = .{
+                    .fp_register = Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
+                    .offset = -off,
+                },
+            }),
 
-                .stack_offset => |off| try dw.genArgDbgInfo(name, ty, atom, .{
-                    .stack = .{
-                        .fp_register = Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
-                        .offset = -off,
-                    },
-                }),
-
-                else => unreachable, // not a valid function parameter
-            }
+            else => unreachable, // not a valid function parameter
         },
         .plan9 => {},
         .none => {},

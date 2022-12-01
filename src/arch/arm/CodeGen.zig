@@ -4029,86 +4029,43 @@ fn genInlineMemsetCode(
     // end:
 }
 
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) error{OutOfMemory}!void {
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
-            const dbg_info = &dw.dbg_info;
-            const index = dbg_info.items.len;
-            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-            const mod = self.bin_file.options.module.?;
-            const atom = switch (self.bin_file.tag) {
-                .elf => &mod.declPtr(self.mod_fn.owner_decl).link.elf.dbg_info_atom,
-                .macho => unreachable,
-                else => unreachable,
-            };
-            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
 fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMemory}!void {
     const mcv = self.args[arg_index];
     const ty = self.air.instructions.items(.data)[inst].ty;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
-    const name_with_null = name.ptr[0 .. name.len + 1];
 
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
+    const mod = self.bin_file.options.module.?;
+    const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+    const atom = switch (self.bin_file.tag) {
+        .elf => &fn_owner_decl.link.elf.dbg_info_atom,
+        .macho => &fn_owner_decl.link.macho.dbg_info_atom,
+        else => unreachable,
+    };
+
+    switch (self.debug_output) {
+        .dwarf => |dw| switch (mcv) {
+            .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
+                .register = reg.dwarfLocOp(),
+            }),
+            .stack_offset,
+            .stack_argument_offset,
+            => {
+                const adjusted_stack_offset = switch (mcv) {
+                    .stack_offset => |offset| -@intCast(i32, offset),
+                    .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
+                    else => unreachable,
+                };
+                try dw.genArgDbgInfo(name, ty, atom, .{
+                    .stack = .{
+                        .fp_register = DW.OP.breg11,
+                        .offset = adjusted_stack_offset,
+                    },
+                });
+            },
+            else => unreachable, // not a possible argument
         },
-        .stack_offset,
-        .stack_argument_offset,
-        => {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const adjusted_stack_offset = switch (mcv) {
-                        .stack_offset => |offset| -@intCast(i32, offset),
-                        .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
-                        else => unreachable,
-                    };
-
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-
-                    // Get length of the LEB128 stack offset
-                    var counting_writer = std.io.countingWriter(std.io.null_writer);
-                    leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
-
-                    // DW.AT.location, DW.FORM.exprloc
-                    // ULEB128 dwarf expression length
-                    try leb128.writeULEB128(dbg_info.writer(), counting_writer.bytes_written + 1);
-                    try dbg_info.append(DW.OP.breg11);
-                    try leb128.writeILEB128(dbg_info.writer(), adjusted_stack_offset);
-
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => unreachable, // not a possible argument
+        .plan9 => {},
+        .none => {},
     }
 }
 
