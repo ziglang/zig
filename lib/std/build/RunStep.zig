@@ -66,7 +66,7 @@ pub const Arg = union(enum) {
     bytes: []u8,
 
     /// The argument is a file in a cache folder, it will be a out-value of the executed step.
-    /// **Requires pointer stability.**
+    /// **assume:** pointer stability
     out_file: *OutputFile,
 };
 
@@ -107,7 +107,7 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 
 /// Adds an out-argument to the execution.
 ///
-/// The build system expects that the program will create that file after a successful run. The returned value is a file
+/// The build system expects that the executed program will create that file after a successful run. The returned value is a file
 /// source that will point to that file.
 ///
 /// It's using the `format` string to generate the actual argument value. `format` will be passed to `std.fmt.format` with
@@ -119,7 +119,17 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 /// - `const result = exe.addOutArgument("", "magic.dat");`
 /// - `const header = zig.addOutArgument("-femit-h={s}", "core.h");`
 /// - `const elf_file = clang.addOutArgument("-o{s}", "app.elf");`
+///
+/// **Asserts** that `file_name` contains no path separators as those would destroy the purpose of caching.
+/// **Asserts** that `file_name` is non-empty.
+///
 pub fn addOutArgument(self: *RunStep, comptime format: []const u8, file_name: []const u8) std.build.FileSource {
+    if (file_name.len == 0)
+        @panic("file_name must not be empty!");
+
+    if (std.mem.indexOfAny(u8, file_name, std.fs.path.sep_str_posix ++ std.fs.path.sep_str_windows) != null)
+        @panic("file_name must not contain a path separator!");
+
     const outfile = self.builder.allocator.create(OutputFile) catch @panic("out of memory");
 
     // Local function that will use our format string to
