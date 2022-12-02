@@ -15,3 +15,4 @@ comptime {
 // :7:16: error: expected type 'tmp.Foo', found 'tmp.Bar'
 // :1:13: note: struct declared here
 // :2:13: note: struct declared here
+// :4:18: note: parameter type declared here
