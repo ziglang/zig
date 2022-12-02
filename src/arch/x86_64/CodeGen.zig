@@ -4448,11 +4448,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const name = self.air.nullTerminatedString(pl_op.payload);
 
     const tag = self.air.instructions.items(.tag)[inst];
-    switch (tag) {
-        .dbg_var_ptr => try self.genVarDbgInfo(tag, ty.childType(), mcv, name),
-        .dbg_var_val => try self.genVarDbgInfo(tag, ty, mcv, name),
-        else => unreachable,
-    }
+    try self.genVarDbgInfo(tag, ty, mcv, name);
 
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
 }
