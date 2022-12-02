@@ -717,10 +717,21 @@ pub const DeclGen = struct {
             val = rt.data;
         }
         const target = dg.module.getTarget();
+
+        const safety_on = switch (dg.module.optimizeMode()) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        };
+
         if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
-                // bool b = 0xaa; evals to true, but memcpy(&b, 0xaa, 1); evals to false.
-                .Bool => return dg.renderValue(writer, ty, Value.false, location),
+                .Bool => {
+                    if (safety_on) {
+                        return writer.writeAll("0xaa");
+                    } else {
+                        return writer.writeAll("false");
+                    }
+                },
                 .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val)}),
                 .Float => {
                     const bits = ty.floatBits(target);
@@ -1099,7 +1110,13 @@ pub const DeclGen = struct {
                     },
                 }
             },
-            .Bool => return writer.print("zig_{}", .{val.toBool()}),
+            .Bool => {
+                if (val.toBool()) {
+                    return writer.writeAll("true");
+                } else {
+                    return writer.writeAll("false");
+                }
+            },
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const payload_ty = ty.optionalChild(&opt_buf);
@@ -1804,10 +1821,9 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {
-            .Void => {
-                try w.writeAll("void");
-            },
-            .NoReturn, .Bool, .Float => {
+            .Void => try w.writeAll("void"),
+            .Bool => try w.writeAll("bool"),
+            .NoReturn, .Float => {
                 try w.writeAll("zig_");
                 try t.print(w, dg.module);
             },
