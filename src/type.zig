@@ -6491,8 +6491,16 @@ pub const Type = extern union {
         // type, we change it to 0 here. If this causes an assertion trip because the
         // pointee type needs to be resolved more, that needs to be done before calling
         // this ptr() function.
-        if (d.@"align" != 0 and d.@"align" == d.pointee_type.abiAlignment(target)) {
-            d.@"align" = 0;
+        if (d.@"align" != 0) canonicalize: {
+            if (d.pointee_type.castTag(.@"struct")) |struct_ty| {
+                if (!struct_ty.data.haveLayout()) break :canonicalize;
+            }
+            if (d.pointee_type.cast(Payload.Union)) |union_ty| {
+                if (!union_ty.data.haveLayout()) break :canonicalize;
+            }
+            if (d.@"align" == d.pointee_type.abiAlignment(target)) {
+                d.@"align" = 0;
+            }
         }
 
         // Canonicalize host_size. If it matches the bit size of the pointee type,

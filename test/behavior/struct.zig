@@ -1406,3 +1406,15 @@ test "address of zero-bit field is equal to address of only field" {
         try std.testing.expectEqual(&a, a_ptr);
     }
 }
+
+test "struct field has a pointer to an aligned version of itself" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const E = struct {
+        next: *align(1) @This(),
+    };
+    var e: E = undefined;
+    e = .{ .next = &e };
+
+    try expect(&e == e.next);
+}

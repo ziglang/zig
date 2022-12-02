@@ -16825,7 +16825,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const bitoffset_src: LazySrcLoc = .{ .node_offset_ptr_bitoffset = extra.data.src_node };
     const hostsize_src: LazySrcLoc = .{ .node_offset_ptr_hostsize = extra.data.src_node };
 
-    const unresolved_elem_ty = blk: {
+    const elem_ty = blk: {
         const air_inst = try sema.resolveInst(extra.data.elem_type);
         const ty = sema.analyzeAsType(block, elem_ty_src, air_inst) catch |err| {
             if (err == error.AnalysisFail and sema.err != null and sema.typeOf(air_inst).isSinglePointer()) {
@@ -16854,7 +16854,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         // Check if this happens to be the lazy alignment of our element type, in
         // which case we can make this 0 without resolving it.
         if (val.castTag(.lazy_align)) |payload| {
-            if (payload.data.eql(unresolved_elem_ty, sema.mod)) {
+            if (payload.data.eql(elem_ty, sema.mod)) {
                 break :blk 0;
             }
         }
@@ -16886,14 +16886,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (host_size != 0 and bit_offset >= host_size * 8) {
         return sema.fail(block, bitoffset_src, "bit offset starts after end of host integer", .{});
     }
-
-    const elem_ty = if (abi_align == 0)
-        unresolved_elem_ty
-    else t: {
-        const elem_ty = try sema.resolveTypeFields(unresolved_elem_ty);
-        try sema.resolveTypeLayout(elem_ty);
-        break :t elem_ty;
-    };
 
     if (elem_ty.zigTypeTag() == .NoReturn) {
         return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
