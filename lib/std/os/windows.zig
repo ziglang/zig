@@ -2152,7 +2152,6 @@ pub const LONG = i32;
 pub const ULONG64 = u64;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
-pub const ULONG64 = u64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
 
