@@ -395,27 +395,6 @@ pub const Function = struct {
             .shl,               => try airBinBuiltinCall(f, inst, "shlw", .Bits),
             .shl_exact          => try airBinOp(f, inst, "<<", "shl", .None),
             .not                => try airNot  (f, inst),
-
-            .is_err          => try airIsErr(f, inst, false, "!="),
-            .is_non_err      => try airIsErr(f, inst, false, "=="),
-            .is_err_ptr      => try airIsErr(f, inst, true, "!="),
-            .is_non_err_ptr  => try airIsErr(f, inst, true, "=="),
-
-            .is_null         => try airIsNull(f, inst, "==", false),
-            .is_non_null     => try airIsNull(f, inst, "!=", false),
-            .is_null_ptr     => try airIsNull(f, inst, "==", true),
-            .is_non_null_ptr => try airIsNull(f, inst, "!=", true),
-
-            .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airUnBuiltinCall(f, inst, "clz", .Bits),
-            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .Bits),
-            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .Bits),
-            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .Bits),
-            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .Bits),
-            .tag_name         => try airTagName(f, inst),
-            .error_name       => try airErrorName(f, inst),
-
-            .ptrtoint => try airPtrToInt(f, inst),
             else => unreachable,
             // zig fmt: on
         }
@@ -443,7 +422,6 @@ pub const Function = struct {
                 try w.writeByte('.');
                 return f.writeCValue(w, member, .Other);
             },
-            .inline_index => unreachable, // Use resolveInstNoInline
             else => return f.object.dg.writeCValueMember(w, c_value, member),
         }
     }
@@ -2650,15 +2628,15 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .optional_payload_ptr_set => try airOptionalPayloadPtrSet(f, inst),
             .wrap_optional            => try airWrapOptional(f, inst),
 
-            .is_err          => CValue{ .inline_index = inst },
-            .is_non_err      => CValue{ .inline_index = inst },
-            .is_err_ptr      => CValue{ .inline_index = inst },
-            .is_non_err_ptr  => CValue{ .inline_index = inst },
+            .is_err          => try airIsErr(f, inst, false, "!="),
+            .is_non_err      => try airIsErr(f, inst, false, "=="),
+            .is_err_ptr      => try airIsErr(f, inst, true, "!="),
+            .is_non_err_ptr  => try airIsErr(f, inst, true, "=="),
 
-            .is_null         => CValue{ .inline_index = inst },
-            .is_non_null     => CValue{ .inline_index = inst },
-            .is_null_ptr     => CValue{ .inline_index = inst },
-            .is_non_null_ptr => CValue{ .inline_index = inst },
+            .is_null         => try airIsNull(f, inst, "==", false),
+            .is_non_null     => try airIsNull(f, inst, "!=", false),
+            .is_null_ptr     => try airIsNull(f, inst, "==", true),
+            .is_non_null_ptr => try airIsNull(f, inst, "!=", true),
 
             .alloc            => try airAlloc(f, inst),
             .ret_ptr          => try airRetPtr(f, inst),
@@ -2686,14 +2664,14 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .memset           => try airMemset(f, inst),
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
-            .get_union_tag    => CValue{ .inline_index = inst },
-            .clz              => CValue{ .inline_index = inst },
-            .ctz              => CValue{ .inline_index = inst },
-            .popcount         => CValue{ .inline_index = inst },
-            .byte_swap        => CValue{ .inline_index = inst },
-            .bit_reverse      => CValue{ .inline_index = inst },
-            .tag_name         => CValue{ .inline_index = inst },
-            .error_name       => CValue{ .inline_index = inst },
+            .get_union_tag    => try airGetUnionTag(f, inst),
+            .clz              => try airUnBuiltinCall(f, inst, "clz", .Bits),
+            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .Bits),
+            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .Bits),
+            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .Bits),
+            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .Bits),
+            .tag_name         => try airTagName(f, inst),
+            .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
             .select           => try airSelect(f, inst),
             .shuffle          => try airShuffle(f, inst),
@@ -2729,7 +2707,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .fpext,
             => try airFloatCast(f, inst),
 
-            .ptrtoint => CValue{ .inline_index = inst },
+            .ptrtoint => try airPtrToInt(f, inst),
 
             .atomic_store_unordered => try airAtomicStore(f, inst, toMemoryOrder(.Unordered)),
             .atomic_store_monotonic => try airAtomicStore(f, inst, toMemoryOrder(.Monotonic)),
@@ -2810,7 +2788,7 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: [
 
     const inst_ty = f.air.typeOfIndex(inst);
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const operand = try f.resolveInstNoInline(ty_op.operand);
+    const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
@@ -4332,11 +4310,16 @@ fn airIsNull(
     inst: Air.Inst.Index,
     operator: []const u8,
     is_ptr: bool,
-) !void {
+) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
 
+    const local = try f.allocLocal(Type.initTag(.bool), .Const);
+    try writer.writeAll(" = ");
     try if (is_ptr) f.writeCValueDeref(writer, operand) else f.writeCValue(writer, operand, .Other);
 
     const operand_ty = f.air.typeOf(un_op);
@@ -4364,6 +4347,8 @@ fn airIsNull(
     try writer.writeAll(operator);
     try writer.writeByte(' ');
     try f.object.dg.renderValue(writer, rhs.ty, rhs.val, .Other);
+    try writer.writeAll(";\n");
+    return local;
 }
 
 fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4933,14 +4918,20 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const u8) !void {
+fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
     const operand_ty = f.air.typeOf(un_op);
+    const local = try f.allocLocal(Type.initTag(.bool), .Const);
     const err_union_ty = if (is_ptr) operand_ty.childType() else operand_ty;
     const payload_ty = err_union_ty.errorUnionPayload();
     const error_ty = err_union_ty.errorUnionSet();
+
+    try writer.writeAll(" = ");
 
     if (!error_ty.errorSetIsEmpty())
         if (payload_ty.hasRuntimeBits())
@@ -4956,6 +4947,8 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
     try writer.writeAll(operator);
     try writer.writeByte(' ');
     try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
+    try writer.writeAll(";\n");
+    return local;
 }
 
 fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -5029,16 +5022,21 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !void {
+fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
     const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
 
-    try writer.writeAll("(");
+    try writer.writeAll(" = (");
     try f.renderTypecast(writer, inst_ty);
     try writer.writeByte(')');
     try f.writeCValue(writer, operand, .Other);
+    try writer.writeAll(";\n");
+    return local;
 }
 
 fn airUnBuiltinCall(
@@ -5046,19 +5044,24 @@ fn airUnBuiltinCall(
     inst: Air.Inst.Index,
     operation: []const u8,
     info: BuiltinInfo,
-) !void {
+) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
     const operand = f.air.instructions.items(.data)[inst].ty_op.operand;
     const operand_ty = f.air.typeOf(operand);
 
+    const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
-    try writer.writeAll("zig_");
+    try writer.writeAll(" = zig_");
     try writer.writeAll(operation);
     try writer.writeByte('_');
     try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
     try f.writeCValue(writer, try f.resolveInst(operand), .FunctionArgument);
     try f.object.dg.renderBuiltinInfo(writer, operand_ty, info);
-    try writer.writeAll(")");
+    try writer.writeAll(");\n");
+    return local;
 }
 
 fn airBinBuiltinCall(
@@ -5331,7 +5334,12 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     return CValue.none;
 }
 
-fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !void {
+fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const un_ty = f.air.typeOf(ty_op.operand);
     const writer = f.object.writer();
@@ -5339,31 +5347,44 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !void {
 
     const target = f.object.dg.module.getTarget();
     const layout = un_ty.unionGetLayout(target);
-    assert(layout.tag_size != 0);
+    if (layout.tag_size == 0) return CValue.none;
 
+    try writer.writeAll(" = ");
     try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll(".tag");
+    try writer.writeAll(".tag;\n");
+    return local;
 }
 
-fn airTagName(f: *Function, inst: Air.Inst.Index) !void {
+fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
     const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const inst_ty = f.air.typeOfIndex(inst);
     const enum_ty = f.air.typeOf(un_op);
     const operand = try f.resolveInst(un_op);
 
     const writer = f.object.writer();
-    try writer.print("{s}(", .{try f.object.dg.getTagNameFn(enum_ty)});
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.print(" = {s}(", .{try f.object.dg.getTagNameFn(enum_ty)});
     try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll(")");
+    try writer.writeAll(");\n");
+
+    return local;
 }
 
-fn airErrorName(f: *Function, inst: Air.Inst.Index) !void {
+fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
     const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
 
-    try writer.writeAll("zig_errorName[");
+    try writer.writeAll(" = zig_errorName[");
     try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll("]");
+    try writer.writeAll("];\n");
+    return local;
 }
 
 fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
