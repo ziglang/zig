@@ -1098,7 +1098,7 @@ fn analyzeBodyInner(
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
             .compile_error  => break sema.zirCompileError(block, inst),
-            .ret_tok        => break sema.zirRetTok(block, inst),
+            .ret_implicit   => break sema.zirRetImplicit(block, inst),
             .ret_node       => break sema.zirRetNode(block, inst),
             .ret_load       => break sema.zirRetLoad(block, inst),
             .ret_err_value  => break sema.zirRetErrValue(block, inst),
@@ -16546,7 +16546,7 @@ fn zirRetErrValue(
     return sema.analyzeRet(block, result_inst, src);
 }
 
-fn zirRetTok(
+fn zirRetImplicit(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
@@ -16556,9 +16556,33 @@ fn zirRetTok(
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
-    const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src);
+    const r_brace_src = inst_data.src();
+    const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
+    const base_tag = sema.fn_ret_ty.baseZigTypeTag();
+    if (base_tag == .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ret_ty_src, "function declared '{}' implicitly returns", .{
+                sema.fn_ret_ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, r_brace_src, msg, "control flow reaches end of body here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    } else if (base_tag != .Void) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ret_ty_src, "function with non-void return type '{}' implicitly returns", .{
+                sema.fn_ret_ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, r_brace_src, msg, "control flow reaches end of body here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    return sema.analyzeRet(block, operand, .unneeded);
 }
 
 fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {

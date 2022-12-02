@@ -2632,7 +2632,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .compile_error,
             .ret_node,
             .ret_load,
-            .ret_tok,
+            .ret_implicit,
             .ret_err_value,
             .@"unreachable",
             .repeat,
@@ -3914,9 +3914,8 @@ fn fnDecl(
             // As our last action before the return, "pop" the error trace if needed
             _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
-            // Since we are adding the return instruction here, we must handle the coercion.
-            // We do this by using the `ret_tok` instruction.
-            _ = try fn_gz.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
+            // Add implicit return at end of function.
+            _ = try fn_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
         }
 
         break :func try decl_gz.addFunc(.{
@@ -4334,9 +4333,8 @@ fn testDecl(
         // As our last action before the return, "pop" the error trace if needed
         _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
-        // Since we are adding the return instruction here, we must handle the coercion.
-        // We do this by using the `ret_tok` instruction.
-        _ = try fn_block.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
+        // Add implicit return at end of function.
+        _ = try fn_block.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
     }
 
     const func_inst = try decl_block.addFunc(.{

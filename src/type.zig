@@ -160,6 +160,17 @@ pub const Type = extern union {
         }
     }
 
+    pub fn baseZigTypeTag(self: Type) std.builtin.TypeId {
+        return switch (self.zigTypeTag()) {
+            .ErrorUnion => self.errorUnionPayload().baseZigTypeTag(),
+            .Optional => {
+                var buf: Payload.ElemType = undefined;
+                return self.optionalChild(&buf).baseZigTypeTag();
+            },
+            else => |t| t,
+        };
+    }
+
     pub fn isSelfComparable(ty: Type, is_equality_cmp: bool) bool {
         return switch (ty.zigTypeTag()) {
             .Int,
