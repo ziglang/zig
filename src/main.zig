@@ -1843,6 +1843,11 @@ fn buildOutputType(
                         linker_z_relro = true;
                     } else if (mem.eql(u8, z_arg, "norelro")) {
                         linker_z_relro = false;
+                    } else if (mem.startsWith(u8, z_arg, "stack-size=")) {
+                        const next_arg = z_arg["stack-size=".len..];
+                        stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
+                            fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
+                        };
                     } else {
                         warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
