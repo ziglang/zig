@@ -189,8 +189,6 @@
 
 #define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
 
-typedef void zig_void;
-
 #if defined(__cplusplus)
 typedef bool zig_bool;
 #define zig_false false

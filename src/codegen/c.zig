@@ -1802,32 +1802,23 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {
-            .NoReturn, .Void, .Bool, .Int, .Float, .ErrorSet => |tag| {
-                const is_named = switch (tag) {
-                    .Int => t.isNamedInt(),
-                    .ErrorSet => false,
-                    else => true,
-                };
-                if (is_named) {
+            .Void => {
+                try w.writeAll("void");
+            },
+            .NoReturn, .Bool, .Float => {
+                try w.writeAll("zig_");
+                try t.print(w, dg.module);
+            },
+            .Int => {
+                if (t.isNamedInt()) {
                     try w.writeAll("zig_");
                     try t.print(w, dg.module);
                 } else {
-                    const int_info = t.intInfo(target);
-                    if (toCIntBits(int_info.bits)) |c_bits|
-                        return w.print("zig_{c}{d}", .{ signAbbrev(int_info.signedness), c_bits })
-                    else if (loweredArrayInfo(t, target)) |array_info| {
-                        assert(array_info.sentinel == null);
-                        var array_pl = Type.Payload.Array{
-                            .base = .{ .tag = .array },
-                            .data = .{ .len = array_info.len, .elem_type = array_info.elem_type },
-                        };
-                        const array_ty = Type.initPayload(&array_pl.base);
-
-                        return dg.renderType(w, array_ty, kind);
-                    } else return dg.fail("C backend: Unable to lower unnamed integer type {}", .{
-                        t.fmt(dg.module),
-                    });
+                    return renderTypeUnnamed(dg, w, t, kind);
                 }
+            },
+            .ErrorSet => {
+                return renderTypeUnnamed(dg, w, t, kind);
             },
             .Pointer => {
                 const ptr_info = t.ptrInfo().data;
@@ -2013,6 +2004,30 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language
         }
+    }
+
+    fn renderTypeUnnamed(
+        dg: *DeclGen,
+        w: anytype,
+        t: Type,
+        kind: TypedefKind,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        const target = dg.module.getTarget();
+        const int_info = t.intInfo(target);
+        if (toCIntBits(int_info.bits)) |c_bits|
+            return w.print("zig_{c}{d}", .{ signAbbrev(int_info.signedness), c_bits })
+        else if (loweredArrayInfo(t, target)) |array_info| {
+            assert(array_info.sentinel == null);
+            var array_pl = Type.Payload.Array{
+                .base = .{ .tag = .array },
+                .data = .{ .len = array_info.len, .elem_type = array_info.elem_type },
+            };
+            const array_ty = Type.initPayload(&array_pl.base);
+
+            return dg.renderType(w, array_ty, kind);
+        } else return dg.fail("C backend: Unable to lower unnamed integer type {}", .{
+            t.fmt(dg.module),
+        });
     }
 
     /// Renders a type in C typecast format.
