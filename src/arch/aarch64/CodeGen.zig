@@ -182,8 +182,6 @@ const DbgInfoReloc = struct {
         }
     }
     fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
-        const atom = function.getDbgInfoAtomPtr();
-
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
@@ -204,7 +202,13 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
 
                 };
-                try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, loc);
+                try dw.genArgDbgInfo(
+                    reloc.name,
+                    reloc.ty,
+                    function.bin_file.tag,
+                    function.mod_fn.owner_decl,
+                    loc,
+                );
             },
             .plan9 => {},
             .none => {},
@@ -217,7 +221,6 @@ const DbgInfoReloc = struct {
             .dbg_var_val => false,
             else => unreachable,
         };
-        const atom = function.getDbgInfoAtomPtr();
 
         switch (function.debug_output) {
             .dwarf => |dw| {
@@ -251,24 +254,20 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(reloc.name, reloc.ty, atom, is_ptr, loc);
+                try dw.genVarDbgInfo(
+                    reloc.name,
+                    reloc.ty,
+                    function.bin_file.tag,
+                    function.mod_fn.owner_decl,
+                    is_ptr,
+                    loc,
+                );
             },
             .plan9 => {},
             .none => {},
         }
     }
 };
-
-fn getDbgInfoAtomPtr(self: Self) *link.File.Dwarf.Atom {
-    const mod = self.bin_file.options.module.?;
-    const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
-    const atom = switch (self.bin_file.tag) {
-        .elf => &fn_owner_decl.link.elf.dbg_info_atom,
-        .macho => &fn_owner_decl.link.macho.dbg_info_atom,
-        else => unreachable,
-    };
-    return atom;
-}
 
 const Branch = struct {
     inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},

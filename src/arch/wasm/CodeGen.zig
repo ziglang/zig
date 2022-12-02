@@ -2341,8 +2341,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dwarf => |dwarf| {
             // TODO: Get the original arg index rather than wasm arg index
             const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, arg_index);
-            const atom = func.getDbgInfoAtom();
-            try dwarf.genArgDbgInfo(name, arg_ty, atom, .{
+            try dwarf.genArgDbgInfo(name, arg_ty, .wasm, func.mod_fn.owner_decl, .{
                 .wasm_local = arg.local.value,
             });
         },
@@ -2350,12 +2349,6 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     func.finishAir(inst, arg, &.{});
-}
-
-fn getDbgInfoAtom(func: CodeGen) *link.File.Dwarf.Atom {
-    const mod = func.bin_file.base.options.module.?;
-    const fn_owner_decl = mod.declPtr(func.mod_fn.owner_decl);
-    return &fn_owner_decl.link.wasm.dbg_info_atom;
 }
 
 fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
@@ -5326,7 +5319,6 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     const name = func.air.nullTerminatedString(pl_op.payload);
     log.debug(" var name = ({s})", .{name});
 
-    const atom = func.getDbgInfoAtom();
     const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (operand) {
         .local => |local| .{ .wasm_local = local.value },
         else => blk: {
@@ -5334,7 +5326,7 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
             break :blk .nop;
         },
     };
-    try func.debug_output.dwarf.genVarDbgInfo(name, ty, atom, is_ptr, loc);
+    try func.debug_output.dwarf.genVarDbgInfo(name, ty, .wasm, func.mod_fn.owner_decl, is_ptr, loc);
 
     func.finishAir(inst, .none, &.{});
 }

@@ -4033,7 +4033,6 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMe
     const mcv = self.args[arg_index];
     const ty = self.air.instructions.items(.data)[inst].ty;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
-    const atom = self.getDbgInfoAtom();
 
     switch (self.debug_output) {
         .dwarf => |dw| {
@@ -4055,22 +4054,11 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMe
                 else => unreachable, // not a possible argument
 
             };
-            try dw.genArgDbgInfo(name, ty, atom, loc);
+            try dw.genArgDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, loc);
         },
         .plan9 => {},
         .none => {},
     }
-}
-
-fn getDbgInfoAtom(self: Self) *link.File.Dwarf.Atom {
-    const mod = self.bin_file.options.module.?;
-    const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
-    const atom = switch (self.bin_file.tag) {
-        .elf => &fn_owner_decl.link.elf.dbg_info_atom,
-        .macho => &fn_owner_decl.link.macho.dbg_info_atom,
-        else => unreachable,
-    };
-    return atom;
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {

@@ -3815,8 +3815,6 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
-    const atom = self.getDbgInfoAtomPtr();
-
     switch (self.debug_output) {
         .dwarf => |dw| {
             const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
@@ -3830,7 +3828,7 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
                 },
                 else => unreachable, // not a valid function parameter
             };
-            try dw.genArgDbgInfo(name, ty, atom, loc);
+            try dw.genArgDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, loc);
         },
         .plan9 => {},
         .none => {},
@@ -3849,7 +3847,6 @@ fn genVarDbgInfo(
         .dbg_var_val => false,
         else => unreachable,
     };
-    const atom = self.getDbgInfoAtomPtr();
 
     switch (self.debug_output) {
         .dwarf => |dw| {
@@ -3871,22 +3868,11 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, atom, is_ptr, loc);
+            try dw.genVarDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
     }
-}
-
-fn getDbgInfoAtomPtr(self: Self) *link.File.Dwarf.Atom {
-    const mod = self.bin_file.options.module.?;
-    const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
-    const atom = switch (self.bin_file.tag) {
-        .elf => &fn_owner_decl.link.elf.dbg_info_atom,
-        .macho => &fn_owner_decl.link.macho.dbg_info_atom,
-        else => unreachable,
-    };
-    return atom;
 }
 
 fn airBreakpoint(self: *Self) !void {

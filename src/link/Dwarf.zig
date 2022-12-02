@@ -581,10 +581,12 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        atom: *Atom,
+        tag: File.Tag,
+        owner_decl: Module.Decl.Index,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
+        const atom = self.getDbgInfoAtom(tag, owner_decl);
         const name_with_null = name.ptr[0 .. name.len + 1];
 
         switch (loc) {
@@ -637,11 +639,13 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        atom: *Atom,
+        tag: File.Tag,
+        owner_decl: Module.Decl.Index,
         is_ptr: bool,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
+        const atom = self.getDbgInfoAtom(tag, owner_decl);
         const name_with_null = name.ptr[0 .. name.len + 1];
         try dbg_info.append(@enumToInt(AbbrevKind.variable));
         const target = self.mod.getTarget();
@@ -773,6 +777,16 @@ pub const DeclState = struct {
         try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
         try self.addTypeRelocGlobal(atom, child_ty, @intCast(u32, index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+    }
+
+    fn getDbgInfoAtom(self: *DeclState, tag: File.Tag, decl_index: Module.Decl.Index) *Atom {
+        const decl = self.mod.declPtr(decl_index);
+        return switch (tag) {
+            .elf => &decl.link.elf.dbg_info_atom,
+            .macho => &decl.link.macho.dbg_info_atom,
+            .wasm => &decl.link.wasm.dbg_info_atom,
+            else => unreachable,
+        };
     }
 };
 
