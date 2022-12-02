@@ -68,6 +68,19 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
+/// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
+/// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+/// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
+/// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
+pub const LinkerLoad = struct {
+    type: enum {
+        got,
+        direct,
+        import,
+    },
+    sym_index: u32,
+};
+
 pub fn generateFunction(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,

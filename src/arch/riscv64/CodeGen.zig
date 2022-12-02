@@ -772,28 +772,6 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     try table.ensureUnusedCapacity(self.gpa, additional_count);
 }
 
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
-            const dbg_info = &dw.dbg_info;
-            const index = dbg_info.items.len;
-            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-            const mod = self.bin_file.options.module.?;
-            const atom = switch (self.bin_file.tag) {
-                .elf => &mod.declPtr(self.mod_fn.owner_decl).link.elf.dbg_info_atom,
-                .macho => unreachable,
-                else => unreachable,
-            };
-            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
 fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
@@ -1624,39 +1602,24 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
+fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
     const ty = self.air.instructions.items(.data)[inst].ty;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
-    const name_with_null = name.ptr[0 .. name.len + 1];
 
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
+    switch (self.debug_output) {
+        .dwarf => |dw| switch (mcv) {
+            .register => |reg| try dw.genArgDbgInfo(
+                name,
+                ty,
+                self.bin_file.tag,
+                self.mod_fn.owner_decl,
+                .{ .register = reg.dwarfLocOp() },
+            ),
+            .stack_offset => {},
+            else => {},
         },
-        .stack_offset => |offset| {
-            _ = offset;
-            switch (self.debug_output) {
-                .dwarf => {},
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => {},
+        .plan9 => {},
+        .none => {},
     }
 }
 

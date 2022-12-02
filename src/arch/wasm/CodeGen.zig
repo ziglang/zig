@@ -1291,23 +1291,6 @@ fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, target: 
     }
 }
 
-/// For a given `Type`, add debug information to .debug_info at the current position.
-/// The actual bytes will be written to the position after relocation.
-fn addDbgInfoTypeReloc(func: *CodeGen, ty: Type) !void {
-    switch (func.debug_output) {
-        .dwarf => |dwarf| {
-            assert(ty.hasRuntimeBitsIgnoreComptime());
-            const dbg_info = &dwarf.dbg_info;
-            const index = dbg_info.items.len;
-            try dbg_info.resize(index + 4);
-            const atom = &func.decl.link.wasm.dbg_info_atom;
-            try dwarf.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
-        },
-        .plan9 => unreachable,
-        .none => {},
-    }
-}
-
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
 fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
@@ -2358,24 +2341,9 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dwarf => |dwarf| {
             // TODO: Get the original arg index rather than wasm arg index
             const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, arg_index);
-            const leb_size = link.File.Wasm.getULEB128Size(arg.local.value);
-            const dbg_info = &dwarf.dbg_info;
-            try dbg_info.ensureUnusedCapacity(3 + leb_size + 5 + name.len + 1);
-            // wasm locations are encoded as follow:
-            // DW_OP_WASM_location wasm-op
-            // where wasm-op is defined as
-            // wasm-op := wasm-local | wasm-global | wasm-operand_stack
-            // where each argument is encoded as
-            // <opcode> i:uleb128
-            dbg_info.appendSliceAssumeCapacity(&.{
-                @enumToInt(link.File.Dwarf.AbbrevKind.parameter),
-                std.dwarf.OP.WASM_location,
-                std.dwarf.OP.WASM_local,
+            try dwarf.genArgDbgInfo(name, arg_ty, .wasm, func.mod_fn.owner_decl, .{
+                .wasm_local = arg.local.value,
             });
-            leb.writeULEB128(dbg_info.writer(), arg.local.value) catch unreachable;
-            try func.addDbgInfoTypeReloc(arg_ty);
-            dbg_info.appendSliceAssumeCapacity(name);
-            dbg_info.appendAssumeCapacity(0);
         },
         else => {},
     }
@@ -5345,38 +5313,21 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
     const ty = func.air.typeOf(pl_op.operand);
     const operand = try func.resolveInst(pl_op.operand);
-    const op_ty = if (is_ptr) ty.childType() else ty;
 
-    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, op_ty.fmtDebug(), operand });
+    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), operand });
 
     const name = func.air.nullTerminatedString(pl_op.payload);
     log.debug(" var name = ({s})", .{name});
 
-    const dbg_info = &func.debug_output.dwarf.dbg_info;
-    try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
-    switch (operand) {
-        .local => |local| {
-            const leb_size = link.File.Wasm.getULEB128Size(local.value);
-            try dbg_info.ensureUnusedCapacity(2 + leb_size);
-            // wasm locals are encoded as follow:
-            // DW_OP_WASM_location wasm-op
-            // where wasm-op is defined as
-            // wasm-op := wasm-local | wasm-global | wasm-operand_stack
-            // where wasm-local is encoded as
-            // wasm-local := 0x00 i:uleb128
-            dbg_info.appendSliceAssumeCapacity(&.{
-                std.dwarf.OP.WASM_location,
-                std.dwarf.OP.WASM_local,
-            });
-            leb.writeULEB128(dbg_info.writer(), local.value) catch unreachable;
+    const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (operand) {
+        .local => |local| .{ .wasm_local = local.value },
+        else => blk: {
+            log.debug("TODO generate debug info for {}", .{operand});
+            break :blk .nop;
         },
-        else => {}, // TODO
-    }
+    };
+    try func.debug_output.dwarf.genVarDbgInfo(name, ty, .wasm, func.mod_fn.owner_decl, is_ptr, loc);
 
-    try dbg_info.ensureUnusedCapacity(5 + name.len + 1);
-    try func.addDbgInfoTypeReloc(op_ty);
-    dbg_info.appendSliceAssumeCapacity(name);
-    dbg_info.appendAssumeCapacity(0);
     func.finishAir(inst, .none, &.{});
 }
 
