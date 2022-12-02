@@ -31,7 +31,8 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
-        .build_modes = true,
+        // https://github.com/ziglang/zig/issues/13738
+        .build_modes = !(builtin.os.tag == .windows and builtin.cpu.arch == .aarch64),
         .cross_targets = true,
     });
     cases.addBuildFile("test/standalone/global_linkage/build.zig", .{});
