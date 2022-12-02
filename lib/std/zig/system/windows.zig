@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const mem = std.mem;
 const Target = std.Target;
 
@@ -89,6 +90,8 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
         .DefaultLength = 0,
     };
 
+    var tmp_bufs: [fields_info.len][max_value_len]u8 align(@alignOf(std.os.windows.UNICODE_STRING)) = undefined;
+
     inline for (fields_info) |field, i| {
         const ctx: *anyopaque = blk: {
             switch (@field(args, field.name).value_type) {
@@ -96,26 +99,20 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 REG.EXPAND_SZ,
                 REG.MULTI_SZ,
                 => {
-                    var buf: [max_value_len / 2]u16 = undefined;
-                    var unicode = std.os.windows.UNICODE_STRING{
+                    comptime assert(@sizeOf(std.os.windows.UNICODE_STRING) % 2 == 0);
+                    const unicode = @ptrCast(*std.os.windows.UNICODE_STRING, &tmp_bufs[i]);
+                    unicode.* = .{
                         .Length = 0,
-                        .MaximumLength = max_value_len,
-                        .Buffer = &buf,
+                        .MaximumLength = max_value_len - @sizeOf(std.os.windows.UNICODE_STRING),
+                        .Buffer = @ptrCast([*]u16, tmp_bufs[i][@sizeOf(std.os.windows.UNICODE_STRING)..]),
                     };
-                    break :blk &unicode;
+                    break :blk unicode;
                 },
 
                 REG.DWORD,
                 REG.DWORD_BIG_ENDIAN,
-                => {
-                    var buf: [4]u8 = undefined;
-                    break :blk &buf;
-                },
-
-                REG.QWORD => {
-                    var buf: [8]u8 = undefined;
-                    break :blk &buf;
-                },
+                REG.QWORD,
+                => break :blk &tmp_bufs[i],
 
                 else => unreachable,
             }
