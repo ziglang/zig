@@ -49,10 +49,25 @@ pub const StdIoAction = union(enum) {
     expect_matches: []const []const u8,
 };
 
+pub const OutputFile = struct {
+    file: std.build.GeneratedFile,
+    name: []u8,
+    format: std.meta.FnPtr(fn (std.mem.Allocator, string: []const u8) std.mem.Allocator.Error![]u8),
+};
+
 pub const Arg = union(enum) {
+    /// the input is a build artifact
     artifact: *LibExeObjStep,
+
+    /// uses the path generated from the file source
     file_source: build.FileSource,
+
+    /// Literal bytes for argument
     bytes: []u8,
+
+    /// The argument is a file in a cache folder, it will be a out-value of the executed step.
+    /// **Requires pointer stability.**
+    out_file: *OutputFile,
 };
 
 pub fn create(builder: *Builder, name: []const u8) *RunStep {
@@ -88,6 +103,45 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
     for (args) |arg| {
         self.addArg(arg);
     }
+}
+
+/// Adds an out-argument to the execution.
+///
+/// The build system expects that the program will create that file after a successful run. The returned value is a file
+/// source that will point to that file.
+///
+/// It's using the `format` string to generate the actual argument value. `format` will be passed to `std.fmt.format` with
+/// a single argument that will be the absolute path where the file should be emitted to.
+///
+/// If `format` is the empty string, the name passed as an argument will just be the absolute path to the destination path.
+///
+/// Examples:
+/// - `const result = exe.addOutArgument("", "magic.dat");`
+/// - `const header = zig.addOutArgument("-femit-h={s}", "core.h");`
+/// - `const elf_file = clang.addOutArgument("-o{s}", "app.elf");`
+pub fn addOutArgument(self: *RunStep, comptime format: []const u8, file_name: []const u8) std.build.FileSource {
+    const outfile = self.builder.allocator.create(OutputFile) catch @panic("out of memory");
+
+    // Local function that will use our format string to
+    // generate the final file name.
+    const H = struct {
+        fn fmt(allocator: std.mem.Allocator, string: []const u8) ![]u8 {
+            return if (format.len == 0)
+                try allocator.dupe(u8, string)
+            else
+                try std.fmt.allocPrint(allocator, format, .{string});
+        }
+    };
+
+    outfile.* = OutputFile{
+        .name = self.builder.dupe(file_name),
+        .file = .{ .step = &self.step },
+        .format = H.fmt,
+    };
+
+    self.argv.append(Arg{ .out_file = outfile }) catch unreachable;
+
+    return std.build.FileSource{ .generated = &outfile.file };
 }
 
 pub fn clearEnvironment(self: *RunStep) void {
@@ -164,8 +218,66 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunStep, "step", step);
 
+    const argv_def = self.argv.items;
+
+    const any_output = for (argv_def) |arg| {
+        if (arg == .out_file)
+            break true;
+    } else false;
+
+    const output_path = if (any_output) blk: {
+        // taken from Cache.zig:
+        // TODO: When cache system is integrated into the build system, remove those and use the actual caching.
+
+        // The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
+        // provides enough collision resistance for the Manifest use cases, while being one of our
+        // fastest options right now.
+        const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
+
+        var folder_hasher: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+
+        // feed some initial random bytes to decrease collision likelyhood, chosen by a fair dice roll
+        folder_hasher.update(&[_]u8{ 0x75, 0xbc, 0x4b, 0x18, 0xb7, 0xf8, 0x46, 0xf0, 0xf8, 0x3f, 0xff, 0x8d, 0x7b, 0xc2, 0xd2, 0x6f });
+
+        // feed all arguments into the hasher,
+        // generating a unique footprint for that invocation
+        for (argv_def) |arg| {
+            switch (arg) {
+                .bytes => |bytes| {
+                    folder_hasher.update("literal");
+                    folder_hasher.update(bytes);
+                },
+                .file_source => |file| {
+                    folder_hasher.update("generated");
+                    folder_hasher.update(file.getPath(self.builder));
+                },
+                .artifact => |artifact| {
+                    folder_hasher.update("build artifact");
+                    folder_hasher.update(artifact.getOutputSource().getPath(self.builder));
+                },
+
+                .out_file => |out| {
+                    folder_hasher.update("output file");
+                    folder_hasher.update(out.name);
+                },
+            }
+        }
+
+        var raw_hash: [16]u8 = undefined;
+        folder_hasher.final(&raw_hash);
+
+        var hex_hash: [32]u8 = undefined;
+        _ = std.fmt.bufPrint(&hex_hash, "{}", .{std.fmt.fmtSliceHexLower(&raw_hash)}) catch unreachable;
+
+        const absroot = self.builder.pathFromRoot(self.builder.pathJoin(&[_][]const u8{ self.builder.cache_root, "o", &hex_hash }));
+
+        try self.builder.makePath(absroot);
+
+        break :blk absroot;
+    } else undefined;
+
     var argv_list = ArrayList([]const u8).init(self.builder.allocator);
-    for (self.argv.items) |arg| {
+    for (argv_def) |arg| {
         switch (arg) {
             .bytes => |bytes| try argv_list.append(bytes),
             .file_source => |file| try argv_list.append(file.getPath(self.builder)),
@@ -176,6 +288,14 @@ fn make(step: *Step) !void {
                 }
                 const executable_path = artifact.installed_path orelse artifact.getOutputSource().getPath(self.builder);
                 try argv_list.append(executable_path);
+            },
+            .out_file => |out| {
+                const abs_path = self.builder.pathJoin(&.{ output_path, out.name });
+
+                std.debug.assert(std.fs.path.isAbsolute(abs_path));
+
+                try argv_list.append(abs_path);
+                out.file.path = abs_path;
             },
         }
     }
