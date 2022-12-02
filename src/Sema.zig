@@ -29237,6 +29237,16 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
 
         struct_obj.status = .have_layout;
         _ = try sema.resolveTypeRequiresComptime(resolved_ty);
+
+        if (struct_obj.assumed_runtime_bits and !resolved_ty.hasRuntimeBits()) {
+            const msg = try Module.ErrorMsg.create(
+                sema.gpa,
+                struct_obj.srcLoc(sema.mod),
+                "struct layout depends on it having runtime bits",
+                .{},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
+        }
     }
     // otherwise it's a tuple; no need to resolve anything
 }
@@ -29401,6 +29411,16 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
     }
     union_obj.status = .have_layout;
     _ = try sema.resolveTypeRequiresComptime(resolved_ty);
+
+    if (union_obj.assumed_runtime_bits and !resolved_ty.hasRuntimeBits()) {
+        const msg = try Module.ErrorMsg.create(
+            sema.gpa,
+            union_obj.srcLoc(sema.mod),
+            "union layout depends on it having runtime bits",
+            .{},
+        );
+        return sema.failWithOwnedErrorMsg(msg);
+    }
 }
 
 // In case of querying the ABI alignment of this struct, we will ask

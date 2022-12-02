@@ -2459,6 +2459,7 @@ pub const Type = extern union {
                 if (struct_obj.status == .field_types_wip) {
                     // In this case, we guess that hasRuntimeBits() for this type is true,
                     // and then later if our guess was incorrect, we emit a compile error.
+                    struct_obj.assumed_runtime_bits = true;
                     return true;
                 }
                 switch (strat) {
@@ -2491,6 +2492,12 @@ pub const Type = extern union {
 
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
+                if (union_obj.status == .field_types_wip) {
+                    // In this case, we guess that hasRuntimeBits() for this type is true,
+                    // and then later if our guess was incorrect, we emit a compile error.
+                    union_obj.assumed_runtime_bits = true;
+                    return true;
+                }
                 switch (strat) {
                     .sema => |sema| _ = try sema.resolveTypeFields(ty),
                     .eager => assert(union_obj.haveFieldTypes()),
@@ -3027,8 +3034,9 @@ pub const Type = extern union {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 if (opt_sema) |sema| {
                     if (struct_obj.status == .field_types_wip) {
-                        // We'll guess "pointer-aligned" and if we guess wrong, emit
-                        // a compile error later.
+                        // We'll guess "pointer-aligned", if the struct has an
+                        // underaligned pointer field then some allocations
+                        // might require explicit alignment.
                         return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
                     }
                     _ = try sema.resolveTypeFields(ty);
@@ -3153,8 +3161,9 @@ pub const Type = extern union {
         };
         if (opt_sema) |sema| {
             if (union_obj.status == .field_types_wip) {
-                // We'll guess "pointer-aligned" and if we guess wrong, emit
-                // a compile error later.
+                // We'll guess "pointer-aligned", if the union has an
+                // underaligned pointer field then some allocations
+                // might require explicit alignment.
                 return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
             }
             _ = try sema.resolveTypeFields(ty);
@@ -5234,7 +5243,12 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 switch (struct_obj.requires_comptime) {
-                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .wip, .unknown => {
+                        // Return false to avoid incorrect dependency loops.
+                        // This will be handled correctly once merged with
+                        // `Sema.typeRequiresComptime`.
+                        return false;
+                    },
                     .no => return false,
                     .yes => return true,
                 }
@@ -5243,7 +5257,12 @@ pub const Type = extern union {
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
                 switch (union_obj.requires_comptime) {
-                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .wip, .unknown => {
+                        // Return false to avoid incorrect dependency loops.
+                        // This will be handled correctly once merged with
+                        // `Sema.typeRequiresComptime`.
+                        return false;
+                    },
                     .no => return false,
                     .yes => return true,
                 }

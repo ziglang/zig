@@ -940,6 +940,7 @@ pub const Struct = struct {
     requires_comptime: PropertyBoolean = .unknown,
     have_field_inits: bool = false,
     is_tuple: bool,
+    assumed_runtime_bits: bool = false,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -1205,6 +1206,7 @@ pub const Union = struct {
         fully_resolved,
     },
     requires_comptime: PropertyBoolean = .unknown,
+    assumed_runtime_bits: bool = false,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.

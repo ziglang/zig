@@ -187,7 +187,7 @@ pub const Value = extern union {
         bound_fn,
         /// The ABI alignment of the payload type.
         lazy_align,
-        /// The ABI alignment of the payload type.
+        /// The ABI size of the payload type.
         lazy_size,
 
         pub const last_no_payload_tag = Tag.empty_array;
