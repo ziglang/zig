@@ -2865,6 +2865,55 @@ test "reverse" {
     try testing.expect(eql(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 }));
 }
 
+fn ReverseIterator(comptime T: type) type {
+    const info: struct { Child: type, Pointer: type } = blk: {
+        switch (@typeInfo(T)) {
+            .Pointer => |info| switch (info.size) {
+                .Slice => break :blk .{
+                    .Child = info.child,
+                    .Pointer = @Type(.{ .Pointer = .{
+                        .size = .Many,
+                        .is_const = info.is_const,
+                        .is_volatile = info.is_volatile,
+                        .alignment = info.alignment,
+                        .address_space = info.address_space,
+                        .child = info.child,
+                        .is_allowzero = info.is_allowzero,
+                        .sentinel = info.sentinel,
+                    } }),
+                },
+                else => {},
+            },
+            else => {},
+        }
+        @compileError("reverse iterator expects slice, found " ++ @typeName(T));
+    };
+    return struct {
+        ptr: info.Pointer,
+        index: usize,
+        pub fn next(self: *@This()) ?info.Child {
+            if (self.index == 0) return null;
+            self.index -= 1;
+            return self.ptr[self.index];
+        }
+    };
+}
+
+/// Iterate over a slice in reverse.
+pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
+    return .{ .ptr = slice.ptr, .index = slice.len };
+}
+
+test "reverseIterator" {
+    const slice: []const i32 = &[_]i32{ 5, 3, 1, 2 };
+    var it = reverseIterator(slice);
+    try testing.expectEqual(@as(?i32, 2), it.next());
+    try testing.expectEqual(@as(?i32, 1), it.next());
+    try testing.expectEqual(@as(?i32, 3), it.next());
+    try testing.expectEqual(@as(?i32, 5), it.next());
+    try testing.expectEqual(@as(?i32, null), it.next());
+}
+
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
 /// Assumes 0 <= amount <= items.len
 pub fn rotate(comptime T: type, items: []T, amount: usize) void {
