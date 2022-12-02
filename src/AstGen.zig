@@ -3696,6 +3696,29 @@ fn fnDecl(
                 if (param.anytype_ellipsis3) |tok| {
                     return astgen.failTok(tok, "missing parameter name", .{});
                 } else {
+                    ambiguous: {
+                        if (tree.nodes.items(.tag)[param.type_expr] != .identifier) break :ambiguous;
+                        const main_token = tree.nodes.items(.main_token)[param.type_expr];
+                        const identifier_str = tree.tokenSlice(main_token);
+                        if (isPrimitive(identifier_str)) break :ambiguous;
+                        return astgen.failNodeNotes(
+                            param.type_expr,
+                            "missing parameter name or type",
+                            .{},
+                            &[_]u32{
+                                try astgen.errNoteNode(
+                                    param.type_expr,
+                                    "if this is a name, annotate its type '{s}: T'",
+                                    .{identifier_str},
+                                ),
+                                try astgen.errNoteNode(
+                                    param.type_expr,
+                                    "if this is a type, give it a name '<name>: {s}'",
+                                    .{identifier_str},
+                                ),
+                            },
+                        );
+                    }
                     return astgen.failNode(param.type_expr, "missing parameter name", .{});
                 }
             } else 0;
