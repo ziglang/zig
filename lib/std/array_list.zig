@@ -221,6 +221,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts the array has at least one item.
         /// Invalidates pointers to end of list.
         /// This operation is O(N).
+        /// This preserves item order. Use `swapRemove` if order preservation is not important.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.items.len - 1;
             if (newlen == i) return self.pop();
@@ -235,6 +236,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
         /// This operation is O(1).
+        /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
         pub fn swapRemove(self: *Self, i: usize) T {
             if (self.items.len - 1 == i) return self.pop();
 
