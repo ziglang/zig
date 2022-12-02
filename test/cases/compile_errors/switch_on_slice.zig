@@ -1,7 +1,7 @@
 pub export fn entry() void {
     var a: [:0]const u8 = "foo";
     switch (a) {
-        "--version", "version" => unreachable,
+        ("--version"), ("version") => unreachable,
         else => {},
     }
 }

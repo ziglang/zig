@@ -5628,6 +5628,14 @@ fn simpleBinOp(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
 
+    if (op_inst_tag == .cmp_neq or op_inst_tag == .cmp_eq) {
+        const node_tags = tree.nodes.items(.tag);
+        const str = if (op_inst_tag == .cmp_eq) "==" else "!=";
+        if (node_tags[node_datas[node].lhs] == .string_literal or
+            node_tags[node_datas[node].rhs] == .string_literal)
+            return astgen.failNode(node, "cannot compare strings with {s}", .{str});
+    }
+
     const lhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].lhs, node);
     var line: u32 = undefined;
     var column: u32 = undefined;
@@ -6623,6 +6631,11 @@ fn switchExpr(
             special_prong = .under;
             underscore_src = case_src;
             continue;
+        }
+
+        for (case.ast.values) |val| {
+            if (node_tags[val] == .string_literal)
+                return astgen.failNode(val, "cannot switch on strings", .{});
         }
 
         if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] != .switch_range) {
