@@ -373,15 +373,16 @@ pub const DeclGen = struct {
         const ty = self.spv.typeRefType(ty_ref);
         const ty_id = self.typeId(ty_ref);
 
-        const literal: spec.LiteralContextDependentNumber = switch (ty.intSignedness()) {
+        const Lit = spec.LiteralContextDependentNumber;
+        const literal = switch (ty.intSignedness()) {
             .signed => switch (ty.intFloatBits()) {
-                1...32 => .{ .int32 = @intCast(i32, value) },
-                33...64 => .{ .int64 = @intCast(i64, value) },
+                1...32 => Lit{ .int32 = @intCast(i32, value) },
+                33...64 => Lit{ .int64 = @intCast(i64, value) },
                 else => unreachable, // TODO: composite integer literals
             },
             .unsigned => switch (ty.intFloatBits()) {
-                1...32 => .{ .uint32 = @intCast(u32, value) },
-                33...64 => .{ .uint64 = @intCast(u64, value) },
+                1...32 => Lit{ .uint32 = @intCast(u32, value) },
+                33...64 => Lit{ .uint64 = @intCast(u64, value) },
                 else => unreachable,
             },
         };
@@ -552,6 +553,19 @@ pub const DeclGen = struct {
                     .constituents = constituents,
                 });
             },
+            .Pointer => switch (val.tag()) {
+                .decl_ref => {
+                    const decl_index = val.castTag(.decl_ref).?.data;
+                    const decl_result_id = self.spv.allocId();
+                    try self.genDeclRef(decl_result_id, decl_index);
+                    try section.emit(self.spv.gpa, .OpVariable, .{
+                        .id_result_type = result_ty_id,
+                        .id_result = result_id,
+                        .storage_class = spirvStorageClass(ty.ptrAddressSpace()),
+                    });
+                },
+                else => return self.todo("constant pointer of value type {s}", .{@tagName(val.tag())}),
+            },
             .Fn => switch (repr) {
                 .direct => unreachable,
                 .indirect => return self.todo("function pointers", .{}),
@@ -559,6 +573,12 @@ pub const DeclGen = struct {
             .Void => unreachable,
             else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
+    }
+
+    fn genDeclRef(self: *DeclGen, result_id: IdRef, decl_index: Decl.Index) Error!void {
+        const decl = self.module.declPtr(decl_index);
+        self.module.markDeclAlive(decl);
+        try self.genConstant(result_id, decl.ty, decl.val, .indirect);
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
