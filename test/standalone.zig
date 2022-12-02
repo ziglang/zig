@@ -65,7 +65,8 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
 
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
-        .build_modes = true,
+        // https://github.com/ziglang/zig/issues/13738
+        .build_modes = !(builtin.os.tag == .windows and builtin.cpu.arch == .aarch64),
         .cross_targets = true,
     });
 
