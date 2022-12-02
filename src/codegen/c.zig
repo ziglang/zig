@@ -1141,8 +1141,10 @@ pub const DeclGen = struct {
 
                 if (!payload_ty.hasRuntimeBits()) {
                     // We use the error type directly as the type.
-                    const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
-                    return dg.renderValue(writer, error_ty, err_val, location);
+                    if (val.errorUnionIsPayload()) {
+                        return try writer.writeByte('0');
+                    }
+                    return dg.renderValue(writer, error_ty, val, location);
                 }
 
                 if (location != .Initializer) {
