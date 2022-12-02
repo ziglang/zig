@@ -562,16 +562,27 @@ pub const DeclState = struct {
         }
     }
 
+    pub const DbgInfoLoc = union(enum) {
+        register: u8,
+        stack: struct {
+            fp_register: u8,
+            offset: i32,
+        },
+        wasm_local: u32,
+        memory: u64,
+        linker_load: LinkerLoad,
+        immediate: u64,
+        undef,
+        none,
+        nop,
+    };
+
     pub fn genArgDbgInfo(
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
         atom: *Atom,
-        loc: union(enum) {
-            register: u8,
-            stack: struct { fp_register: u8, offset: i32 },
-            wasm_local: u32,
-        },
+        loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
         const name_with_null = name.ptr[0 .. name.len + 1];
@@ -612,6 +623,7 @@ pub const DeclState = struct {
                 });
                 leb128.writeULEB128(dbg_info.writer(), value) catch unreachable;
             },
+            else => unreachable,
         }
 
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
@@ -621,28 +633,13 @@ pub const DeclState = struct {
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
 
-    pub const VarArgDbgInfoLoc = union(enum) {
-        register: u8,
-        stack: struct {
-            fp_register: u8,
-            offset: i32,
-        },
-        wasm_local: u32,
-        memory: u64,
-        linker_load: LinkerLoad,
-        immediate: u64,
-        undef,
-        none,
-        nop,
-    };
-
     pub fn genVarDbgInfo(
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
         atom: *Atom,
         is_ptr: bool,
-        loc: VarArgDbgInfoLoc,
+        loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
         const name_with_null = name.ptr[0 .. name.len + 1];

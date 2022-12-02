@@ -4036,26 +4036,26 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMe
     const atom = self.getDbgInfoAtom();
 
     switch (self.debug_output) {
-        .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
-                .register = reg.dwarfLocOp(),
-            }),
-            .stack_offset,
-            .stack_argument_offset,
-            => {
-                const adjusted_stack_offset = switch (mcv) {
-                    .stack_offset => |offset| -@intCast(i32, offset),
-                    .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
-                    else => unreachable,
-                };
-                try dw.genArgDbgInfo(name, ty, atom, .{
-                    .stack = .{
+        .dwarf => |dw| {
+            const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
+                .register => |reg| .{ .register = reg.dwarfLocOp() },
+                .stack_offset,
+                .stack_argument_offset,
+                => blk: {
+                    const adjusted_stack_offset = switch (mcv) {
+                        .stack_offset => |offset| -@intCast(i32, offset),
+                        .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
+                        else => unreachable,
+                    };
+                    break :blk .{ .stack = .{
                         .fp_register = DW.OP.breg11,
                         .offset = adjusted_stack_offset,
-                    },
-                });
-            },
-            else => unreachable, // not a possible argument
+                    } };
+                },
+                else => unreachable, // not a possible argument
+
+            };
+            try dw.genArgDbgInfo(name, ty, atom, loc);
         },
         .plan9 => {},
         .none => {},

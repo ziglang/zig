@@ -185,28 +185,26 @@ const DbgInfoReloc = struct {
         const atom = function.getDbgInfoAtomPtr();
 
         switch (function.debug_output) {
-            .dwarf => |dw| switch (reloc.mcv) {
-                .register => |reg| try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, .{
-                    .register = reg.dwarfLocOp(),
-                }),
-
-                .stack_offset,
-                .stack_argument_offset,
-                => |offset| {
-                    const adjusted_offset = switch (reloc.mcv) {
-                        .stack_offset => -@intCast(i32, offset),
-                        .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
-                        else => unreachable,
-                    };
-                    try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, .{
-                        .stack = .{
+            .dwarf => |dw| {
+                const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
+                    .register => |reg| .{ .register = reg.dwarfLocOp() },
+                    .stack_offset,
+                    .stack_argument_offset,
+                    => |offset| blk: {
+                        const adjusted_offset = switch (reloc.mcv) {
+                            .stack_offset => -@intCast(i32, offset),
+                            .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
+                            else => unreachable,
+                        };
+                        break :blk .{ .stack = .{
                             .fp_register = Register.x29.dwarfLocOpDeref(),
                             .offset = adjusted_offset,
-                        },
-                    });
-                },
+                        } };
+                    },
+                    else => unreachable, // not a possible argument
 
-                else => unreachable, // not a possible argument
+                };
+                try dw.genArgDbgInfo(reloc.name, reloc.ty, atom, loc);
             },
             .plan9 => {},
             .none => {},
@@ -223,10 +221,8 @@ const DbgInfoReloc = struct {
 
         switch (function.debug_output) {
             .dwarf => |dw| {
-                const loc: link.File.Dwarf.DeclState.VarArgDbgInfoLoc = switch (reloc.mcv) {
-                    .register => |reg| .{
-                        .register = reg.dwarfLocOp(),
-                    },
+                const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
+                    .register => |reg| .{ .register = reg.dwarfLocOp() },
                     .ptr_stack_offset,
                     .stack_offset,
                     .stack_argument_offset,

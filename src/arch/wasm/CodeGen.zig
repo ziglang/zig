@@ -5327,7 +5327,7 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     log.debug(" var name = ({s})", .{name});
 
     const atom = func.getDbgInfoAtom();
-    const loc: link.File.Dwarf.DeclState.VarArgDbgInfoLoc = switch (operand) {
+    const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (operand) {
         .local => |local| .{ .wasm_local = local.value },
         else => blk: {
             log.debug("TODO generate debug info for {}", .{operand});

@@ -3818,18 +3818,19 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
     const atom = self.getDbgInfoAtomPtr();
 
     switch (self.debug_output) {
-        .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, atom, .{
-                .register = reg.dwarfLocOp(),
-            }),
-            .stack_offset => |off| try dw.genArgDbgInfo(name, ty, atom, .{
-                .stack = .{
-                    .fp_register = Register.rbp.dwarfLocOpDeref(), // TODO handle -fomit-frame-pointer
-                    .offset = -off,
+        .dwarf => |dw| {
+            const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
+                .register => |reg| .{ .register = reg.dwarfLocOp() },
+                .stack_offset => |off| .{
+                    .stack = .{
+                        // TODO handle -fomit-frame-pointer
+                        .fp_register = Register.rbp.dwarfLocOpDeref(),
+                        .offset = -off,
+                    },
                 },
-            }),
-
-            else => unreachable, // not a valid function parameter
+                else => unreachable, // not a valid function parameter
+            };
+            try dw.genArgDbgInfo(name, ty, atom, loc);
         },
         .plan9 => {},
         .none => {},
@@ -3852,10 +3853,8 @@ fn genVarDbgInfo(
 
     switch (self.debug_output) {
         .dwarf => |dw| {
-            const loc: link.File.Dwarf.DeclState.VarArgDbgInfoLoc = switch (mcv) {
-                .register => |reg| .{
-                    .register = reg.dwarfLocOp(),
-                },
+            const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
+                .register => |reg| .{ .register = reg.dwarfLocOp() },
                 .ptr_stack_offset,
                 .stack_offset,
                 => |off| .{ .stack = .{
