@@ -20262,7 +20262,7 @@ fn analyzeShuffle(
         var buf: Value.ElemValueBuffer = undefined;
         const elem = mask.elemValueBuffer(sema.mod, i, &buf);
         if (elem.isUndef()) continue;
-        const int = elem.toSignedInt();
+        const int = elem.toSignedInt(sema.mod.getTarget());
         var unsigned: u32 = undefined;
         var chosen: u32 = undefined;
         if (int >= 0) {
@@ -20304,7 +20304,7 @@ fn analyzeShuffle(
                     values[i] = Value.undef;
                     continue;
                 }
-                const int = mask_elem_val.toSignedInt();
+                const int = mask_elem_val.toSignedInt(sema.mod.getTarget());
                 const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int);
                 if (int >= 0) {
                     values[i] = try a_val.elemValue(sema.mod, sema.arena, unsigned);
@@ -28299,6 +28299,7 @@ fn cmpNumeric(
 
     var lhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(lhs)) |lhs_val| {
+        try sema.resolveLazyValue(lhs_val);
         if (lhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
         if (lhs_val.isNan()) switch (op) {
@@ -28357,6 +28358,7 @@ fn cmpNumeric(
 
     var rhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+        try sema.resolveLazyValue(rhs_val);
         if (rhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
         if (rhs_val.isNan()) switch (op) {

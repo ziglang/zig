@@ -409,7 +409,7 @@ pub const DeclState = struct {
                         // See https://github.com/ziglang/zig/issues/645
                         var int_buffer: Value.Payload.U64 = undefined;
                         const field_int_val = value.enumToInt(ty, &int_buffer);
-                        break :value @bitCast(u64, field_int_val.toSignedInt());
+                        break :value @bitCast(u64, field_int_val.toSignedInt(target));
                     } else @intCast(u64, field_i);
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
                 }
