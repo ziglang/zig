@@ -985,7 +985,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("header with bool param function", linux_x64,
         \\export fn start(a: bool) void{_ = a;}
     ,
-        \\zig_extern void start(zig_bool const a0);
+        \\zig_extern void start(bool const a0);
         \\
     );
     ctx.h("header with noreturn function", linux_x64,
