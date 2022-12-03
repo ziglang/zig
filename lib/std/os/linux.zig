@@ -749,6 +749,35 @@ pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, mode: mode_t) usize {
     return syscall4(.openat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), flags, mode);
 }
 
+pub const RESOLVE = struct {
+    /// Block mount-point crossings (includes bind-mounts).
+    pub const NO_XDEV = 0x1;
+    /// Block traversal through procfs-style "magic-links".
+    pub const RESOLVE_NO_MAGICLINKS = 0x2;
+    /// Block traversal through all symlinks (implies OEXT_NO_MAGICLINKS)
+    pub const NO_SYMLINKS = 0x04;
+    /// Block "lexical" trickery like "..", symlinks, and absolute paths which escape the dirfd.
+    pub const BENEATH = 0x08;
+    /// Make all jumps to "/" and ".." be scoped inside the dirfd (similar to chroot(2)).
+    pub const IN_ROOT = 0x10;
+    /// Only complete if resolution can be completed through cached lookup. May return -EAGAIN if that's not possible.
+    pub const CACHED = 0x20;
+};
+
+pub const open_how = extern struct {
+    /// os.O.* flags
+    flags: u64,
+    /// Mode for O_{CREAT,TMPFILE}
+    mode: u64,
+    /// linux.RESOLVE.* flags
+    resolve: u64,
+};
+
+pub fn openat2(dirfd: i32, path: [*:0]const u8, how: *const open_how) usize {
+    // dirfd could be negative, for example AT.FDCWD is -100
+    return syscall4(.openat2, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(how), @sizeOf(open_how));
+}
+
 /// See also `clone` (from the arch-specific include)
 pub fn clone5(flags: usize, child_stack_ptr: usize, parent_tid: *i32, child_tid: *i32, newtls: usize) usize {
     return syscall5(.clone, flags, child_stack_ptr, @ptrToInt(parent_tid), @ptrToInt(child_tid), newtls);

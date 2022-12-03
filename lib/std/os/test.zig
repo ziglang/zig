@@ -163,6 +163,27 @@ test "openat smoke test" {
     try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O.RDWR, mode));
 }
 
+test "openat2" {
+    if (native_os != .linux)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var how = std.mem.zeroInit(os.linux.open_how, .{
+        .flags = os.O.RDWR | os.O.CREAT | os.O.EXCL,
+        .mode = 0o600,
+        .resolve = os.linux.RESOLVE.IN_ROOT,
+    });
+
+    var rc = os.linux.openat2(tmp.dir.fd, "/some_file", &how);
+    try std.testing.expectEqual(os.E.SUCCESS, os.errno(rc));
+    os.close(@intCast(os.linux.fd_t, rc));
+
+    var stat: os.Stat = try os.fstatat(tmp.dir.fd, "some_file", 0);
+    try std.testing.expectEqual(@as(u32, 0o600), stat.mode & 0o777);
+}
+
 test "symlink with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
