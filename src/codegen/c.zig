@@ -2999,30 +2999,31 @@ fn airArg(f: *Function) CValue {
 fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const ptr_info = f.air.typeOf(ty_op.operand).ptrInfo().data;
+    const src_ty = ptr_info.pointee_type;
 
-    const inst_ty = f.air.typeOfIndex(inst);
-    if (!inst_ty.hasRuntimeBitsIgnoreComptime() or
+    if (!src_ty.hasRuntimeBitsIgnoreComptime() or
         !ptr_info.@"volatile" and f.liveness.isUnused(inst))
         return CValue.none;
 
     const target = f.object.dg.module.getTarget();
-    const is_array = lowersToArray(inst_ty, target);
+    const is_aligned = ptr_info.@"align" == 0 or ptr_info.@"align" >= src_ty.abiAlignment(target);
+    const is_array = lowersToArray(src_ty, target);
+    const need_memcpy = !is_aligned or is_array;
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
 
-    // We need to separately initialize arrays with a memcpy so they must be mutable.
-    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+    // We need to initialize arrays and unaligned loads with a memcpy so they must be mutable.
+    const local = try f.allocLocal(src_ty, if (need_memcpy) .Mut else .Const);
 
-    if (is_array) {
-        // Insert a memcpy to initialize this array. The source operand is always a pointer
-        // and thus we only need to know size/type information from the local type/dest.
+    if (need_memcpy) {
         try writer.writeAll(";\n");
         try writer.writeAll("memcpy(");
+        if (!is_array) try writer.writeByte('&');
         try f.writeCValue(writer, local, .FunctionArgument);
-        try writer.writeAll(", ");
-        try f.writeCValue(writer, operand, .FunctionArgument);
+        try writer.writeAll(", (const char *)");
+        try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(", sizeof(");
-        try f.renderTypecast(writer, inst_ty);
+        try f.renderTypecast(writer, src_ty);
         try writer.writeAll("))");
     } else if (ptr_info.host_size != 0) {
         var host_pl = Type.Payload.Bits{
@@ -3045,12 +3046,12 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 
         var field_pl = Type.Payload.Bits{
             .base = .{ .tag = .int_unsigned },
-            .data = @intCast(u16, inst_ty.bitSize(target)),
+            .data = @intCast(u16, src_ty.bitSize(target)),
         };
         const field_ty = Type.initPayload(&field_pl.base);
 
         try writer.writeAll(" = (");
-        try f.renderTypecast(writer, inst_ty);
+        try f.renderTypecast(writer, src_ty);
         try writer.writeAll(")zig_wrap_");
         try f.object.dg.renderTypeForBuiltinFnName(writer, field_ty);
         try writer.writeAll("((");
@@ -3226,8 +3227,13 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         return try airStoreUndefined(f, ptr_info.pointee_type, ptr_val);
 
     const target = f.object.dg.module.getTarget();
+    const is_aligned = ptr_info.@"align" == 0 or
+        ptr_info.@"align" >= ptr_info.pointee_type.abiAlignment(target);
+    const is_array = lowersToArray(ptr_info.pointee_type, target);
+    const need_memcpy = !is_aligned or is_array;
     const writer = f.object.writer();
-    if (lowersToArray(ptr_info.pointee_type, target)) {
+
+    if (need_memcpy) {
         // For this memcpy to safely work we need the rhs to have the same
         // underlying type as the lhs (i.e. they must both be arrays of the same underlying type).
         assert(src_ty.eql(ptr_info.pointee_type, f.object.dg.module));
@@ -3244,9 +3250,10 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
             break :blk new_local;
         } else src_val;
 
-        try writer.writeAll("memcpy(");
+        try writer.writeAll("memcpy((char *)");
         try f.writeCValue(writer, ptr_val, .FunctionArgument);
         try writer.writeAll(", ");
+        if (!is_array) try writer.writeByte('&');
         try f.writeCValue(writer, array_src, .FunctionArgument);
         try writer.writeAll(", sizeof(");
         try f.renderTypecast(writer, src_ty);
