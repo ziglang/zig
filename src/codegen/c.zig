@@ -4198,6 +4198,7 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.CondBr, pl_op.payload);
     const then_body = f.air.extra[extra.end..][0..extra.data.then_body_len];
     const else_body = f.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const liveness_condbr = f.liveness.getCondBr(inst);
     const writer = f.object.writer();
 
     // Keep using the original for the then branch; use a clone of the value
@@ -4208,6 +4209,10 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     var cloned_frees = try f.free_locals.clone(gpa);
     defer cloned_frees.deinit(gpa);
 
+    for (liveness_condbr.then_deaths) |operand| {
+        try die(f, inst, Air.indexToRef(operand));
+    }
+
     try writer.writeAll("if (");
     try f.writeCValue(writer, cond, .Other);
     try writer.writeAll(") ");
@@ -4217,6 +4222,9 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     f.value_map = cloned_map.move();
     f.free_locals.deinit(gpa);
     f.free_locals = cloned_frees.move();
+    for (liveness_condbr.else_deaths) |operand| {
+        try die(f, inst, Air.indexToRef(operand));
+    }
     try genBody(f, else_body);
     try f.object.indent_writer.insertNewline();
 
@@ -4246,6 +4254,12 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     f.object.indent_writer.pushIndent();
 
     const gpa = f.object.dg.gpa;
+    const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.data.cases_len + 1);
+    defer gpa.free(liveness.deaths);
+    // On the final iteration we do not clone the map. This ensures that
+    // lowering proceeds after the switch_br taking into account the
+    // mutations to the liveness information.
+    const last_case_i = switch_br.data.cases_len - @boolToInt(switch_br.data.else_body_len == 0);
     var extra_index: usize = switch_br.end;
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
@@ -4265,15 +4279,16 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
             try writer.writeAll(": ");
         }
-        // On the final iteration we do not clone the map. This ensures that
-        // lowering proceeds after the switch_br taking into account the
-        // mutations to the liveness information.
-        // The case body must be noreturn so we don't need to insert a break.
-        if (case_i < switch_br.data.cases_len - 1) {
+        if (case_i != last_case_i) {
             const old_value_map = f.value_map;
             f.value_map = try old_value_map.clone();
             const old_free_locals = f.free_locals;
             f.free_locals = try f.free_locals.clone(gpa);
+
+            for (liveness.deaths[case_i]) |operand| {
+                try die(f, inst, Air.indexToRef(operand));
+            }
+
             defer {
                 f.value_map.deinit();
                 f.free_locals.deinit(gpa);
@@ -4282,14 +4297,25 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             }
             try genBody(f, case_body);
         } else {
+            for (liveness.deaths[case_i]) |operand| {
+                try die(f, inst, Air.indexToRef(operand));
+            }
             try genBody(f, case_body);
         }
+        // The case body must be noreturn so we don't need to insert a break.
     }
 
     const else_body = f.air.extra[extra_index..][0..switch_br.data.else_body_len];
     try f.object.indent_writer.insertNewline();
-    try writer.writeAll("default: ");
-    try genBody(f, else_body);
+    if (else_body.len > 0) {
+        for (liveness.deaths[liveness.deaths.len - 1]) |operand| {
+            try die(f, inst, Air.indexToRef(operand));
+        }
+        try writer.writeAll("default: ");
+        try genBody(f, else_body);
+    } else {
+        try writer.writeAll("default: zig_unreachable();");
+    }
     try f.object.indent_writer.insertNewline();
 
     f.object.indent_writer.popIndent();
