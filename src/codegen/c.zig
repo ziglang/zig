@@ -2427,11 +2427,15 @@ pub fn genFunc(f: *Function) !void {
     defer tracy.end();
 
     const o = &f.object;
+    const tv: TypedValue = .{
+        .ty = o.dg.decl.ty,
+        .val = o.dg.decl.val,
+    };
 
     o.code_header = std.ArrayList(u8).init(f.object.dg.gpa);
     defer o.code_header.deinit();
 
-    const is_global = o.dg.module.decl_exports.contains(f.func.owner_decl);
+    const is_global = o.dg.declIsGlobal(tv);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
     try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
@@ -2478,14 +2482,11 @@ pub fn genDecl(o: *Object) !void {
         try fwd_decl_writer.writeAll(";\n");
     } else if (tv.val.castTag(.variable)) |var_payload| {
         const variable: *Module.Var = var_payload.data;
+
         const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
         const fwd_decl_writer = o.dg.fwd_decl.writer();
 
-        const decl_c_value: CValue = if (is_global) .{
-            .bytes = mem.span(o.dg.decl.name),
-        } else .{
-            .decl = o.dg.decl_index,
-        };
+        const decl_c_value = CValue{ .decl = o.dg.decl_index };
 
         try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
         if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");

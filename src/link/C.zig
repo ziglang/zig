@@ -290,9 +290,17 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
         f.remaining_decls.putAssumeCapacityNoClobber(decl_index, {});
     }
 
-    while (f.remaining_decls.popOrNull()) |kv| {
-        const decl_index = kv.key;
-        try self.flushDecl(&f, decl_index);
+    {
+        var export_names = std.StringHashMapUnmanaged(void){};
+        defer export_names.deinit(gpa);
+        try export_names.ensureTotalCapacity(gpa, @intCast(u32, module.decl_exports.entries.len));
+        for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
+            try export_names.put(gpa, @"export".options.name, {});
+
+        while (f.remaining_decls.popOrNull()) |kv| {
+            const decl_index = kv.key;
+            try self.flushDecl(&f, decl_index, export_names);
+        }
     }
 
     f.all_buffers.items[typedef_index] = .{
@@ -415,7 +423,12 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
 }
 
 /// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
-fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!void {
+fn flushDecl(
+    self: *C,
+    f: *Flush,
+    decl_index: Module.Decl.Index,
+    export_names: std.StringHashMapUnmanaged(void),
+) FlushDeclError!void {
     const module = self.base.options.module.?;
     const decl = module.declPtr(decl_index);
     // Before flushing any particular Decl we must ensure its
@@ -423,7 +436,7 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
     // file comes out correctly.
     for (decl.dependencies.keys()) |dep| {
         if (f.remaining_decls.swapRemove(dep)) {
-            try flushDecl(self, f, dep);
+            try flushDecl(self, f, dep, export_names);
         }
     }
 
@@ -432,7 +445,8 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
 
     try self.flushTypedefs(f, decl_block.typedefs);
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
-    f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
+    if (!(decl.isExtern() and export_names.contains(mem.span(decl.name))))
+        f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }
 
 pub fn flushEmitH(module: *Module) !void {
