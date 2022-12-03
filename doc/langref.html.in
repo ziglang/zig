@@ -9269,7 +9269,7 @@ fn doTheTest() !void {
       {#header_open|@This#}
       <pre>{#syntax#}@This() type{#endsyntax#}</pre>
       <p>
-      Returns the innermost struct, enum, or union that this function call is inside.
+      Returns the type of the innermost struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
       {#code_begin|test|this_innermost#}
@@ -9297,6 +9297,9 @@ fn List(comptime T: type) type {
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at file scope, it returns a reference to the
       struct that corresponds to the current file.
+      </p>
+      <p>
+      {#syntax#}@This(){#endsyntax} is not related to the "this" keyword used by many languages as a reference to the current instance of an object within a method.
       </p>
       {#header_close#}
 
