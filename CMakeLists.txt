@@ -732,7 +732,7 @@ set(BUILD_ZIG2_ARGS
   zig2
   "${ZIG1_WASM_ZST_SOURCE}"
   build-exe src/main.zig -ofmt=c -lc
-  -OReleaseFast
+  -OReleaseSmall
 )
  
 add_custom_command(
@@ -750,7 +750,7 @@ set(BUILD_COMPILER_RT_ARGS
   compiler_rt
   "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst"
   build-obj lib/compiler_rt.zig -ofmt=c
-  -OReleaseFast
+  -OReleaseSmall
 )
  
 add_custom_command(
