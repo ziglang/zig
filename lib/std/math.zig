@@ -1281,13 +1281,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
         .Int => {
             switch (@typeInfo(@TypeOf(value))) {
                 .Int, .ComptimeInt => {
-                    if (value >= maxInt(T)) {
-                        return @as(T, maxInt(T));
-                    } else if (value <= minInt(T)) {
-                        return @as(T, minInt(T));
-                    } else {
-                        return @intCast(T, value);
-                    }
+                    return @truncate(T, value);
                 },
                 .Float, .ComptimeFloat => {
                     if (value >= maxInt(T)) {
