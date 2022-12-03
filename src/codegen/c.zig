@@ -2548,12 +2548,16 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
     const writer = f.object.writer();
     if (body.len == 0) {
         try writer.writeAll("{}");
-        return;
+    } else {
+        try writer.writeAll("{\n");
+        f.object.indent_writer.pushIndent();
+        try genBodyInner(f, body);
+        f.object.indent_writer.popIndent();
+        try writer.writeByte('}');
     }
+}
 
-    try writer.writeAll("{\n");
-    f.object.indent_writer.pushIndent();
-
+fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfMemory }!void {
     const air_tags = f.air.instructions.items(.tag);
 
     for (body) |inst| {
@@ -2799,9 +2803,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             else => try f.value_map.putNoClobber(Air.indexToRef(inst), result_value),
         }
     }
-
-    f.object.indent_writer.popIndent();
-    try writer.writeByte('}');
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: []const u8) !CValue {
@@ -3775,7 +3776,7 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
         .result = result,
     });
 
-    try genBody(f, body);
+    try genBodyInner(f, body);
     try f.object.indent_writer.insertNewline();
     // label must be followed by an expression, add an empty one.
     try writer.print("zig_block_{d}:;\n", .{block_id});
