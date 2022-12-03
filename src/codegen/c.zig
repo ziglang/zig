@@ -4568,9 +4568,18 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
         else => .none,
     };
 
-    const field_name: CValue = switch (struct_ty.tag()) {
+    const FieldLoc = union(enum) {
+        begin: void,
+        field: CValue,
+        end: void,
+    };
+    const field_loc = switch (struct_ty.tag()) {
         .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => CValue{ .identifier = struct_ty.structFieldName(index) },
+            .Auto, .Extern => for (struct_ty.structFields().values()[index..]) |field, offset| {
+                if (field.ty.hasRuntimeBitsIgnoreComptime()) break FieldLoc{ .field = .{
+                    .identifier = struct_ty.structFieldName(index + offset),
+                } };
+            } else @as(FieldLoc, .end),
             .Packed => if (field_ptr_info.data.host_size == 0) {
                 const target = f.object.dg.module.getTarget();
 
@@ -4595,40 +4604,43 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
                 try f.writeCValue(writer, struct_ptr, .Other);
                 try writer.print(")[{}];\n", .{try f.fmtIntLiteral(Type.usize, byte_offset_val)});
                 return local;
-            } else @as(CValue, CValue.none), // this @as is needed because of a stage1 bug
+            } else @as(FieldLoc, .begin),
         },
         .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout() == .Packed) {
             try f.writeCValue(writer, struct_ptr, .Other);
             try writer.writeAll(";\n");
             return local;
-        } else .{
+        } else if (field_ty.hasRuntimeBitsIgnoreComptime()) FieldLoc{ .field = .{
             .identifier = struct_ty.unionFields().keys()[index],
-        },
+        } } else @as(FieldLoc, .end),
         .tuple, .anon_struct => field_name: {
             const tuple = struct_ty.tupleFields();
             if (tuple.values[index].tag() != .unreachable_value) return CValue.none;
 
             var id: usize = 0;
-            for (tuple.values[0..index]) |value|
-                id += @boolToInt(value.tag() == .unreachable_value);
-            break :field_name .{ .field = id };
+            break :field_name for (tuple.values) |value, i| {
+                if (value.tag() != .unreachable_value) continue;
+                if (!tuple.types[i].hasRuntimeBitsIgnoreComptime()) continue;
+                if (i >= index) break FieldLoc{ .field = .{ .field = id } };
+                id += 1;
+            } else @as(FieldLoc, .end);
         },
         else => unreachable,
     };
 
-    if (field_ty.hasRuntimeBitsIgnoreComptime()) {
-        try writer.writeByte('&');
-        if (extra_name != .none) {
+    try writer.writeByte('&');
+    switch (field_loc) {
+        .begin, .end => {
+            try writer.writeByte('(');
+            try f.writeCValue(writer, struct_ptr, .Other);
+            try writer.print(")[{}]", .{@boolToInt(field_loc == .end)});
+        },
+        .field => |field| if (extra_name != .none) {
             try f.writeCValueDerefMember(writer, struct_ptr, extra_name);
-            if (field_name != .none) {
-                try writer.writeByte('.');
-                try f.writeCValue(writer, field_name, .Other);
-            }
-        } else if (field_name != .none)
-            try f.writeCValueDerefMember(writer, struct_ptr, field_name)
-        else
-            try f.writeCValueDeref(writer, struct_ptr);
-    } else try f.writeCValue(writer, struct_ptr, .Other);
+            try writer.writeByte('.');
+            try f.writeCValue(writer, field, .Other);
+        } else try f.writeCValueDerefMember(writer, struct_ptr, field),
+    }
     try writer.writeAll(";\n");
     return local;
 }
