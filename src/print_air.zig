@@ -750,6 +750,9 @@ const Writer = struct {
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
+        const liveness = w.liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
+            @panic("out of memory");
+        defer w.gpa.free(liveness.deaths);
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
 
@@ -770,6 +773,17 @@ const Writer = struct {
             }
             try s.writeAll("] => {\n");
             w.indent += 2;
+
+            const deaths = liveness.deaths[case_i];
+            if (deaths.len != 0) {
+                try s.writeByteNTimes(' ', w.indent);
+                for (deaths) |operand, i| {
+                    if (i != 0) try s.writeAll(" ");
+                    try s.print("%{d}!", .{operand});
+                }
+                try s.writeAll("\n");
+            }
+
             try w.writeBody(s, case_body);
             w.indent -= 2;
             try s.writeByteNTimes(' ', w.indent);
@@ -780,6 +794,17 @@ const Writer = struct {
         if (else_body.len != 0) {
             try s.writeAll(", else => {\n");
             w.indent += 2;
+
+            const deaths = liveness.deaths[liveness.deaths.len - 1];
+            if (deaths.len != 0) {
+                try s.writeByteNTimes(' ', w.indent);
+                for (deaths) |operand, i| {
+                    if (i != 0) try s.writeAll(" ");
+                    try s.print("%{d}!", .{operand});
+                }
+                try s.writeAll("\n");
+            }
+
             try w.writeBody(s, else_body);
             w.indent -= 2;
             try s.writeByteNTimes(' ', w.indent);
