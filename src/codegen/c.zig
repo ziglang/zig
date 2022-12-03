@@ -271,7 +271,8 @@ pub const Function = struct {
     /// the locals within so that it can be used to render the block of
     /// variable declarations at the top of a function, sorted descending by
     /// type alignment.
-    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, void) = .{},
+    /// The value is whether the alloc is static or not.
+    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
     /// Needed for memory used by Type objects used as keys in free_locals.
     arena: std.heap.ArenaAllocator,
 
@@ -290,6 +291,8 @@ pub const Function = struct {
             const writer = f.object.code_header.writer();
             const alignment = 0;
             const decl_c_value = try f.allocLocalValue(ty, alignment);
+            const gpa = f.object.dg.gpa;
+            try f.allocs.put(gpa, decl_c_value.local, true);
             try writer.writeAll("static ");
             try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, .Const, alignment, .Complete);
             try writer.writeAll(" = ");
@@ -2487,7 +2490,9 @@ pub fn genFunc(f: *Function) !void {
     // Liveness analysis, however, locals from alloc instructions will be
     // missing. These are added now to complete the map. Then we can sort by
     // alignment, descending.
-    for (f.allocs.keys()) |local_index| {
+    const values = f.allocs.values();
+    for (f.allocs.keys()) |local_index, i| {
+        if (values[i]) continue; // static
         const local = f.locals.items[local_index];
         log.debug("inserting local {d} into free_locals", .{local_index});
         const gop = try f.free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
@@ -3110,7 +3115,7 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocAlignedLocal(elem_type, mutability, inst_ty.ptrAlignment(target));
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.local });
     const gpa = f.object.dg.module.gpa;
-    try f.allocs.put(gpa, local.local, {});
+    try f.allocs.put(gpa, local.local, false);
     return CValue{ .local_ref = local.local };
 }
 
@@ -3127,7 +3132,7 @@ fn airRetPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocAlignedLocal(elem_ty, mutability, inst_ty.ptrAlignment(target));
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.local });
     const gpa = f.object.dg.module.gpa;
-    try f.allocs.put(gpa, local.local, {});
+    try f.allocs.put(gpa, local.local, false);
     return CValue{ .local_ref = local.local };
 }
 
