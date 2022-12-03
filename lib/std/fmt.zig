@@ -1460,6 +1460,15 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
     return fbs.pos;
 }
 
+// Converts values in the range [0, 100) to a string.
+fn digits2(value: usize) []const u8 {
+    return ("0001020304050607080910111213141516171819" ++
+        "2021222324252627282930313233343536373839" ++
+        "4041424344454647484950515253545556575859" ++
+        "6061626364656667686970717273747576777879" ++
+        "8081828384858687888990919293949596979899")[value * 2 ..];
+}
+
 const FormatDurationData = struct {
     ns: u64,
     negative: bool = false,
