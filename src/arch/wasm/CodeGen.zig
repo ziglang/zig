@@ -2001,7 +2001,7 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     try func.restoreStackPointer();
     try func.addTag(.@"return");
-    return func.finishAir(inst, .none, &.{});
+    return func.finishAir(inst, .none, &.{un_op});
 }
 
 fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) InnerError!void {
@@ -3161,7 +3161,7 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
         break :result func.reuseOperand(ty_op.operand, operand);
     } else WValue{ .none = {} };
-    func.finishAir(inst, result, &.{});
+    func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 fn bitcast(func: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) InnerError!WValue {
@@ -4115,7 +4115,7 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const len = try func.resolveInst(bin_op.rhs);
     try func.memset(ptr, len, value);
 
-    func.finishAir(inst, .none, &.{pl_op.operand});
+    func.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
 }
 
 /// Sets a region of memory at `ptr` to the value of `value`
@@ -4424,6 +4424,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => unreachable,
         }
     };
+    // TODO: this is incorrect Liveness handling code
     func.finishAir(inst, result, &.{});
 }
 
@@ -4747,7 +4748,7 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const len = try func.resolveInst(bin_op.rhs);
     try func.memcpy(dst, src, len);
 
-    func.finishAir(inst, .none, &.{pl_op.operand});
+    func.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
 }
 
 fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5158,7 +5159,8 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: enum { max, min }) InnerE
 fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
     const bin_op = func.air.extraData(Air.Bin, pl_op.payload).data;
-    if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
+    if (func.liveness.isUnused(inst))
+        return func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs, pl_op.operand });
 
     const ty = func.air.typeOfIndex(inst);
     if (ty.zigTypeTag() == .Vector) {
@@ -5186,7 +5188,7 @@ fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :result try (try func.binOp(mul_result, addend, ty, .add)).toLocal(func, ty);
     };
 
-    func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+    func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs, pl_op.operand });
 }
 
 fn airClz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
