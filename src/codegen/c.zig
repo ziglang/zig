@@ -4195,7 +4195,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
     }
     {
-        const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
 
         var stack = std.heap.stackFallback(256, f.object.dg.gpa);
         const allocator = stack.get();
@@ -4204,29 +4204,43 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         var src_i: usize = 0;
         var dst_i: usize = 0;
-        while (src_i < asm_source.len) : (src_i += 1) {
-            fixed_asm_source[dst_i] = asm_source[src_i];
-            dst_i += 1;
-            if (asm_source[src_i] != '%' or src_i + 1 >= asm_source.len) continue;
+        while (true) {
+            const literal = mem.sliceTo(asm_source[src_i..], '%');
+            src_i += literal.len;
+
+            mem.copy(u8, fixed_asm_source[dst_i..], literal);
+            dst_i += literal.len;
+
+            if (src_i >= asm_source.len) break;
+
             src_i += 1;
+            if (src_i >= asm_source.len)
+                return f.fail("CBE: invalid inline asm string '{s}'", .{asm_source});
+
+            fixed_asm_source[dst_i] = '%';
+            dst_i += 1;
+
             if (asm_source[src_i] != '[') {
-                // This handles %%
+                // This also handles %%
                 fixed_asm_source[dst_i] = asm_source[src_i];
+                src_i += 1;
                 dst_i += 1;
                 continue;
             }
-            const len = std.mem.indexOfScalar(u8, asm_source[src_i + 1 ..], ']') orelse
-                return f.fail("CBE: invalid inline asm string '{s}'", .{asm_source});
-            if (std.mem.indexOfScalar(u8, asm_source[src_i + 1 ..][0..len], ':')) |colon| {
-                const modifier = asm_source[src_i + 1 + colon + 1 .. src_i + 1 + len];
-                std.mem.copy(u8, fixed_asm_source[dst_i..], modifier);
-                dst_i += modifier.len;
 
-                const name = asm_source[src_i .. src_i + 1 + colon];
-                std.mem.copy(u8, fixed_asm_source[dst_i..], name);
+            const desc = mem.sliceTo(asm_source[src_i..], ']');
+            if (mem.indexOfScalar(u8, desc, ':')) |colon| {
+                const name = desc[0..colon];
+                const modifier = desc[colon + 1 ..];
+
+                mem.copy(u8, fixed_asm_source[dst_i..], modifier);
+                dst_i += modifier.len;
+                mem.copy(u8, fixed_asm_source[dst_i..], name);
                 dst_i += name.len;
 
-                src_i += len;
+                src_i += desc.len;
+                if (src_i >= asm_source.len)
+                    return f.fail("CBE: invalid inline asm string '{s}'", .{asm_source});
             }
         }
 
