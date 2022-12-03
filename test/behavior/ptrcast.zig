@@ -78,7 +78,6 @@ fn testReinterpretBytesAsExternStruct() !void {
 
 test "reinterpret bytes of an extern struct (with under-aligned fields) into another" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO: Under-aligned fields are not yet supported in the CBE
 
     try testReinterpretExternStructAsExternStruct();
     comptime try testReinterpretExternStructAsExternStruct();
