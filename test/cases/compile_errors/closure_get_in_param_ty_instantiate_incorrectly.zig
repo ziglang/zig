@@ -22,3 +22,4 @@ pub export fn entry() void {
 // target=native
 //
 // :17:25: error: expected type 'u32', found 'type'
+// :3:21: note: parameter type declared here

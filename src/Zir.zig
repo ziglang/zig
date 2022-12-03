@@ -519,7 +519,7 @@ pub const Inst = struct {
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
-        ret_tok,
+        ret_implicit,
         /// Sends control flow back to the function's callee.
         /// The return operand is `error.foo` where `foo` is given by the string.
         /// If the current function has an inferred error set, the error given by the
@@ -1256,7 +1256,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_tok,
+                .ret_implicit,
                 .ret_err_value,
                 .@"unreachable",
                 .repeat,
@@ -1530,7 +1530,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_tok,
+                .ret_implicit,
                 .ret_err_value,
                 .ret_ptr,
                 .ret_type,
@@ -1659,7 +1659,7 @@ pub const Inst = struct {
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
-                .ret_tok = .un_tok,
+                .ret_implicit = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
                 .ret_ptr = .node,

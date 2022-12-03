@@ -24,5 +24,6 @@ pub export fn entry3() void {
 // :4:35: note: cannot implicitly cast double pointer '*const *const usize' to anyopaque pointer '*const anyopaque'
 // :9:10: error: expected type '?*anyopaque', found '*[*:0]u8'
 // :9:10: note: cannot implicitly cast double pointer '*[*:0]u8' to anyopaque pointer '?*anyopaque'
+// :11:12: note: parameter type declared here
 // :15:35: error: expected type '*const anyopaque', found '*?*usize'
 // :15:35: note: cannot implicitly cast double pointer '*?*usize' to anyopaque pointer '*const anyopaque'

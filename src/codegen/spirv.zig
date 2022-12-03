@@ -345,7 +345,7 @@ pub const DeclGen = struct {
 
                 // Note, value is required to be sign-extended, so we don't need to mask off the upper bits.
                 // See https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#Literal
-                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt()) else val.toUnsignedInt(target);
+                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt(target)) else val.toUnsignedInt(target);
 
                 const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
                     1...32 => .{ .uint32 = @truncate(u32, int_bits) },

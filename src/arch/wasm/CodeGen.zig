@@ -2604,11 +2604,11 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
                     0...32 => return WValue{ .imm32 = @intCast(u32, toTwosComplement(
-                        val.toSignedInt(),
+                        val.toSignedInt(target),
                         @intCast(u6, int_info.bits),
                     )) },
                     33...64 => return WValue{ .imm64 = toTwosComplement(
-                        val.toSignedInt(),
+                        val.toSignedInt(target),
                         @intCast(u7, int_info.bits),
                     ) },
                     else => unreachable,
@@ -2758,15 +2758,15 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
             }
         },
         .Int => switch (ty.intInfo(func.target).signedness) {
-            .signed => return @truncate(i32, val.toSignedInt()),
+            .signed => return @truncate(i32, val.toSignedInt(target)),
             .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt(target))),
         },
         .ErrorSet => {
             const kv = func.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
-        .Bool => return @intCast(i32, val.toSignedInt()),
-        .Pointer => return @intCast(i32, val.toSignedInt()),
+        .Bool => return @intCast(i32, val.toSignedInt(target)),
+        .Pointer => return @intCast(i32, val.toSignedInt(target)),
         else => unreachable, // Programmer called this function for an illegal type
     }
 }

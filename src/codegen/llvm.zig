@@ -8934,7 +8934,7 @@ pub const FuncGen = struct {
             if (elem.isUndef()) {
                 val.* = llvm_i32.getUndef();
             } else {
-                const int = elem.toSignedInt();
+                const int = elem.toSignedInt(self.dg.module.getTarget());
                 const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int + a_len);
                 val.* = llvm_i32.constInt(unsigned, .False);
             }

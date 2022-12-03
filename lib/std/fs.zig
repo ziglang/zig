@@ -809,8 +809,6 @@ pub const IterableDir = struct {
                 // and we avoid the code complexity here.
                 const w = os.wasi;
                 start_over: while (true) {
-                    // TODO https://github.com/ziglang/zig/issues/12498
-                    _ = @sizeOf(w.dirent_t) + 1;
                     // According to the WASI spec, the last entry might be truncated,
                     // so we need to check if the left buffer contains the whole dirent.
                     if (self.end_index - self.index < @sizeOf(w.dirent_t)) {
