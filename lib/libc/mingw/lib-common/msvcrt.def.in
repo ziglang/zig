@@ -1111,7 +1111,7 @@ _vprintf_l
 _vprintf_p
 _vprintf_p_l
 _vprintf_s_l
-F_NON_I386(_vscprintf) ; i386 _vscprintf replaced by emu
+_vscprintf
 _vscprintf_l
 _vscprintf_p_l
 _vscwprintf
