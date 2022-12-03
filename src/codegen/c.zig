@@ -272,6 +272,8 @@ pub const Function = struct {
     /// variable declarations at the top of a function, sorted descending by
     /// type alignment.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, void) = .{},
+    /// Needed for memory used by Type objects used as keys in free_locals.
+    arena: std.heap.ArenaAllocator,
 
     fn tyHashCtx(f: Function) Type.HashContext32 {
         return .{ .mod = f.object.dg.module };
@@ -314,7 +316,7 @@ pub const Function = struct {
             .ty = ty,
             .alignment = alignment,
         });
-        return .{ .local = @intCast(LocalIndex, f.locals.items.len - 1) };
+        return CValue{ .local = @intCast(LocalIndex, f.locals.items.len - 1) };
     }
 
     fn allocLocal(f: *Function, inst: Air.Inst.Index, ty: Type) !CValue {
@@ -420,6 +422,7 @@ pub const Function = struct {
         }
         f.object.dg.typedefs.deinit();
         f.object.dg.fwd_decl.deinit();
+        f.arena.deinit();
     }
 };
 
@@ -3228,8 +3231,9 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
         var deref = is_ptr;
         const operand = try f.resolveInst(un_op);
         try reap(f, inst, &.{un_op});
-        const ret_val = if (lowersToArray(ret_ty, target)) ret_val: {
-            const array_local = try f.allocLocal(inst, lowered_ret_ty);
+        const is_array = lowersToArray(ret_ty, target);
+        const ret_val = if (is_array) ret_val: {
+            const array_local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .field = 0 });
             try writer.writeAll(", ");
@@ -3250,6 +3254,9 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
         else
             try f.writeCValue(writer, ret_val, .Other);
         try writer.writeAll(";\n");
+        if (is_array) {
+            try freeLocal(f, inst, ret_val.local, 0);
+        }
     } else {
         try reap(f, inst, &.{un_op});
         if (f.object.dg.decl.ty.fnCallingConvention() != .Naked) {
@@ -3884,7 +3891,7 @@ fn airCall(
         try writer.writeByte(')');
         break :r .none;
     } else r: {
-        const local = try f.allocLocal(inst, lowered_ret_ty);
+        const local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = ");
         break :r local;
@@ -5110,7 +5117,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 };
                 const field_int_ty = Type.initPayload(&field_int_pl.base);
 
-                const temp_local = try f.allocLocal(inst, field_int_ty);
+                const temp_local = try f.allocLocal(inst, try field_int_ty.copy(f.arena.allocator()));
                 try f.writeCValue(writer, temp_local, .Other);
                 try writer.writeAll(" = zig_wrap_");
                 try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
