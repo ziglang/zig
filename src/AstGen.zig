@@ -2632,7 +2632,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .compile_error,
             .ret_node,
             .ret_load,
-            .ret_tok,
+            .ret_implicit,
             .ret_err_value,
             .@"unreachable",
             .repeat,
@@ -3696,6 +3696,29 @@ fn fnDecl(
                 if (param.anytype_ellipsis3) |tok| {
                     return astgen.failTok(tok, "missing parameter name", .{});
                 } else {
+                    ambiguous: {
+                        if (tree.nodes.items(.tag)[param.type_expr] != .identifier) break :ambiguous;
+                        const main_token = tree.nodes.items(.main_token)[param.type_expr];
+                        const identifier_str = tree.tokenSlice(main_token);
+                        if (isPrimitive(identifier_str)) break :ambiguous;
+                        return astgen.failNodeNotes(
+                            param.type_expr,
+                            "missing parameter name or type",
+                            .{},
+                            &[_]u32{
+                                try astgen.errNoteNode(
+                                    param.type_expr,
+                                    "if this is a name, annotate its type '{s}: T'",
+                                    .{identifier_str},
+                                ),
+                                try astgen.errNoteNode(
+                                    param.type_expr,
+                                    "if this is a type, give it a name '<name>: {s}'",
+                                    .{identifier_str},
+                                ),
+                            },
+                        );
+                    }
                     return astgen.failNode(param.type_expr, "missing parameter name", .{});
                 }
             } else 0;
@@ -3891,9 +3914,8 @@ fn fnDecl(
             // As our last action before the return, "pop" the error trace if needed
             _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
-            // Since we are adding the return instruction here, we must handle the coercion.
-            // We do this by using the `ret_tok` instruction.
-            _ = try fn_gz.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
+            // Add implicit return at end of function.
+            _ = try fn_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
         }
 
         break :func try decl_gz.addFunc(.{
@@ -4311,9 +4333,8 @@ fn testDecl(
         // As our last action before the return, "pop" the error trace if needed
         _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
-        // Since we are adding the return instruction here, we must handle the coercion.
-        // We do this by using the `ret_tok` instruction.
-        _ = try fn_block.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
+        // Add implicit return at end of function.
+        _ = try fn_block.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
     }
 
     const func_inst = try decl_block.addFunc(.{
@@ -5605,6 +5626,14 @@ fn simpleBinOp(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
 
+    if (op_inst_tag == .cmp_neq or op_inst_tag == .cmp_eq) {
+        const node_tags = tree.nodes.items(.tag);
+        const str = if (op_inst_tag == .cmp_eq) "==" else "!=";
+        if (node_tags[node_datas[node].lhs] == .string_literal or
+            node_tags[node_datas[node].rhs] == .string_literal)
+            return astgen.failNode(node, "cannot compare strings with {s}", .{str});
+    }
+
     const lhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].lhs, node);
     var line: u32 = undefined;
     var column: u32 = undefined;
@@ -6600,6 +6629,11 @@ fn switchExpr(
             special_prong = .under;
             underscore_src = case_src;
             continue;
+        }
+
+        for (case.ast.values) |val| {
+            if (node_tags[val] == .string_literal)
+                return astgen.failNode(val, "cannot switch on strings", .{});
         }
 
         if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] != .switch_range) {

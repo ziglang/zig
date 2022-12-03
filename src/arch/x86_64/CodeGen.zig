@@ -6862,7 +6862,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
             if (info.bits <= ptr_bits and info.signedness == .signed) {
-                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
+                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt(target)) };
             }
             if (!(info.bits > ptr_bits or info.signedness == .signed)) {
                 return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };

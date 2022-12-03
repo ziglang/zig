@@ -16,3 +16,4 @@ export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
 //
 // :4:19: error: expected type '*[]const u8', found '*const []const u8'
 // :4:19: note: cast discards const qualifier
+// :6:14: note: parameter type declared here

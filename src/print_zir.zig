@@ -235,7 +235,7 @@ const Writer = struct {
             => try self.writeUnNode(stream, inst),
 
             .ref,
-            .ret_tok,
+            .ret_implicit,
             .closure_capture,
             .switch_capture_tag,
             => try self.writeUnTok(stream, inst),

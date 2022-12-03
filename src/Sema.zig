@@ -291,8 +291,8 @@ pub const Block = struct {
                     try sema.errNote(ci.block, ci.src, parent, prefix ++ "it is inside a @cImport", .{});
                 },
                 .comptime_ret_ty => |rt| {
-                    const src_loc = if (try sema.funcDeclSrc(rt.func)) |capture| blk: {
-                        var src_loc = capture;
+                    const src_loc = if (try sema.funcDeclSrc(rt.func)) |fn_decl| blk: {
+                        var src_loc = fn_decl.srcLoc();
                         src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
                         break :blk src_loc;
                     } else blk: {
@@ -1098,7 +1098,7 @@ fn analyzeBodyInner(
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
             .compile_error  => break sema.zirCompileError(block, inst),
-            .ret_tok        => break sema.zirRetTok(block, inst),
+            .ret_implicit   => break sema.zirRetImplicit(block, inst),
             .ret_node       => break sema.zirRetNode(block, inst),
             .ret_load       => break sema.zirRetLoad(block, inst),
             .ret_err_value  => break sema.zirRetErrValue(block, inst),
@@ -5843,7 +5843,7 @@ fn lookupInNamespace(
     return null;
 }
 
-fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?Module.SrcLoc {
+fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?*Decl {
     const func_val = (try sema.resolveMaybeUndefVal(func_inst)) orelse return null;
     if (func_val.isUndef()) return null;
     const owner_decl_index = switch (func_val.tag()) {
@@ -5852,8 +5852,7 @@ fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?Module.SrcLoc {
         .decl_ref => sema.mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data.owner_decl,
         else => return null,
     };
-    const owner_decl = sema.mod.declPtr(owner_decl_index);
-    return owner_decl.srcLoc();
+    return sema.mod.declPtr(owner_decl_index);
 }
 
 pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref {
@@ -6031,7 +6030,7 @@ fn zirCall(
             break :check_args;
         }
 
-        const decl_src = try sema.funcDeclSrc(func);
+        const maybe_decl = try sema.funcDeclSrc(func);
         const member_str = if (bound_arg_src != null) "member function " else "";
         const variadic_str = if (func_ty_info.is_var_args) "at least " else "";
         const msg = msg: {
@@ -6048,7 +6047,7 @@ fn zirCall(
             );
             errdefer msg.destroy(sema.gpa);
 
-            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            if (maybe_decl) |fn_decl| try sema.mod.errNoteNonLazy(fn_decl.srcLoc(), msg, "function declared here", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -6242,7 +6241,7 @@ fn analyzeCall(
     const func_ty_info = func_ty.fnInfo();
     const cc = func_ty_info.cc;
     if (cc == .Naked) {
-        const decl_src = try sema.funcDeclSrc(func);
+        const maybe_decl = try sema.funcDeclSrc(func);
         const msg = msg: {
             const msg = try sema.errMsg(
                 block,
@@ -6252,7 +6251,7 @@ fn analyzeCall(
             );
             errdefer msg.destroy(sema.gpa);
 
-            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            if (maybe_decl) |fn_decl| try sema.mod.errNoteNonLazy(fn_decl.srcLoc(), msg, "function declared here", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -6488,6 +6487,7 @@ fn analyzeCall(
                 &should_memoize,
                 memoized_call_key,
                 func_ty_info.param_types,
+                func,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
@@ -6504,6 +6504,7 @@ fn analyzeCall(
                         &should_memoize,
                         memoized_call_key,
                         func_ty_info.param_types,
+                        func,
                     );
                     return error.AnalysisFail;
                 },
@@ -6646,12 +6647,17 @@ fn analyzeCall(
         const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
         for (uncasted_args) |uncasted_arg, i| {
             if (i < fn_params_len) {
+                const opts: CoerceOpts = .{ .param_src = .{
+                    .func_inst = func,
+                    .param_i = @intCast(u32, i),
+                } };
                 const param_ty = func_ty.fnParamType(i);
                 args[i] = sema.analyzeCallArg(
                     block,
                     .unneeded,
                     param_ty,
                     uncasted_arg,
+                    opts,
                 ) catch |err| switch (err) {
                     error.NeededSourceLocation => {
                         const decl = sema.mod.declPtr(block.src_decl);
@@ -6660,6 +6666,7 @@ fn analyzeCall(
                             Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i, bound_arg_src),
                             param_ty,
                             uncasted_arg,
+                            opts,
                         );
                         return error.AnalysisFail;
                     },
@@ -6741,6 +6748,7 @@ fn analyzeInlineCallArg(
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
     raw_param_types: []const Type,
+    func_inst: Air.Inst.Ref,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6765,7 +6773,13 @@ fn analyzeInlineCallArg(
                     return err;
                 };
             }
-            const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
+            const casted_arg = sema.coerceExtra(arg_block, param_ty, uncasted_arg, arg_src, .{ .param_src = .{
+                .func_inst = func_inst,
+                .param_i = @intCast(u32, arg_i.*),
+            } }) catch |err| switch (err) {
+                error.NotCoercible => unreachable,
+                else => |e| return e,
+            };
 
             if (is_comptime_call) {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
@@ -6855,9 +6869,13 @@ fn analyzeCallArg(
     arg_src: LazySrcLoc,
     param_ty: Type,
     uncasted_arg: Air.Inst.Ref,
+    opts: CoerceOpts,
 ) !Air.Inst.Ref {
     try sema.resolveTypeFully(param_ty);
-    return sema.coerce(block, param_ty, uncasted_arg, arg_src);
+    return sema.coerceExtra(block, param_ty, uncasted_arg, arg_src, opts) catch |err| switch (err) {
+        error.NotCoercible => unreachable,
+        else => |e| return e,
+    };
 }
 
 fn analyzeGenericCallArg(
@@ -16546,7 +16564,7 @@ fn zirRetErrValue(
     return sema.analyzeRet(block, result_inst, src);
 }
 
-fn zirRetTok(
+fn zirRetImplicit(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
@@ -16556,9 +16574,33 @@ fn zirRetTok(
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
-    const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src);
+    const r_brace_src = inst_data.src();
+    const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
+    const base_tag = sema.fn_ret_ty.baseZigTypeTag();
+    if (base_tag == .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ret_ty_src, "function declared '{}' implicitly returns", .{
+                sema.fn_ret_ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, r_brace_src, msg, "control flow reaches end of body here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    } else if (base_tag != .Void) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ret_ty_src, "function with non-void return type '{}' implicitly returns", .{
+                sema.fn_ret_ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, r_brace_src, msg, "control flow reaches end of body here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    return sema.analyzeRet(block, operand, .unneeded);
 }
 
 fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -16825,7 +16867,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const bitoffset_src: LazySrcLoc = .{ .node_offset_ptr_bitoffset = extra.data.src_node };
     const hostsize_src: LazySrcLoc = .{ .node_offset_ptr_hostsize = extra.data.src_node };
 
-    const unresolved_elem_ty = blk: {
+    const elem_ty = blk: {
         const air_inst = try sema.resolveInst(extra.data.elem_type);
         const ty = sema.analyzeAsType(block, elem_ty_src, air_inst) catch |err| {
             if (err == error.AnalysisFail and sema.err != null and sema.typeOf(air_inst).isSinglePointer()) {
@@ -16854,7 +16896,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         // Check if this happens to be the lazy alignment of our element type, in
         // which case we can make this 0 without resolving it.
         if (val.castTag(.lazy_align)) |payload| {
-            if (payload.data.eql(unresolved_elem_ty, sema.mod)) {
+            if (payload.data.eql(elem_ty, sema.mod)) {
                 break :blk 0;
             }
         }
@@ -16886,14 +16928,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (host_size != 0 and bit_offset >= host_size * 8) {
         return sema.fail(block, bitoffset_src, "bit offset starts after end of host integer", .{});
     }
-
-    const elem_ty = if (abi_align == 0)
-        unresolved_elem_ty
-    else t: {
-        const elem_ty = try sema.resolveTypeFields(unresolved_elem_ty);
-        try sema.resolveTypeLayout(elem_ty);
-        break :t elem_ty;
-    };
 
     if (elem_ty.zigTypeTag() == .NoReturn) {
         return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
@@ -20270,7 +20304,7 @@ fn analyzeShuffle(
         var buf: Value.ElemValueBuffer = undefined;
         const elem = mask.elemValueBuffer(sema.mod, i, &buf);
         if (elem.isUndef()) continue;
-        const int = elem.toSignedInt();
+        const int = elem.toSignedInt(sema.mod.getTarget());
         var unsigned: u32 = undefined;
         var chosen: u32 = undefined;
         if (int >= 0) {
@@ -20312,7 +20346,7 @@ fn analyzeShuffle(
                     values[i] = Value.undef;
                     continue;
                 }
-                const int = mask_elem_val.toSignedInt();
+                const int = mask_elem_val.toSignedInt(sema.mod.getTarget());
                 const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int);
                 if (int >= 0) {
                     values[i] = try a_val.elemValue(sema.mod, sema.arena, unsigned);
@@ -24040,6 +24074,25 @@ const CoerceOpts = struct {
     is_ret: bool = false,
     /// Should coercion to comptime_int ermit an error message.
     no_cast_to_comptime_int: bool = false,
+
+    param_src: struct {
+        func_inst: Air.Inst.Ref = .none,
+        param_i: u32 = undefined,
+
+        fn get(info: @This(), sema: *Sema) !?Module.SrcLoc {
+            if (info.func_inst == .none) return null;
+            const fn_decl = (try sema.funcDeclSrc(info.func_inst)) orelse return null;
+            const param_src = Module.paramSrc(0, sema.gpa, fn_decl, info.param_i);
+            if (param_src == .node_offset_param) {
+                return Module.SrcLoc{
+                    .file_scope = fn_decl.getFileScope(),
+                    .parent_decl_node = fn_decl.src_node,
+                    .lazy = LazySrcLoc.nodeOffset(param_src.node_offset_param),
+                };
+            }
+            return param_src.toSrcLoc(fn_decl);
+        }
+    } = .{},
 };
 
 fn coerceExtra(
@@ -24697,6 +24750,10 @@ fn coerceExtra(
             } else {
                 try sema.mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl), msg, "function return type declared here", .{});
             }
+        }
+
+        if (try opts.param_src.get(sema)) |param_src| {
+            try sema.mod.errNoteNonLazy(param_src, msg, "parameter type declared here", .{});
         }
 
         // TODO maybe add "cannot store an error in type '{}'" note
@@ -28307,6 +28364,7 @@ fn cmpNumeric(
 
     var lhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(lhs)) |lhs_val| {
+        try sema.resolveLazyValue(lhs_val);
         if (lhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
         if (lhs_val.isNan()) switch (op) {
@@ -28365,6 +28423,7 @@ fn cmpNumeric(
 
     var rhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+        try sema.resolveLazyValue(rhs_val);
         if (rhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
         if (rhs_val.isNan()) switch (op) {
@@ -29237,6 +29296,16 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
 
         struct_obj.status = .have_layout;
         _ = try sema.resolveTypeRequiresComptime(resolved_ty);
+
+        if (struct_obj.assumed_runtime_bits and !resolved_ty.hasRuntimeBits()) {
+            const msg = try Module.ErrorMsg.create(
+                sema.gpa,
+                struct_obj.srcLoc(sema.mod),
+                "struct layout depends on it having runtime bits",
+                .{},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
+        }
     }
     // otherwise it's a tuple; no need to resolve anything
 }
@@ -29401,6 +29470,16 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
     }
     union_obj.status = .have_layout;
     _ = try sema.resolveTypeRequiresComptime(resolved_ty);
+
+    if (union_obj.assumed_runtime_bits and !resolved_ty.hasRuntimeBits()) {
+        const msg = try Module.ErrorMsg.create(
+            sema.gpa,
+            union_obj.srcLoc(sema.mod),
+            "union layout depends on it having runtime bits",
+            .{},
+        );
+        return sema.failWithOwnedErrorMsg(msg);
+    }
 }
 
 // In case of querying the ABI alignment of this struct, we will ask

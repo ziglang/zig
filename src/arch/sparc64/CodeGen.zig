@@ -3751,7 +3751,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             if (info.bits <= 64) {
                 const unsigned = switch (info.signedness) {
                     .signed => blk: {
-                        const signed = typed_value.val.toSignedInt();
+                        const signed = typed_value.val.toSignedInt(target);
                         break :blk @bitCast(u64, signed);
                     },
                     .unsigned => typed_value.val.toUnsignedInt(target),

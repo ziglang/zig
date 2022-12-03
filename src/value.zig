@@ -187,7 +187,7 @@ pub const Value = extern union {
         bound_fn,
         /// The ABI alignment of the payload type.
         lazy_align,
-        /// The ABI alignment of the payload type.
+        /// The ABI size of the payload type.
         lazy_size,
 
         pub const last_no_payload_tag = Tag.empty_array;
@@ -1201,8 +1201,8 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is an integer and it fits in a i64
-    pub fn toSignedInt(self: Value) i64 {
-        switch (self.tag()) {
+    pub fn toSignedInt(val: Value, target: Target) i64 {
+        switch (val.tag()) {
             .zero,
             .bool_false,
             .the_only_possible_value, // i0, u0
@@ -1212,10 +1212,19 @@ pub const Value = extern union {
             .bool_true,
             => return 1,
 
-            .int_u64 => return @intCast(i64, self.castTag(.int_u64).?.data),
-            .int_i64 => return self.castTag(.int_i64).?.data,
-            .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
-            .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
+            .int_u64 => return @intCast(i64, val.castTag(.int_u64).?.data),
+            .int_i64 => return val.castTag(.int_i64).?.data,
+            .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
+            .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
+
+            .lazy_align => {
+                const ty = val.castTag(.lazy_align).?.data;
+                return @intCast(i64, ty.abiAlignment(target));
+            },
+            .lazy_size => {
+                const ty = val.castTag(.lazy_size).?.data;
+                return @intCast(i64, ty.abiSize(target));
+            },
 
             .undef => unreachable,
             else => unreachable,
