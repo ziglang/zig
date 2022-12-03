@@ -411,7 +411,7 @@ pub const Function = struct {
     pub fn deinit(f: *Function, gpa: mem.Allocator) void {
         f.allocs.deinit(gpa);
         f.locals.deinit(gpa);
-        f.free_locals.deinit(gpa);
+        deinitFreeLocalsMap(gpa, &f.free_locals);
         f.blocks.deinit(gpa);
         f.value_map.deinit();
         f.object.code.deinit();
@@ -4206,8 +4206,8 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     var cloned_map = try f.value_map.clone();
     defer cloned_map.deinit();
-    var cloned_frees = try f.free_locals.clone(gpa);
-    defer cloned_frees.deinit(gpa);
+    var cloned_frees = try cloneFreeLocalsMap(gpa, &f.free_locals);
+    defer deinitFreeLocalsMap(gpa, &cloned_frees);
 
     for (liveness_condbr.then_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
@@ -4220,7 +4220,7 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" else ");
     f.value_map.deinit();
     f.value_map = cloned_map.move();
-    f.free_locals.deinit(gpa);
+    deinitFreeLocalsMap(gpa, &f.free_locals);
     f.free_locals = cloned_frees.move();
     for (liveness_condbr.else_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
@@ -4283,18 +4283,19 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             const old_value_map = f.value_map;
             f.value_map = try old_value_map.clone();
             const old_free_locals = f.free_locals;
-            f.free_locals = try f.free_locals.clone(gpa);
+            f.free_locals = try cloneFreeLocalsMap(gpa, &f.free_locals);
+
+            defer {
+                f.value_map.deinit();
+                deinitFreeLocalsMap(gpa, &f.free_locals);
+                f.value_map = old_value_map;
+                f.free_locals = old_free_locals;
+            }
 
             for (liveness.deaths[case_i]) |operand| {
                 try die(f, inst, Air.indexToRef(operand));
             }
 
-            defer {
-                f.value_map.deinit();
-                f.free_locals.deinit(gpa);
-                f.value_map = old_value_map;
-                f.free_locals = old_free_locals;
-            }
             try genBody(f, case_body);
         } else {
             for (liveness.deaths[case_i]) |operand| {
@@ -6825,4 +6826,30 @@ fn iterateBigTomb(f: *Function, inst: Air.Inst.Index) BigTomb {
         .inst = inst,
         .lbt = f.liveness.iterateBigTomb(inst),
     };
+}
+
+/// A naive clone of this map would create copies of the ArrayList which is
+/// stored in the values. This function additionally clones the values.
+fn cloneFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) !LocalsMap {
+    var cloned = try map.clone(gpa);
+    const values = cloned.values();
+    var i: usize = 0;
+    errdefer {
+        cloned.deinit(gpa);
+        while (i > 0) {
+            i -= 1;
+            values[i].deinit(gpa);
+        }
+    }
+    while (i < values.len) : (i += 1) {
+        values[i] = try values[i].clone(gpa);
+    }
+    return cloned;
+}
+
+fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
+    for (map.values()) |*value| {
+        value.deinit(gpa);
+    }
+    map.deinit(gpa);
 }
