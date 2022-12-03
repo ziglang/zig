@@ -1387,6 +1387,7 @@ pub const DeclGen = struct {
             try dg.renderType(w, Type.void, kind);
         }
         try w.writeByte(')');
+        if (fn_info.alignment > 0) try w.print(" zig_align_fn({})", .{fn_info.alignment});
     }
 
     fn renderPtrToFnTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {

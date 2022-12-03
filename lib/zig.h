@@ -65,8 +65,17 @@ typedef char bool;
 #elif zig_has_attribute(aligned)
 #define zig_align(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
+#define zig_align zig_align_unavailable
 #else
-#error the C compiler being used does not support aligning variables
+#define zig_align zig_align_unavailable
+#endif
+
+#if zig_has_attribute(aligned)
+#define zig_align_fn(alignment) __attribute__((aligned(alignment)))
+#elif _MSC_VER
+#define zig_align_fn zig_align_fn_unavailable
+#else
+#define zig_align_fn zig_align_fn_unavailable
 #endif
 
 #if zig_has_builtin(unreachable)
