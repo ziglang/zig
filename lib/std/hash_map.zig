@@ -673,6 +673,14 @@ pub fn HashMap(
             var other = try self.unmanaged.cloneContext(new_allocator, new_ctx);
             return other.promoteContext(new_allocator, new_ctx);
         }
+
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.unmanaged = .{};
+            return result;
+        }
     };
 }
 
@@ -1486,6 +1494,14 @@ pub fn HashMapUnmanaged(
             }
 
             return other;
+        }
+
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.* = .{};
+            return result;
         }
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
