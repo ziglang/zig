@@ -4175,11 +4175,46 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             extra_i += clobber.len / 4 + 1;
         }
     }
-    const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
+    {
+        const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
 
-    try writer.writeAll("__asm");
-    if (is_volatile) try writer.writeAll(" volatile");
-    try writer.print("({s}", .{fmtStringLiteral(asm_source)});
+        var stack = std.heap.stackFallback(256, f.object.dg.gpa);
+        const allocator = stack.get();
+        const fixed_asm_source = try allocator.alloc(u8, asm_source.len);
+        defer allocator.free(fixed_asm_source);
+
+        var src_i: usize = 0;
+        var dst_i: usize = 0;
+        while (src_i < asm_source.len) : (src_i += 1) {
+            fixed_asm_source[dst_i] = asm_source[src_i];
+            dst_i += 1;
+            if (asm_source[src_i] != '%' or src_i + 1 >= asm_source.len) continue;
+            src_i += 1;
+            if (asm_source[src_i] != '[') {
+                // This handles %%
+                fixed_asm_source[dst_i] = asm_source[src_i];
+                dst_i += 1;
+                continue;
+            }
+            const len = std.mem.indexOfScalar(u8, asm_source[src_i + 1 ..], ']') orelse
+                return f.fail("CBE: invalid inline asm string '{s}'", .{asm_source});
+            if (std.mem.indexOfScalar(u8, asm_source[src_i + 1 ..][0..len], ':')) |colon| {
+                const modifier = asm_source[src_i + 1 + colon + 1 .. src_i + 1 + len];
+                std.mem.copy(u8, fixed_asm_source[dst_i..], modifier);
+                dst_i += modifier.len;
+
+                const name = asm_source[src_i .. src_i + 1 + colon];
+                std.mem.copy(u8, fixed_asm_source[dst_i..], name);
+                dst_i += name.len;
+
+                src_i += len;
+            }
+        }
+
+        try writer.writeAll("__asm");
+        if (is_volatile) try writer.writeAll(" volatile");
+        try writer.print("({s}", .{fmtStringLiteral(fixed_asm_source[0..dst_i])});
+    }
 
     extra_i = constraints_extra_begin;
     var locals_index = locals_begin;

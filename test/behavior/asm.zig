@@ -140,7 +140,6 @@ export fn derp() i32 {
 test "asm modifiers (AArch64)" {
     if (builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var x: u32 = 15;
     const double = asm ("add %[ret:w], %[in:w], %[in:w]"
