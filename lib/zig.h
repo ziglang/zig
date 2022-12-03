@@ -81,6 +81,12 @@ typedef char bool;
 #define zig_extern extern
 #endif
 
+#if zig_has_attribute(alias)
+#define zig_export(sig, symbol, name) zig_extern sig __attribute__((alias(symbol)))
+#else
+#define zig_export(sig, symbol, name) __asm(name " = " symbol)
+#endif
+
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
 #elif zig_has_builtin(trap)

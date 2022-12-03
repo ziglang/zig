@@ -569,7 +569,7 @@ pub const DeclGen = struct {
             try writer.writeByte(')');
         }
         try writer.writeByte('&');
-        try dg.renderDeclName(writer, decl_index);
+        try dg.renderDeclName(writer, decl_index, 0);
         if (need_typecast) try writer.writeByte(')');
     }
 
@@ -1026,11 +1026,11 @@ pub const DeclGen = struct {
                 },
                 .function => {
                     const func = val.castTag(.function).?.data;
-                    try dg.renderDeclName(writer, func.owner_decl);
+                    try dg.renderDeclName(writer, func.owner_decl, 0);
                 },
                 .extern_fn => {
                     const extern_fn = val.castTag(.extern_fn).?.data;
-                    try dg.renderDeclName(writer, extern_fn.owner_decl);
+                    try dg.renderDeclName(writer, extern_fn.owner_decl, 0);
                 },
                 .int_u64, .one => {
                     try writer.writeAll("((");
@@ -1356,7 +1356,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderFunctionSignature(dg: *DeclGen, w: anytype, kind: TypedefKind) !void {
+    fn renderFunctionSignature(dg: *DeclGen, w: anytype, kind: TypedefKind, export_index: u32) !void {
         const fn_info = dg.decl.ty.fnInfo();
         if (fn_info.cc == .Naked) try w.writeAll("zig_naked ");
         if (dg.decl.val.castTag(.function)) |func_payload|
@@ -1368,7 +1368,7 @@ pub const DeclGen = struct {
 
         try dg.renderType(w, ret_ty, kind);
         try w.writeByte(' ');
-        try dg.renderDeclName(w, dg.decl_index);
+        try dg.renderDeclName(w, dg.decl_index, export_index);
         try w.writeByte('(');
 
         var index: usize = 0;
@@ -2213,10 +2213,10 @@ pub const DeclGen = struct {
             .constant => unreachable,
             .arg => |i| return w.print("a{d}", .{i}),
             .field => |i| return w.print("f{d}", .{i}),
-            .decl => |decl| return dg.renderDeclName(w, decl),
+            .decl => |decl| return dg.renderDeclName(w, decl, 0),
             .decl_ref => |decl| {
                 try w.writeByte('&');
-                return dg.renderDeclName(w, decl);
+                return dg.renderDeclName(w, decl, 0);
             },
             .undef => |ty| return dg.renderValue(w, ty, Value.undef, .Other),
             .identifier => |ident| return w.print("{ }", .{fmtIdent(ident)}),
@@ -2234,10 +2234,10 @@ pub const DeclGen = struct {
             .field => |i| return w.print("f{d}", .{i}),
             .decl => |decl| {
                 try w.writeAll("(*");
-                try dg.renderDeclName(w, decl);
+                try dg.renderDeclName(w, decl, 0);
                 return w.writeByte(')');
             },
-            .decl_ref => |decl| return dg.renderDeclName(w, decl),
+            .decl_ref => |decl| return dg.renderDeclName(w, decl, 0),
             .undef => unreachable,
             .identifier => |ident| return w.print("(*{ })", .{fmtIdent(ident)}),
             .bytes => |bytes| {
@@ -2269,12 +2269,12 @@ pub const DeclGen = struct {
         try dg.writeCValue(writer, member);
     }
 
-    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: Decl.Index) !void {
+    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: Decl.Index, export_index: u32) !void {
         const decl = dg.module.declPtr(decl_index);
         dg.module.markDeclAlive(decl);
 
         if (dg.module.decl_exports.get(decl_index)) |exports| {
-            return writer.writeAll(exports.items[0].options.name);
+            return writer.writeAll(exports.items[export_index].options.name);
         } else if (decl.isExtern()) {
             return writer.writeAll(mem.sliceTo(decl.name, 0));
         } else if (dg.module.test_functions.get(decl_index)) |_| {
@@ -2422,6 +2422,21 @@ pub fn genErrDecls(o: *Object) !void {
     try writer.writeAll("};\n");
 }
 
+fn genExports(o: *Object) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const fwd_decl_writer = o.dg.fwd_decl.writer();
+    if (o.dg.module.decl_exports.get(o.dg.decl_index)) |exports| for (exports.items[1..]) |@"export", i| {
+        try fwd_decl_writer.writeAll("zig_export(");
+        try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward, @intCast(u32, 1 + i));
+        try fwd_decl_writer.print(", {s}, {s});\n", .{
+            fmtStringLiteral(exports.items[0].options.name),
+            fmtStringLiteral(@"export".options.name),
+        });
+    };
+}
+
 pub fn genFunc(f: *Function) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2438,12 +2453,13 @@ pub fn genFunc(f: *Function) !void {
     const is_global = o.dg.declIsGlobal(tv);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-    try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
+    try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward, 0);
     try fwd_decl_writer.writeAll(";\n");
+    try genExports(o);
 
     try o.indent_writer.insertNewline();
     if (!is_global) try o.writer().writeAll("static ");
-    try o.dg.renderFunctionSignature(o.writer(), .Complete);
+    try o.dg.renderFunctionSignature(o.writer(), .Complete, 0);
     try o.writer().writeByte(' ');
 
     // In case we need to use the header, populate it with a copy of the function
@@ -2478,8 +2494,9 @@ pub fn genDecl(o: *Object) !void {
     if (tv.val.tag() == .extern_fn) {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
         try fwd_decl_writer.writeAll("zig_extern ");
-        try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward);
+        try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward, 0);
         try fwd_decl_writer.writeAll(";\n");
+        try genExports(o);
     } else if (tv.val.castTag(.variable)) |var_payload| {
         const variable: *Module.Var = var_payload.data;
 
@@ -2492,6 +2509,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
+        try genExports(o);
 
         if (variable.is_extern) return;
 
@@ -2537,7 +2555,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
             const is_global = dg.declIsGlobal(tv);
             if (is_global) {
                 try writer.writeAll("zig_extern ");
-                try dg.renderFunctionSignature(writer, .Complete);
+                try dg.renderFunctionSignature(writer, .Complete, 0);
                 try dg.fwd_decl.appendSlice(";\n");
             }
         },
@@ -3677,7 +3695,7 @@ fn airCall(
                 };
             };
             name = f.object.dg.module.declPtr(fn_decl).name;
-            try f.object.dg.renderDeclName(writer, fn_decl);
+            try f.object.dg.renderDeclName(writer, fn_decl, 0);
             break :callee;
         }
         // Fall back to function pointer call.
