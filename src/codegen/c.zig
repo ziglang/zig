@@ -2488,9 +2488,7 @@ pub fn genFunc(f: *Function) !void {
         const local = f.locals.items[local_index];
         log.debug("inserting local {d} into free_locals", .{local_index});
         const gop = try f.free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{};
-        }
+        if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, local_index);
     }
 
@@ -3819,14 +3817,16 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = {(");
+    try writer.writeAll(".ptr = (");
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
     try f.renderTypecast(writer, inst_ty.slicePtrFieldType(&buf));
     try writer.writeByte(')');
     try f.writeCValue(writer, ptr, .Other);
-    try writer.writeAll(", ");
+    try writer.writeAll("; ");
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(".len = ");
     try f.writeCValue(writer, len, .Initializer);
-    try writer.writeAll("};\n");
+    try writer.writeAll(";\n");
 
     return local;
 }
@@ -4292,6 +4292,11 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
         try die(f, inst, Air.indexToRef(operand));
     }
 
+    // Remember how many locals there were before entering the then branch so
+    // that we can notice and use them in the else branch. Any new locals must
+    // necessarily be free already after the then branch is complete.
+    const pre_locals_len = @intCast(LocalIndex, f.locals.items.len);
+
     try writer.writeAll("if (");
     try f.writeCValue(writer, cond, .Other);
     try writer.writeAll(") ");
@@ -4304,6 +4309,9 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     for (liveness_condbr.else_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
     }
+
+    try noticeBranchFrees(f, pre_locals_len);
+
     try genBody(f, else_body);
     try f.object.indent_writer.insertNewline();
 
@@ -4335,10 +4343,12 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.data.cases_len + 1);
     defer gpa.free(liveness.deaths);
+
     // On the final iteration we do not clone the map. This ensures that
     // lowering proceeds after the switch_br taking into account the
     // mutations to the liveness information.
     const last_case_i = switch_br.data.cases_len - @boolToInt(switch_br.data.else_body_len == 0);
+
     var extra_index: usize = switch_br.end;
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
@@ -4358,31 +4368,43 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
             try writer.writeAll(": ");
         }
+
         if (case_i != last_case_i) {
             const old_value_map = f.value_map;
             f.value_map = try old_value_map.clone();
             const old_free_locals = f.free_locals;
             f.free_locals = try cloneFreeLocalsMap(gpa, &f.free_locals);
 
-            defer {
-                f.value_map.deinit();
-                deinitFreeLocalsMap(gpa, &f.free_locals);
-                f.value_map = old_value_map;
-                f.free_locals = old_free_locals;
+            // Remember how many locals there were before entering each branch so that
+            // we can notice and use them in subsequent branches. Any new locals must
+            // necessarily be free already after the previous branch is complete.
+            const pre_locals_len = @intCast(LocalIndex, f.locals.items.len);
+
+            {
+                defer {
+                    f.value_map.deinit();
+                    deinitFreeLocalsMap(gpa, &f.free_locals);
+                    f.value_map = old_value_map;
+                    f.free_locals = old_free_locals;
+                }
+
+                for (liveness.deaths[case_i]) |operand| {
+                    try die(f, inst, Air.indexToRef(operand));
+                }
+
+                try genBody(f, case_body);
             }
 
-            for (liveness.deaths[case_i]) |operand| {
-                try die(f, inst, Air.indexToRef(operand));
-            }
-
-            try genBody(f, case_body);
+            try noticeBranchFrees(f, pre_locals_len);
         } else {
             for (liveness.deaths[case_i]) |operand| {
                 try die(f, inst, Air.indexToRef(operand));
             }
             try genBody(f, case_body);
         }
+
         // The case body must be noreturn so we don't need to insert a break.
+
     }
 
     const else_body = f.air.extra[extra_index..][0..switch_br.data.else_body_len];
@@ -5278,12 +5300,16 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ty_op.operand});
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+    if (!is_array) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(".payload = ");
+        try f.writeCValue(writer, payload, .Other);
+        try writer.writeAll("; ");
+    }
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = { .payload = ");
-    try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else payload, .Initializer);
-    try writer.writeAll(", .is_null = ");
+    try writer.writeAll(".is_null = ");
     try f.object.dg.renderValue(writer, Type.bool, Value.false, .Initializer);
-    try writer.writeAll(" };\n");
+    try writer.writeAll(";\n");
     if (is_array) {
         try writer.writeAll("memcpy(");
         try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
@@ -5312,12 +5338,14 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ty_op.operand});
 
     const local = try f.allocLocal(inst, error_union_ty);
+    {
+        // TODO: set the payload to undefined
+        //try f.writeCValue(writer, local, .Other);
+    }
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = { .payload = ");
-    try f.writeCValue(writer, .{ .undef = payload_ty }, .Initializer);
-    try writer.writeAll(", .error = ");
-    try f.writeCValue(writer, operand, .Initializer);
-    try writer.writeAll(" };\n");
+    try writer.writeAll(".error = ");
+    try f.writeCValue(writer, operand, .Other);
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -5379,7 +5407,6 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const error_ty = inst_ty.errorUnionSet();
     const payload_ty = inst_ty.errorUnionPayload();
     const payload = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -5389,12 +5416,14 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+    if (!is_array) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(".payload = ");
+        try f.writeCValue(writer, payload, .Other);
+        try writer.writeAll("; ");
+    }
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = { .payload = ");
-    try f.writeCValue(writer, if (is_array) CValue{ .undef = payload_ty } else payload, .Initializer);
-    try writer.writeAll(", .error = ");
-    try f.object.dg.renderValue(writer, error_ty, Value.zero, .Initializer);
-    try writer.writeAll(" };\n");
+    try writer.writeAll(".error = 0;\n");
     if (is_array) {
         try writer.writeAll("memcpy(");
         try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
@@ -6911,6 +6940,8 @@ fn freeLocal(f: *Function, inst: Air.Inst.Index, local_index: LocalIndex, ref_in
         // free_locals map while it already exists in the map, which is not
         // allowed.
         assert(mem.indexOfScalar(LocalIndex, gop.value_ptr.items, local_index) == null);
+        // If this trips, an unfreeable allocation was attempted to be freed.
+        assert(!f.allocs.contains(local_index));
     }
     try gop.value_ptr.append(gpa, local_index);
 }
@@ -6959,4 +6990,17 @@ fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
         value.deinit(gpa);
     }
     map.deinit(gpa);
+}
+
+fn noticeBranchFrees(f: *Function, pre_locals_len: LocalIndex) !void {
+    const gpa = f.object.dg.gpa;
+    var i = pre_locals_len;
+    while (i < f.locals.items.len) : (i += 1) {
+        const local = f.locals.items[i];
+        const unfreeable = f.allocs.contains(i);
+        if (unfreeable) continue;
+        const gop = try f.free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        try gop.value_ptr.append(gpa, i);
+    }
 }
