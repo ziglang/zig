@@ -136,16 +136,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     };
 
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-    defer {
-        function.blocks.deinit(module.gpa);
-        function.value_map.deinit();
-        function.object.code.deinit();
-        for (function.object.dg.typedefs.values()) |typedef| {
-            module.gpa.free(typedef.rendered);
-        }
-        function.object.dg.typedefs.deinit();
-        function.object.dg.fwd_decl.deinit();
-    }
+    defer function.deinit(module.gpa);
 
     codegen.genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => {
