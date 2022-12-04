@@ -347,9 +347,10 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         });
 
         self.d_sym = .{
-            .base = self,
+            .allocator = allocator,
             .dwarf = link.File.Dwarf.init(allocator, .macho, options.target),
             .file = d_sym_file,
+            .page_size = self.page_size,
         };
     }
 
@@ -366,7 +367,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     try self.populateMissingMetadata();
 
     if (self.d_sym) |*d_sym| {
-        try d_sym.populateMissingMetadata(allocator);
+        try d_sym.populateMissingMetadata();
     }
 
     return self;
@@ -629,7 +630,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (self.d_sym) |*d_sym| {
         // Flush debug symbols bundle.
-        try d_sym.flushModule(self.base.allocator, self.base.options);
+        try d_sym.flushModule(self);
     }
 
     // if (build_options.enable_link_snapshots) {
@@ -1900,7 +1901,7 @@ pub fn deinit(self: *MachO) void {
     }
 
     if (self.d_sym) |*d_sym| {
-        d_sym.deinit(gpa);
+        d_sym.deinit();
     }
 
     self.got_entries.deinit(gpa);

@@ -1318,7 +1318,7 @@ pub fn commitDeclState(
             .macho => {
                 const macho_file = file.cast(File.MachO).?;
                 const d_sym = &macho_file.d_sym.?;
-                try d_sym.relocs.append(d_sym.base.base.allocator, .{
+                try d_sym.relocs.append(d_sym.allocator, .{
                     .type = switch (reloc.type) {
                         .direct_load => .direct_load,
                         .got_load => .got_load,

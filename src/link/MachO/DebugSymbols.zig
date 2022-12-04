@@ -20,9 +20,10 @@ const Module = @import("../../Module.zig");
 const StringTable = @import("../strtab.zig").StringTable;
 const Type = @import("../../type.zig").Type;
 
-base: *MachO,
+allocator: Allocator,
 dwarf: Dwarf,
 file: fs.File,
+page_size: u16,
 
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
@@ -59,21 +60,17 @@ pub const Reloc = struct {
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols, gpa: Allocator) !void {
+pub fn populateMissingMetadata(self: *DebugSymbols) !void {
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @intCast(u8, self.segments.items.len);
 
-        const off = @intCast(u64, self.base.page_size);
+        const off = @intCast(u64, self.page_size);
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(
-            u64,
-            padToIdeal(ideal_size),
-            self.base.page_size,
-        );
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try self.segments.append(gpa, .{
+        try self.segments.append(self.allocator, .{
             .segname = makeStaticString("__DWARF"),
             .vmsize = needed_size,
             .fileoff = off,
@@ -114,7 +111,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, gpa: Allocator) !void {
 
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
-        try self.segments.append(gpa, .{
+        try self.segments.append(self.allocator, .{
             .segname = makeStaticString("__LINKEDIT"),
             .maxprot = macho.PROT.READ,
             .initprot = macho.PROT.READ,
@@ -124,8 +121,6 @@ pub fn populateMissingMetadata(self: *DebugSymbols, gpa: Allocator) !void {
 }
 
 fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignment: u16) !u8 {
-    const gpa = self.base.base.allocator;
-
     const segment = self.getDwarfSegmentPtr();
     var sect = macho.section_64{
         .sectname = makeStaticString(sectname),
@@ -147,7 +142,7 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     sect.offset = @intCast(u32, off);
 
     const index = @intCast(u8, self.sections.items.len);
-    try self.sections.append(gpa, sect);
+    try self.sections.append(self.allocator, sect);
     segment.cmdsize += @sizeOf(macho.section_64);
     segment.nsects += 1;
 
@@ -175,34 +170,35 @@ pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) 
     return offset;
 }
 
-pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Options) !void {
-    // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
-    // Zig source code.
+pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
+    // TODO This linker code currently assumes there is only 1 compilation unit
+    // and it corresponds to the Zig source code.
+    const options = macho_file.base.options;
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.type) {
-            .direct_load => self.base.getSymbol(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbol(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{
+                const got_index = macho_file.got_entries_table.get(.{
                     .sym_index = reloc.target,
                     .file = null,
                 }).?;
-                const got_entry = self.base.got_entries.items[got_index];
-                break :blk got_entry.getSymbol(self.base);
+                const got_entry = macho_file.got_entries.items[got_index];
+                break :blk got_entry.getSymbol(macho_file);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
 
         const sym_name = switch (reloc.type) {
-            .direct_load => self.base.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{
+                const got_index = macho_file.got_entries_table.get(.{
                     .sym_index = reloc.target,
                     .file = null,
                 }).?;
-                const got_entry = self.base.got_entries.items[got_index];
-                break :blk got_entry.getName(self.base);
+                const got_entry = macho_file.got_entries.items[got_index];
+                break :blk got_entry.getName(macho_file);
             },
         };
         const sect = &self.sections.items[self.debug_info_section_index.?];
@@ -218,30 +214,30 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     }
 
     if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.writeDbgAbbrev(&self.base.base);
+        try self.dwarf.writeDbgAbbrev(&macho_file.base);
         self.debug_abbrev_section_dirty = false;
     }
 
     if (self.debug_info_header_dirty) {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
-        const text_section = self.base.sections.items(.header)[self.base.text_section_index.?];
+        const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
         const low_pc = text_section.addr;
         const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(&self.base.base, module, low_pc, high_pc);
+        try self.dwarf.writeDbgInfoHeader(&macho_file.base, module, low_pc, high_pc);
         self.debug_info_header_dirty = false;
     }
 
     if (self.debug_aranges_section_dirty) {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
-        const text_section = self.base.sections.items(.header)[self.base.text_section_index.?];
-        try self.dwarf.writeDbgAranges(&self.base.base, text_section.addr, text_section.size);
+        const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
+        try self.dwarf.writeDbgAranges(&macho_file.base, text_section.addr, text_section.size);
         self.debug_aranges_section_dirty = false;
     }
 
     if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader(&self.base.base, module);
+        try self.dwarf.writeDbgLineHeader(&macho_file.base, module);
         self.debug_line_header_dirty = false;
     }
 
@@ -270,40 +266,45 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         }
     }
 
-    var lc_buffer = std.ArrayList(u8).init(allocator);
+    var lc_buffer = std.ArrayList(u8).init(self.allocator);
     defer lc_buffer.deinit();
     const lc_writer = lc_buffer.writer();
     var ncmds: u32 = 0;
 
-    self.finalizeDwarfSegment();
-    try self.writeLinkeditSegmentData(&ncmds, lc_writer);
+    self.finalizeDwarfSegment(macho_file);
+    try self.writeLinkeditSegmentData(macho_file, &ncmds, lc_writer);
 
     {
-        try lc_writer.writeStruct(self.base.uuid);
+        try lc_writer.writeStruct(macho_file.uuid);
         ncmds += 1;
     }
 
-    var headers_buf = std.ArrayList(u8).init(allocator);
+    var headers_buf = std.ArrayList(u8).init(self.allocator);
     defer headers_buf.deinit();
-    try self.writeSegmentHeaders(&ncmds, headers_buf.writer());
+    try self.writeSegmentHeaders(macho_file, &ncmds, headers_buf.writer());
 
     try self.file.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
     try self.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
 
-    try self.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
+    try self.writeHeader(
+        macho_file,
+        ncmds,
+        @intCast(u32, lc_buffer.items.len + headers_buf.items.len),
+    );
 
     assert(!self.debug_abbrev_section_dirty);
     assert(!self.debug_aranges_section_dirty);
     assert(!self.debug_string_table_dirty);
 }
 
-pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
+pub fn deinit(self: *DebugSymbols) void {
+    const gpa = self.allocator;
     self.file.close();
-    self.segments.deinit(allocator);
-    self.sections.deinit(allocator);
+    self.segments.deinit(gpa);
+    self.sections.deinit(gpa);
     self.dwarf.deinit();
-    self.strtab.deinit(allocator);
-    self.relocs.deinit(allocator);
+    self.strtab.deinit(gpa);
+    self.relocs.deinit(gpa);
 }
 
 pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
@@ -319,16 +320,22 @@ pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
     }
 }
 
-fn finalizeDwarfSegment(self: *DebugSymbols) void {
+fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
     const base_vmaddr = blk: {
-        const last_seg = self.base.getLinkeditSegmentPtr();
+        // Note that we purposely take the last VM address of the MachO binary including
+        // the binary's LINKEDIT segment. This is in contrast to how dsymutil does it
+        // which overwrites the the address space taken by the original MachO binary,
+        // however at the cost of having LINKEDIT preceed DWARF in dSYM binary which we
+        // do not want as we want to be able to incrementally move DWARF sections in the
+        // file as we please.
+        const last_seg = macho_file.getLinkeditSegmentPtr();
         break :blk last_seg.vmaddr + last_seg.vmsize;
     };
     const dwarf_segment = self.getDwarfSegmentPtr();
     const aligned_size = mem.alignForwardGeneric(
         u64,
         dwarf_segment.filesize,
-        self.base.page_size,
+        self.page_size,
     );
     dwarf_segment.vmaddr = base_vmaddr;
     dwarf_segment.filesize = aligned_size;
@@ -338,21 +345,21 @@ fn finalizeDwarfSegment(self: *DebugSymbols) void {
     linkedit.vmaddr = mem.alignForwardGeneric(
         u64,
         dwarf_segment.vmaddr + aligned_size,
-        self.base.page_size,
+        self.page_size,
     );
     linkedit.fileoff = mem.alignForwardGeneric(
         u64,
         dwarf_segment.fileoff + aligned_size,
-        self.base.page_size,
+        self.page_size,
     );
     log.debug("found __LINKEDIT segment free space at 0x{x}", .{linkedit.fileoff});
 }
 
-fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void {
+fn writeSegmentHeaders(self: *DebugSymbols, macho_file: *MachO, ncmds: *u32, writer: anytype) !void {
     // Write segment/section headers from the binary file first.
-    const end = self.base.linkedit_segment_cmd_index.?;
-    for (self.base.segments.items[0..end]) |seg, i| {
-        const indexes = self.base.getSectionIndexes(@intCast(u8, i));
+    const end = macho_file.linkedit_segment_cmd_index.?;
+    for (macho_file.segments.items[0..end]) |seg, i| {
+        const indexes = macho_file.getSectionIndexes(@intCast(u8, i));
         var out_seg = seg;
         out_seg.fileoff = 0;
         out_seg.filesize = 0;
@@ -361,7 +368,7 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
 
         // Update section headers count; any section with size of 0 is excluded
         // since it doesn't have any data in the final binary file.
-        for (self.base.sections.items(.header)[indexes.start..indexes.end]) |header| {
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
             if (header.size == 0) continue;
             out_seg.cmdsize += @sizeOf(macho.section_64);
             out_seg.nsects += 1;
@@ -372,7 +379,7 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
             mem.eql(u8, out_seg.segName(), "__DATA"))) continue;
 
         try writer.writeStruct(out_seg);
-        for (self.base.sections.items(.header)[indexes.start..indexes.end]) |header| {
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
             if (header.size == 0) continue;
             var out_header = header;
             out_header.offset = 0;
@@ -392,11 +399,11 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
     }
 }
 
-fn writeHeader(self: *DebugSymbols, ncmds: u32, sizeofcmds: u32) !void {
+fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: u32, sizeofcmds: u32) !void {
     var header: macho.mach_header_64 = .{};
     header.filetype = macho.MH_DSYM;
 
-    switch (self.base.base.options.target.cpu.arch) {
+    switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
             header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
@@ -427,7 +434,12 @@ pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     return min_pos - start;
 }
 
-fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype) !void {
+fn writeLinkeditSegmentData(
+    self: *DebugSymbols,
+    macho_file: *MachO,
+    ncmds: *u32,
+    lc_writer: anytype,
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -438,43 +450,43 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype
         .stroff = 0,
         .strsize = 0,
     };
-    try self.writeSymtab(&symtab_cmd);
+    try self.writeSymtab(macho_file, &symtab_cmd);
     try self.writeStrtab(&symtab_cmd);
     try lc_writer.writeStruct(symtab_cmd);
     ncmds.* += 1;
 
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.base.page_size);
+    const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
     seg.vmsize = aligned_size;
 }
 
-fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
+fn writeSymtab(self: *DebugSymbols, macho_file: *MachO, lc: *macho.symtab_command) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.base.allocator;
+    const gpa = self.allocator;
 
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (self.base.locals.items) |sym, sym_id| {
+    for (macho_file.locals.items) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
         const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
-        if (self.base.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
-        if (self.base.getGlobal(self.base.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
+        if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+        if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         var out_sym = sym;
-        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(sym_loc));
+        out_sym.n_strx = try self.strtab.insert(gpa, macho_file.getSymbolName(sym_loc));
         try locals.append(out_sym);
     }
 
     var exports = std.ArrayList(macho.nlist_64).init(gpa);
     defer exports.deinit();
 
-    for (self.base.globals.items) |global| {
-        const sym = self.base.getSymbol(global);
+    for (macho_file.globals.items) |global| {
+        const sym = macho_file.getSymbol(global);
         if (sym.undf()) continue; // import, skip
         var out_sym = sym;
-        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(global));
+        out_sym.n_strx = try self.strtab.insert(gpa, macho_file.getSymbolName(global));
         try exports.append(out_sym);
     }
 
