@@ -29,8 +29,16 @@ git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
+rm -rf build
 mkdir build
 cd build
+
+# Override the cache directories because they won't actually help other CI runs
+# which will be testing alternate versions of zig, and ultimately would just
+# fill up space on the hard drive for no reason.
+export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
