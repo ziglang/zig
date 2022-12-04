@@ -44,7 +44,6 @@ debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
 strtab: StringTable(.strtab) = .{},
-
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Reloc = struct {
