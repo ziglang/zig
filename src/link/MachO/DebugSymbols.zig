@@ -59,41 +59,24 @@ pub const Reloc = struct {
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void {
-    if (self.linkedit_segment_cmd_index == null) {
-        self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
-        const fileoff = @intCast(u64, self.base.page_size);
-        const needed_size = @intCast(u64, self.base.page_size) * 2;
-        log.debug("found __LINKEDIT segment free space 0x{x} to 0x{x}", .{ fileoff, needed_size });
-        // TODO this needs reworking
-        try self.segments.append(allocator, .{
-            .segname = makeStaticString("__LINKEDIT"),
-            .vmaddr = fileoff,
-            .vmsize = needed_size,
-            .fileoff = fileoff,
-            .filesize = needed_size,
-            .maxprot = macho.PROT.READ,
-            .initprot = macho.PROT.READ,
-            .cmdsize = @sizeOf(macho.segment_command_64),
-        });
-    }
-
+pub fn populateMissingMetadata(self: *DebugSymbols, gpa: Allocator) !void {
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @intCast(u8, self.segments.items.len);
 
-        const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
+        const off = @intCast(u64, self.base.page_size);
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.base.page_size);
-        const fileoff = linkedit.fileoff + linkedit.filesize;
-        const vmaddr = linkedit.vmaddr + linkedit.vmsize;
+        const needed_size = mem.alignForwardGeneric(
+            u64,
+            padToIdeal(ideal_size),
+            self.base.page_size,
+        );
 
-        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try self.segments.append(allocator, .{
+        try self.segments.append(gpa, .{
             .segname = makeStaticString("__DWARF"),
-            .vmaddr = vmaddr,
             .vmsize = needed_size,
-            .fileoff = fileoff,
+            .fileoff = off,
             .filesize = needed_size,
             .cmdsize = @sizeOf(macho.segment_command_64),
         });
@@ -128,9 +111,21 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         self.debug_line_section_index = try self.allocateSection("__debug_line", 250, 0);
         self.debug_line_header_dirty = true;
     }
+
+    if (self.linkedit_segment_cmd_index == null) {
+        self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
+        try self.segments.append(gpa, .{
+            .segname = makeStaticString("__LINKEDIT"),
+            .maxprot = macho.PROT.READ,
+            .initprot = macho.PROT.READ,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
+    }
 }
 
 fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignment: u16) !u8 {
+    const gpa = self.base.base.allocator;
+
     const segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
     var sect = macho.section_64{
         .sectname = makeStaticString(sectname),
@@ -154,7 +149,7 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     sect.offset = @intCast(u32, off);
 
     const index = @intCast(u8, self.sections.items.len);
-    try self.sections.append(self.base.base.allocator, sect);
+    try self.sections.append(gpa, sect);
     segment.cmdsize += @sizeOf(macho.section_64);
     segment.nsects += 1;
 
@@ -282,9 +277,8 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     const lc_writer = lc_buffer.writer();
     var ncmds: u32 = 0;
 
-    self.updateDwarfSegment();
+    self.updateLinkeditSegment();
     try self.writeLinkeditSegmentData(&ncmds, lc_writer);
-    self.updateDwarfSegment();
 
     {
         try lc_writer.writeStruct(self.base.uuid);
@@ -327,40 +321,33 @@ pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
     }
 }
 
-fn updateDwarfSegment(self: *DebugSymbols) void {
-    const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
+fn updateLinkeditSegment(self: *DebugSymbols) void {
+    const base_vmaddr = blk: {
+        const last_seg = self.base.segments.items[self.base.segments.items.len - 1];
+        break :blk last_seg.vmaddr + last_seg.vmsize;
+    };
     const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+    const aligned_size = mem.alignForwardGeneric(
+        u64,
+        dwarf_segment.filesize,
+        self.base.page_size,
+    );
+    dwarf_segment.vmaddr = base_vmaddr;
+    dwarf_segment.filesize = aligned_size;
+    dwarf_segment.vmsize = aligned_size;
 
-    const new_start_aligned = linkedit.vmaddr + linkedit.vmsize;
-    const old_start_aligned = dwarf_segment.vmaddr;
-    const diff = new_start_aligned - old_start_aligned;
-    if (diff > 0) {
-        dwarf_segment.vmaddr = new_start_aligned;
-    }
-
-    var max_offset: u64 = 0;
-    for (self.sections.items) |*sect| {
-        sect.addr += diff;
-        log.debug("  {s},{s} - 0x{x}-0x{x} - 0x{x}-0x{x}", .{
-            sect.segName(),
-            sect.sectName(),
-            sect.offset,
-            sect.offset + sect.size,
-            sect.addr,
-            sect.addr + sect.size,
-        });
-        if (sect.offset + sect.size > max_offset) {
-            max_offset = sect.offset + sect.size;
-        }
-    }
-
-    const file_size = max_offset - dwarf_segment.fileoff;
-    log.debug("__DWARF size 0x{x}", .{file_size});
-
-    if (file_size != dwarf_segment.filesize) {
-        dwarf_segment.filesize = file_size;
-        dwarf_segment.vmsize = mem.alignForwardGeneric(u64, dwarf_segment.filesize, self.base.page_size);
-    }
+    const linkedit = self.getLinkeditSegmentPtr();
+    linkedit.vmaddr = mem.alignForwardGeneric(
+        u64,
+        dwarf_segment.vmaddr + aligned_size,
+        self.base.page_size,
+    );
+    linkedit.fileoff = mem.alignForwardGeneric(
+        u64,
+        dwarf_segment.fileoff + aligned_size,
+        self.base.page_size,
+    );
+    log.debug("found __LINKEDIT segment free space at 0x{x}", .{linkedit.fileoff});
 }
 
 fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void {
@@ -397,12 +384,13 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
         ncmds.* += 1;
     }
     // Next, commit DSYM's __LINKEDIT and __DWARF segments headers.
-    for (self.segments.items) |seg| {
+    for (self.segments.items) |seg, i| {
+        const indexes = self.getSectionIndexes(@intCast(u8, i));
         try writer.writeStruct(seg);
+        for (self.sections.items[indexes.start..indexes.end]) |header| {
+            try writer.writeStruct(header);
+        }
         ncmds.* += 1;
-    }
-    for (self.sections.items) |header| {
-        try writer.writeStruct(header);
     }
 }
 
@@ -445,10 +433,6 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype
     const tracy = trace(@src());
     defer tracy.end();
 
-    const source_vmaddr = self.base.segments.items[self.base.linkedit_segment_cmd_index.?].vmaddr;
-    const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    seg.vmaddr = source_vmaddr;
-
     var symtab_cmd = macho.symtab_command{
         .cmdsize = @sizeOf(macho.symtab_command),
         .symoff = 0,
@@ -461,8 +445,8 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype
     try lc_writer.writeStruct(symtab_cmd);
     ncmds.* += 1;
 
+    const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.base.page_size);
-    seg.filesize = aligned_size;
     seg.vmsize = aligned_size;
 }
 
@@ -503,38 +487,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const offset = mem.alignForwardGeneric(u64, seg.fileoff, @alignOf(macho.nlist_64));
     const needed_size = nsyms * @sizeOf(macho.nlist_64);
-
-    if (needed_size > seg.filesize) {
-        const aligned_size = mem.alignForwardGeneric(u64, needed_size, self.base.page_size);
-        const diff = @intCast(u32, aligned_size - seg.filesize);
-        const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
-        seg.filesize = aligned_size;
-
-        try copyRangeAllOverlappingAlloc(
-            self.base.base.allocator,
-            self.file,
-            dwarf_seg.fileoff,
-            dwarf_seg.fileoff + diff,
-            math.cast(usize, dwarf_seg.filesize) orelse return error.Overflow,
-        );
-
-        const old_seg_fileoff = dwarf_seg.fileoff;
-        dwarf_seg.fileoff += diff;
-
-        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.fileoff });
-
-        for (self.sections.items) |*sect| {
-            const old_offset = sect.offset;
-            sect.offset += diff;
-
-            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
-                sect.segName(),
-                sect.sectName(),
-                old_offset,
-                sect.offset,
-            });
-        }
-    }
+    seg.filesize = offset + needed_size - seg.fileoff;
 
     lc.symoff = @intCast(u32, offset);
     lc.nsyms = @intCast(u32, nsyms);
@@ -558,46 +511,20 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const symtab_size = @intCast(u32, lc.nsyms * @sizeOf(macho.nlist_64));
     const offset = mem.alignForwardGeneric(u64, lc.symoff + symtab_size, @alignOf(u64));
-    lc.stroff = @intCast(u32, offset);
-
     const needed_size = mem.alignForwardGeneric(u64, self.strtab.buffer.items.len, @alignOf(u64));
+
+    seg.filesize = offset + needed_size - seg.fileoff;
+    lc.stroff = @intCast(u32, offset);
     lc.strsize = @intCast(u32, needed_size);
-
-    if (symtab_size + needed_size > seg.filesize) {
-        const aligned_size = mem.alignForwardGeneric(u64, offset + needed_size, self.base.page_size);
-        const diff = @intCast(u32, aligned_size - seg.filesize);
-        const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
-        seg.filesize = aligned_size;
-
-        try copyRangeAllOverlappingAlloc(
-            self.base.base.allocator,
-            self.file,
-            dwarf_seg.fileoff,
-            dwarf_seg.fileoff + diff,
-            math.cast(usize, dwarf_seg.filesize) orelse return error.Overflow,
-        );
-
-        const old_seg_fileoff = dwarf_seg.fileoff;
-        dwarf_seg.fileoff += diff;
-
-        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.fileoff });
-
-        for (self.sections.items) |*sect| {
-            const old_offset = sect.offset;
-            sect.offset += diff;
-
-            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
-                sect.segName(),
-                sect.sectName(),
-                old_offset,
-                sect.offset,
-            });
-        }
-    }
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ lc.stroff, lc.stroff + lc.strsize });
 
     try self.file.pwriteAll(self.strtab.buffer.items, lc.stroff);
+
+    if (self.strtab.buffer.items.len < needed_size) {
+        // Ensure we are always padded to the actual length of the file.
+        try self.file.pwriteAll(&[_]u8{0}, lc.stroff + lc.strsize);
+    }
 }
 
 fn copyRangeAllOverlappingAlloc(
@@ -611,4 +538,18 @@ fn copyRangeAllOverlappingAlloc(
     defer allocator.free(buf);
     const amt = try file.preadAll(buf, in_offset);
     try file.pwriteAll(buf[0..amt], out_offset);
+}
+
+pub fn getSectionIndexes(self: *DebugSymbols, segment_index: u8) struct { start: u8, end: u8 } {
+    var start: u8 = 0;
+    const nsects = for (self.segments.items) |seg, i| {
+        if (i == segment_index) break @intCast(u8, seg.nsects);
+        start += @intCast(u8, seg.nsects);
+    } else 0;
+    return .{ .start = start, .end = start + nsects };
+}
+
+pub fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
+    const index = self.linkedit_segment_cmd_index.?;
+    return &self.segments.items[index];
 }
