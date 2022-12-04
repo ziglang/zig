@@ -715,8 +715,8 @@ if(MSVC)
   set(ZIG2_LINK_FLAGS "/STACK:16777216")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
-  set(ZIG1_COMPILE_FLAGS "-std=c99")
-  set(ZIG2_COMPILE_FLAGS "-std=c99")
+  set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0")
   set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
 endif()
 
@@ -740,9 +740,7 @@ add_custom_command(
 )
 
 add_executable(zig1 ${ZIG1_C_SOURCE} "${CMAKE_SOURCE_DIR}/stage1/wasi.c")
-set_target_properties(zig1 PROPERTIES
-  COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS}
-  LINK_FLAGS ${ZIG2_LINK_FLAGS})
+set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
 target_link_libraries(zig1 LINK_PUBLIC m)
 target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
 target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
@@ -762,7 +760,7 @@ add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
-  COMMENT STATUS "Interpreting zig1.wasm to produce ${ZIG2_C_SOURCE}"
+  COMMENT STATUS "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
@@ -780,7 +778,7 @@ add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
-  COMMENT STATUS "Interpreting zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
+  COMMENT STATUS "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
