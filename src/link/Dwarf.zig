@@ -1172,7 +1172,7 @@ pub fn commitDeclState(
                         if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
                             const new_offset = d_sym.findFreeSpace(needed_size, 1);
                             const existing_size = last_src_fn.off;
-                            log.debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
+                            std.log.scoped(.dsym).debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
                                 existing_size,
                                 debug_line_sect.offset,
                                 new_offset,
@@ -1468,7 +1468,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                 if (needed_size > d_sym.allocatedSize(debug_info_sect.offset)) {
                     const new_offset = d_sym.findFreeSpace(needed_size, 1);
                     const existing_size = last_decl.off;
-                    log.debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
+                    std.log.scoped(.dsym).debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
                         existing_size,
                         debug_info_sect.offset,
                         new_offset,

@@ -332,11 +332,13 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
         break :blk last_seg.vmaddr + last_seg.vmsize;
     };
     const dwarf_segment = self.getDwarfSegmentPtr();
-    const aligned_size = mem.alignForwardGeneric(
-        u64,
-        dwarf_segment.filesize,
-        self.page_size,
-    );
+
+    var file_size: u64 = 0;
+    for (self.sections.items) |header| {
+        file_size = @max(file_size, header.offset + header.size);
+    }
+
+    const aligned_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
     dwarf_segment.vmaddr = base_vmaddr;
     dwarf_segment.filesize = aligned_size;
     dwarf_segment.vmsize = aligned_size;
