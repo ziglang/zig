@@ -5217,14 +5217,22 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.air.typeOfIndex(inst);
     const payload = try f.resolveInst(ty_op.operand);
-    if (inst_ty.optionalReprIsPayload()) return payload;
+    try reap(f, inst, &.{ty_op.operand});
+    const writer = f.object.writer();
+
+    if (inst_ty.optionalReprIsPayload()) {
+        const local = try f.allocLocal(inst, inst_ty);
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, payload, .Other);
+        try writer.writeAll(";\n");
+        return local;
+    }
 
     const payload_ty = f.air.typeOf(ty_op.operand);
     const target = f.object.dg.module.getTarget();
     const is_array = lowersToArray(payload_ty, target);
 
-    try reap(f, inst, &.{ty_op.operand});
-    const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     if (!is_array) {
         try f.writeCValue(writer, local, .Other);
@@ -5233,9 +5241,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll("; ");
     }
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(".is_null = ");
-    try f.object.dg.renderValue(writer, Type.bool, Value.false, .Initializer);
-    try writer.writeAll(";\n");
+    try writer.writeAll(".is_null = false;\n");
     if (is_array) {
         try writer.writeAll("memcpy(");
         try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
