@@ -6329,10 +6329,15 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.writeCValue(writer, local, .Other);
             try writer.print(".tag = {}; ", .{try f.fmtIntLiteral(tag_ty, int_val)});
         }
+        try f.writeCValue(writer, local, .Other);
+        try writer.print(".payload.{ } = ", .{fmtIdent(field_name)});
+        try f.writeCValue(writer, payload, .Other);
+        try writer.writeAll(";\n");
+        return local;
     }
 
     try f.writeCValue(writer, local, .Other);
-    try writer.print(".payload.{ } = ", .{fmtIdent(field_name)});
+    try writer.print(".{ } = ", .{fmtIdent(field_name)});
     try f.writeCValue(writer, payload, .Other);
     try writer.writeAll(";\n");
 
