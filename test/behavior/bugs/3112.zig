@@ -14,7 +14,6 @@ fn prev(p: ?State) void {
 test "zig test crash" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     var global: State = undefined;
     global.enter = prev;
