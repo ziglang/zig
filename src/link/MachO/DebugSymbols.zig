@@ -27,8 +27,8 @@ file: fs.File,
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
 
-linkedit_segment_cmd_index: ?u8 = null,
 dwarf_segment_cmd_index: ?u8 = null,
+linkedit_segment_cmd_index: ?u8 = null,
 
 debug_info_section_index: ?u8 = null,
 debug_abbrev_section_index: ?u8 = null,
@@ -277,7 +277,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     const lc_writer = lc_buffer.writer();
     var ncmds: u32 = 0;
 
-    self.updateLinkeditSegment();
+    self.finalizeDwarfSegment();
     try self.writeLinkeditSegmentData(&ncmds, lc_writer);
 
     {
@@ -321,9 +321,9 @@ pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
     }
 }
 
-fn updateLinkeditSegment(self: *DebugSymbols) void {
+fn finalizeDwarfSegment(self: *DebugSymbols) void {
     const base_vmaddr = blk: {
-        const last_seg = self.base.segments.items[self.base.segments.items.len - 1];
+        const last_seg = self.base.getLinkeditSegmentPtr();
         break :blk last_seg.vmaddr + last_seg.vmsize;
     };
     const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
