@@ -8455,8 +8455,12 @@ fn simpleUnOp(
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    const prev_force_comptime = gz.force_comptime;
+    defer gz.force_comptime = prev_force_comptime;
+
     switch (tag) {
         .tag_name, .error_name, .ptr_to_int => try emitDbgNode(gz, node),
+        .compile_error => gz.force_comptime = true,
         else => {},
     }
     const operand = try expr(gz, scope, operand_ri, operand_node);
