@@ -200,12 +200,9 @@ pub fn allocAdvancedWithRetAddr(
     n: usize,
     return_address: usize,
 ) Error![]align(alignment orelse @alignOf(T)) T {
-    const a = if (alignment) |a| blk: {
-        if (a == @alignOf(T)) return allocAdvancedWithRetAddr(self, T, null, n, return_address);
-        break :blk a;
-    } else @alignOf(T);
+    const a = alignment orelse @alignOf(T);
 
-    // The Zig Allocator interface is not intended to solve allocations beyond
+    // The Zig Allocator interface is not intended to solve alignments beyond
     // the minimum OS page size. For these use cases, the caller must use OS
     // APIs directly.
     comptime assert(a <= mem.page_size);
