@@ -69,14 +69,18 @@ pub const TypedefMap = std.ArrayHashMap(
     true,
 );
 
+const LoopDepth = u16;
 const Local = struct {
     ty: Type,
     alignment: u32,
+    /// How many loops the last definition was nested in.
+    loop_depth: LoopDepth,
 };
 
 const LocalIndex = u16;
 const LocalsList = std.ArrayListUnmanaged(LocalIndex);
 const LocalsMap = std.ArrayHashMapUnmanaged(Type, LocalsList, Type.HashContext32, true);
+const LocalsStack = std.ArrayListUnmanaged(LocalsMap);
 
 const FormatTypeAsCIdentContext = struct {
     ty: Type,
@@ -265,15 +269,18 @@ pub const Function = struct {
     /// All the locals, to be emitted at the top of the function.
     locals: std.ArrayListUnmanaged(Local) = .{},
     /// Which locals are available for reuse, based on Type.
-    free_locals: LocalsMap = .{},
+    /// Only locals in the last stack entry are available for reuse,
+    /// other entries will become available on loop exit.
+    free_locals_stack: LocalsStack = .{},
+    free_locals_clone_depth: LoopDepth = 0,
     /// Locals which will not be freed by Liveness. This is used after a
-    /// Function body is lowered in order to make `free_locals` have 100% of
-    /// the locals within so that it can be used to render the block of
-    /// variable declarations at the top of a function, sorted descending by
-    /// type alignment.
+    /// Function body is lowered in order to make `free_locals_stack` have
+    /// 100% of the locals within so that it can be used to render the block
+    /// of variable declarations at the top of a function, sorted descending
+    /// by type alignment.
     /// The value is whether the alloc is static or not.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
-    /// Needed for memory used by Type objects used as keys in free_locals.
+    /// Needed for memory used by the keys of free_locals_stack entries.
     arena: std.heap.ArenaAllocator,
 
     fn tyHashCtx(f: Function) Type.HashContext32 {
@@ -312,12 +319,17 @@ pub const Function = struct {
         };
     }
 
+    fn getFreeLocals(f: *Function) *LocalsMap {
+        return &f.free_locals_stack.items[f.free_locals_stack.items.len - 1];
+    }
+
     /// Skips the reuse logic.
     fn allocLocalValue(f: *Function, ty: Type, alignment: u32) !CValue {
         const gpa = f.object.dg.gpa;
         try f.locals.append(gpa, .{
             .ty = ty,
             .alignment = alignment,
+            .loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1),
         });
         return CValue{ .local = @intCast(LocalIndex, f.locals.items.len - 1) };
     }
@@ -332,10 +344,11 @@ pub const Function = struct {
     fn allocAlignedLocal(f: *Function, ty: Type, mutability: Mutability, alignment: u32) !CValue {
         _ = mutability;
 
-        if (f.free_locals.getPtrContext(ty, f.tyHashCtx())) |locals_list| {
+        if (f.getFreeLocals().getPtrContext(ty, f.tyHashCtx())) |locals_list| {
             for (locals_list.items) |local_index, i| {
-                const local = f.locals.items[local_index];
+                const local = &f.locals.items[local_index];
                 if (local.alignment >= alignment) {
+                    local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
                     _ = locals_list.swapRemove(i);
                     return CValue{ .local = local_index };
                 }
@@ -416,7 +429,10 @@ pub const Function = struct {
     pub fn deinit(f: *Function, gpa: mem.Allocator) void {
         f.allocs.deinit(gpa);
         f.locals.deinit(gpa);
-        deinitFreeLocalsMap(gpa, &f.free_locals);
+        for (f.free_locals_stack.items) |*free_locals| {
+            deinitFreeLocalsMap(gpa, free_locals);
+        }
+        f.free_locals_stack.deinit(gpa);
         f.blocks.deinit(gpa);
         f.value_map.deinit();
         f.object.code.deinit();
@@ -2480,6 +2496,9 @@ pub fn genFunc(f: *Function) !void {
     o.code_header.appendSliceAssumeCapacity("{\n ");
     const empty_header_len = o.code_header.items.len;
 
+    f.free_locals_stack.clearRetainingCapacity();
+    try f.free_locals_stack.append(gpa, .{});
+
     const main_body = f.air.getMainBody();
     try genBody(f, main_body);
 
@@ -2490,12 +2509,13 @@ pub fn genFunc(f: *Function) !void {
     // Liveness analysis, however, locals from alloc instructions will be
     // missing. These are added now to complete the map. Then we can sort by
     // alignment, descending.
+    const free_locals = f.getFreeLocals();
     const values = f.allocs.values();
     for (f.allocs.keys()) |local_index, i| {
         if (values[i]) continue; // static
         const local = f.locals.items[local_index];
         log.debug("inserting local {d} into free_locals", .{local_index});
-        const gop = try f.free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
+        const gop = try free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
         if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, local_index);
     }
@@ -2511,10 +2531,10 @@ pub fn genFunc(f: *Function) !void {
         }
     };
     const target = o.dg.module.getTarget();
-    f.free_locals.sort(SortContext{ .target = target, .keys = f.free_locals.keys() });
+    free_locals.sort(SortContext{ .target = target, .keys = free_locals.keys() });
 
     const w = o.code_header.writer();
-    for (f.free_locals.values()) |list| {
+    for (free_locals.values()) |list| {
         for (list.items) |local_index| {
             const local = f.locals.items[local_index];
             try o.dg.renderTypeAndName(
@@ -4282,9 +4302,30 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
     const loop = f.air.extraData(Air.Block, ty_pl.payload);
     const body = f.air.extra[loop.end..][0..loop.data.body_len];
     const writer = f.object.writer();
+
+    const gpa = f.object.dg.gpa;
+    try f.free_locals_stack.insert(gpa, f.free_locals_stack.items.len - 1, .{});
+
     try writer.writeAll("for (;;) ");
     try genBody(f, body);
     try writer.writeByte('\n');
+
+    var old_free_locals = f.free_locals_stack.pop();
+    defer deinitFreeLocalsMap(gpa, &old_free_locals);
+    const new_free_locals = f.getFreeLocals();
+    var it = new_free_locals.iterator();
+    while (it.next()) |entry| {
+        const gop = try old_free_locals.getOrPutContext(gpa, entry.key_ptr.*, f.tyHashCtx());
+        if (gop.found_existing) {
+            try gop.value_ptr.appendSlice(gpa, entry.value_ptr.items);
+        } else {
+            gop.value_ptr.* = entry.value_ptr.*;
+            entry.value_ptr.* = .{};
+        }
+    }
+    deinitFreeLocalsMap(gpa, new_free_locals);
+    new_free_locals.* = old_free_locals.move();
+
     return CValue.none;
 }
 
@@ -4303,17 +4344,19 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     var cloned_map = try f.value_map.clone();
     defer cloned_map.deinit();
-    var cloned_frees = try cloneFreeLocalsMap(gpa, &f.free_locals);
+    var cloned_frees = try cloneFreeLocalsMap(gpa, f.getFreeLocals());
     defer deinitFreeLocalsMap(gpa, &cloned_frees);
-
-    for (liveness_condbr.then_deaths) |operand| {
-        try die(f, inst, Air.indexToRef(operand));
-    }
 
     // Remember how many locals there were before entering the then branch so
     // that we can notice and use them in the else branch. Any new locals must
     // necessarily be free already after the then branch is complete.
     const pre_locals_len = @intCast(LocalIndex, f.locals.items.len);
+    const pre_clone_depth = f.free_locals_clone_depth;
+    f.free_locals_clone_depth = @intCast(LoopDepth, f.free_locals_stack.items.len);
+
+    for (liveness_condbr.then_deaths) |operand| {
+        try die(f, inst, Air.indexToRef(operand));
+    }
 
     try writer.writeAll("if (");
     try f.writeCValue(writer, cond, .Other);
@@ -4322,13 +4365,15 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" else ");
     f.value_map.deinit();
     f.value_map = cloned_map.move();
-    deinitFreeLocalsMap(gpa, &f.free_locals);
-    f.free_locals = cloned_frees.move();
+    const free_locals = f.getFreeLocals();
+    deinitFreeLocalsMap(gpa, free_locals);
+    free_locals.* = cloned_frees.move();
+    f.free_locals_clone_depth = pre_clone_depth;
     for (liveness_condbr.else_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
     }
 
-    try noticeBranchFrees(f, pre_locals_len);
+    try noticeBranchFrees(f, pre_locals_len, inst);
 
     try genBody(f, else_body);
     try f.object.indent_writer.insertNewline();
@@ -4390,20 +4435,25 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         if (case_i != last_case_i) {
             const old_value_map = f.value_map;
             f.value_map = try old_value_map.clone();
-            const old_free_locals = f.free_locals;
-            f.free_locals = try cloneFreeLocalsMap(gpa, &f.free_locals);
+            var free_locals = f.getFreeLocals();
+            const old_free_locals = free_locals.*;
+            free_locals.* = try cloneFreeLocalsMap(gpa, free_locals);
 
             // Remember how many locals there were before entering each branch so that
             // we can notice and use them in subsequent branches. Any new locals must
             // necessarily be free already after the previous branch is complete.
             const pre_locals_len = @intCast(LocalIndex, f.locals.items.len);
+            const pre_clone_depth = f.free_locals_clone_depth;
+            f.free_locals_clone_depth = @intCast(LoopDepth, f.free_locals_stack.items.len);
 
             {
                 defer {
+                    f.free_locals_clone_depth = pre_clone_depth;
                     f.value_map.deinit();
-                    deinitFreeLocalsMap(gpa, &f.free_locals);
+                    free_locals = f.getFreeLocals();
+                    deinitFreeLocalsMap(gpa, free_locals);
                     f.value_map = old_value_map;
-                    f.free_locals = old_free_locals;
+                    free_locals.* = old_free_locals;
                 }
 
                 for (liveness.deaths[case_i]) |operand| {
@@ -4413,7 +4463,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try genBody(f, case_body);
             }
 
-            try noticeBranchFrees(f, pre_locals_len);
+            try noticeBranchFrees(f, pre_locals_len, inst);
         } else {
             for (liveness.deaths[case_i]) |operand| {
                 try die(f, inst, Air.indexToRef(operand));
@@ -6193,7 +6243,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(init_val);
     try writer.writeAll(";");
     try f.object.indent_writer.insertNewline();
-    try writer.writeAll("for(;");
+    try writer.writeAll("for (;");
     try f.writeCValue(writer, it, .Other);
     try writer.print("<{d};++", .{vector_len});
     try f.writeCValue(writer, it, .Other);
@@ -6998,13 +7048,15 @@ fn die(f: *Function, inst: Air.Inst.Index, ref: Air.Inst.Ref) !void {
 
 fn freeLocal(f: *Function, inst: Air.Inst.Index, local_index: LocalIndex, ref_inst: Air.Inst.Index) !void {
     const gpa = f.object.dg.gpa;
-    const gop = try f.free_locals.getOrPutContext(
+    const local = &f.locals.items[local_index];
+    log.debug("%{d}: freeing t{d} (operand %{d})", .{ inst, local_index, ref_inst });
+    if (local.loop_depth < f.free_locals_clone_depth) return;
+    const gop = try f.free_locals_stack.items[local.loop_depth].getOrPutContext(
         gpa,
-        f.locals.items[local_index].ty,
+        local.ty,
         f.tyHashCtx(),
     );
     if (!gop.found_existing) gop.value_ptr.* = .{};
-    log.debug("%{d}: freeing t{d} (operand %{d})", .{ inst, local_index, ref_inst });
     if (std.debug.runtime_safety) {
         // If this trips, it means a local is being inserted into the
         // free_locals map while it already exists in the map, which is not
@@ -7062,15 +7114,14 @@ fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
     map.deinit(gpa);
 }
 
-fn noticeBranchFrees(f: *Function, pre_locals_len: LocalIndex) !void {
-    const gpa = f.object.dg.gpa;
-    var i = pre_locals_len;
-    while (i < f.locals.items.len) : (i += 1) {
-        const local = f.locals.items[i];
-        const unfreeable = f.allocs.contains(i);
-        if (unfreeable) continue;
-        const gop = try f.free_locals.getOrPutContext(gpa, local.ty, f.tyHashCtx());
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, i);
+fn noticeBranchFrees(f: *Function, pre_locals_len: LocalIndex, inst: Air.Inst.Index) !void {
+    for (f.locals.items[pre_locals_len..]) |*local, local_offset| {
+        const local_index = pre_locals_len + @intCast(LocalIndex, local_offset);
+        if (f.allocs.contains(local_index)) continue; // allocs are not freeable
+
+        // free more deeply nested locals from other branches at current depth
+        assert(local.loop_depth >= f.free_locals_stack.items.len - 1);
+        local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
+        try freeLocal(f, inst, local_index, 0);
     }
 }
