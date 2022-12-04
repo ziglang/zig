@@ -5346,7 +5346,8 @@ pub const FuncGen = struct {
         const err_union_ty = self.air.typeOf(pl_op.operand);
         const payload_ty = self.air.typeOfIndex(inst);
         const can_elide_load = if (isByRef(payload_ty)) self.canElideLoad(body_tail) else false;
-        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, payload_ty);
+        const is_unused = self.liveness.isUnused(inst);
+        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, is_unused, payload_ty);
     }
 
     fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -5356,7 +5357,8 @@ pub const FuncGen = struct {
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
         const err_union_ty = self.air.typeOf(extra.data.ptr).childType();
         const payload_ty = self.air.typeOfIndex(inst);
-        return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, payload_ty);
+        const is_unused = self.liveness.isUnused(inst);
+        return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, is_unused, payload_ty);
     }
 
     fn lowerTry(
@@ -5366,6 +5368,7 @@ pub const FuncGen = struct {
         err_union_ty: Type,
         operand_is_ptr: bool,
         can_elide_load: bool,
+        is_unused: bool,
         result_ty: Type,
     ) !?*llvm.Value {
         const payload_ty = err_union_ty.errorUnionPayload();
@@ -5404,6 +5407,9 @@ pub const FuncGen = struct {
             try fg.genBody(body);
 
             fg.builder.positionBuilderAtEnd(continue_block);
+        }
+        if (is_unused) {
+            return null;
         }
         if (!payload_has_bits) {
             if (!operand_is_ptr) return null;
