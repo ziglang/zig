@@ -6244,10 +6244,12 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     const resolved_elements = try gpa.alloc(CValue, elements.len);
     defer gpa.free(resolved_elements);
+    for (elements) |element, i| {
+        resolved_elements[i] = try f.resolveInst(element);
+    }
     {
         var bt = iterateBigTomb(f, inst);
-        for (elements) |element, i| {
-            resolved_elements[i] = try f.resolveInst(element);
+        for (elements) |element| {
             try bt.feed(element);
         }
     }
