@@ -4468,7 +4468,6 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         const writer = f.object.writer();
         const inst_ty = f.air.typeOfIndex(inst);
         const local = if (inst_ty.hasRuntimeBitsIgnoreComptime()) local: {
-            // TODO free this after using it
             const local = try f.allocLocal(inst, inst_ty);
             if (f.wantSafety()) {
                 try f.writeCValue(writer, local, .Other);
