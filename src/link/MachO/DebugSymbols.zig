@@ -537,19 +537,6 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     }
 }
 
-fn copyRangeAllOverlappingAlloc(
-    allocator: Allocator,
-    file: std.fs.File,
-    in_offset: u64,
-    out_offset: u64,
-    len: usize,
-) !void {
-    const buf = try allocator.alloc(u8, len);
-    defer allocator.free(buf);
-    const amt = try file.preadAll(buf, in_offset);
-    try file.pwriteAll(buf[0..amt], out_offset);
-}
-
 pub fn getSectionIndexes(self: *DebugSymbols, segment_index: u8) struct { start: u8, end: u8 } {
     var start: u8 = 0;
     const nsects = for (self.segments.items) |seg, i| {
