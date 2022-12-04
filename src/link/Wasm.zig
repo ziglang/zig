@@ -885,7 +885,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
 
     decl.link.wasm.clear();
 
-    var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl) else null;
+    var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
@@ -913,7 +913,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
         try dwarf.commitDeclState(
             &wasm.base,
             mod,
-            decl,
+            decl_index,
             // Actual value will be written after relocation.
             // For Wasm, this is the offset relative to the code section
             // which isn't known until flush().
