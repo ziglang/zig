@@ -4013,9 +4013,14 @@ fn lowerTry(
         }
     }
 
+    try reap(f, inst, &.{operand});
+
+    if (f.liveness.isUnused(inst)) {
+        return CValue.none;
+    }
+
     const target = f.object.dg.module.getTarget();
     const is_array = lowersToArray(payload_ty, target);
-    try reap(f, inst, &.{operand});
     const local = try f.allocLocal(inst, result_ty);
     if (is_array) {
         try writer.writeAll("memcpy(");
