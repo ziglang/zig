@@ -586,7 +586,7 @@ pub const DeclState = struct {
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
-        const atom = self.getDbgInfoAtom(tag, owner_decl);
+        const atom = getDbgInfoAtom(tag, self.mod, owner_decl);
         const name_with_null = name.ptr[0 .. name.len + 1];
 
         switch (loc) {
@@ -645,7 +645,7 @@ pub const DeclState = struct {
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
-        const atom = self.getDbgInfoAtom(tag, owner_decl);
+        const atom = getDbgInfoAtom(tag, self.mod, owner_decl);
         const name_with_null = name.ptr[0 .. name.len + 1];
         try dbg_info.append(@enumToInt(AbbrevKind.variable));
         const target = self.mod.getTarget();
@@ -778,16 +778,6 @@ pub const DeclState = struct {
         try self.addTypeRelocGlobal(atom, child_ty, @intCast(u32, index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
-
-    fn getDbgInfoAtom(self: *DeclState, tag: File.Tag, decl_index: Module.Decl.Index) *Atom {
-        const decl = self.mod.declPtr(decl_index);
-        return switch (tag) {
-            .elf => &decl.link.elf.dbg_info_atom,
-            .macho => &decl.link.macho.dbg_info_atom,
-            .wasm => &decl.link.wasm.dbg_info_atom,
-            else => unreachable,
-        };
-    }
 };
 
 pub const AbbrevEntry = struct {
@@ -899,10 +889,11 @@ pub fn deinit(self: *Dwarf) void {
 
 /// Initializes Decl's state and its matching output buffers.
 /// Call this before `commitDeclState`.
-pub fn initDeclState(self: *Dwarf, mod: *Module, decl: *Module.Decl) !DeclState {
+pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !DeclState {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const decl = mod.declPtr(decl_index);
     const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.allocator.free(decl_name);
 
@@ -977,12 +968,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl: *Module.Decl) !DeclState 
             dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
             //
             if (fn_ret_has_bits) {
-                const atom = switch (self.tag) {
-                    .elf => &decl.link.elf.dbg_info_atom,
-                    .macho => &decl.link.macho.dbg_info_atom,
-                    .wasm => &decl.link.wasm.dbg_info_atom,
-                    else => unreachable,
-                };
+                const atom = getDbgInfoAtom(self.tag, mod, decl_index);
                 try decl_state.addTypeRelocGlobal(atom, fn_ret_type, @intCast(u32, dbg_info_buffer.items.len));
                 dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
             }
@@ -1002,7 +988,7 @@ pub fn commitDeclState(
     self: *Dwarf,
     file: *File,
     module: *Module,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     sym_addr: u64,
     sym_size: u64,
     decl_state: *DeclState,
@@ -1013,6 +999,7 @@ pub fn commitDeclState(
     const gpa = self.allocator;
     var dbg_line_buffer = &decl_state.dbg_line;
     var dbg_info_buffer = &decl_state.dbg_info;
+    const decl = module.declPtr(decl_index);
 
     const target_endian = self.target.cpu.arch.endian();
 
@@ -1233,13 +1220,7 @@ pub fn commitDeclState(
     if (dbg_info_buffer.items.len == 0)
         return;
 
-    const atom = switch (self.tag) {
-        .elf => &decl.link.elf.dbg_info_atom,
-        .macho => &decl.link.macho.dbg_info_atom,
-        .wasm => &decl.link.wasm.dbg_info_atom,
-        else => unreachable,
-    };
-
+    const atom = getDbgInfoAtom(self.tag, module, decl_index);
     if (decl_state.abbrev_table.items.len > 0) {
         // Now we emit the .debug_info types of the Decl. These will count towards the size of
         // the buffer, so we have to do it before computing the offset, and we can't perform the actual
@@ -2562,4 +2543,14 @@ fn addDbgInfoErrorSet(
 
     // DW.AT.enumeration_type delimit children
     try dbg_info_buffer.append(0);
+}
+
+fn getDbgInfoAtom(tag: File.Tag, mod: *Module, decl_index: Module.Decl.Index) *Atom {
+    const decl = mod.declPtr(decl_index);
+    return switch (tag) {
+        .elf => &decl.link.elf.dbg_info_atom,
+        .macho => &decl.link.macho.dbg_info_atom,
+        .wasm => &decl.link.wasm.dbg_info_atom,
+        else => unreachable,
+    };
 }
