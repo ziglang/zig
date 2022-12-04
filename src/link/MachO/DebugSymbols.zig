@@ -126,7 +126,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, gpa: Allocator) !void {
 fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignment: u16) !u8 {
     const gpa = self.base.base.allocator;
 
-    const segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+    const segment = self.getDwarfSegmentPtr();
     var sect = macho.section_64{
         .sectname = makeStaticString(sectname),
         .segname = segment.segname,
@@ -135,8 +135,6 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     };
     const alignment_pow_2 = try math.powi(u32, 2, alignment);
     const off = self.findFreeSpace(size, alignment_pow_2);
-
-    assert(off + size <= segment.fileoff + segment.filesize); // TODO expand
 
     log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
         sect.segName(),
@@ -169,7 +167,7 @@ fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
 }
 
 pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
-    const segment = self.segments.items[self.dwarf_segment_cmd_index.?];
+    const segment = self.getDwarfSegmentPtr();
     var offset: u64 = segment.fileoff;
     while (self.detectAllocCollision(offset, object_size)) |item_end| {
         offset = mem.alignForwardGeneric(u64, item_end, min_alignment);
@@ -248,7 +246,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     }
 
     {
-        const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+        const dwarf_segment = self.getDwarfSegmentPtr();
         const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
         if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != debug_strtab_sect.size) {
             const allocated_size = self.allocatedSize(debug_strtab_sect.offset);
@@ -326,7 +324,7 @@ fn finalizeDwarfSegment(self: *DebugSymbols) void {
         const last_seg = self.base.getLinkeditSegmentPtr();
         break :blk last_seg.vmaddr + last_seg.vmsize;
     };
-    const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+    const dwarf_segment = self.getDwarfSegmentPtr();
     const aligned_size = mem.alignForwardGeneric(
         u64,
         dwarf_segment.filesize,
@@ -419,7 +417,7 @@ fn writeHeader(self: *DebugSymbols, ncmds: u32, sizeofcmds: u32) !void {
 }
 
 pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
-    const seg = self.segments.items[self.dwarf_segment_cmd_index.?];
+    const seg = self.getDwarfSegmentPtr();
     assert(start >= seg.fileoff);
     var min_pos: u64 = std.math.maxInt(u64);
     for (self.sections.items) |section| {
@@ -549,7 +547,12 @@ pub fn getSectionIndexes(self: *DebugSymbols, segment_index: u8) struct { start:
     return .{ .start = start, .end = start + nsects };
 }
 
-pub fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
+fn getDwarfSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
+    const index = self.dwarf_segment_cmd_index.?;
+    return &self.segments.items[index];
+}
+
+fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
     const index = self.linkedit_segment_cmd_index.?;
     return &self.segments.items[index];
 }
