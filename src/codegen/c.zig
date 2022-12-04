@@ -1549,11 +1549,7 @@ pub const DeclGen = struct {
         return name;
     }
 
-    fn renderTupleTypedef(
-        dg: *DeclGen,
-        t: Type,
-        kind: TypedefKind,
-    ) error{ OutOfMemory, AnalysisFail }![]const u8 {
+    fn renderTupleTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
         var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
         defer buffer.deinit();
 
@@ -1565,7 +1561,7 @@ pub const DeclGen = struct {
                 if (!field_ty.hasRuntimeBits() or fields.values[i].tag() != .unreachable_value) continue;
 
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .field = field_id }, .Mut, 0, kind);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, .{ .field = field_id }, .Mut, 0, .Complete);
                 try buffer.appendSlice(";\n");
 
                 field_id += 1;
@@ -1987,7 +1983,7 @@ pub const DeclGen = struct {
                 const tuple_ty = Type.initPayload(&tuple_pl.base);
 
                 const name = dg.getTypedefName(tuple_ty) orelse
-                    try dg.renderTupleTypedef(tuple_ty, kind);
+                    try dg.renderTupleTypedef(tuple_ty);
 
                 try w.writeAll(name);
             } else switch (kind) {
