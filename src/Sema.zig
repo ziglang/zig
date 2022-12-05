@@ -5405,6 +5405,13 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         },
         else => |e| return e,
     };
+    {
+        try sema.mod.ensureDeclAnalyzed(decl_index);
+        const exported_decl = sema.mod.declPtr(decl_index);
+        if (exported_decl.val.castTag(.function)) |some| {
+            return sema.analyzeExport(block, src, options, some.data.owner_decl);
+        }
+    }
     try sema.analyzeExport(block, src, options, decl_index);
 }
 
