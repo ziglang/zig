@@ -20,15 +20,11 @@ const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
 const enable_rosetta: bool = build_options.enable_rosetta;
 const glibc_runtimes_dir: ?[]const u8 = build_options.glibc_runtimes_dir;
-const skip_stage1 = builtin.zig_backend != .stage1 or build_options.skip_stage1;
+const skip_stage1 = true;
 
 const hr = "=" ** 80;
 
 test {
-    if (build_options.have_stage1) {
-        @import("stage1.zig").os_init();
-    }
-
     const use_gpa = build_options.force_gpa or !builtin.link_libc;
     const gpa = gpa: {
         if (use_gpa) {
