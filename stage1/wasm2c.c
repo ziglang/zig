@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     }
 
     const char *mod = "wasm";
-    bool isBigEndian = false; // TODO
+    bool is_big_endian = false; // TODO
 
     struct InputStream in;
     InputStream_open(&in, argv[1]);
@@ -95,6 +95,112 @@ int main(int argc, char **argv) {
           "#include <stdint.h>\n"
           "#include <stdlib.h>\n"
           "#include <string.h>\n"
+          "\n", out);
+    if (is_big_endian)
+        fputs("static uint16_t i16_byteswap(uint16_t src) {\n"
+              "    return (uint16_t)(uint8_t)(src >> 0) << 8 |\n"
+              "           (uint16_t)(uint8_t)(src >> 8) << 0;\n"
+              "}\n"
+              "static uint32_t i32_byteswap(uint32_t src) {\n"
+              "    return (uint32_t)i16_byteswap(src >>  0) << 16 |\n"
+              "           (uint32_t)i16_byteswap(src >> 16) <<  0;\n"
+              "}\n"
+              "static uint64_t i64_byteswap(uint64_t src) {\n"
+              "    return (uint64_t)i32_byteswap(src >>  0) << 32 |\n"
+              "           (uint64_t)i32_byteswap(src >> 32) <<  0;\n"
+              "}\n"
+              "\n", out);
+    fputs("static uint16_t load16_align0(const uint8_t *ptr) {\n"
+          "    uint16_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint16_t load16_align1(const uint16_t *ptr) {\n"
+          "    uint16_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint32_t load32_align0(const uint8_t *ptr) {\n"
+          "    uint32_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint32_t load32_align1(const uint16_t *ptr) {\n"
+          "    uint32_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint32_t load32_align2(const uint32_t *ptr) {\n"
+          "    uint32_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint64_t load64_align0(const uint8_t *ptr) {\n"
+          "    uint64_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint64_t load64_align1(const uint16_t *ptr) {\n"
+          "    uint64_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint64_t load64_align2(const uint32_t *ptr) {\n"
+          "    uint64_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "static uint64_t load64_align3(const uint64_t *ptr) {\n"
+          "    uint64_t val;\n"
+          "    memcpy(&val, ptr, sizeof(val));\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    return val;\n"
+          "}\n"
+          "\n"
+          "static void store16_align0(uint8_t *ptr, uint16_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store16_align1(uint16_t *ptr, uint16_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store32_align0(uint8_t *ptr, uint32_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store32_align1(uint16_t *ptr, uint32_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store32_align2(uint32_t *ptr, uint32_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store64_align0(uint8_t *ptr, uint64_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store64_align1(uint16_t *ptr, uint64_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store64_align2(uint32_t *ptr, uint64_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
+          "static void store64_align3(uint64_t *ptr, uint64_t val) {\n", out);
+    if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
+    fputs("    memcpy(ptr, &val, sizeof(val));\n"
+          "}\n"
           "\n"
           "static uint32_t i32_reinterpret_f32(const float src) {\n"
           "    uint32_t dst;\n"
@@ -912,18 +1018,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            if (align < 2 || isBigEndian) {
-                                fseek(out, -1, SEEK_CUR);
-                                fputc('\n', out);
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint32_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                            } else fprintf(out, "*(const uint32_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "load32_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%" PRIu32
+                                    "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -933,18 +1030,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            if (align < 3 || isBigEndian) {
-                                fseek(out, -1, SEEK_CUR);
-                                fputc('\n', out);
-                                for (uint8_t byte_i = 0; byte_i < 8; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint64_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                            } else fprintf(out, "*(const uint64_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "load64_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%" PRIu32
+                                    "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -954,18 +1042,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            if (align < 2 || isBigEndian) {
-                                fputs("f32_reinterpret_i32(\n", out);
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint32_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                                fputc(')', out);
-                            } else fprintf(out, "*(const float *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "f32_reinterpret_i32(load32_align%" PRIu32 "((const uint%" PRIu32
+                                    "_t *)&m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]));\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -975,18 +1054,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            if (align < 3 || isBigEndian) {
-                                fputs("f64_reinterpret_i64(\n", out);
-                                for (uint8_t byte_i = 0; byte_i < 8; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint64_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                                fputc(')', out);
-                            } else fprintf(out, "*(const double *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "f64_reinterpret_i64(load64_align%" PRIu32 "((const uint%" PRIu32
+                                    "_t *)&m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]));\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1018,18 +1088,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            if (align < 1 || isBigEndian) {
-                                fputs("(int16_t)(\n", out);
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint16_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                                fputc(')', out);
-                            } else fprintf(out, "*(const int16_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "(int16_t)load16_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1039,18 +1100,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            if (align < 1 || isBigEndian) {
-                                fseek(out, -1, SEEK_CUR);
-                                fputc('\n', out);
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint16_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                            } else fprintf(out, "*(const uint16_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "load16_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1082,18 +1134,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            if (align < 1 || isBigEndian) {
-                                fputs("(int16_t)(\n", out);
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint16_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                                fputc(')', out);
-                            } else fprintf(out, "*(const int16_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "(int16_t)load16_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1103,18 +1146,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            if (align < 1 || isBigEndian) {
-                                fseek(out, -1, SEEK_CUR);
-                                fputc('\n', out);
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint16_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                            } else fprintf(out, "*(const uint16_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "load16_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1124,18 +1158,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            if (align < 2 || isBigEndian) {
-                                fputs("(int32_t)(\n", out);
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint32_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                                fputc(')', out);
-                            } else fprintf(out, "*(const int32_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "(int32_t)load32_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1145,18 +1170,9 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t base = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            if (align < 2 || isBigEndian) {
-                                fseek(out, -1, SEEK_CUR);
-                                fputc('\n', out);
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    if (byte_i > 0) fputs(" |\n", out);
-                                    FuncGen_cont(&fg, out);
-                                    fprintf(out, "(uint32_t)m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%"
-                                            PRIu32 ")] << %2u", 0, base, offset + byte_i, byte_i << 3);
-                                }
-                            } else fprintf(out, "*(const uint32_t *)&m%" PRIu32 "[l%" PRIu32
-                                           " + UINT32_C(%" PRIu32 ")]", 0, base, offset);
-                            fputs(";\n", out);
+                            fprintf(out, "load32_align%" PRIu32 "((const uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")]);\n",
+                                    align, 8 << align, 0, base, offset);
                         }
                         break;
                     }
@@ -1167,19 +1183,10 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 2 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(l%" PRIu32 " >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(uint32_t *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store32_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], l%" PRIu32 ");\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1189,19 +1196,10 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 3 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 8; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(l%" PRIu32 " >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(uint64_t *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store64_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], l%" PRIu32 ");\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1211,19 +1209,11 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 2 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(i32_reinterpret_f32(l%" PRIu32 ") >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(float *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store32_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], "
+                                    "i32_reinterpret_f32(l%" PRIu32 "));\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1233,19 +1223,11 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 3 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 8; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(i64_reinterpret_f64(l%" PRIu32 ") >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(double *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store64_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], "
+                                    "i64_reinterpret_f64(l%" PRIu32 "));\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1267,19 +1249,11 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 1 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(l%" PRIu32 " >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(uint16_t *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = (uint16_t)l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store16_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], "
+                                    "(uint16_t)l%" PRIu32 ");\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1301,19 +1275,11 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 1 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 2; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(l%" PRIu32 " >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(uint16_t *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = (uint16_t)l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store16_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], "
+                                    "(uint16_t)l%" PRIu32 ");\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
@@ -1323,19 +1289,11 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t value = FuncGen_stackPop(&fg);
                             uint32_t base = FuncGen_stackPop(&fg);
-                            if (align < 2 || isBigEndian) {
-                                for (uint8_t byte_i = 0; byte_i < 4; byte_i += 1) {
-                                    FuncGen_indent(&fg, out);
-                                    fprintf(out, "m%" PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")] = "
-                                            "(uint8_t)(l%" PRIu32 " >> %2u);\n",
-                                            0, base, offset + byte_i, value, byte_i << 3);
-                                }
-                            } else {
-                                FuncGen_indent(&fg, out);
-                                fprintf(out, "*(uint32_t *)&m%" PRIu32 "[l%" PRIu32
-                                        " + UINT32_C(%" PRIu32 ")] = (uint32_t)l%" PRIu32 ";\n",
-                                        0, base, offset, value);
-                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "store32_align%" PRIu32 "((uint%" PRIu32 "_t *)&m%"
+                                    PRIu32 "[l%" PRIu32 " + UINT32_C(%" PRIu32 ")], "
+                                    "(uint32_t)l%" PRIu32 ");\n",
+                                    align, 8 << align, 0, base, offset, value);
                         }
                         break;
                     }
