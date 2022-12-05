@@ -125,7 +125,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Creates a copy of this ArrayList, using the same allocator.
-        pub fn clone(self: *Self) Allocator.Error!Self {
+        pub fn clone(self: Self) Allocator.Error!Self {
             var cloned = try Self.initCapacity(self.allocator, self.capacity);
             cloned.appendSliceAssumeCapacity(self.items);
             return cloned;
@@ -560,7 +560,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Creates a copy of this ArrayList.
-        pub fn clone(self: *Self, allocator: Allocator) Allocator.Error!Self {
+        pub fn clone(self: Self, allocator: Allocator) Allocator.Error!Self {
             var cloned = try Self.initCapacity(allocator, self.capacity);
             cloned.appendSliceAssumeCapacity(self.items);
             return cloned;
