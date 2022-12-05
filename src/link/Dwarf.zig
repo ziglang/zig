@@ -44,6 +44,11 @@ abbrev_table_offset: ?u64 = null,
 /// Table of debug symbol names.
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
+file_names_buffer: std.ArrayListUnmanaged(u8) = .{},
+file_names: std.ArrayListUnmanaged(u32) = .{},
+file_names_free_list: std.ArrayListUnmanaged(u28) = .{},
+file_names_lookup: std.AutoHashMapUnmanaged(*Module.File, u28) = .{},
+
 /// List of atoms that are owned directly by the DWARF module.
 /// TODO convert links in DebugInfoAtom into indices and make
 /// sure every atom is owned by this module.
@@ -906,6 +911,10 @@ pub fn deinit(self: *Dwarf) void {
     self.dbg_line_fn_free_list.deinit(gpa);
     self.atom_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
+    self.file_names_buffer.deinit(gpa);
+    self.file_names.deinit(gpa);
+    self.file_names_free_list.deinit(gpa);
+    self.file_names_lookup.deinit(gpa);
     self.global_abbrev_relocs.deinit(gpa);
 
     for (self.managed_atoms.items) |atom| {
@@ -968,8 +977,12 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
             // Once we support more than one source file, this will have the ability to be more
             // than one possible value.
-            const file_index = 1;
-            leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
+            const file_index = try self.addFileName(mod, decl_index);
+            leb128.writeUnsignedFixed(
+                4,
+                dbg_line_buffer.addManyAsArrayAssumeCapacity(4),
+                file_index + 1,
+            );
 
             // Emit a line for the begin curly with prologue_end=false. The codegen will
             // do the work of setting prologue_end=true and epilogue_begin=true.
@@ -1132,7 +1145,8 @@ pub fn commitDeclState(
                 self.dbg_line_fn_first = src_fn;
                 self.dbg_line_fn_last = src_fn;
 
-                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(module));
+                // TODO TEXME JK
+                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(module) * 100);
             }
 
             const last_src_fn = self.dbg_line_fn_last.?;
@@ -2271,6 +2285,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
     // files, and padding. We have a function to compute the upper bound size, however,
     // because it's needed for determining where to put the offset of the first `SrcFn`.
     const needed_bytes = self.dbgLineNeededHeaderBytes(module);
+    log.debug("dbg_line_prg_off = {x}, needed_bytes = {x}", .{ dbg_line_prg_off, needed_bytes });
     var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
     defer di_buf.deinit();
 
@@ -2325,15 +2340,28 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
         1, // `DW.LNS.set_isa`
         0, // include_directories (none except the compilation unit cwd)
     });
-    // file_names[0]
-    di_buf.appendSliceAssumeCapacity(module.root_pkg.root_src_path); // relative path name
-    di_buf.appendSliceAssumeCapacity(&[_]u8{
-        0, // null byte for the relative path name
-        0, // directory_index
-        0, // mtime (TODO supply this)
-        0, // file size bytes (TODO supply this)
-        0, // file_names sentinel
-    });
+    // // file_names[0]
+    // di_buf.appendSliceAssumeCapacity(module.root_pkg.root_src_path); // relative path name
+    // di_buf.appendSliceAssumeCapacity(&[_]u8{
+    //     0, // null byte for the relative path name
+    //     0, // directory_index
+    //     0, // mtime (TODO supply this)
+    //     0, // file size bytes (TODO supply this)
+    //     0, // file_names sentinel
+    // });
+
+    for (self.file_names.items) |off, i| {
+        const file_name = self.getFileName(off);
+        log.debug("file_name[{d}] = {s}", .{ i + 1, file_name });
+        di_buf.appendSliceAssumeCapacity(file_name);
+        di_buf.appendSliceAssumeCapacity(&[_]u8{
+            0, // null byte for the relative path name
+            0, // directory_index
+            0, // mtime (TODO supply this)
+            0, // file size bytes (TODO supply this)
+        });
+    }
+    di_buf.appendAssumeCapacity(0); // file names sentinel
 
     const header_len = di_buf.items.len - after_header_len;
     if (self.tag == .macho) {
@@ -2405,18 +2433,18 @@ fn ptrWidthBytes(self: Dwarf) u8 {
 }
 
 fn dbgLineNeededHeaderBytes(self: Dwarf, module: *Module) u32 {
-    _ = self;
     const directory_entry_format_count = 1;
     const file_name_entry_format_count = 1;
     const directory_count = 1;
-    const file_name_count = 1;
+    const file_name_count = self.file_names.items.len;
     const root_src_dir_path_len = if (module.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
+
     return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
         directory_count * 8 + file_name_count * 8 +
         // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
         // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
         root_src_dir_path_len +
-        module.root_pkg.root_src_path.len);
+        self.file_names_buffer.items.len);
 }
 
 /// The reloc offset for the line offset of a function from the previous function's line.
@@ -2525,6 +2553,47 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
             }
         }
     }
+}
+
+fn allocateFileIndex(self: *Dwarf) !u28 {
+    try self.file_names.ensureUnusedCapacity(self.allocator, 1);
+
+    const index = blk: {
+        if (self.file_names_free_list.popOrNull()) |index| {
+            log.debug("  (reusing file name index {d})", .{index});
+            break :blk index;
+        } else {
+            const index = @intCast(u28, self.file_names.items.len);
+            log.debug("  (allocating file name index {d})", .{index});
+            _ = self.file_names.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+
+    return index;
+}
+
+fn addFileName(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
+    const decl = mod.declPtr(decl_index);
+    const file_scope = decl.getFileScope();
+    if (self.file_names_lookup.get(file_scope)) |file_index| {
+        return file_index;
+    }
+    const index = try self.allocateFileIndex();
+    const file_name = try file_scope.fullPath(self.allocator);
+    defer self.allocator.free(file_name);
+    try self.file_names_buffer.ensureUnusedCapacity(self.allocator, file_name.len + 1);
+    const off = @intCast(u32, self.file_names_buffer.items.len);
+    self.file_names_buffer.appendSliceAssumeCapacity(file_name);
+    self.file_names_buffer.appendAssumeCapacity(0);
+    self.file_names.items[index] = off;
+    try self.file_names_lookup.putNoClobber(self.allocator, file_scope, index);
+    return index;
+}
+
+fn getFileName(self: Dwarf, off: u32) []const u8 {
+    assert(off < self.file_names_buffer.items.len);
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.file_names_buffer.items.ptr) + off, 0);
 }
 
 fn addDbgInfoErrorSet(
