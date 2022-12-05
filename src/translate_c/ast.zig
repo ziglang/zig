@@ -1434,12 +1434,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .optional_type => return renderPrefixOp(c, node, .optional_type, .question_mark, "?"),
         .address_of => {
             const payload = node.castTag(.address_of).?.data;
-            if (payload.tag() == .fn_identifier)
-                return try c.addNode(.{
-                    .tag = .identifier,
-                    .main_token = try c.addIdentifier(payload.castTag(.fn_identifier).?.data),
-                    .data = undefined,
-                });
 
             const ampersand = try c.addToken(.ampersand, "&");
             const base = if (payload.tag() == .fn_identifier)
