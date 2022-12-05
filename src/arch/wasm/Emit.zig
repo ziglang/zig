@@ -444,18 +444,12 @@ fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    const dbg_line = &emit.dbg_output.dwarf.dbg_line;
-    try dbg_line.ensureUnusedCapacity(11);
-    dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_pc);
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    const delta_pc = emit.offset() - emit.prev_di_offset;
     // TODO: This must emit a relocation to calculate the offset relative
     // to the code section start.
-    leb128.writeULEB128(dbg_line.writer(), emit.offset() - emit.prev_di_offset) catch unreachable;
-    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
-    if (delta_line != 0) {
-        dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_line);
-        leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-    }
-    dbg_line.appendAssumeCapacity(std.dwarf.LNS.copy);
+    try emit.dbg_output.dwarf.advancePCAndLine(delta_line, delta_pc);
+
     emit.prev_di_line = line;
     emit.prev_di_column = column;
     emit.prev_di_offset = emit.offset();
@@ -464,13 +458,13 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
 fn emitDbgPrologueEnd(emit: *Emit) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_prologue_end);
+    try emit.dbg_output.dwarf.setPrologueEnd();
     try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }
 
 fn emitDbgEpilogueBegin(emit: *Emit) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_epilogue_begin);
+    try emit.dbg_output.dwarf.setEpilogueBegin();
     try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }
