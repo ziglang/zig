@@ -2032,7 +2032,7 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
     if (builtin.os.tag == .windows) {
         @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return symlink(mem.sliceTo(target_path, 0), mem.sliceTo(sym_link_path, 0));
+        return symlinkatZ(target_path, fs.cwd().fd, sym_link_path);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         .SUCCESS => return,
@@ -2078,6 +2078,7 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
         .SUCCESS => {},
         .FAULT => unreachable,
         .INVAL => unreachable,
+        .BADF => unreachable,
         .ACCES => return error.AccessDenied,
         .PERM => return error.AccessDenied,
         .DQUOT => return error.DiskQuota,

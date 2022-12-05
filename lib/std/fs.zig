@@ -1488,19 +1488,7 @@ pub const Dir = struct {
     /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
     pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
-            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(pathname)) {
-                var buffer: [MAX_PATH_BYTES]u8 = undefined;
-                const out_path = try os.realpath(pathname, &buffer);
-                if (out_path.len > out_buffer.len) {
-                    return error.NameTooLong;
-                }
-                mem.copy(u8, out_buffer, out_path);
-                return out_buffer[0..out_path.len];
-            } else {
-                // Unfortunately, we have no ability to look up the path for an fd_t
-                // on WASI, so we have to give up here.
-                return error.InvalidHandle;
-            }
+            @compileError("realpath is not available on WASI");
         }
         if (builtin.os.tag == .windows) {
             const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
@@ -2652,8 +2640,13 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
-    } else if (builtin.os.tag == .wasi and @hasDecl(root, "wasi_cwd")) {
-        return root.wasi_cwd();
+    } else if (builtin.os.tag == .wasi) {
+        if (@hasDecl(root, "wasi_cwd")) {
+            return root.wasi_cwd();
+        } else {
+            // Expect the first preopen to be current working directory.
+            return .{ .fd = 3 };
+        }
     } else {
         return Dir{ .fd = os.AT.FDCWD };
     }
