@@ -770,7 +770,6 @@ set(BUILD_ZIG2_ARGS
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --pkg-begin build_options "${CMAKE_BINARY_DIR}/config.zig" --pkg-end
   -target "${HOST_TARGET_TRIPLE}"
-  --color on
 )
  
 add_custom_command(
