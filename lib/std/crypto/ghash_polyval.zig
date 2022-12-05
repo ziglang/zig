@@ -32,9 +32,9 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         pub const key_length = 16;
 
         const pc_count = if (builtin.mode != .ReleaseSmall) 16 else 2;
-        const agg_4_treshold = 22;
-        const agg_8_treshold = 84;
-        const agg_16_treshold = 328;
+        const agg_4_threshold = 22;
+        const agg_8_threshold = 84;
+        const agg_16_threshold = 328;
 
         // Before the Haswell architecture, the carryless multiplication instruction was
         // extremely slow. Even with 128-bit operands, using Karatsuba multiplication was
@@ -65,13 +65,13 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             if (builtin.mode != .ReleaseSmall) {
                 hx[2] = reduce(clmul128(hx[1], h)); // h^3
                 hx[3] = reduce(clsq128(hx[1])); // h^4 = h^2^2
-                if (block_count >= agg_8_treshold) {
+                if (block_count >= agg_8_threshold) {
                     hx[4] = reduce(clmul128(hx[3], h)); // h^5
                     hx[5] = reduce(clsq128(hx[2])); // h^6 = h^3^2
                     hx[6] = reduce(clmul128(hx[5], h)); // h^7
                     hx[7] = reduce(clsq128(hx[3])); // h^8 = h^4^2
                 }
-                if (block_count >= agg_16_treshold) {
+                if (block_count >= agg_16_threshold) {
                     var i: usize = 8;
                     while (i < 16) : (i += 2) {
                         hx[i] = reduce(clmul128(hx[i - 1], h));
@@ -263,7 +263,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
 
             var i: usize = 0;
 
-            if (builtin.mode != .ReleaseSmall and msg.len >= agg_16_treshold * block_length) {
+            if (builtin.mode != .ReleaseSmall and msg.len >= agg_16_threshold * block_length) {
                 // 16-blocks aggregated reduction
                 while (i + 256 <= msg.len) : (i += 256) {
                     var u = clmul128(acc ^ mem.readInt(u128, msg[i..][0..16], endian), st.hx[15 - 0]);
@@ -273,7 +273,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                     }
                     acc = reduce(u);
                 }
-            } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_8_treshold * block_length) {
+            } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_8_threshold * block_length) {
                 // 8-blocks aggregated reduction
                 while (i + 128 <= msg.len) : (i += 128) {
                     var u = clmul128(acc ^ mem.readInt(u128, msg[i..][0..16], endian), st.hx[7 - 0]);
@@ -283,7 +283,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                     }
                     acc = reduce(u);
                 }
-            } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_4_treshold * block_length) {
+            } else if (builtin.mode != .ReleaseSmall and msg.len >= agg_4_threshold * block_length) {
                 // 4-blocks aggregated reduction
                 while (i + 64 <= msg.len) : (i += 64) {
                     var u = clmul128(acc ^ mem.readInt(u128, msg[i..][0..16], endian), st.hx[3 - 0]);
