@@ -556,9 +556,6 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Returns true iff every corresponding bit in both
         /// bit sets are the same.
         pub fn eql(self: Self, other: Self) bool {
-            if (bit_length == 0) {
-                return true;
-            }
             var i: usize = 0;
             return while (i < num_masks) : (i += 1) {
                 if (self.masks[i] != other.masks[i]) {
@@ -945,6 +942,21 @@ pub const DynamicBitSetUnmanaged = struct {
         return offset + index;
     }
 
+    /// Returns true iff every corresponding bit in both
+    /// bit sets are the same.
+    pub fn eql(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] != other.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
     /// Iterates through the items in the set, according to the options.
     /// The default options (.{}) will iterate indices of set bits in
     /// ascending order.  Modifications to the underlying bit set may
@@ -1113,6 +1125,12 @@ pub const DynamicBitSet = struct {
         return self.unmanaged.toggleFirstSet();
     }
 
+    /// Returns true iff every corresponding bit in both
+    /// bit sets are the same.
+    pub fn eql(self: Self, other: Self) bool {
+        return self.unmanaged.eql(other.unmanaged);
+    }
+
     /// Iterates through the items in the set, according to the options.
     /// The default options (.{}) will iterate indices of set bits in
     /// ascending order.  Modifications to the underlying bit set may
@@ -1253,6 +1271,21 @@ pub const Range = struct {
 // ---------------- Tests -----------------
 
 const testing = std.testing;
+
+fn testEql(empty: anytype, full: anytype, len: usize) !void {
+    try testing.expect(empty.eql(empty));
+    try testing.expect(full.eql(full));
+    switch (len) {
+        0 => {
+            try testing.expect(empty.eql(full));
+            try testing.expect(full.eql(empty));
+        },
+        else => {
+            try testing.expect(!empty.eql(full));
+            try testing.expect(!full.eql(empty));
+        },
+    }
+}
 
 fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     try testing.expectEqual(len, a.capacity());
@@ -1474,23 +1507,6 @@ fn testPureBitSet(comptime Set: type) !void {
         break :odd bit_set;
     };
 
-    try testing.expect(empty.eql(empty));
-    try testing.expect(full.eql(full));
-    switch (Set.bit_length) {
-        0 => {
-            try testing.expect(empty.eql(full));
-            try testing.expect(full.eql(empty));
-            try testing.expect(even.eql(odd));
-            try testing.expect(odd.eql(even));
-        },
-        else => {
-            try testing.expect(!empty.eql(full));
-            try testing.expect(!full.eql(empty));
-            try testing.expect(!even.eql(odd));
-            try testing.expect(!odd.eql(even));
-        },
-    }
-
     try testing.expect(empty.subsetOf(empty));
     try testing.expect(empty.subsetOf(full));
     try testing.expect(full.subsetOf(full));
@@ -1567,6 +1583,7 @@ fn testStaticBitSet(comptime Set: type) !void {
     try testing.expectEqual(@as(usize, 0), a.count());
     try testing.expectEqual(@as(usize, Set.bit_length), b.count());
 
+    try testEql(a, b, Set.bit_length);
     try testBitSet(&a, &b, Set.bit_length);
 
     try testPureBitSet(Set);
@@ -1629,6 +1646,7 @@ test "DynamicBitSetUnmanaged" {
         defer b.deinit(allocator);
         try testing.expectEqual(@as(usize, size), b.count());
 
+        try testEql(tmp, b, size);
         try testBitSet(&a, &b, size);
     }
 }
@@ -1669,6 +1687,7 @@ test "DynamicBitSet" {
         defer b.deinit();
         try testing.expectEqual(@as(usize, size), b.count());
 
+        try testEql(tmp, b, size);
         try testBitSet(&a, &b, size);
     }
 }
