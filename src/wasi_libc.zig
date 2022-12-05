@@ -277,6 +277,8 @@ fn addCCArgs(
 
         "-iwithsysroot",
         try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
+
+        "-DBULK_MEMORY_THRESHOLD=32",
     });
 }
 
