@@ -2377,7 +2377,7 @@ int main(int argc, char **argv) {
                                     uint32_t src = FuncGen_stackPop(&fg);
                                     uint32_t dst = FuncGen_stackPop(&fg);
                                     FuncGen_indent(&fg, out);
-                                    fprintf(out, "memcpy(&m%" PRIu32 "[l%" PRIu32 "], "
+                                    fprintf(out, "memmove(&m%" PRIu32 "[l%" PRIu32 "], "
                                             "&m%" PRIu32 "[l%" PRIu32 "], l%" PRIu32 ");\n",
                                             dst_mem_idx, dst, src_mem_idx, src, n);
                                 }
