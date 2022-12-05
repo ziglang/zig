@@ -2380,16 +2380,7 @@ pub fn update(comp: *Compilation) !void {
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
-    switch (comp.color) {
-        .off => {
-            progress.terminal = null;
-        },
-        .on => {
-            progress.terminal = std.io.getStdErr();
-            progress.supports_ansi_escape_codes = true;
-        },
-        .auto => {},
-    }
+    if (comp.color == .off) progress.terminal = null;
 
     try comp.performAllTheWork(main_progress_node);
 
