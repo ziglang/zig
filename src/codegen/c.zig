@@ -5935,16 +5935,15 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const dest_ptr = try f.resolveInst(pl_op.operand);
     const value = try f.resolveInst(extra.lhs);
     const len = try f.resolveInst(extra.rhs);
-    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
 
     const writer = f.object.writer();
     if (dest_ty.isVolatilePtr()) {
         var u8_ptr_pl = dest_ty.ptrInfo();
         u8_ptr_pl.data.pointee_type = Type.u8;
         const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+        const index = try f.allocLocal(inst, Type.usize);
 
         try writer.writeAll("for (");
-        const index = try f.allocLocal(inst, Type.usize);
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
         try f.object.dg.renderValue(writer, Type.usize, Value.zero, .Initializer);
@@ -5966,11 +5965,13 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.writeCValue(writer, value, .FunctionArgument);
         try writer.writeAll(";\n");
 
+        try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
         try freeLocal(f, inst, index.local, 0);
 
         return CValue.none;
     }
 
+    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
     try writer.writeAll("memset(");
     try f.writeCValue(writer, dest_ptr, .FunctionArgument);
     try writer.writeAll(", ");
