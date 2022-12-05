@@ -17877,6 +17877,13 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             operand_ty.fmt(mod),
         }),
     };
+    if (enum_ty.enumFieldCount() == 0) {
+        // TODO I don't think this is the correct way to handle this but
+        // it prevents a crash.
+        return sema.fail(block, operand_src, "cannot get @tagName of empty enum '{}'", .{
+            enum_ty.fmt(mod),
+        });
+    }
     const enum_decl_index = enum_ty.getOwnerDecl();
     const casted_operand = try sema.coerce(block, enum_ty, operand, operand_src);
     if (try sema.resolveDefinedValue(block, operand_src, casted_operand)) |val| {
