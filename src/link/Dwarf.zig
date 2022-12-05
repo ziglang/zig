@@ -778,6 +778,33 @@ pub const DeclState = struct {
         try self.addTypeRelocGlobal(atom, child_ty, @intCast(u32, index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
+
+    pub fn advancePCAndLine(
+        self: *DeclState,
+        delta_line: i32,
+        delta_pc: usize,
+    ) error{OutOfMemory}!void {
+        // TODO Look into using the DWARF special opcodes to compress this data.
+        // It lets you emit single-byte opcodes that add different numbers to
+        // both the PC and the line number at the same time.
+        const dbg_line = &self.dbg_line;
+        try dbg_line.ensureUnusedCapacity(11);
+        dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
+        leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
+        if (delta_line != 0) {
+            dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
+            leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
+        }
+        dbg_line.appendAssumeCapacity(DW.LNS.copy);
+    }
+
+    pub fn setPrologueEnd(self: *DeclState) error{OutOfMemory}!void {
+        try self.dbg_line.append(DW.LNS.set_prologue_end);
+    }
+
+    pub fn setEpilogueBegin(self: *DeclState) error{OutOfMemory}!void {
+        try self.dbg_line.append(DW.LNS.set_epilogue_begin);
+    }
 };
 
 pub const AbbrevEntry = struct {

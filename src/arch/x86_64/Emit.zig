@@ -7,7 +7,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
-const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
@@ -18,7 +17,6 @@ const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
 const CodeGen = @import("CodeGen.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
-const DW = std.dwarf;
 const Encoder = bits.Encoder;
 const ErrorMsg = Module.ErrorMsg;
 const MCValue = @import("CodeGen.zig").MCValue;
@@ -1184,18 +1182,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
     log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            const dbg_line = &dw.dbg_line;
-            try dbg_line.ensureUnusedCapacity(11);
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_line.appendAssumeCapacity(DW.LNS.copy);
+            try dw.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_line = line;
             emit.prev_di_column = column;
             emit.prev_di_pc = emit.code.items.len;
@@ -1244,8 +1231,11 @@ fn mirDbgPrologueEnd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .dbg_prologue_end);
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_prologue_end);
-            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
+            try dw.setPrologueEnd();
+            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                emit.prev_di_line,
+                emit.prev_di_column,
+            });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -1258,8 +1248,11 @@ fn mirDbgEpilogueBegin(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .dbg_epilogue_begin);
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
-            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
+            try dw.setEpilogueBegin();
+            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                emit.prev_di_line,
+                emit.prev_di_column,
+            });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
