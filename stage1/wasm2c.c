@@ -1,3 +1,5 @@
+#define EXTRA_BRACES 0
+
 #include "FuncGen.h"
 #include "InputStream.h"
 #include "panic.h"
@@ -800,10 +802,14 @@ int main(int argc, char **argv) {
                                 FuncType_blockType(types, FuncGen_blockType(&fg, label_idx));
                             uint32_t label = FuncGen_blockLabel(&fg, label_idx);
 
-                            FuncGen_indent(&fg, out);
-                            if (opcode == WasmOpcode_br_if)
-                                fprintf(out, "if (l%" PRIu32 ") ", FuncGen_stackPop(&fg));
-                            fputs("{\n", out);
+                            if (opcode == WasmOpcode_br_if) {
+                                FuncGen_indent(&fg, out);
+                                fprintf(out, "if (l%" PRIu32 ") {\n", FuncGen_stackPop(&fg));
+                            } else if (EXTRA_BRACES) {
+                                FuncGen_indent(&fg, out);
+                                fputs("{\n", out);
+                            }
+
                             const struct ResultType *label_type;
                             uint32_t lhs;
                             switch (kind) {
@@ -833,8 +839,10 @@ int main(int argc, char **argv) {
                             }
                             FuncGen_cont(&fg, out);
                             fprintf(out, "goto l%" PRIu32 ";\n", label);
-                            FuncGen_indent(&fg, out);
-                            fprintf(out, "}\n");
+                            if (EXTRA_BRACES || opcode == WasmOpcode_br_if) {
+                                FuncGen_indent(&fg, out);
+                                fputs("}\n", out);
+                            }
                             if (opcode == WasmOpcode_br) unreachable_depth += 1;
                         }
                         break;

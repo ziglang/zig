@@ -119,9 +119,15 @@ static void FuncGen_blockBegin(struct FuncGen *self, FILE *out, enum WasmOpcode 
         if (self->block == NULL) panic("out of memory");
     }
     uint32_t label = FuncGen_localAlloc(self, type < 0 ? ~(int8_t)kind : (int8_t)kind);
-    FuncGen_indent(self, out);
-    if (kind == WasmOpcode_if) fprintf(out, "if (l%" PRIu32 ") ", FuncGen_stackPop(self));
-    fputs("{\n", out);
+
+    if (kind == WasmOpcode_if) {
+        FuncGen_indent(self, out);
+        fprintf(out, "if (l%" PRIu32 ") {\n", FuncGen_stackPop(self));
+    } else if (EXTRA_BRACES) {
+        FuncGen_indent(self, out);
+        fputs("{\n", out);
+    }
+
     self->block[self->block_i].type = type < 0 ? ~type : type;
     self->block[self->block_i].label = label;
     self->block[self->block_i].stack_i = self->stack_i;
@@ -148,8 +154,12 @@ static void FuncGen_blockEnd(struct FuncGen *self, FILE *out) {
     uint32_t label = FuncGen_blockLabel(self, 0);
     if (kind != WasmOpcode_loop) FuncGen_label(self, out, label);
     self->block_i -= 1;
-    FuncGen_indent(self, out);
-    fputs("}\n", out);
+
+    if (EXTRA_BRACES || kind == WasmOpcode_if) {
+        FuncGen_indent(self, out);
+        fputs("}\n", out);
+    }
+
     if (self->stack_i != self->block[self->block_i].stack_i) {
         FuncGen_indent(self, out);
         fprintf(out, "// stack mismatch %u != %u\n", self->stack_i, self->block[self->block_i].stack_i);
