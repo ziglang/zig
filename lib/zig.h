@@ -1556,7 +1556,7 @@ typedef double zig_f16;
 #define zig_bitSizeOf_c_longdouble 16
 typedef long double zig_f16;
 #define zig_as_f16(fp, repr) fp##l
-#elif FLT16_MANT_DIG == 11
+#elif FLT16_MANT_DIG == 11 && zig_has_builtin(__builtin_inff16)
 typedef _Float16 zig_f16;
 #define zig_as_f16(fp, repr) fp##f16
 #elif defined(__SIZEOF_FP16__)
