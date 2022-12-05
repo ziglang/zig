@@ -1406,6 +1406,8 @@ fn buildOutputType(
             }
         },
         .cc, .cpp => {
+            if (build_options.only_c) unreachable;
+
             emit_h = .no;
             soname = .no;
             ensure_libc_on_non_freestanding = true;
