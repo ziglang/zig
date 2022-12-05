@@ -20,15 +20,16 @@ const Module = @import("../../Module.zig");
 const StringTable = @import("../strtab.zig").StringTable;
 const Type = @import("../../type.zig").Type;
 
-base: *MachO,
+allocator: Allocator,
 dwarf: Dwarf,
 file: fs.File,
+page_size: u16,
 
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
 
-linkedit_segment_cmd_index: ?u8 = null,
 dwarf_segment_cmd_index: ?u8 = null,
+linkedit_segment_cmd_index: ?u8 = null,
 
 debug_info_section_index: ?u8 = null,
 debug_abbrev_section_index: ?u8 = null,
@@ -43,7 +44,6 @@ debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
 strtab: StringTable(.strtab) = .{},
-
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Reloc = struct {
@@ -59,41 +59,20 @@ pub const Reloc = struct {
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void {
-    if (self.linkedit_segment_cmd_index == null) {
-        self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
-        const fileoff = @intCast(u64, self.base.page_size);
-        const needed_size = @intCast(u64, self.base.page_size) * 2;
-        log.debug("found __LINKEDIT segment free space 0x{x} to 0x{x}", .{ fileoff, needed_size });
-        // TODO this needs reworking
-        try self.segments.append(allocator, .{
-            .segname = makeStaticString("__LINKEDIT"),
-            .vmaddr = fileoff,
-            .vmsize = needed_size,
-            .fileoff = fileoff,
-            .filesize = needed_size,
-            .maxprot = macho.PROT.READ,
-            .initprot = macho.PROT.READ,
-            .cmdsize = @sizeOf(macho.segment_command_64),
-        });
-    }
-
+pub fn populateMissingMetadata(self: *DebugSymbols) !void {
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @intCast(u8, self.segments.items.len);
 
-        const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
+        const off = @intCast(u64, self.page_size);
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.base.page_size);
-        const fileoff = linkedit.fileoff + linkedit.filesize;
-        const vmaddr = linkedit.vmaddr + linkedit.vmsize;
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
-        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try self.segments.append(allocator, .{
+        try self.segments.append(self.allocator, .{
             .segname = makeStaticString("__DWARF"),
-            .vmaddr = vmaddr,
             .vmsize = needed_size,
-            .fileoff = fileoff,
+            .fileoff = off,
             .filesize = needed_size,
             .cmdsize = @sizeOf(macho.segment_command_64),
         });
@@ -128,10 +107,20 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         self.debug_line_section_index = try self.allocateSection("__debug_line", 250, 0);
         self.debug_line_header_dirty = true;
     }
+
+    if (self.linkedit_segment_cmd_index == null) {
+        self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
+        try self.segments.append(self.allocator, .{
+            .segname = makeStaticString("__LINKEDIT"),
+            .maxprot = macho.PROT.READ,
+            .initprot = macho.PROT.READ,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
+    }
 }
 
 fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignment: u16) !u8 {
-    const segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+    const segment = self.getDwarfSegmentPtr();
     var sect = macho.section_64{
         .sectname = makeStaticString(sectname),
         .segname = segment.segname,
@@ -140,8 +129,6 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     };
     const alignment_pow_2 = try math.powi(u32, 2, alignment);
     const off = self.findFreeSpace(size, alignment_pow_2);
-
-    assert(off + size <= segment.fileoff + segment.filesize); // TODO expand
 
     log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
         sect.segName(),
@@ -154,7 +141,7 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     sect.offset = @intCast(u32, off);
 
     const index = @intCast(u8, self.sections.items.len);
-    try self.sections.append(self.base.base.allocator, sect);
+    try self.sections.append(self.allocator, sect);
     segment.cmdsize += @sizeOf(macho.section_64);
     segment.nsects += 1;
 
@@ -174,7 +161,7 @@ fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
 }
 
 pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
-    const segment = self.segments.items[self.dwarf_segment_cmd_index.?];
+    const segment = self.getDwarfSegmentPtr();
     var offset: u64 = segment.fileoff;
     while (self.detectAllocCollision(offset, object_size)) |item_end| {
         offset = mem.alignForwardGeneric(u64, item_end, min_alignment);
@@ -182,34 +169,35 @@ pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) 
     return offset;
 }
 
-pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Options) !void {
-    // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
-    // Zig source code.
+pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
+    // TODO This linker code currently assumes there is only 1 compilation unit
+    // and it corresponds to the Zig source code.
+    const options = macho_file.base.options;
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.type) {
-            .direct_load => self.base.getSymbol(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbol(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{
+                const got_index = macho_file.got_entries_table.get(.{
                     .sym_index = reloc.target,
                     .file = null,
                 }).?;
-                const got_entry = self.base.got_entries.items[got_index];
-                break :blk got_entry.getSymbol(self.base);
+                const got_entry = macho_file.got_entries.items[got_index];
+                break :blk got_entry.getSymbol(macho_file);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
 
         const sym_name = switch (reloc.type) {
-            .direct_load => self.base.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{
+                const got_index = macho_file.got_entries_table.get(.{
                     .sym_index = reloc.target,
                     .file = null,
                 }).?;
-                const got_entry = self.base.got_entries.items[got_index];
-                break :blk got_entry.getName(self.base);
+                const got_entry = macho_file.got_entries.items[got_index];
+                break :blk got_entry.getName(macho_file);
             },
         };
         const sect = &self.sections.items[self.debug_info_section_index.?];
@@ -225,35 +213,35 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     }
 
     if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.writeDbgAbbrev(&self.base.base);
+        try self.dwarf.writeDbgAbbrev(&macho_file.base);
         self.debug_abbrev_section_dirty = false;
     }
 
     if (self.debug_info_header_dirty) {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
-        const text_section = self.base.sections.items(.header)[self.base.text_section_index.?];
+        const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
         const low_pc = text_section.addr;
         const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(&self.base.base, module, low_pc, high_pc);
+        try self.dwarf.writeDbgInfoHeader(&macho_file.base, module, low_pc, high_pc);
         self.debug_info_header_dirty = false;
     }
 
     if (self.debug_aranges_section_dirty) {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
-        const text_section = self.base.sections.items(.header)[self.base.text_section_index.?];
-        try self.dwarf.writeDbgAranges(&self.base.base, text_section.addr, text_section.size);
+        const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
+        try self.dwarf.writeDbgAranges(&macho_file.base, text_section.addr, text_section.size);
         self.debug_aranges_section_dirty = false;
     }
 
     if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader(&self.base.base, module);
+        try self.dwarf.writeDbgLineHeader(&macho_file.base, module);
         self.debug_line_header_dirty = false;
     }
 
     {
-        const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+        const dwarf_segment = self.getDwarfSegmentPtr();
         const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
         if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != debug_strtab_sect.size) {
             const allocated_size = self.allocatedSize(debug_strtab_sect.offset);
@@ -277,41 +265,45 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         }
     }
 
-    var lc_buffer = std.ArrayList(u8).init(allocator);
+    var lc_buffer = std.ArrayList(u8).init(self.allocator);
     defer lc_buffer.deinit();
     const lc_writer = lc_buffer.writer();
     var ncmds: u32 = 0;
 
-    self.updateDwarfSegment();
-    try self.writeLinkeditSegmentData(&ncmds, lc_writer);
-    self.updateDwarfSegment();
+    self.finalizeDwarfSegment(macho_file);
+    try self.writeLinkeditSegmentData(macho_file, &ncmds, lc_writer);
 
     {
-        try lc_writer.writeStruct(self.base.uuid);
+        try lc_writer.writeStruct(macho_file.uuid);
         ncmds += 1;
     }
 
-    var headers_buf = std.ArrayList(u8).init(allocator);
+    var headers_buf = std.ArrayList(u8).init(self.allocator);
     defer headers_buf.deinit();
-    try self.writeSegmentHeaders(&ncmds, headers_buf.writer());
+    try self.writeSegmentHeaders(macho_file, &ncmds, headers_buf.writer());
 
     try self.file.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
     try self.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
 
-    try self.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
+    try self.writeHeader(
+        macho_file,
+        ncmds,
+        @intCast(u32, lc_buffer.items.len + headers_buf.items.len),
+    );
 
     assert(!self.debug_abbrev_section_dirty);
     assert(!self.debug_aranges_section_dirty);
     assert(!self.debug_string_table_dirty);
 }
 
-pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
+pub fn deinit(self: *DebugSymbols) void {
+    const gpa = self.allocator;
     self.file.close();
-    self.segments.deinit(allocator);
-    self.sections.deinit(allocator);
+    self.segments.deinit(gpa);
+    self.sections.deinit(gpa);
     self.dwarf.deinit();
-    self.strtab.deinit(allocator);
-    self.relocs.deinit(allocator);
+    self.strtab.deinit(gpa);
+    self.relocs.deinit(gpa);
 }
 
 pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
@@ -327,47 +319,48 @@ pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
     }
 }
 
-fn updateDwarfSegment(self: *DebugSymbols) void {
-    const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
-    const dwarf_segment = &self.segments.items[self.dwarf_segment_cmd_index.?];
+fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
+    const base_vmaddr = blk: {
+        // Note that we purposely take the last VM address of the MachO binary including
+        // the binary's LINKEDIT segment. This is in contrast to how dsymutil does it
+        // which overwrites the the address space taken by the original MachO binary,
+        // however at the cost of having LINKEDIT preceed DWARF in dSYM binary which we
+        // do not want as we want to be able to incrementally move DWARF sections in the
+        // file as we please.
+        const last_seg = macho_file.getLinkeditSegmentPtr();
+        break :blk last_seg.vmaddr + last_seg.vmsize;
+    };
+    const dwarf_segment = self.getDwarfSegmentPtr();
 
-    const new_start_aligned = linkedit.vmaddr + linkedit.vmsize;
-    const old_start_aligned = dwarf_segment.vmaddr;
-    const diff = new_start_aligned - old_start_aligned;
-    if (diff > 0) {
-        dwarf_segment.vmaddr = new_start_aligned;
+    var file_size: u64 = 0;
+    for (self.sections.items) |header| {
+        file_size = @max(file_size, header.offset + header.size);
     }
 
-    var max_offset: u64 = 0;
-    for (self.sections.items) |*sect| {
-        sect.addr += diff;
-        log.debug("  {s},{s} - 0x{x}-0x{x} - 0x{x}-0x{x}", .{
-            sect.segName(),
-            sect.sectName(),
-            sect.offset,
-            sect.offset + sect.size,
-            sect.addr,
-            sect.addr + sect.size,
-        });
-        if (sect.offset + sect.size > max_offset) {
-            max_offset = sect.offset + sect.size;
-        }
-    }
+    const aligned_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+    dwarf_segment.vmaddr = base_vmaddr;
+    dwarf_segment.filesize = aligned_size;
+    dwarf_segment.vmsize = aligned_size;
 
-    const file_size = max_offset - dwarf_segment.fileoff;
-    log.debug("__DWARF size 0x{x}", .{file_size});
-
-    if (file_size != dwarf_segment.filesize) {
-        dwarf_segment.filesize = file_size;
-        dwarf_segment.vmsize = mem.alignForwardGeneric(u64, dwarf_segment.filesize, self.base.page_size);
-    }
+    const linkedit = self.getLinkeditSegmentPtr();
+    linkedit.vmaddr = mem.alignForwardGeneric(
+        u64,
+        dwarf_segment.vmaddr + aligned_size,
+        self.page_size,
+    );
+    linkedit.fileoff = mem.alignForwardGeneric(
+        u64,
+        dwarf_segment.fileoff + aligned_size,
+        self.page_size,
+    );
+    log.debug("found __LINKEDIT segment free space at 0x{x}", .{linkedit.fileoff});
 }
 
-fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void {
+fn writeSegmentHeaders(self: *DebugSymbols, macho_file: *MachO, ncmds: *u32, writer: anytype) !void {
     // Write segment/section headers from the binary file first.
-    const end = self.base.linkedit_segment_cmd_index.?;
-    for (self.base.segments.items[0..end]) |seg, i| {
-        const indexes = self.base.getSectionIndexes(@intCast(u8, i));
+    const end = macho_file.linkedit_segment_cmd_index.?;
+    for (macho_file.segments.items[0..end]) |seg, i| {
+        const indexes = macho_file.getSectionIndexes(@intCast(u8, i));
         var out_seg = seg;
         out_seg.fileoff = 0;
         out_seg.filesize = 0;
@@ -376,7 +369,7 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
 
         // Update section headers count; any section with size of 0 is excluded
         // since it doesn't have any data in the final binary file.
-        for (self.base.sections.items(.header)[indexes.start..indexes.end]) |header| {
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
             if (header.size == 0) continue;
             out_seg.cmdsize += @sizeOf(macho.section_64);
             out_seg.nsects += 1;
@@ -387,7 +380,7 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
             mem.eql(u8, out_seg.segName(), "__DATA"))) continue;
 
         try writer.writeStruct(out_seg);
-        for (self.base.sections.items(.header)[indexes.start..indexes.end]) |header| {
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
             if (header.size == 0) continue;
             var out_header = header;
             out_header.offset = 0;
@@ -397,20 +390,21 @@ fn writeSegmentHeaders(self: *DebugSymbols, ncmds: *u32, writer: anytype) !void 
         ncmds.* += 1;
     }
     // Next, commit DSYM's __LINKEDIT and __DWARF segments headers.
-    for (self.segments.items) |seg| {
+    for (self.segments.items) |seg, i| {
+        const indexes = self.getSectionIndexes(@intCast(u8, i));
         try writer.writeStruct(seg);
+        for (self.sections.items[indexes.start..indexes.end]) |header| {
+            try writer.writeStruct(header);
+        }
         ncmds.* += 1;
-    }
-    for (self.sections.items) |header| {
-        try writer.writeStruct(header);
     }
 }
 
-fn writeHeader(self: *DebugSymbols, ncmds: u32, sizeofcmds: u32) !void {
+fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: u32, sizeofcmds: u32) !void {
     var header: macho.mach_header_64 = .{};
     header.filetype = macho.MH_DSYM;
 
-    switch (self.base.base.options.target.cpu.arch) {
+    switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
             header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
@@ -431,7 +425,7 @@ fn writeHeader(self: *DebugSymbols, ncmds: u32, sizeofcmds: u32) !void {
 }
 
 pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
-    const seg = self.segments.items[self.dwarf_segment_cmd_index.?];
+    const seg = self.getDwarfSegmentPtr();
     assert(start >= seg.fileoff);
     var min_pos: u64 = std.math.maxInt(u64);
     for (self.sections.items) |section| {
@@ -441,13 +435,14 @@ pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     return min_pos - start;
 }
 
-fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype) !void {
+fn writeLinkeditSegmentData(
+    self: *DebugSymbols,
+    macho_file: *MachO,
+    ncmds: *u32,
+    lc_writer: anytype,
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    const source_vmaddr = self.base.segments.items[self.base.linkedit_segment_cmd_index.?].vmaddr;
-    const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    seg.vmaddr = source_vmaddr;
 
     var symtab_cmd = macho.symtab_command{
         .cmdsize = @sizeOf(macho.symtab_command),
@@ -456,43 +451,43 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, ncmds: *u32, lc_writer: anytype
         .stroff = 0,
         .strsize = 0,
     };
-    try self.writeSymtab(&symtab_cmd);
+    try self.writeSymtab(macho_file, &symtab_cmd);
     try self.writeStrtab(&symtab_cmd);
     try lc_writer.writeStruct(symtab_cmd);
     ncmds.* += 1;
 
-    const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.base.page_size);
-    seg.filesize = aligned_size;
+    const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
+    const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
     seg.vmsize = aligned_size;
 }
 
-fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
+fn writeSymtab(self: *DebugSymbols, macho_file: *MachO, lc: *macho.symtab_command) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.base.allocator;
+    const gpa = self.allocator;
 
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (self.base.locals.items) |sym, sym_id| {
+    for (macho_file.locals.items) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
         const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
-        if (self.base.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
-        if (self.base.getGlobal(self.base.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
+        if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+        if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         var out_sym = sym;
-        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(sym_loc));
+        out_sym.n_strx = try self.strtab.insert(gpa, macho_file.getSymbolName(sym_loc));
         try locals.append(out_sym);
     }
 
     var exports = std.ArrayList(macho.nlist_64).init(gpa);
     defer exports.deinit();
 
-    for (self.base.globals.items) |global| {
-        const sym = self.base.getSymbol(global);
+    for (macho_file.globals.items) |global| {
+        const sym = macho_file.getSymbol(global);
         if (sym.undf()) continue; // import, skip
         var out_sym = sym;
-        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(global));
+        out_sym.n_strx = try self.strtab.insert(gpa, macho_file.getSymbolName(global));
         try exports.append(out_sym);
     }
 
@@ -503,38 +498,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const offset = mem.alignForwardGeneric(u64, seg.fileoff, @alignOf(macho.nlist_64));
     const needed_size = nsyms * @sizeOf(macho.nlist_64);
-
-    if (needed_size > seg.filesize) {
-        const aligned_size = mem.alignForwardGeneric(u64, needed_size, self.base.page_size);
-        const diff = @intCast(u32, aligned_size - seg.filesize);
-        const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
-        seg.filesize = aligned_size;
-
-        try copyRangeAllOverlappingAlloc(
-            self.base.base.allocator,
-            self.file,
-            dwarf_seg.fileoff,
-            dwarf_seg.fileoff + diff,
-            math.cast(usize, dwarf_seg.filesize) orelse return error.Overflow,
-        );
-
-        const old_seg_fileoff = dwarf_seg.fileoff;
-        dwarf_seg.fileoff += diff;
-
-        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.fileoff });
-
-        for (self.sections.items) |*sect| {
-            const old_offset = sect.offset;
-            sect.offset += diff;
-
-            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
-                sect.segName(),
-                sect.sectName(),
-                old_offset,
-                sect.offset,
-            });
-        }
-    }
+    seg.filesize = offset + needed_size - seg.fileoff;
 
     lc.symoff = @intCast(u32, offset);
     lc.nsyms = @intCast(u32, nsyms);
@@ -558,57 +522,37 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const symtab_size = @intCast(u32, lc.nsyms * @sizeOf(macho.nlist_64));
     const offset = mem.alignForwardGeneric(u64, lc.symoff + symtab_size, @alignOf(u64));
-    lc.stroff = @intCast(u32, offset);
-
     const needed_size = mem.alignForwardGeneric(u64, self.strtab.buffer.items.len, @alignOf(u64));
+
+    seg.filesize = offset + needed_size - seg.fileoff;
+    lc.stroff = @intCast(u32, offset);
     lc.strsize = @intCast(u32, needed_size);
-
-    if (symtab_size + needed_size > seg.filesize) {
-        const aligned_size = mem.alignForwardGeneric(u64, offset + needed_size, self.base.page_size);
-        const diff = @intCast(u32, aligned_size - seg.filesize);
-        const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
-        seg.filesize = aligned_size;
-
-        try copyRangeAllOverlappingAlloc(
-            self.base.base.allocator,
-            self.file,
-            dwarf_seg.fileoff,
-            dwarf_seg.fileoff + diff,
-            math.cast(usize, dwarf_seg.filesize) orelse return error.Overflow,
-        );
-
-        const old_seg_fileoff = dwarf_seg.fileoff;
-        dwarf_seg.fileoff += diff;
-
-        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.fileoff });
-
-        for (self.sections.items) |*sect| {
-            const old_offset = sect.offset;
-            sect.offset += diff;
-
-            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
-                sect.segName(),
-                sect.sectName(),
-                old_offset,
-                sect.offset,
-            });
-        }
-    }
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ lc.stroff, lc.stroff + lc.strsize });
 
     try self.file.pwriteAll(self.strtab.buffer.items, lc.stroff);
+
+    if (self.strtab.buffer.items.len < needed_size) {
+        // Ensure we are always padded to the actual length of the file.
+        try self.file.pwriteAll(&[_]u8{0}, lc.stroff + lc.strsize);
+    }
 }
 
-fn copyRangeAllOverlappingAlloc(
-    allocator: Allocator,
-    file: std.fs.File,
-    in_offset: u64,
-    out_offset: u64,
-    len: usize,
-) !void {
-    const buf = try allocator.alloc(u8, len);
-    defer allocator.free(buf);
-    const amt = try file.preadAll(buf, in_offset);
-    try file.pwriteAll(buf[0..amt], out_offset);
+pub fn getSectionIndexes(self: *DebugSymbols, segment_index: u8) struct { start: u8, end: u8 } {
+    var start: u8 = 0;
+    const nsects = for (self.segments.items) |seg, i| {
+        if (i == segment_index) break @intCast(u8, seg.nsects);
+        start += @intCast(u8, seg.nsects);
+    } else 0;
+    return .{ .start = start, .end = start + nsects };
+}
+
+fn getDwarfSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
+    const index = self.dwarf_segment_cmd_index.?;
+    return &self.segments.items[index];
+}
+
+fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
+    const index = self.linkedit_segment_cmd_index.?;
+    return &self.segments.items[index];
 }

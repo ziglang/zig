@@ -1163,32 +1163,28 @@ pub fn commitDeclState(
                         next_padding_size,
                     );
                 },
+
                 .macho => {
                     const macho_file = file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
-                    const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
                     const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
                     if (needed_size != debug_line_sect.size) {
                         if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
                             const new_offset = d_sym.findFreeSpace(needed_size, 1);
                             const existing_size = last_src_fn.off;
-
-                            log.debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
+                            std.log.scoped(.dsym).debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
                                 existing_size,
                                 debug_line_sect.offset,
                                 new_offset,
                             });
-
-                            try copyRangeAllOverlappingAlloc(
-                                gpa,
-                                d_sym.file,
+                            const amt = try d_sym.file.copyRangeAll(
                                 debug_line_sect.offset,
+                                d_sym.file,
                                 new_offset,
                                 existing_size,
                             );
-
+                            if (amt != existing_size) return error.InputOutput;
                             debug_line_sect.offset = @intCast(u32, new_offset);
-                            debug_line_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                         }
                         debug_line_sect.size = needed_size;
                         d_sym.debug_line_header_dirty = true;
@@ -1202,6 +1198,7 @@ pub fn commitDeclState(
                         next_padding_size,
                     );
                 },
+
                 .wasm => {
                     const wasm_file = file.cast(File.Wasm).?;
                     const atom = wasm_file.debug_line_atom.?;
@@ -1318,7 +1315,7 @@ pub fn commitDeclState(
             .macho => {
                 const macho_file = file.cast(File.MachO).?;
                 const d_sym = &macho_file.d_sym.?;
-                try d_sym.relocs.append(d_sym.base.base.allocator, .{
+                try d_sym.relocs.append(d_sym.allocator, .{
                     .type = switch (reloc.type) {
                         .direct_load => .direct_load,
                         .got_load => .got_load,
@@ -1462,32 +1459,28 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                 trailing_zero,
             );
         },
+
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
             const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
             if (needed_size != debug_info_sect.size) {
                 if (needed_size > d_sym.allocatedSize(debug_info_sect.offset)) {
                     const new_offset = d_sym.findFreeSpace(needed_size, 1);
                     const existing_size = last_decl.off;
-
-                    log.debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
+                    std.log.scoped(.dsym).debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
                         existing_size,
                         debug_info_sect.offset,
                         new_offset,
                     });
-
-                    try copyRangeAllOverlappingAlloc(
-                        gpa,
-                        d_sym.file,
+                    const amt = try d_sym.file.copyRangeAll(
                         debug_info_sect.offset,
+                        d_sym.file,
                         new_offset,
                         existing_size,
                     );
-
+                    if (amt != existing_size) return error.InputOutput;
                     debug_info_sect.offset = @intCast(u32, new_offset);
-                    debug_info_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                 }
                 debug_info_sect.size = needed_size;
                 d_sym.debug_info_header_dirty = true;
@@ -1502,6 +1495,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                 trailing_zero,
             );
         },
+
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
             const info_atom = wasm_file.debug_info_atom.?;
@@ -2568,17 +2562,4 @@ fn addDbgInfoErrorSet(
 
     // DW.AT.enumeration_type delimit children
     try dbg_info_buffer.append(0);
-}
-
-fn copyRangeAllOverlappingAlloc(
-    allocator: Allocator,
-    file: std.fs.File,
-    in_offset: u64,
-    out_offset: u64,
-    len: usize,
-) !void {
-    const buf = try allocator.alloc(u8, len);
-    defer allocator.free(buf);
-    const amt = try file.preadAll(buf, in_offset);
-    try file.pwriteAll(buf[0..amt], out_offset);
 }
