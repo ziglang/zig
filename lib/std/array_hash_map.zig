@@ -399,6 +399,14 @@ pub fn ArrayHashMap(
             return other.promoteContext(allocator, ctx);
         }
 
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.unmanaged = .{};
+            return result;
+        }
+
         /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
         /// can call `reIndex` to update the indexes to account for these new entries.
         pub fn reIndex(self: *Self) !void {
@@ -1149,11 +1157,21 @@ pub fn ArrayHashMapUnmanaged(
             errdefer other.entries.deinit(allocator);
 
             if (self.index_header) |header| {
+                // TODO: I'm pretty sure this could be memcpy'd instead of
+                // doing all this work.
                 const new_header = try IndexHeader.alloc(allocator, header.bit_index);
                 other.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
                 other.index_header = new_header;
             }
             return other;
+        }
+
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.* = .{};
+            return result;
         }
 
         /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
@@ -1163,6 +1181,7 @@ pub fn ArrayHashMapUnmanaged(
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call reIndexContext instead.");
             return self.reIndexContext(allocator, undefined);
         }
+
         pub fn reIndexContext(self: *Self, allocator: Allocator, ctx: Context) !void {
             if (self.entries.capacity <= linear_scan_max) return;
             // We're going to rebuild the index header and replace the existing one (if any). The
