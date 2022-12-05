@@ -1429,12 +1429,29 @@ pub fn formatInt(
 
     var a: MinInt = abs_value;
     var index: usize = buf.len;
-    while (true) {
-        const digit = a % base;
-        index -= 1;
-        buf[index] = digitToChar(@intCast(u8, digit), case);
-        a /= base;
-        if (a == 0) break;
+
+    // TODO isComptime here because of https://github.com/ziglang/zig/issues/13335.
+    if (base == 10 and !isComptime()) {
+        while (a >= 100) : (a = @divTrunc(a, 100)) {
+            index -= 2;
+            buf[index..][0..2].* = digits2(@intCast(usize, a % 100));
+        }
+
+        if (a < 10) {
+            index -= 1;
+            buf[index] = '0' + @intCast(u8, a);
+        } else {
+            index -= 2;
+            buf[index..][0..2].* = digits2(@intCast(usize, a));
+        }
+    } else {
+        while (true) {
+            const digit = a % base;
+            index -= 1;
+            buf[index] = digitToChar(@intCast(u8, digit), case);
+            a /= base;
+            if (a == 0) break;
+        }
     }
 
     if (value_info.signedness == .signed) {
@@ -1454,10 +1471,25 @@ pub fn formatInt(
     return formatBuf(buf[index..], options, writer);
 }
 
+// TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
+fn isComptime() bool {
+    var a: u8 = 0;
+    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
+}
+
 pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
     formatInt(value, base, case, options, fbs.writer()) catch unreachable;
     return fbs.pos;
+}
+
+// Converts values in the range [0, 100) to a string.
+fn digits2(value: usize) [2]u8 {
+    return ("0001020304050607080910111213141516171819" ++
+        "2021222324252627282930313233343536373839" ++
+        "4041424344454647484950515253545556575859" ++
+        "6061626364656667686970717273747576777879" ++
+        "8081828384858687888990919293949596979899")[value * 2 ..][0..2].*;
 }
 
 const FormatDurationData = struct {
