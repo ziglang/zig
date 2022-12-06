@@ -738,7 +738,7 @@ else()
   endif()
 endif()
 
-set(ZIG1_WASM_SOURCE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst")
+set(ZIG1_WASM_ZST_SOURCE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst")
 set(ZIG1_C_SOURCE "${CMAKE_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
 set(ZIG_COMPILER_RT_C_SOURCE "${CMAKE_BINARY_DIR}/compiler_rt.c")
@@ -750,9 +750,9 @@ target_compile_definitions(zig-wasm2c PRIVATE ZSTD_DISABLE_ASM)
 
 add_custom_command(
   OUTPUT "${ZIG1_C_SOURCE}"
-  COMMAND zig-wasm2c "${ZIG1_WASM_SOURCE}" "${ZIG1_C_SOURCE}"
-  DEPENDS zig-wasm2c "${ZIG1_WASM_SOURCE}"
-  COMMENT STATUS "Converting ${ZIG1_WASM_SOURCE} to ${ZIG1_C_SOURCE}"
+  COMMAND zig-wasm2c "${ZIG1_WASM_ZST_SOURCE}" "${ZIG1_C_SOURCE}"
+  DEPENDS zig-wasm2c "${ZIG1_WASM_ZST_SOURCE}"
+  COMMENT STATUS "Converting ${ZIG1_WASM_ZST_SOURCE} to ${ZIG1_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
@@ -762,20 +762,19 @@ target_link_libraries(zig1 LINK_PUBLIC m)
 target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
 target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
 
-set(ZIG1_WASM_ZST_SOURCE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst")
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
   build-exe src/main.zig -ofmt=c -lc
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
-  --pkg-begin build_options "${CMAKE_BINARY_DIR}/config.zig" --pkg-end
+  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
   -target "${HOST_TARGET_TRIPLE}"
 )
  
 add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
-  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
+  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
   COMMENT STATUS "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
@@ -785,14 +784,14 @@ set(BUILD_COMPILER_RT_ARGS
   build-obj lib/compiler_rt.zig -ofmt=c
   -OReleaseSmall
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
-  --pkg-begin build_options "${CMAKE_BINARY_DIR}/config.zig" --pkg-end
+  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
   -target "${HOST_TARGET_TRIPLE}"
 )
  
 add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
-  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}" "${ZIG1_WASM_ZST_SOURCE}"
+  DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
   COMMENT STATUS "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
