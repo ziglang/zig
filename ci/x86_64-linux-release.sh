@@ -75,7 +75,6 @@ stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-l
 stage3-release/bin/zig build \
   --prefix stage4-release \
   -Denable-llvm \
-  -Denable-stage1 \
   -Dno-lib \
   -Drelease \
   -Dstrip \
