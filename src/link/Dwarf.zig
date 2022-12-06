@@ -59,8 +59,10 @@ const DIFile = struct {
     file_source: *const Module.File,
     ref_count: u32,
 
-    fn getFullPath(dif: DIFile, allocator: Allocator) ![]const u8 {
-        return dif.file_source.fullPath(allocator);
+    fn getFullyResolvedPath(dif: DIFile, allocator: Allocator) ![]const u8 {
+        const path = try dif.file_source.fullPath(allocator);
+        defer allocator.free(path);
+        return fs.realpathAlloc(allocator, path);
     }
 };
 
@@ -2358,7 +2360,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     });
 
     for (self.di_files.items) |dif, i| {
-        const full_path = try dif.getFullPath(self.allocator);
+        const full_path = try dif.getFullyResolvedPath(self.allocator);
         defer self.allocator.free(full_path);
         log.debug("adding new file name at {d} of '{s}'", .{ i + 1, full_path });
         di_buf.appendSliceAssumeCapacity(full_path);
