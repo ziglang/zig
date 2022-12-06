@@ -4434,8 +4434,9 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeByte(')');
             }
             try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
-            try writer.writeAll(": ");
+            try writer.writeByte(':');
         }
+        try writer.writeByte(' ');
 
         if (case_i != last_case_i) {
             const old_value_map = f.value_map;
