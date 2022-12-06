@@ -224,6 +224,16 @@ else
         .vtable = &PageAllocator.vtable,
     };
 
+/// This allocator is fast, small, and specific to WebAssembly. In the future,
+/// this will be the implementation automatically selected by
+/// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
+/// and wasm64 architectures.
+/// Until then, it is available here to play with.
+pub const wasm_allocator = Allocator{
+    .ptr = undefined,
+    .vtable = &std.heap.WasmAllocator.vtable,
+};
+
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     const aligned_len = mem.alignAllocLen(full_len, len);

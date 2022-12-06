@@ -155,10 +155,7 @@ pub fn main() anyerror!void {
     const use_gpa = (build_options.force_gpa or !builtin.link_libc) and builtin.os.tag != .wasi;
     const gpa = gpa: {
         if (builtin.os.tag == .wasi) {
-            break :gpa Allocator{
-                .ptr = undefined,
-                .vtable = &std.heap.WasmAllocator.vtable,
-            };
+            break :gpa std.heap.wasm_allocator;
         }
         if (use_gpa) {
             break :gpa general_purpose_allocator.allocator();
