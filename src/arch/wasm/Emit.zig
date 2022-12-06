@@ -240,6 +240,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_ctz => try emit.emitTag(tag),
 
             .extended => try emit.emitExtended(inst),
+            .simd => try emit.emitSimd(inst),
         }
     }
 }
@@ -341,11 +342,14 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
     try emit.code.append(@enumToInt(tag));
+    try encodeMemArg(mem_arg, emit.code.writer());
+}
 
+fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
     // wasm encodes alignment as power of 2, rather than natural alignment
     const encoded_alignment = @ctz(mem_arg.alignment);
-    try leb128.writeULEB128(emit.code.writer(), encoded_alignment);
-    try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
+    try leb128.writeULEB128(writer, encoded_alignment);
+    try leb128.writeULEB128(writer, mem_arg.offset);
 }
 
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -423,6 +427,25 @@ fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (@intToEnum(std.wasm.PrefixedOpcode, opcode)) {
         .memory_fill => try emit.emitMemFill(),
         else => |tag| return emit.fail("TODO: Implement extension instruction: {s}\n", .{@tagName(tag)}),
+    }
+}
+
+fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(0xFD);
+    try leb128.writeULEB128(writer, opcode);
+    switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
+        .v128_store, .v128_load => {
+            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
+            try encodeMemArg(mem_arg, writer);
+        },
+        .v128_const => {
+            const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
+            try writer.writeAll(std.mem.asBytes(simd_value));
+        },
+        else => |tag| return emit.fail("TODO: Implement simd instruction: {s}\n", .{@tagName(tag)}),
     }
 }
 
