@@ -108,7 +108,6 @@ comptime {
     _ = @import("compiler_rt/sqrt.zig");
     _ = @import("compiler_rt/tan.zig");
     _ = @import("compiler_rt/trunc.zig");
-    _ = @import("compiler_rt/stack_probe.zig");
     _ = @import("compiler_rt/divti3.zig");
     _ = @import("compiler_rt/modti3.zig");
     _ = @import("compiler_rt/multi3.zig");
@@ -211,6 +210,7 @@ comptime {
 
     if (@import("builtin").object_format != .c) {
         _ = @import("compiler_rt/atomics.zig");
+        _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
