@@ -435,8 +435,9 @@ pub fn FindClose(hFindFile: HANDLE) void {
 }
 
 pub const ReadFileError = error{
-    OperationAborted,
     BrokenPipe,
+    NetNameDeleted,
+    OperationAborted,
     Unexpected,
 };
 
@@ -475,6 +476,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 .IO_PENDING => unreachable,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .BROKEN_PIPE => return error.BrokenPipe,
+                .NETNAME_DELETED => return error.NetNameDeleted,
                 .HANDLE_EOF => return @as(usize, bytes_transferred),
                 else => |err| return unexpectedError(err),
             }
@@ -506,9 +508,11 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
             } else null;
             if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
                 switch (kernel32.GetLastError()) {
+                    .IO_PENDING => unreachable,
                     .OPERATION_ABORTED => continue,
                     .BROKEN_PIPE => return 0,
                     .HANDLE_EOF => return 0,
+                    .NETNAME_DELETED => return error.NetNameDeleted,
                     else => |err| return unexpectedError(err),
                 }
             }
