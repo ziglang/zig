@@ -3059,7 +3059,15 @@ fn buildOutputType(
             try test_exec_args.appendSlice(&.{ "-I", p });
         }
 
-        if (link_libc) try test_exec_args.append("-lc");
+        if (link_libc) {
+            try test_exec_args.append("-lc");
+        } else if (target_info.target.os.tag == .windows) {
+            try test_exec_args.appendSlice(&.{
+                "--subsystem", "console",
+                "-lkernel32",  "-lntdll",
+            });
+        }
+
         if (!mem.eql(u8, target_arch_os_abi, "native")) {
             try test_exec_args.append("-target");
             try test_exec_args.append(target_arch_os_abi);
