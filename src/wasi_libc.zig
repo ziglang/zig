@@ -551,6 +551,7 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/fcntl/creat.c",
     "wasi/libc-top-half/musl/src/dirent/alphasort.c",
     "wasi/libc-top-half/musl/src/dirent/versionsort.c",
+    "wasi/libc-top-half/musl/src/env/__stack_chk_fail.c",
     "wasi/libc-top-half/musl/src/env/clearenv.c",
     "wasi/libc-top-half/musl/src/env/getenv.c",
     "wasi/libc-top-half/musl/src/env/putenv.c",
