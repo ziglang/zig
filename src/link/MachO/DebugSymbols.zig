@@ -213,7 +213,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     }
 
     if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.writeDbgAbbrev(&macho_file.base);
+        try self.dwarf.writeDbgAbbrev();
         self.debug_abbrev_section_dirty = false;
     }
 
@@ -223,7 +223,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
         const low_pc = text_section.addr;
         const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(&macho_file.base, module, low_pc, high_pc);
+        try self.dwarf.writeDbgInfoHeader(module, low_pc, high_pc);
         self.debug_info_header_dirty = false;
     }
 
@@ -231,12 +231,12 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
         const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
-        try self.dwarf.writeDbgAranges(&macho_file.base, text_section.addr, text_section.size);
+        try self.dwarf.writeDbgAranges(text_section.addr, text_section.size);
         self.debug_aranges_section_dirty = false;
     }
 
     if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader(&macho_file.base, module);
+        try self.dwarf.writeDbgLineHeader(module);
         self.debug_line_header_dirty = false;
     }
 

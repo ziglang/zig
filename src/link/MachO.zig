@@ -347,7 +347,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .allocator = allocator,
-            .dwarf = link.File.Dwarf.init(allocator, .macho, options.target),
+            .dwarf = link.File.Dwarf.init(allocator, &self.base, options.target),
             .file = d_sym_file,
             .page_size = self.page_size,
         };
@@ -449,7 +449,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.flushModule(&self.base, module);
+        try d_sym.dwarf.flushModule(module);
     }
 
     var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
@@ -2213,7 +2213,6 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
-            &self.base,
             module,
             decl_index,
             addr,
@@ -2364,7 +2363,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
-            &self.base,
             module,
             decl_index,
             addr,
@@ -2603,7 +2601,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8)
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
     _ = module;
     if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.updateDeclLineNumber(&self.base, decl);
+        try d_sym.dwarf.updateDeclLineNumber(decl);
     }
 }
 

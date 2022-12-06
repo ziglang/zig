@@ -312,7 +312,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
 
     var dwarf: ?Dwarf = if (!options.strip and options.module != null)
-        Dwarf.init(gpa, .elf, options.target)
+        Dwarf.init(gpa, &self.base, options.target)
     else
         null;
 
@@ -972,7 +972,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
 
     if (self.dwarf) |*dw| {
-        try dw.flushModule(&self.base, module);
+        try dw.flushModule(module);
     }
 
     {
@@ -1020,7 +1020,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
-            try dw.writeDbgAbbrev(&self.base);
+            try dw.writeDbgAbbrev();
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
                 try self.writeSectHeader(self.debug_abbrev_section_index.?);
@@ -1034,7 +1034,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
             const low_pc = text_phdr.p_vaddr;
             const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-            try dw.writeDbgInfoHeader(&self.base, module, low_pc, high_pc);
+            try dw.writeDbgInfoHeader(module, low_pc, high_pc);
             self.debug_info_header_dirty = false;
         }
 
@@ -1042,7 +1042,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             // Currently only one compilation unit is supported, so the address range is simply
             // identical to the main program header virtual address and memory size.
             const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-            try dw.writeDbgAranges(&self.base, text_phdr.p_vaddr, text_phdr.p_memsz);
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
                 try self.writeSectHeader(self.debug_aranges_section_index.?);
@@ -1051,7 +1051,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
 
         if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader(&self.base, module);
+            try dw.writeDbgLineHeader(module);
             self.debug_line_header_dirty = false;
         }
     }
@@ -2422,7 +2422,6 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            &self.base,
             module,
             decl_index,
             local_sym.st_value,
@@ -2499,7 +2498,6 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            &self.base,
             module,
             decl_index,
             local_sym.st_value,
@@ -2692,7 +2690,7 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl: *const Module.Decl) 
 
     if (self.llvm_object) |_| return;
     if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(&self.base, decl);
+        try dw.updateDeclLineNumber(decl);
     }
 }
 
