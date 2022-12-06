@@ -22,8 +22,7 @@ const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/preopens/cwd");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -75,8 +74,7 @@ test "chdir smoke test" {
 }
 
 test "open smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -131,7 +129,6 @@ test "open smoke test" {
 
 test "openat smoke test" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     // TODO verify file attributes using `fstatat`
 
@@ -168,7 +165,6 @@ test "openat smoke test" {
 
 test "symlink with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
@@ -219,15 +215,10 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
     switch (native_os) {
-        .wasi => {
-            if (builtin.link_libc) {
-                return error.SkipZigTest;
-            } else {
-                try os.initPreopensWasi(std.heap.page_allocator, "/");
-            }
-        },
-        .linux, .solaris => {},
+        .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
     var cwd = fs.cwd();
@@ -263,9 +254,10 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
     switch (native_os) {
-        .wasi => if (!builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/"),
-        .linux, .solaris => {},
+        .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
     var cwd = fs.cwd();
@@ -950,8 +942,7 @@ test "POSIX file locking with fcntl" {
 }
 
 test "rename smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1007,8 +998,7 @@ test "rename smoke test" {
 }
 
 test "access smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

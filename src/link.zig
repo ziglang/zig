@@ -155,7 +155,6 @@ pub const Options = struct {
     build_id: bool,
     disable_lld_caching: bool,
     is_test: bool,
-    use_stage1: bool,
     hash_style: HashStyle,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
@@ -293,8 +292,7 @@ pub const File = struct {
             return &(try MachO.openPath(allocator, options)).base;
         }
 
-        const use_stage1 = build_options.have_stage1 and options.use_stage1;
-        if (use_stage1 or options.emit == null) {
+        if (options.emit == null) {
             return switch (options.target.ofmt) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
@@ -983,24 +981,7 @@ pub const File = struct {
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
-        const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
-            const use_stage1 = build_options.have_stage1 and base.options.use_stage1;
-            if (use_stage1) {
-                const obj_basename = try std.zig.binNameAlloc(arena, .{
-                    .root_name = base.options.root_name,
-                    .target = base.options.target,
-                    .output_mode = .Obj,
-                });
-                switch (base.options.cache_mode) {
-                    .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                        arena,
-                        &[_][]const u8{obj_basename},
-                    ),
-                    .whole => break :blk try fs.path.join(arena, &.{
-                        fs.path.dirname(full_out_path_z).?, obj_basename,
-                    }),
-                }
-            }
+        const module_obj_path: ?[]const u8 = if (base.options.module != null) blk: {
             try base.flushModule(comp, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";

@@ -827,7 +827,7 @@ fn formatSliceHexImpl(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn f(
+        pub fn formatSliceHexImpl(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -846,8 +846,8 @@ fn formatSliceHexImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceHexLower = formatSliceHexImpl(.lower).f;
-const formatSliceHexUpper = formatSliceHexImpl(.upper).f;
+const formatSliceHexLower = formatSliceHexImpl(.lower).formatSliceHexImpl;
+const formatSliceHexUpper = formatSliceHexImpl(.upper).formatSliceHexImpl;
 
 /// Return a Formatter for a []const u8 where every byte is formatted as a pair
 /// of lowercase hexadecimal digits.
@@ -865,7 +865,7 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn f(
+        pub fn formatSliceEscapeImpl(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -891,8 +891,8 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).f;
-const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).f;
+const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).formatSliceEscapeImpl;
+const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).formatSliceEscapeImpl;
 
 /// Return a Formatter for a []const u8 where every non-printable ASCII
 /// character is escaped as \xNN, where NN is the character in lowercase
@@ -910,7 +910,7 @@ pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
 
 fn formatSizeImpl(comptime radix: comptime_int) type {
     return struct {
-        fn f(
+        fn formatSizeImpl(
             value: u64,
             comptime fmt: []const u8,
             options: FormatOptions,
@@ -958,8 +958,8 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
     };
 }
 
-const formatSizeDec = formatSizeImpl(1000).f;
-const formatSizeBin = formatSizeImpl(1024).f;
+const formatSizeDec = formatSizeImpl(1000).formatSizeImpl;
+const formatSizeBin = formatSizeImpl(1024).formatSizeImpl;
 
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1000 and uses the SI

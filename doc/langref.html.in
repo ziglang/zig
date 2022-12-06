@@ -10961,24 +10961,28 @@ pub fn main() !void {
       {#code_begin|exe|preopens#}
       {#target_wasi#}
 const std = @import("std");
-const PreopenList = std.fs.wasi.PreopenList;
+const fs = std.fs;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
 
-    var preopens = PreopenList.init(gpa);
-    defer preopens.deinit();
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
 
-    try preopens.populate(null);
+    const preopens = try fs.wasi.preopensAlloc(arena);
 
-    for (preopens.asSlice()) |preopen, i| {
-        std.debug.print("{}: {}\n", .{ i, preopen });
+    for (preopens.names) |preopen, i| {
+        std.debug.print("{}: {s}\n", .{ i, preopen });
     }
 }
       {#code_end#}
       {#shell_samp#}$ wasmtime --dir=. preopens.wasm
-0: Preopen{ .fd = 3, .type = PreopenType{ .Dir = '.' } }
+0: stdin
+1: stdout
+2: stderr
+3: .
       {#end_shell_samp#}
       {#header_close#}
       {#header_close#}

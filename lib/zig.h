@@ -810,7 +810,7 @@ static inline void zig_vmulo_i16(zig_u8 *ov, zig_i16 *res, int n,
 \
     static inline bool zig_shlo_u##w(zig_u##w *res, zig_u##w lhs, zig_u8 rhs, zig_u8 bits) { \
         *res = zig_shlw_u##w(lhs, rhs, bits); \
-        return (lhs & zig_maxInt_u##w << (bits - rhs)) != zig_as_u##w(0); \
+        return lhs > zig_maxInt(u##w, bits) >> rhs; \
     } \
 \
     static inline bool zig_shlo_i##w(zig_i##w *res, zig_i##w lhs, zig_u8 rhs, zig_u8 bits) { \
@@ -1340,7 +1340,7 @@ static inline zig_i128 zig_mulw_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
 
 static inline bool zig_shlo_u128(zig_u128 *res, zig_u128 lhs, zig_u8 rhs, zig_u8 bits) {
     *res = zig_shlw_u128(lhs, rhs, bits);
-    return zig_and_u128(lhs, zig_shl_u128(zig_maxInt_u128, bits - rhs)) != zig_as_u128(0, 0);
+    return zig_cmp_u128(lhs, zig_shr_u128(zig_maxInt(u128, bits), rhs)) > zig_as_i32(0);
 }
 
 static inline bool zig_shlo_i128(zig_i128 *res, zig_i128 lhs, zig_u8 rhs, zig_u8 bits) {
@@ -1556,7 +1556,7 @@ typedef double zig_f16;
 #define zig_bitSizeOf_c_longdouble 16
 typedef long double zig_f16;
 #define zig_as_f16(fp, repr) fp##l
-#elif FLT16_MANT_DIG == 11
+#elif FLT16_MANT_DIG == 11 && zig_has_builtin(inff16)
 typedef _Float16 zig_f16;
 #define zig_as_f16(fp, repr) fp##f16
 #elif defined(__SIZEOF_FP16__)

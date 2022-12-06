@@ -27,6 +27,23 @@ const crash_report = @import("crash_report.zig");
 // Crash report needs to override the panic handler and other root decls
 pub usingnamespace crash_report.root_decls;
 
+var wasi_preopens: fs.wasi.Preopens = undefined;
+pub inline fn wasi_cwd() fs.Dir {
+    // Expect the first preopen to be current working directory.
+    const cwd_fd: std.os.fd_t = 3;
+    assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
+    return .{ .fd = cwd_fd };
+}
+
+pub fn getWasiPreopen(name: []const u8) Compilation.Directory {
+    return .{
+        .path = name,
+        .handle = .{
+            .fd = wasi_preopens.find(name) orelse fatal("WASI preopen not found: '{s}'", .{name}),
+        },
+    };
+}
+
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);
     process.exit(1);
@@ -135,8 +152,11 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = build_options.force_gpa or !builtin.link_libc;
+    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and builtin.os.tag != .wasi;
     const gpa = gpa: {
+        if (builtin.os.tag == .wasi) {
+            break :gpa std.heap.wasm_allocator;
+        }
         if (use_gpa) {
             break :gpa general_purpose_allocator.allocator();
         }
@@ -161,14 +181,19 @@ pub fn main() anyerror!void {
         return mainArgs(gpa_tracy.allocator(), arena, args);
     }
 
-    // WASI: `--dir` instructs the WASM runtime to "preopen" a directory, making
-    // it available to the us, the guest program. This is the only way for us to
-    // access files/dirs on the host filesystem
     if (builtin.os.tag == .wasi) {
-        // This sets our CWD to "/preopens/cwd"
-        // Dot-prefixed preopens like `--dir=.` are "mounted" at "/preopens/cwd"
-        // Other preopens like `--dir=lib` are "mounted" at "/"
-        try std.os.initPreopensWasi(std.heap.page_allocator, "/preopens/cwd");
+        wasi_preopens = try fs.wasi.preopensAlloc(arena);
+    }
+
+    // Short circuit some of the other logic for bootstrapping.
+    if (build_options.only_c) {
+        if (mem.eql(u8, args[1], "build-exe")) {
+            return buildOutputType(gpa, arena, args, .{ .build = .Exe });
+        } else if (mem.eql(u8, args[1], "build-obj")) {
+            return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+        } else {
+            @panic("only build-exe or build-obj is supported in a -Donly-c build");
+        }
     }
 
     return mainArgs(gpa, arena, args);
@@ -394,8 +419,6 @@ const usage_build_generic =
     \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
-    \\  -fstage1                  Force using bootstrap compiler as the codegen backend
-    \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
     \\  -fno-reference-trace      Disable reference trace
     \\  -fsingle-threaded         Code assumes there is only one thread
@@ -719,7 +742,6 @@ fn buildOutputType(
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
-    var use_stage1: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
@@ -1158,10 +1180,6 @@ fn buildOutputType(
                         use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-Clang")) {
                         use_clang = false;
-                    } else if (mem.eql(u8, arg, "-fstage1")) {
-                        use_stage1 = true;
-                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
-                        use_stage1 = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -1385,6 +1403,8 @@ fn buildOutputType(
             }
         },
         .cc, .cpp => {
+            if (build_options.only_c) unreachable;
+
             emit_h = .no;
             soname = .no;
             ensure_libc_on_non_freestanding = true;
@@ -2301,7 +2321,7 @@ fn buildOutputType(
                 },
             }
 
-            if (std.fs.path.isAbsolute(lib_name)) {
+            if (fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
 
@@ -2764,18 +2784,33 @@ fn buildOutputType(
         }
     }
 
-    const self_exe_path = try introspect.findZigExePath(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |unresolved_lib_dir| l: {
-        const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
-        break :l .{
-            .path = lib_dir,
-            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
-            },
+    const self_exe_path: ?[]const u8 = if (!process.can_spawn)
+        null
+    else
+        introspect.findZigExePath(arena) catch |err| {
+            fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
         };
-    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+
+    var zig_lib_directory: Compilation.Directory = d: {
+        if (override_lib_dir) |unresolved_lib_dir| {
+            const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
+            break :d .{
+                .path = lib_dir,
+                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                    fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
+                },
+            };
+        } else if (builtin.os.tag == .wasi) {
+            break :d getWasiPreopen("/lib");
+        } else if (self_exe_path) |p| {
+            break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
+                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+            };
+        } else {
+            unreachable;
+        }
     };
+
     defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
@@ -2792,7 +2827,16 @@ fn buildOutputType(
     }
 
     var global_cache_directory: Compilation.Directory = l: {
-        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        if (override_global_cache_dir) |p| {
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(p, .{}),
+                .path = p,
+            };
+        }
+        if (builtin.os.tag == .wasi) {
+            break :l getWasiPreopen("/cache");
+        }
+        const p = try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
             .path = p,
@@ -2909,7 +2953,6 @@ fn buildOutputType(
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
-        .use_stage1 = use_stage1,
         .hash_style = hash_style,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
@@ -3024,8 +3067,7 @@ fn buildOutputType(
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
-        const stage1_mode = use_stage1 orelse false;
-        return cmdTranslateC(comp, arena, have_enable_cache, stage1_mode);
+        return cmdTranslateC(comp, arena, have_enable_cache);
     }
 
     const hook: AfterUpdateHook = blk: {
@@ -3044,6 +3086,7 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => if (!watch) process.exit(1),
         else => |e| return e,
     };
+    if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
 
     if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
@@ -3093,7 +3136,7 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path,
+            self_exe_path.?,
             arg_mode,
             target_info,
             watch,
@@ -3165,7 +3208,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        self_exe_path.?,
                         arg_mode,
                         target_info,
                         watch,
@@ -3190,7 +3233,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        self_exe_path.?,
                         arg_mode,
                         target_info,
                         watch,
@@ -3452,7 +3495,7 @@ fn freePkgTree(gpa: Allocator, pkg: *Package, free_parent: bool) void {
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage1_mode: bool) !void {
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -3465,7 +3508,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
     defer if (enable_cache) man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(stage1_mode);
     man.hashCSource(c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
@@ -3517,7 +3559,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
             new_argv.ptr + new_argv.len,
             &clang_errors,
             c_headers_dir_path_z,
-            stage1_mode,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
@@ -3536,7 +3577,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
         defer tree.deinit(comp.gpa);
 
         if (out_dep_path) |dep_file_path| {
-            const dep_basename = std.fs.path.basename(dep_file_path);
+            const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             // Just to save disk space, we delete the file because it is never needed again.
@@ -3763,8 +3804,6 @@ pub const usage_build =
     \\   Build a project from build.zig.
     \\
     \\Options:
-    \\   -fstage1                      Force using bootstrap compiler as the codegen backend
-    \\   -fno-stage1                   Prevent using bootstrap compiler as the codegen backend
     \\   -freference-trace[=num]       How many lines of reference trace should be shown per compile error
     \\   -fno-reference-trace          Disable reference trace
     \\   --build-file [file]           Override path to build.zig
@@ -3778,7 +3817,6 @@ pub const usage_build =
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var prominent_compile_errors: bool = false;
-    var use_stage1: ?bool = null;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -3835,12 +3873,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         continue;
                     } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                         prominent_compile_errors = true;
-                    } else if (mem.eql(u8, arg, "-fstage1")) {
-                        use_stage1 = true;
-                        try child_argv.append(arg);
-                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
-                        use_stage1 = false;
-                        try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         try child_argv.append(arg);
                         reference_trace = 256;
@@ -3987,7 +4019,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
-            .use_stage1 = use_stage1,
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,

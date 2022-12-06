@@ -327,16 +327,6 @@ pub const Context = struct {
 
     pattern_list: PatternList,
 
-    /// This is used to emit different code depending on whether
-    /// the output zig source code is intended to be compiled with stage1 or stage2.
-    /// Ideally we will have stage1 and stage2 support the exact same Zig language,
-    /// but for now they diverge because I would rather focus on finishing and shipping
-    /// stage2 than implementing the features in stage1.
-    /// The list of differences are currently:
-    /// * function pointers in stage1 are e.g. `fn()void`
-    ///          but in stage2 they are `*const fn()void`.
-    zig_is_stage1: bool,
-
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
@@ -365,7 +355,6 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-    zig_is_stage1: bool,
 ) !std.zig.Ast {
     // TODO stage2 bug
     var tmp = errors;
@@ -395,7 +384,6 @@ pub fn translate(
         .global_scope = try arena.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
-        .zig_is_stage1 = zig_is_stage1,
     };
     context.global_scope.* = Scope.Root.init(&context);
     defer {
@@ -435,7 +423,7 @@ pub fn translate(
         }
     }
 
-    return ast.render(gpa, zig_is_stage1, context.global_scope.nodes.items);
+    return ast.render(gpa, context.global_scope.nodes.items);
 }
 
 /// Determines whether macro is of the form: `#define FOO FOO` (Possibly with trailing tokens)
@@ -4747,9 +4735,6 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         .Pointer => {
             const child_qt = ty.getPointeeType();
             const is_fn_proto = qualTypeChildIsFnProto(child_qt);
-            if (c.zig_is_stage1 and is_fn_proto) {
-                return Tag.optional_type.create(c.arena, try transQualType(c, scope, child_qt, source_loc));
-            }
             const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, scope, child_qt, source_loc);
@@ -6681,15 +6666,9 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
         return null;
     if (getContainerTypeOf(c, init)) |ty_node| {
         if (ty_node.castTag(.optional_type)) |prefix| {
-            if (c.zig_is_stage1) {
-                if (prefix.data.castTag(.func)) |fn_proto| {
+            if (prefix.data.castTag(.single_pointer)) |sp| {
+                if (sp.data.elem_type.castTag(.func)) |fn_proto| {
                     return fn_proto;
-                }
-            } else {
-                if (prefix.data.castTag(.single_pointer)) |sp| {
-                    if (sp.data.elem_type.castTag(.func)) |fn_proto| {
-                        return fn_proto;
-                    }
                 }
             }
         }

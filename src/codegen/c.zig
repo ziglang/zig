@@ -120,6 +120,7 @@ pub fn typeToCIdentifier(ty: Type, mod: *Module) std.fmt.Formatter(formatTypeAsC
 }
 
 const reserved_idents = std.ComptimeStringMap(void, .{
+    // C language
     .{ "alignas", {
         @setEvalBranchQuota(4000);
     } },
@@ -215,14 +216,22 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "void", {} },
     .{ "volatile", {} },
     .{ "while ", {} },
+
+    // windows.h
+    .{ "max", {} },
+    .{ "min", {} },
 });
 
 fn isReservedIdent(ident: []const u8) bool {
-    if (ident.len >= 2 and ident[0] == '_') {
+    if (ident.len >= 2 and ident[0] == '_') { // C language
         switch (ident[1]) {
             'A'...'Z', '_' => return true,
             else => return false,
         }
+    } else if (std.mem.startsWith(u8, ident, "DUMMYSTRUCTNAME") or
+        std.mem.startsWith(u8, ident, "DUMMYUNIONNAME"))
+    { // windows.h
+        return true;
     } else return reserved_idents.has(ident);
 }
 
@@ -4425,8 +4434,9 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeByte(')');
             }
             try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
-            try writer.writeAll(": ");
+            try writer.writeByte(':');
         }
+        try writer.writeByte(' ');
 
         if (case_i != last_case_i) {
             const old_value_map = f.value_map;
@@ -5935,16 +5945,15 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const dest_ptr = try f.resolveInst(pl_op.operand);
     const value = try f.resolveInst(extra.lhs);
     const len = try f.resolveInst(extra.rhs);
-    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
 
     const writer = f.object.writer();
     if (dest_ty.isVolatilePtr()) {
         var u8_ptr_pl = dest_ty.ptrInfo();
         u8_ptr_pl.data.pointee_type = Type.u8;
         const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+        const index = try f.allocLocal(inst, Type.usize);
 
         try writer.writeAll("for (");
-        const index = try f.allocLocal(inst, Type.usize);
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
         try f.object.dg.renderValue(writer, Type.usize, Value.zero, .Initializer);
@@ -5966,11 +5975,13 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.writeCValue(writer, value, .FunctionArgument);
         try writer.writeAll(";\n");
 
+        try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
         try freeLocal(f, inst, index.local, 0);
 
         return CValue.none;
     }
 
+    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
     try writer.writeAll("memset(");
     try f.writeCValue(writer, dest_ptr, .FunctionArgument);
     try writer.writeAll(", ");

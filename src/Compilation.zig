@@ -30,7 +30,6 @@ const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
-const stage1 = @import("stage1.zig");
 const translate_c = @import("translate_c.zig");
 const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
@@ -935,7 +934,6 @@ pub const InitOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
-    use_stage1: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
     formatted_panics: ?bool = null,
@@ -1133,9 +1131,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
-        const use_stage1 = options.use_stage1 orelse false;
-        if (use_stage1 and !build_options.have_stage1) return error.ZigCompilerBuiltWithoutStage1;
-
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
             if (options.use_llvm) |explicit|
@@ -1148,11 +1143,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // If we have no zig code to compile, no need for LLVM.
             if (options.main_pkg == null)
                 break :blk false;
-
-            // The stage1 compiler depends on the stage1 C++ LLVM backend
-            // to compile zig code.
-            if (use_stage1)
-                break :blk true;
 
             // If LLVM does not support the target, then we can't use it.
             if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
@@ -1181,8 +1171,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // compiler state, the second clause here can be removed so that incremental
         // cache mode is used for LLVM backend too. We need some fuzz testing before
         // that can be enabled.
-        const cache_mode = if ((use_stage1 and !options.disable_lld_caching) or
-            (use_llvm and !options.disable_lld_caching)) CacheMode.whole else options.cache_mode;
+        const cache_mode = if (use_llvm and !options.disable_lld_caching)
+            CacheMode.whole
+        else
+            options.cache_mode;
 
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
@@ -1545,7 +1537,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Synchronize with other matching comments: ZigOnlyHashStuff
             hash.add(valgrind);
             hash.add(single_threaded);
-            hash.add(use_stage1);
             hash.add(use_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
@@ -1587,9 +1578,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .handle = artifact_dir,
                 .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
-            log.debug("zig_cache_artifact_directory='{?s}' use_stage1={}", .{
-                zig_cache_artifact_directory.path, use_stage1,
-            });
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
@@ -1907,7 +1895,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .subsystem = options.subsystem,
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
-            .use_stage1 = use_stage1,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
@@ -2344,7 +2331,6 @@ pub fn update(comp: *Compilation) !void {
         comp.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
-    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
     if (comp.bin_file.options.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
@@ -2360,7 +2346,7 @@ pub fn update(comp: *Compilation) !void {
         // import_table here.
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
-        if (use_stage1 or comp.bin_file.options.is_test) {
+        if (comp.bin_file.options.is_test) {
             _ = try module.importPkg(module.main_pkg);
         }
 
@@ -2374,21 +2360,19 @@ pub fn update(comp: *Compilation) !void {
             comp.astgen_work_queue.writeItemAssumeCapacity(value);
         }
 
-        if (!use_stage1) {
-            // Put a work item in for checking if any files used with `@embedFile` changed.
-            {
-                try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
-                var it = module.embed_table.iterator();
-                while (it.next()) |entry| {
-                    const embed_file = entry.value_ptr.*;
-                    comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
-                }
+        // Put a work item in for checking if any files used with `@embedFile` changed.
+        {
+            try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
+            var it = module.embed_table.iterator();
+            while (it.next()) |entry| {
+                const embed_file = entry.value_ptr.*;
+                comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
             }
+        }
 
-            try comp.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
-            if (comp.bin_file.options.is_test) {
-                try comp.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
-            }
+        try comp.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
+        if (comp.bin_file.options.is_test) {
+            try comp.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
         }
     }
 
@@ -2400,36 +2384,34 @@ pub fn update(comp: *Compilation) !void {
 
     try comp.performAllTheWork(main_progress_node);
 
-    if (!use_stage1) {
-        if (comp.bin_file.options.module) |module| {
-            if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
-                // The `test_functions` decl has been intentionally postponed until now,
-                // at which point we must populate it with the list of test functions that
-                // have been discovered and not filtered out.
-                try module.populateTestFunctions(main_progress_node);
-            }
-
-            // Process the deletion set. We use a while loop here because the
-            // deletion set may grow as we call `clearDecl` within this loop,
-            // and more unreferenced Decls are revealed.
-            while (module.deletion_set.count() != 0) {
-                const decl_index = module.deletion_set.keys()[0];
-                const decl = module.declPtr(decl_index);
-                assert(decl.deletion_flag);
-                assert(decl.dependants.count() == 0);
-                const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
-                } else false;
-
-                try module.clearDecl(decl_index, null);
-
-                if (is_anon) {
-                    module.destroyDecl(decl_index);
-                }
-            }
-
-            try module.processExports();
+    if (comp.bin_file.options.module) |module| {
+        if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
+            // The `test_functions` decl has been intentionally postponed until now,
+            // at which point we must populate it with the list of test functions that
+            // have been discovered and not filtered out.
+            try module.populateTestFunctions(main_progress_node);
         }
+
+        // Process the deletion set. We use a while loop here because the
+        // deletion set may grow as we call `clearDecl` within this loop,
+        // and more unreferenced Decls are revealed.
+        while (module.deletion_set.count() != 0) {
+            const decl_index = module.deletion_set.keys()[0];
+            const decl = module.declPtr(decl_index);
+            assert(decl.deletion_flag);
+            assert(decl.dependants.count() == 0);
+            const is_anon = if (decl.zir_decl_index == 0) blk: {
+                break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
+            } else false;
+
+            try module.clearDecl(decl_index, null);
+
+            if (is_anon) {
+                module.destroyDecl(decl_index);
+            }
+        }
+
+        try module.processExports();
     }
 
     if (comp.totalErrorCount() != 0) {
@@ -2438,11 +2420,13 @@ pub fn update(comp: *Compilation) !void {
         return;
     }
 
-    if (comp.emit_docs) |doc_location| {
-        if (comp.bin_file.options.module) |module| {
-            var autodoc = Autodoc.init(module, doc_location);
-            defer autodoc.deinit();
-            try autodoc.generateZirData();
+    if (!build_options.only_c) {
+        if (comp.emit_docs) |doc_location| {
+            if (comp.bin_file.options.module) |module| {
+                var autodoc = Autodoc.init(module, doc_location);
+                defer autodoc.deinit();
+                try autodoc.generateZirData();
+            }
         }
     }
 
@@ -2536,11 +2520,8 @@ fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     };
     comp.link_error_flags = comp.bin_file.errorFlags();
 
-    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
-    if (!use_stage1) {
-        if (comp.bin_file.options.module) |module| {
-            try link.File.C.flushEmitH(module);
-        }
+    if (comp.bin_file.options.module) |module| {
+        try link.File.C.flushEmitH(module);
     }
 }
 
@@ -2610,7 +2591,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         // Synchronize with other matching comments: ZigOnlyHashStuff
         man.hash.add(comp.bin_file.options.valgrind);
         man.hash.add(comp.bin_file.options.single_threaded);
-        man.hash.add(comp.bin_file.options.use_stage1);
         man.hash.add(comp.bin_file.options.use_llvm);
         man.hash.add(comp.bin_file.options.dll_export_fns);
         man.hash.add(comp.bin_file.options.is_test);
@@ -3010,8 +2990,6 @@ pub fn performAllTheWork(
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
 
-    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
-
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
@@ -3056,7 +3034,7 @@ pub fn performAllTheWork(
         }
     }
 
-    if (!use_stage1) {
+    {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
 
@@ -3064,15 +3042,6 @@ pub fn performAllTheWork(
         if (comp.bin_file.options.module) |mod| {
             try mod.processOutdatedAndDeletedDecls();
         }
-    } else if (comp.bin_file.options.module) |mod| {
-        // If there are any AstGen compile errors, report them now to avoid
-        // hitting stage1 bugs.
-        if (mod.failed_files.count() != 0) {
-            return;
-        }
-        comp.updateStage1Module(main_progress_node) catch |err| {
-            fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
-        };
     }
 
     if (comp.bin_file.options.module) |mod| {
@@ -3598,10 +3567,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     var man = comp.obtainCObjectCacheManifest();
     defer man.deinit();
 
-    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
-
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(use_stage1);
     man.hash.addBytes(c_src);
 
     // If the previous invocation resulted in clang errors, we will see a hit
@@ -3665,7 +3631,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
             new_argv.ptr + new_argv.len,
             &clang_errors,
             c_headers_dir_path_z,
-            use_stage1,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ASTUnitFailure => {
@@ -5097,8 +5062,6 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    const use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1;
-    if (use_stage1) return .stage1;
     if (build_options.have_llvm and comp.bin_file.options.use_llvm) return .stage2_llvm;
     const target = comp.bin_file.options.target;
     if (target.ofmt == .c) return .stage2_c;
@@ -5394,7 +5357,6 @@ fn buildOutputFromZig(
         .link_mode = .Static,
         .function_sections = true,
         .no_builtin = true,
-        .use_stage1 = build_options.have_stage1 and comp.bin_file.options.use_stage1,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_stack_protector = 0,
@@ -5446,199 +5408,6 @@ fn buildOutputFromZig(
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
-}
-
-fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
-
-    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    // Here we use the legacy stage1 C++ compiler to compile Zig code.
-    const mod = comp.bin_file.options.module.?;
-    const directory = mod.zig_cache_artifact_directory; // Just an alias to make it shorter to type.
-    const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
-        mod.main_pkg.root_src_path,
-    });
-    const zig_lib_dir = comp.zig_lib_directory.path.?;
-    const target = comp.getTarget();
-
-    // The include_compiler_rt stored in the bin file options here means that we need
-    // compiler-rt symbols *somehow*. However, in the context of using the stage1 backend
-    // we need to tell stage1 to include compiler-rt only if stage1 is the place that
-    // needs to provide those symbols. Otherwise the stage2 infrastructure will take care
-    // of it in the linker, by putting compiler_rt.o into a static archive, or linking
-    // compiler_rt.a against an executable. In other words we only want to set this flag
-    // for stage1 if we are using build-obj.
-    const include_compiler_rt = comp.bin_file.options.output_mode == .Obj and
-        comp.bin_file.options.include_compiler_rt;
-
-    const stage2_target = try arena.create(stage1.Stage2Target);
-    stage2_target.* = .{
-        .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
-        .os = @enumToInt(target.os.tag),
-        .abi = @enumToInt(target.abi),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_cpu = false, // Only true when bootstrapping the compiler.
-        .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
-        .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
-        .llvm_target_abi = if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
-    };
-
-    const main_pkg_path = mod.main_pkg.root_src_directory.path orelse "";
-    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-    const builtin_zig_path = try builtin_pkg.root_src_directory.join(arena, &.{builtin_pkg.root_src_path});
-
-    const stage1_module = stage1.create(
-        @enumToInt(comp.bin_file.options.optimize_mode),
-        main_pkg_path.ptr,
-        main_pkg_path.len,
-        main_zig_file.ptr,
-        main_zig_file.len,
-        zig_lib_dir.ptr,
-        zig_lib_dir.len,
-        stage2_target,
-        comp.bin_file.options.is_test,
-    ) orelse return error.OutOfMemory;
-
-    const emit_bin_path = if (comp.bin_file.options.emit != null) blk: {
-        const obj_basename = try std.zig.binNameAlloc(arena, .{
-            .root_name = comp.bin_file.options.root_name,
-            .target = target,
-            .output_mode = .Obj,
-        });
-        break :blk try directory.join(arena, &[_][]const u8{obj_basename});
-    } else "";
-
-    if (mod.emit_h != null) {
-        log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
-    }
-    const emit_h_loc: ?EmitLoc = if (mod.emit_h) |emit_h| emit_h.loc else null;
-    const emit_h_path = try stage1LocPath(arena, emit_h_loc, directory);
-    const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
-    const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
-    const emit_llvm_bc_path = try stage1LocPath(arena, comp.emit_llvm_bc, directory);
-    const stage1_pkg = try createStage1Pkg(arena, "root", mod.main_pkg, null);
-    const test_filter = comp.test_filter orelse ""[0..0];
-    const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
-    const subsystem = if (comp.bin_file.options.subsystem) |s|
-        @intToEnum(stage1.TargetSubsystem, @enumToInt(s))
-    else
-        stage1.TargetSubsystem.Auto;
-    stage1_module.* = .{
-        .root_name_ptr = comp.bin_file.options.root_name.ptr,
-        .root_name_len = comp.bin_file.options.root_name.len,
-        .emit_o_ptr = emit_bin_path.ptr,
-        .emit_o_len = emit_bin_path.len,
-        .emit_h_ptr = emit_h_path.ptr,
-        .emit_h_len = emit_h_path.len,
-        .emit_asm_ptr = emit_asm_path.ptr,
-        .emit_asm_len = emit_asm_path.len,
-        .emit_llvm_ir_ptr = emit_llvm_ir_path.ptr,
-        .emit_llvm_ir_len = emit_llvm_ir_path.len,
-        .emit_bitcode_ptr = emit_llvm_bc_path.ptr,
-        .emit_bitcode_len = emit_llvm_bc_path.len,
-        .builtin_zig_path_ptr = builtin_zig_path.ptr,
-        .builtin_zig_path_len = builtin_zig_path.len,
-        .test_filter_ptr = test_filter.ptr,
-        .test_filter_len = test_filter.len,
-        .test_name_prefix_ptr = test_name_prefix.ptr,
-        .test_name_prefix_len = test_name_prefix.len,
-        .userdata = @ptrToInt(comp),
-        .main_pkg = stage1_pkg,
-        .code_model = @enumToInt(comp.bin_file.options.machine_code_model),
-        .subsystem = subsystem,
-        .err_color = @enumToInt(comp.color),
-        .pic = comp.bin_file.options.pic,
-        .pie = comp.bin_file.options.pie,
-        .lto = comp.bin_file.options.lto,
-        .unwind_tables = comp.unwind_tables,
-        .link_libc = comp.bin_file.options.link_libc,
-        .link_libcpp = comp.bin_file.options.link_libcpp,
-        .strip = comp.bin_file.options.strip,
-        .is_single_threaded = comp.bin_file.options.single_threaded,
-        .dll_export_fns = comp.bin_file.options.dll_export_fns,
-        .link_mode_dynamic = comp.bin_file.options.link_mode == .Dynamic,
-        .valgrind_enabled = comp.bin_file.options.valgrind,
-        .tsan_enabled = comp.bin_file.options.tsan,
-        .function_sections = comp.bin_file.options.function_sections,
-        .include_compiler_rt = include_compiler_rt,
-        .enable_stack_probing = comp.bin_file.options.stack_check,
-        .red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .enable_time_report = comp.time_report,
-        .enable_stack_report = comp.stack_report,
-        .test_is_evented = comp.test_evented_io,
-        .verbose_ir = comp.verbose_air,
-        .verbose_llvm_ir = comp.verbose_llvm_ir,
-        .verbose_cimport = comp.verbose_cimport,
-        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
-        .main_progress_node = main_progress_node,
-        .have_c_main = false,
-        .have_winmain = false,
-        .have_wwinmain = false,
-        .have_winmain_crt_startup = false,
-        .have_wwinmain_crt_startup = false,
-        .have_dllmain_crt_startup = false,
-    };
-
-    stage1_module.build_object();
-
-    mod.stage1_flags = .{
-        .have_c_main = stage1_module.have_c_main,
-        .have_winmain = stage1_module.have_winmain,
-        .have_wwinmain = stage1_module.have_wwinmain,
-        .have_winmain_crt_startup = stage1_module.have_winmain_crt_startup,
-        .have_wwinmain_crt_startup = stage1_module.have_wwinmain_crt_startup,
-        .have_dllmain_crt_startup = stage1_module.have_dllmain_crt_startup,
-    };
-
-    stage1_module.destroy();
-}
-
-fn stage1LocPath(arena: Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
-    const loc = opt_loc orelse return "";
-    const directory = loc.directory orelse cache_directory;
-    return directory.join(arena, &[_][]const u8{loc.basename});
-}
-
-fn createStage1Pkg(
-    arena: Allocator,
-    name: []const u8,
-    pkg: *Package,
-    parent_pkg: ?*stage1.Pkg,
-) error{OutOfMemory}!*stage1.Pkg {
-    const child_pkg = try arena.create(stage1.Pkg);
-
-    const pkg_children = blk: {
-        var children = std.ArrayList(*stage1.Pkg).init(arena);
-        var it = pkg.table.iterator();
-        while (it.next()) |entry| {
-            if (mem.eql(u8, entry.key_ptr.*, "std") or
-                mem.eql(u8, entry.key_ptr.*, "builtin") or
-                mem.eql(u8, entry.key_ptr.*, "root"))
-            {
-                continue;
-            }
-            try children.append(try createStage1Pkg(arena, entry.key_ptr.*, entry.value_ptr.*, child_pkg));
-        }
-        break :blk children.items;
-    };
-
-    const src_path = try pkg.root_src_directory.join(arena, &[_][]const u8{pkg.root_src_path});
-
-    child_pkg.* = .{
-        .name_ptr = name.ptr,
-        .name_len = name.len,
-        .path_ptr = src_path.ptr,
-        .path_len = src_path.len,
-        .children_ptr = pkg_children.ptr,
-        .children_len = pkg_children.len,
-        .parent = parent_pkg,
-    };
-    return child_pkg;
 }
 
 pub fn build_crt_file(

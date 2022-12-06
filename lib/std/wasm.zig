@@ -188,6 +188,8 @@ pub const Opcode = enum(u8) {
     i64_extend8_s = 0xC2,
     i64_extend16_s = 0xC3,
     i64_extend32_s = 0xC4,
+
+    prefixed = 0xFC,
     _,
 };
 
@@ -232,6 +234,7 @@ pub const PrefixedOpcode = enum(u8) {
     table_grow = 0x0F,
     table_size = 0x10,
     table_fill = 0x11,
+    _,
 };
 
 /// Enum representing all Wasm value types as per spec:
