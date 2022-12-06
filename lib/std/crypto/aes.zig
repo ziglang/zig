@@ -2,10 +2,19 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
 
+fn isComptime() bool {
+    var a: u8 = 0;
+    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
+}
+
 const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
 const has_avx = std.Target.x86.featureSetHas(builtin.cpu.features, .avx);
 const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
-const impl = if (builtin.cpu.arch == .x86_64 and has_aesni and has_avx) impl: {
+const impl = if (isComptime())
+impl: {
+    break :impl @import("aes/soft.zig");
+} else if (builtin.cpu.arch == .x86_64 and has_aesni and has_avx)
+impl: {
     break :impl @import("aes/aesni.zig");
 } else if (builtin.cpu.arch == .aarch64 and has_armaes)
 impl: {
