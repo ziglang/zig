@@ -98,13 +98,12 @@ pub const BinDigest = [bin_digest_len]u8;
 
 const manifest_file_size_max = 50 * 1024 * 1024;
 
-/// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
-/// provides enough collision resistance for the Manifest use cases, while being one of our
-/// fastest options right now.
-pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
+/// The type used for hashing file contents.
+/// AEGIS MAC is our fastest option right now.
+pub const Hasher = crypto.auth.aegis.Aegis128LMac;
 
 /// Initial state, that can be copied.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+pub const hasher_init: Hasher = Hasher.unkeyed;
 
 pub const File = struct {
     prefixed_path: ?PrefixedPath,

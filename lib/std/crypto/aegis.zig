@@ -30,6 +30,17 @@ const State128L = struct {
         return state;
     }
 
+    const unkeyed = State128L{ .blocks = [8]AesBlock{
+        AesBlock.fromBytes(&[16]u8{ 114, 242, 244, 93, 158, 199, 66, 2, 62, 132, 170, 102, 174, 253, 53, 146 }),
+        AesBlock.fromBytes(&[16]u8{ 66, 7, 29, 205, 48, 26, 247, 207, 138, 124, 108, 74, 32, 246, 48, 101 }),
+        AesBlock.fromBytes(&[16]u8{ 248, 78, 164, 161, 198, 170, 153, 206, 165, 29, 139, 92, 156, 195, 5, 143 }),
+        AesBlock.fromBytes(&[16]u8{ 15, 192, 94, 17, 23, 175, 16, 117, 164, 17, 25, 243, 41, 197, 168, 210 }),
+        AesBlock.fromBytes(&[16]u8{ 87, 136, 140, 51, 211, 22, 3, 85, 54, 64, 53, 200, 242, 30, 121, 134 }),
+        AesBlock.fromBytes(&[16]u8{ 72, 250, 75, 93, 213, 112, 66, 196, 8, 79, 233, 245, 21, 8, 182, 68 }),
+        AesBlock.fromBytes(&[16]u8{ 11, 153, 137, 204, 145, 5, 3, 133, 3, 5, 222, 126, 241, 169, 139, 254 }),
+        AesBlock.fromBytes(&[16]u8{ 179, 14, 117, 33, 57, 12, 207, 142, 207, 233, 74, 246, 135, 149, 93, 215 }),
+    } };
+
     inline fn update(state: *State128L, d1: AesBlock, d2: AesBlock) void {
         const blocks = &state.blocks;
         const tmp = blocks[7];
@@ -211,6 +222,15 @@ const State256 = struct {
         return state;
     }
 
+    const unkeyed = State256{ .blocks = [6]AesBlock{
+        AesBlock.fromBytes(&[16]u8{ 19, 216, 228, 16, 66, 103, 250, 140, 133, 30, 234, 25, 220, 53, 13, 110 }),
+        AesBlock.fromBytes(&[16]u8{ 194, 166, 141, 80, 242, 47, 66, 92, 145, 84, 4, 21, 2, 195, 30, 183 }),
+        AesBlock.fromBytes(&[16]u8{ 84, 106, 23, 222, 147, 199, 138, 211, 208, 240, 89, 5, 223, 211, 1, 13 }),
+        AesBlock.fromBytes(&[16]u8{ 30, 5, 214, 64, 23, 26, 69, 54, 1, 73, 142, 28, 12, 178, 6, 54 }),
+        AesBlock.fromBytes(&[16]u8{ 245, 60, 191, 69, 154, 70, 180, 135, 205, 198, 62, 13, 121, 15, 113, 119 }),
+        AesBlock.fromBytes(&[16]u8{ 154, 21, 39, 252, 60, 235, 129, 218, 139, 136, 125, 227, 232, 156, 24, 98 }),
+    } };
+
     inline fn update(state: *State256, d: AesBlock) void {
         const blocks = &state.blocks;
         const tmp = blocks[5].encrypt(blocks[0]);
@@ -389,6 +409,20 @@ fn AegisMac(comptime T: type) type {
                 .state = T.State.init(key.*, nonce),
             };
         }
+
+        /// Initialize the state with a null key.
+        ///
+        /// The output is deterministic; it doesn't provide any collision resistance
+        /// against adversarial inputs and must only be used in specific cases:
+        ///
+        /// - When the message includes enough entropy that cannot be guessed by
+        ///   an adversary.
+        /// - When the message is authenticated by a different mechanism (e.g. a
+        ///   signature).
+        /// - When the tag is then encrypted with an actual secret key.
+        /// - When the tag is used as a key for a hash map or a cache for
+        ///   non-adversarial content.
+        pub const unkeyed = Self{ .state = T.State.unkeyed };
 
         /// Add data to the state
         pub fn update(self: *Self, b: []const u8) void {
