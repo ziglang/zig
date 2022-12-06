@@ -641,6 +641,9 @@ pub const ReadError = error{
     ConnectionTimedOut,
     NotOpenForReading,
 
+    // Windows only
+    NetNameDeleted,
+
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
