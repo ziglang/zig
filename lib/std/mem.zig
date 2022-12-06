@@ -3570,7 +3570,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
     var a: u8 = 0;
     if (@typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime) return;
 
-    const max_gp_register_bits = @bitSizeOf(usize);
+    const max_gp_register_bits = @bitSizeOf(c_long);
     const t = @typeInfo(@TypeOf(val));
     switch (t) {
         .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
@@ -3585,7 +3585,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
                 );
                 asm volatile (""
                     :
-                    : [val2] "X" (val2),
+                    : [val2] "r" (val2),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -3593,7 +3593,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             if (t.Float.bits == 32 or t.Float.bits == 64) {
                 asm volatile (""
                     :
-                    : [val] "X" (val),
+                    : [val] "r" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
