@@ -1890,7 +1890,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     entry = linker_args.items[i];
-                } else if (mem.eql(u8, arg, "--stack")) {
+                } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
