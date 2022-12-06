@@ -120,6 +120,7 @@ pub fn typeToCIdentifier(ty: Type, mod: *Module) std.fmt.Formatter(formatTypeAsC
 }
 
 const reserved_idents = std.ComptimeStringMap(void, .{
+    // C language
     .{ "alignas", {
         @setEvalBranchQuota(4000);
     } },
@@ -215,14 +216,22 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "void", {} },
     .{ "volatile", {} },
     .{ "while ", {} },
+
+    // windows.h
+    .{ "max", {} },
+    .{ "min", {} },
 });
 
 fn isReservedIdent(ident: []const u8) bool {
-    if (ident.len >= 2 and ident[0] == '_') {
+    if (ident.len >= 2 and ident[0] == '_') { // C language
         switch (ident[1]) {
             'A'...'Z', '_' => return true,
             else => return false,
         }
+    } else if (std.mem.startsWith(u8, ident, "DUMMYSTRUCTNAME") or
+        std.mem.startsWith(u8, ident, "DUMMYUNIONNAME"))
+    { // windows.h
+        return true;
     } else return reserved_idents.has(ident);
 }
 
