@@ -32535,7 +32535,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const elem_size = elem_ty.abiSize(target);
+        const elem_size = try sema.typeAbiSize(elem_ty);
         const addend = if (offset) |off| elem_size * off else elem_size;
 
         // The resulting pointer is aligned to the lcd between the offset (an
