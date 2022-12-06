@@ -237,7 +237,7 @@ int main(int argc, char **argv) {
 
     des[3].filetype = wasi_filetype_directory;
     des[3].guest_path = dupe("/lib", sizeof("/lib"));
-    des[3].host_path = dupe(argv[1], strlen(argv[1]));
+    des[3].host_path = dupe(argv[1], strlen(argv[1]) + 1);
 
     fd_len = 6;
     fds = calloc(sizeof(struct FileDescriptor), fd_len);
@@ -252,8 +252,27 @@ int main(int argc, char **argv) {
     wasm__start();
 }
 
+static bool isLetter(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+static bool isPathSep(char c) {
+    return c == '/' || c == '\\';
+}
+static bool isAbsPath(const char *path, uint32_t path_len) {
+    if (path_len >= 1 && isPathSep(path[0])) return true;
+    if (path_len >= 3 && isLetter(path[0]) && path[1] == ':' && isPathSep(path[2])) return true;
+    return false;
+}
+static bool isSamePath(const char *a, const char *b, uint32_t len) {
+    for (uint32_t i = 0; i < len; i += 1) {
+        if (isPathSep(a[i]) && isPathSep(b[i])) continue;
+        if (a[i] != b[i]) return false;
+    }
+    return true;
+}
+
 static enum wasi_errno DirEntry_create(uint32_t dir_fd, const char *path, uint32_t path_len, enum wasi_filetype filetype, time_t tim, uint32_t *res_de) {
-    if (path[0] != '/') {
+    if (isAbsPath(path, path_len)) {
         if (dir_fd >= fd_len || fds[dir_fd].de >= de_len) return wasi_errno_badf;
         if (des[fds[dir_fd].de].filetype != wasi_filetype_directory) return wasi_errno_notdir;
     }
@@ -267,7 +286,7 @@ static enum wasi_errno DirEntry_create(uint32_t dir_fd, const char *path, uint32
     de->atim = tim;
     de->mtim = tim;
     de->ctim = tim;
-    if (path[0] == '/') {
+    if (isAbsPath(path, path_len)) {
         de->guest_path = malloc(path_len + 1);
         if (de->guest_path == NULL) return wasi_errno_nomem;
         memcpy(&de->guest_path[0], path, path_len);
@@ -307,10 +326,10 @@ static enum wasi_errno DirEntry_create(uint32_t dir_fd, const char *path, uint32
 
 static enum wasi_errno DirEntry_lookup(uint32_t dir_fd, uint32_t flags, const char *path, uint32_t path_len, uint32_t *res_de) {
     (void)flags;
-    if (path[0] == '/') {
+    if (isAbsPath(path, path_len)) {
         for (uint32_t de = 0; de < de_len; de += 1) {
             if (des[de].guest_path == NULL) continue;
-            if (memcmp(&des[de].guest_path[0], path, path_len) != 0) continue;
+            if (!isSamePath(&des[de].guest_path[0], path, path_len)) continue;
             if (des[de].guest_path[path_len] != '\0') continue;
             if (res_de != NULL) *res_de = de;
             return wasi_errno_success;
@@ -323,9 +342,9 @@ static enum wasi_errno DirEntry_lookup(uint32_t dir_fd, uint32_t flags, const ch
         size_t dir_guest_path_len = strlen(dir_de->guest_path);
         for (uint32_t de = 0; de < de_len; de += 1) {
             if (des[de].guest_path == NULL) continue;
-            if (memcmp(&des[de].guest_path[0], dir_de->guest_path, dir_guest_path_len) != 0) continue;
-            if (des[de].guest_path[dir_guest_path_len] != '/') continue;
-            if (memcmp(&des[de].guest_path[dir_guest_path_len + 1], path, path_len) != 0) continue;
+            if (!isSamePath(&des[de].guest_path[0], dir_de->guest_path, dir_guest_path_len)) continue;
+            if (!isPathSep(des[de].guest_path[dir_guest_path_len])) continue;
+            if (!isSamePath(&des[de].guest_path[dir_guest_path_len + 1], path, path_len)) continue;
             if (des[de].guest_path[dir_guest_path_len + 1 + path_len] != '\0') continue;
             if (res_de != NULL) *res_de = de;
             return wasi_errno_success;
