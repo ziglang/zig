@@ -787,7 +787,6 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   --pkg-begin build_options "${CMAKE_BINARY_DIR}/config.zig" --pkg-end
   -target "${HOST_TARGET_TRIPLE}"
-  --color on
 )
  
 add_custom_command(
