@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
         InputStream_readByte(&in) != 'm') panic("input is not a zstd-compressed wasm file");
     if (InputStream_readLittle_u32(&in) != 1) panic("unsupported wasm version");
 
-    FILE *out = fopen(argv[2], "w");
+    FILE *out = fopen(argv[2], "wb");
     if (out == NULL) panic("unable to open output file");
     fputs("#include <math.h>\n"
           "#include <stdint.h>\n"
@@ -225,14 +225,22 @@ int main(int argc, char **argv) {
           "    return dst;\n"
           "}\n"
           "\n"
-          "static uint32_t memory_grow(uint8_t **m, uint32_t *p, uint32_t n) {\n"
+          "static uint32_t memory_grow(uint8_t **m, uint32_t *p, uint32_t *c, uint32_t n) {\n"
+          "    uint8_t *new_m = *m;\n"
           "    uint32_t r = *p;\n"
           "    uint32_t new_p = r + n;\n"
-          "    uint8_t *new_m = realloc(*m, new_p << 16);\n"
-          "    if (new_m == NULL) return UINT32_C(0xFFFFFFF);\n"
-          "    memset(&new_m[r << 16], 0, n << 16);\n"
-          "    *m = new_m;\n"
+          "    if (new_p > UINT32_C(0x10000)) return UINT32_C(0xFFFFFFF);\n"
+          "    uint32_t new_c = *c;\n"
+          "    if (new_c < new_p) {\n"
+          "        do new_c += new_c / 2 + 8; while (new_c < new_p);\n"
+          "        if (new_c > UINT32_C(0x10000)) new_c = UINT32_C(0x10000);\n"
+          "        new_m = realloc(new_m, new_c << 16);\n"
+          "        if (new_m == NULL) return UINT32_C(0xFFFFFFF);\n"
+          "        *m = new_m;\n"
+          "        *c = new_c;\n"
+          "    }\n"
           "    *p = new_p;\n"
+          "    memset(&new_m[r << 16], 0, n << 16);\n"
           "    return r;\n"
           "}\n"
           "\n"
@@ -369,7 +377,8 @@ int main(int argc, char **argv) {
         for (uint32_t i = 0; i < mems_len; i += 1) {
             mems[i].limits = InputStream_readLimits(&in);
             fprintf(out, "static uint8_t *m%" PRIu32 ";\n"
-                    "static uint32_t p%" PRIu32 ";\n", i, i);
+                    "static uint32_t p%" PRIu32 ";\n"
+                    "static uint32_t c%" PRIu32 ";\n", i, i, i);
         }
         fputc('\n', out);
     }
@@ -1319,8 +1328,8 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t pages = FuncGen_stackPop(&fg);
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "memory_grow(&m%" PRIu32 ", &p%" PRIu32 ", l%" PRIu32 ");\n",
-                                    mem_idx, mem_idx, pages);
+                            fprintf(out, "memory_grow(&m%" PRIu32 ", &p%" PRIu32 ", &c%" PRIu32
+                                    ", l%" PRIu32 ");\n", mem_idx, mem_idx, mem_idx, pages);
                         }
                         break;
                     }
@@ -2449,8 +2458,9 @@ int main(int argc, char **argv) {
         fputs("static void init_data(void) {\n", out);
         for (uint32_t i = 0; i < mems_len; i += 1)
             fprintf(out, "    p%" PRIu32 " = UINT32_C(%" PRIu32 ");\n"
-                    "    m%" PRIu32 " = calloc(p%" PRIu32 ", UINT32_C(1) << 16);\n",
-                    i, mems[i].limits.min, i, i);
+                    "    c%" PRIu32 " = p%" PRIu32 ";\n"
+                    "    m%" PRIu32 " = calloc(c%" PRIu32 ", UINT32_C(1) << 16);\n",
+                    i, mems[i].limits.min, i, i, i, i);
         for (uint32_t segment_i = 0; segment_i < len; segment_i += 1) {
             uint32_t mem_idx;
             switch (InputStream_readLeb128_u32(&in)) {
