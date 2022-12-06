@@ -808,6 +808,54 @@ pub fn generateSymbol(
             }
             return Result{ .appended = {} };
         },
+        .Vector => switch (typed_value.val.tag()) {
+            .bytes => {
+                const bytes = typed_value.val.castTag(.bytes).?.data;
+                const len = @intCast(usize, typed_value.ty.arrayLen());
+                try code.ensureUnusedCapacity(len);
+                code.appendSliceAssumeCapacity(bytes[0..len]);
+                return Result{ .appended = {} };
+            },
+            .aggregate => {
+                const elem_vals = typed_value.val.castTag(.aggregate).?.data;
+                const elem_ty = typed_value.ty.elemType();
+                const len = @intCast(usize, typed_value.ty.arrayLen());
+                for (elem_vals[0..len]) |elem_val| {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = elem_ty,
+                        .val = elem_val,
+                    }, code, debug_output, reloc_info)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+                return Result{ .appended = {} };
+            },
+            .repeated => {
+                const array = typed_value.val.castTag(.repeated).?.data;
+                const elem_ty = typed_value.ty.childType();
+                const len = typed_value.ty.arrayLen();
+
+                var index: u64 = 0;
+                while (index < len) : (index += 1) {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = elem_ty,
+                        .val = array,
+                    }, code, debug_output, reloc_info)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+                return Result{ .appended = {} };
+            },
+            else => unreachable,
+        },
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(
