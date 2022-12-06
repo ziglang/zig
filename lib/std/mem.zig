@@ -3593,7 +3593,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             if (t.Float.bits == 32 or t.Float.bits == 64) {
                 asm volatile (""
                     :
-                    : [val] "r" (val),
+                    : [val] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
