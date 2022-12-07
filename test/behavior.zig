@@ -68,7 +68,6 @@ test {
     _ = @import("behavior/bugs/7003.zig");
     _ = @import("behavior/bugs/7047.zig");
     _ = @import("behavior/bugs/7187.zig");
-    _ = @import("behavior/bugs/7250.zig");
     _ = @import("behavior/bugs/9584.zig");
     _ = @import("behavior/bugs/10138.zig");
     _ = @import("behavior/bugs/10147.zig");
@@ -182,6 +181,7 @@ test {
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/this.zig");
+    _ = @import("behavior/threadlocal.zig");
     _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
