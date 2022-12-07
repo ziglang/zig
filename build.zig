@@ -280,6 +280,13 @@ pub fn build(b: *Builder) !void {
             try addStaticLlvmOptionsToExe(exe);
             try addStaticLlvmOptionsToExe(test_cases);
         }
+        if (target.isWindows()) {
+            inline for (.{ exe, test_cases }) |artifact| {
+                artifact.linkSystemLibrary("version");
+                artifact.linkSystemLibrary("uuid");
+                artifact.linkSystemLibrary("ole32");
+            }
+        }
     }
 
     const semver = try std.SemanticVersion.parse(version);
@@ -614,12 +621,6 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
 
     // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
     exe.linkSystemLibrary("c++");
-
-    if (exe.target.getOs().tag == .windows) {
-        exe.linkSystemLibrary("version");
-        exe.linkSystemLibrary("uuid");
-        exe.linkSystemLibrary("ole32");
-    }
 }
 
 fn addCxxKnownPath(
