@@ -170,6 +170,12 @@ pub const Lock = struct {
     manifest_file: fs.File,
 
     pub fn release(lock: *Lock) void {
+        if (builtin.os.tag == .windows) {
+            // Windows does not guarantee that locks are immediately unlocked when
+            // the file handle is closed. See LockFileEx documentation.
+            lock.manifest_file.unlock();
+        }
+
         lock.manifest_file.close();
         lock.* = undefined;
     }
@@ -480,7 +486,10 @@ pub const Manifest = struct {
             return false;
         }
 
-        try self.downgradeToSharedLock();
+        if (self.want_shared_lock) {
+            try self.downgradeToSharedLock();
+        }
+
         return true;
     }
 
@@ -770,11 +779,13 @@ pub const Manifest = struct {
             const manifest_file = self.manifest_file.?;
             try manifest_file.downgradeLock();
         }
+
         self.have_exclusive_lock = false;
     }
 
     fn upgradeToExclusiveLock(self: *Manifest) !void {
         if (self.have_exclusive_lock) return;
+        assert(self.manifest_file != null);
 
         // WASI does not currently support flock, so we bypass it here.
         // TODO: If/when flock is supported on WASI, this check should be removed.
@@ -796,6 +807,7 @@ pub const Manifest = struct {
         const lock: Lock = .{
             .manifest_file = self.manifest_file.?,
         };
+
         self.manifest_file = null;
         return lock;
     }
@@ -805,6 +817,11 @@ pub const Manifest = struct {
     /// Don't forget to call `writeManifest` before this!
     pub fn deinit(self: *Manifest) void {
         if (self.manifest_file) |file| {
+            if (builtin.os.tag == .windows) {
+                // See Lock.release for why this is required on Windows
+                file.unlock();
+            }
+
             file.close();
         }
         for (self.files.items) |*file| {
