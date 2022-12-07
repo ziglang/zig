@@ -1138,8 +1138,7 @@ pub fn commitDeclState(
                 self.dbg_line_fn_first = src_fn;
                 self.dbg_line_fn_last = src_fn;
 
-                // TODO TEXME JK
-                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(&[0][]u8{}, &[0][]u8{}) * 100);
+                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(&[0][]u8{}, &[0][]u8{}));
             }
 
             const last_src_fn = self.dbg_line_fn_last.?;
@@ -2277,6 +2276,8 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
 }
 
 pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
+    const gpa = self.allocator;
+
     const ptr_width_bytes: u8 = self.ptrWidthBytes();
     const target_endian = self.target.cpu.arch.endian();
     const init_len_size: usize = if (self.bin_file.tag == .macho)
@@ -2287,11 +2288,10 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     };
 
     const dbg_line_prg_off = self.getDebugLineProgramOff() orelse return;
-    const dbg_line_prg_end = self.getDebugLineProgramEnd().?;
-    assert(dbg_line_prg_end != 0);
+    assert(self.getDebugLineProgramEnd().? != 0);
 
     // Convert all input DI files into a set of include dirs and file names.
-    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const paths = try self.genIncludeDirsAndFileNames(arena.allocator(), module);
 
@@ -2299,25 +2299,25 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     // files, and padding. We have a function to compute the upper bound size, however,
     // because it's needed for determining where to put the offset of the first `SrcFn`.
     const needed_bytes = self.dbgLineNeededHeaderBytes(paths.dirs, paths.files);
-    var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
+    var di_buf = try std.ArrayList(u8).initCapacity(gpa, needed_bytes);
     defer di_buf.deinit();
 
     // initial length - length of the .debug_line contribution for this compilation unit,
     // not including the initial length itself.
-    const after_init_len = di_buf.items.len + init_len_size;
-    const init_len = dbg_line_prg_end - after_init_len;
+    // We will backpatch this value later so just remember where we need to write it.
+    const before_init_len = di_buf.items.len;
 
     switch (self.bin_file.tag) {
         .macho => {
-            mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len));
+            mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, 0));
         },
         else => switch (self.ptr_width) {
             .p32 => {
-                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
+                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, 0), target_endian);
             },
             .p64 => {
                 di_buf.appendNTimesAssumeCapacity(0xff, 4);
-                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
+                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), @as(u64, 0), target_endian);
             },
         },
     }
@@ -2400,12 +2400,59 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
 
     assert(needed_bytes == di_buf.items.len);
 
-    // We use NOPs because consumers empirically do not respect the header length field.
     if (di_buf.items.len > dbg_line_prg_off) {
-        // Move the first N files to the end to make more padding for the header.
-        @panic("TODO: handle .debug_line header exceeding its padding");
+        const needed_with_padding = padToIdeal(needed_bytes);
+        const delta = needed_with_padding - dbg_line_prg_off;
+
+        const macho_file = self.bin_file.cast(File.MachO).?;
+        const d_sym = &macho_file.d_sym.?;
+        const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
+        const needed_size = debug_line_sect.size + delta;
+
+        if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
+            @panic("TODO grow debug_line section");
+        }
+
+        var src_fn = self.dbg_line_fn_first.?;
+        const last_fn = self.dbg_line_fn_last.?;
+        const file_pos = debug_line_sect.offset + src_fn.off;
+
+        var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - src_fn.off);
+        defer gpa.free(buffer);
+        const amt = try d_sym.file.preadAll(buffer, file_pos);
+        if (amt != buffer.len) return error.InputOutput;
+
+        try d_sym.file.pwriteAll(buffer, file_pos + delta);
+
+        debug_line_sect.size = needed_size;
+
+        while (true) {
+            src_fn.off += delta;
+
+            if (src_fn.next) |next| {
+                src_fn = next;
+            } else break;
+        }
     }
-    const jmp_amt = dbg_line_prg_off - di_buf.items.len;
+
+    // Backpatch actual length of the debug line program
+    const init_len = self.getDebugLineProgramEnd().? - before_init_len - init_len_size;
+    switch (self.bin_file.tag) {
+        .macho => {
+            mem.writeIntLittle(u32, di_buf.items[before_init_len..][0..4], @intCast(u32, init_len));
+        },
+        else => switch (self.ptr_width) {
+            .p32 => {
+                mem.writeInt(u32, di_buf.items[before_init_len..][0..4], @intCast(u32, init_len), target_endian);
+            },
+            .p64 => {
+                mem.writeInt(u64, di_buf.items[before_init_len + 4 ..][0..8], init_len, target_endian);
+            },
+        },
+    }
+
+    // We use NOPs because consumers empirically do not respect the header length field.
+    const jmp_amt = self.getDebugLineProgramOff().? - di_buf.items.len;
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
