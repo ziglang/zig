@@ -3,7 +3,9 @@ const divc3 = @import("./divc3.zig");
 const Complex = @import("./mulc3.zig").Complex;
 
 comptime {
-    @export(__divsc3, .{ .name = "__divsc3", .linkage = common.linkage });
+    if (@import("builtin").zig_backend != .stage2_c) {
+        @export(__divsc3, .{ .name = "__divsc3", .linkage = common.linkage });
+    }
 }
 
 pub fn __divsc3(a: f32, b: f32, c: f32, d: f32) callconv(.C) Complex(f32) {
