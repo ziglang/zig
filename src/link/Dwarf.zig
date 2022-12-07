@@ -2303,7 +2303,6 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     // files, and padding. We have a function to compute the upper bound size, however,
     // because it's needed for determining where to put the offset of the first `SrcFn`.
     const needed_bytes = self.dbgLineNeededHeaderBytes(paths.dirs, paths.files);
-    log.debug("dbg_line_prg_off = {x}, needed_bytes = {x}", .{ dbg_line_prg_off, needed_bytes });
     var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
     defer di_buf.deinit();
 
@@ -2390,6 +2389,8 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         },
     }
 
+    assert(needed_bytes == di_buf.items.len);
+
     // We use NOPs because consumers empirically do not respect the header length field.
     if (di_buf.items.len > dbg_line_prg_off) {
         // Move the first N files to the end to make more padding for the header.
@@ -2448,27 +2449,31 @@ fn ptrWidthBytes(self: Dwarf) u8 {
 }
 
 fn dbgLineNeededHeaderBytes(self: Dwarf, dirs: []const []const u8, files: []const []const u8) u32 {
-    _ = self;
-    const directory_entry_format_count = 1;
-    const file_name_entry_format_count = 1;
-    const directory_count = dirs.len + 1;
-    const file_name_count = files.len;
+    var size = switch (self.bin_file.tag) { // length field
+        .macho => @sizeOf(u32),
+        else => switch (self.ptr_width) {
+            .p32 => @as(usize, @sizeOf(u32)),
+            .p64 => @sizeOf(u32) + @sizeOf(u64),
+        },
+    };
+    size += @sizeOf(u16); // version field
+    size += switch (self.bin_file.tag) { // offset to end-of-header
+        .macho => @sizeOf(u32),
+        else => self.ptrWidthBytes(),
+    };
+    size += 18; // opcodes
 
-    var dir_names_len: usize = 0;
-    for (dirs) |dir| {
-        dir_names_len += dir.len + 1;
+    for (dirs) |dir| { // include dirs
+        size += dir.len + 1;
     }
+    size += 1; // include dirs sentinel
 
-    var file_names_len: usize = 0;
-    for (files) |file| {
-        file_names_len += file.len + 1;
+    for (files) |file| { // file names
+        size += file.len + 1 + 1 + 1 + 1;
     }
+    size += 1; // file names sentinel
 
-    return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
-        directory_count * 8 + file_name_count * 8 +
-        // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
-        // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        dir_names_len + file_names_len);
+    return @intCast(u32, size);
 }
 
 /// The reloc offset for the line offset of a function from the previous function's line.
