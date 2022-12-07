@@ -3565,6 +3565,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     const cimport_zig_basename = "cimport.zig";
 
     var man = comp.obtainCObjectCacheManifest();
+    man.want_shared_lock = false;
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
@@ -3678,6 +3679,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
     // the contents were the same, we hit the cache but the manifest is dirty and we need to update
     // it to prevent doing a full file content comparison the next time around.
+    man.want_shared_lock = true;
     man.writeManifest() catch |err| {
         log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
     };
@@ -3852,6 +3854,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     }
 
     var man = comp.obtainCObjectCacheManifest();
+    man.want_shared_lock = false;
     defer man.deinit();
 
     man.hash.add(comp.clang_preprocessor_mode);
@@ -4147,6 +4150,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
     // the contents were the same, we hit the cache but the manifest is dirty and we need to update
     // it to prevent doing a full file content comparison the next time around.
+    man.want_shared_lock = true;
     man.writeManifest() catch |err| {
         log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
     };
