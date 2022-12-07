@@ -976,11 +976,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             // Once we support more than one source file, this will have the ability to be more
             // than one possible value.
             const file_index = try self.addDIFile(mod, decl_index);
-            leb128.writeUnsignedFixed(
-                4,
-                dbg_line_buffer.addManyAsArrayAssumeCapacity(4),
-                file_index + 1,
-            );
+            leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
 
             // Emit a line for the begin curly with prologue_end=false. The codegen will
             // do the work of setting prologue_end=true and epilogue_begin=true.
@@ -2370,7 +2366,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         di_buf.appendSliceAssumeCapacity(file);
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
-            @intCast(u8, dir_index + 1), // directory_index
+            @intCast(u8, dir_index), // directory_index
             0, // mtime (TODO supply this)
             0, // file size bytes (TODO supply this)
         });
@@ -2596,7 +2592,7 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
             else => unreachable,
         }
     }
-    return @intCast(u28, gop.index);
+    return @intCast(u28, gop.index + 1);
 }
 
 fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator, module: *Module) !struct {
@@ -2626,7 +2622,7 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator, module: *Module) !
                 break :inner dir_path[comp_dir.len + 1 ..];
             } else dir_path;
             const dirs_gop = dirs.getOrPutAssumeCapacity(actual_dir_path);
-            break :blk @intCast(u28, dirs_gop.index);
+            break :blk @intCast(u28, dirs_gop.index + 1);
         };
 
         files_dir_indexes.appendAssumeCapacity(dir_index);
