@@ -4,6 +4,7 @@ $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
+$ZIG_LIB_DIR = "$(Get-Location)\lib"
 
 Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
 Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$ZIG_LLVM_CLANG_LLD_NAME.zip"
@@ -52,8 +53,8 @@ CheckLastExitCode
 
 Write-Output "Main test suite..."
 & "stage3-release\bin\zig.exe" build test docs `
-  --zig-lib-dir "..\lib" `
-  --search-prefix "../$ZIG_LLVM_CLANG_LLD_NAME" `
+  --zig-lib-dir "$ZIG_LIB_DIR" `
+  --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows
@@ -61,8 +62,8 @@ CheckLastExitCode
 
 Write-Output "Testing Autodocs..."
 & "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
-    --zig-lib-dir "..\lib" `
-    -femit-docs `
-    -fno-emit-bin
+  --zig-lib-dir "$ZIG_LIB_DIR" `
+  -femit-docs `
+  -fno-emit-bin
 CheckLastExitCode
 
