@@ -523,7 +523,7 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                     child_ty = macroqualified_ty.getModifiedType().getTypePtr();
                 },
                 else => return,
-            } else unreachable;
+            };
 
             const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
             if (result.found_existing) {
@@ -629,7 +629,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             },
             else => break fn_type,
         }
-    } else unreachable;
+    };
     const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
     const return_qt = fn_ty.getReturnType();
 

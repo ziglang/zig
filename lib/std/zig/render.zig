@@ -2211,7 +2211,7 @@ fn renderAsm(
             },
             else => unreachable,
         }
-    } else unreachable; // TODO shouldn't need this on while(true)
+    }
 }
 
 fn renderCall(

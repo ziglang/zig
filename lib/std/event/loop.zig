@@ -1469,7 +1469,7 @@ pub const Loop = struct {
                             .Cancelled => continue,
                         }
                         if (overlapped) |o| break o;
-                    } else unreachable; // TODO else unreachable should not be necessary
+                    };
                     const resume_node = @fieldParentPtr(ResumeNode, "overlapped", overlapped);
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;

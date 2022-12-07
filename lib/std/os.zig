@@ -3621,7 +3621,7 @@ pub fn accept(
                 else => |err| return unexpectedErrno(err),
             }
         }
-    } else unreachable;
+    };
 
     if (!have_accept4) {
         try setSockFlags(accepted_sock, flags);

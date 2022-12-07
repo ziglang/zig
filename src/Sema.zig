@@ -1359,7 +1359,7 @@ fn analyzeBodyInner(
                             break check_block.runtime_index;
                         }
                         check_block = check_block.parent.?;
-                    } else unreachable;
+                    };
 
                     if (@enumToInt(target_runtime_index) < @enumToInt(block.runtime_index)) {
                         const runtime_src = block.runtime_cond orelse block.runtime_loop.?;
@@ -1733,7 +1733,7 @@ fn analyzeBodyInner(
             break always_noreturn;
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
-    } else unreachable;
+    };
 
     // balance out dbg_block_begins in case of early noreturn
     const noreturn_inst = block.instructions.popOrNull();
@@ -3478,7 +3478,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 .store => break candidate,
                 else => break :ct,
             }
-        } else unreachable; // TODO shouldn't need this
+        };
 
         while (true) {
             if (search_index == 0) break :ct;
@@ -3704,7 +3704,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .store => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const bitcast_inst = while (true) {
                     if (search_index == 0) break :ct;
@@ -3716,7 +3716,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .bitcast => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const const_inst = while (true) {
                     if (search_index == 0) break :ct;
@@ -3728,7 +3728,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .constant => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const store_op = air_datas[store_inst].bin_op;
                 const store_val = (try sema.resolveMaybeUndefVal(store_op.rhs)) orelse break :ct;
@@ -14964,7 +14964,7 @@ fn zirClosureGet(
             break tv;
         }
         scope = scope.parent.?;
-    } else unreachable;
+    };
 
     if (tv.val.tag() == .unreachable_value and !block.is_typeof and sema.func == null) {
         const msg = msg: {
