@@ -65,14 +65,17 @@ test {
     _ = @import("behavior/bugs/6456.zig");
     _ = @import("behavior/bugs/6781.zig");
     _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/bugs/6905.zig");
     _ = @import("behavior/bugs/7003.zig");
     _ = @import("behavior/bugs/7047.zig");
     _ = @import("behavior/bugs/7187.zig");
     _ = @import("behavior/bugs/7325.zig");
+    _ = @import("behavior/bugs/8646.zig");
     _ = @import("behavior/bugs/9584.zig");
     _ = @import("behavior/bugs/10138.zig");
     _ = @import("behavior/bugs/10147.zig");
     _ = @import("behavior/bugs/10970.zig");
+    _ = @import("behavior/bugs/10684.zig");
     _ = @import("behavior/bugs/11046.zig");
     _ = @import("behavior/bugs/11100.zig");
     _ = @import("behavior/bugs/11139.zig");
