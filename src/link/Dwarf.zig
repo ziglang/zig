@@ -2306,15 +2306,19 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     // not including the initial length itself.
     const after_init_len = di_buf.items.len + init_len_size;
     const init_len = dbg_line_prg_end - after_init_len;
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len));
-    } else switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
+
+    switch (self.bin_file.tag) {
+        .macho => {
+            mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len));
         },
-        .p64 => {
-            di_buf.appendNTimesAssumeCapacity(0xff, 4);
-            mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
+        else => switch (self.ptr_width) {
+            .p32 => {
+                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
+            },
+            .p64 => {
+                di_buf.appendNTimesAssumeCapacity(0xff, 4);
+                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
+            },
         },
     }
 
@@ -2325,7 +2329,12 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
     // padding rather than this field.
     const before_header_len = di_buf.items.len;
-    di_buf.items.len += if (self.bin_file.tag == .macho) @sizeOf(u32) else ptr_width_bytes; // We will come back and write this.
+
+    di_buf.items.len += switch (self.bin_file.tag) { // We will come back and write this.
+        .macho => @sizeOf(u32),
+        else => ptr_width_bytes,
+    };
+
     const after_header_len = di_buf.items.len;
 
     const opcode_base = DW.LNS.set_isa + 1;
@@ -2374,14 +2383,18 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     di_buf.appendAssumeCapacity(0); // file names sentinel
 
     const header_len = di_buf.items.len - after_header_len;
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len));
-    } else switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len), target_endian);
+
+    switch (self.bin_file.tag) {
+        .macho => {
+            mem.writeIntLittle(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len));
         },
-        .p64 => {
-            mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian);
+        else => switch (self.ptr_width) {
+            .p32 => {
+                mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len), target_endian);
+            },
+            .p64 => {
+                mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian);
+            },
         },
     }
 
