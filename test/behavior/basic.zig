@@ -724,20 +724,6 @@ test "comptime manyptr concatenation" {
     try expect(expected[len] == 0);
 }
 
-test "thread local variable" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .x86_64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        threadlocal var t: i32 = 1234;
-    };
-    S.t += 1;
-    try expect(S.t == 1235);
-}
-
 test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -752,20 +738,6 @@ fn maybe(x: bool) anyerror!?u32 {
         else => null,
     };
 }
-
-test "pointer to thread local array" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .x86_64) return error.SkipZigTest; // TODO
-
-    const s = "Hello world";
-    std.mem.copy(u8, buffer[0..], s);
-    try std.testing.expectEqualSlices(u8, buffer[0..], s);
-}
-
-threadlocal var buffer: [11]u8 = undefined;
 
 test "auto created variables have correct alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
