@@ -10174,9 +10174,7 @@ fn appendErrorNodeNotes(
     notes: []const u32,
 ) Allocator.Error!void {
     @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    const msg = try astgen.printStringBytes(format, args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -10241,9 +10239,7 @@ fn appendErrorTokNotes(
     notes: []const u32,
 ) !void {
     @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    const msg = try astgen.printStringBytes(format, args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -10280,9 +10276,7 @@ fn appendErrorOff(
     args: anytype,
 ) Allocator.Error!void {
     @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    const msg = try astgen.printStringBytes(format, args);
     try astgen.compile_errors.append(astgen.gpa, .{
         .msg = msg,
         .node = 0,
@@ -10299,11 +10293,8 @@ fn errNoteTok(
     args: anytype,
 ) Allocator.Error!u32 {
     @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
-        .msg = msg,
+        .msg = try astgen.printStringBytes(format, args),
         .node = 0,
         .token = token,
         .byte_offset = 0,
@@ -10318,16 +10309,24 @@ fn errNoteNode(
     args: anytype,
 ) Allocator.Error!u32 {
     @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
-        .msg = msg,
+        .msg = try astgen.printStringBytes(format, args),
         .node = node,
         .token = 0,
         .byte_offset = 0,
         .notes = 0,
     });
+}
+
+fn printStringBytes(astgen: *AstGen, comptime format: []const u8, args: anytype) !u32 {
+    const string_bytes = &astgen.string_bytes;
+    const msg = @intCast(u32, string_bytes.items.len);
+
+    var managed = string_bytes.toManaged(astgen.gpa);
+    defer string_bytes.* = managed.moveToUnmanaged();
+    try managed.writer().print(format ++ "\x00", args);
+
+    return msg;
 }
 
 fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {

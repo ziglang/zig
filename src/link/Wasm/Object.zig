@@ -374,13 +374,13 @@ fn Parser(comptime ReaderType: type) type {
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
                             parser.object.relocatable_data = relocatable_data.items; // at this point no new relocatable sections will appear so we're free to store them.
-                            try parser.parseMetadata(gpa, @intCast(usize, reader.context.bytes_left));
+                            try parser.parseMetadata(gpa, @intCast(usize, limited_reader.bytes_left));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try parser.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
                             try parser.parseFeatures(gpa);
                         } else if (std.mem.startsWith(u8, name, ".debug")) {
-                            const debug_size = @intCast(u32, reader.context.bytes_left);
+                            const debug_size = @intCast(u32, limited_reader.bytes_left);
                             const debug_content = try gpa.alloc(u8, debug_size);
                             errdefer gpa.free(debug_content);
                             try reader.readNoEof(debug_content);
@@ -394,7 +394,7 @@ fn Parser(comptime ReaderType: type) type {
                                 .section_index = section_index,
                             });
                         } else {
-                            try reader.skipBytes(reader.context.bytes_left, .{});
+                            try reader.skipBytes(limited_reader.bytes_left, .{});
                         }
                     },
                     .type => {
@@ -409,7 +409,7 @@ fn Parser(comptime ReaderType: type) type {
                                 result.* = try readEnum(std.wasm.Valtype, reader);
                             }
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .import => {
                         for (try readVec(&parser.object.imports, reader, gpa)) |*import| {
@@ -443,13 +443,13 @@ fn Parser(comptime ReaderType: type) type {
                                 .kind = kind_value,
                             };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .function => {
                         for (try readVec(&parser.object.functions, reader, gpa)) |*func| {
                             func.* = .{ .type_index = try readLeb(u32, reader) };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .table => {
                         for (try readVec(&parser.object.tables, reader, gpa)) |*table| {
@@ -458,13 +458,13 @@ fn Parser(comptime ReaderType: type) type {
                                 .limits = try readLimits(reader),
                             };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .memory => {
                         for (try readVec(&parser.object.memories, reader, gpa)) |*memory| {
                             memory.* = .{ .limits = try readLimits(reader) };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .global => {
                         for (try readVec(&parser.object.globals, reader, gpa)) |*global| {
@@ -476,7 +476,7 @@ fn Parser(comptime ReaderType: type) type {
                                 .init = try readInit(reader),
                             };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .@"export" => {
                         for (try readVec(&parser.object.exports, reader, gpa)) |*exp| {
@@ -490,11 +490,11 @@ fn Parser(comptime ReaderType: type) type {
                                 .index = try readLeb(u32, reader),
                             };
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .start => {
                         parser.object.start = try readLeb(u32, reader);
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .element => {
                         for (try readVec(&parser.object.elements, reader, gpa)) |*elem| {
@@ -505,15 +505,15 @@ fn Parser(comptime ReaderType: type) type {
                                 idx.* = try readLeb(u32, reader);
                             }
                         }
-                        try assertEnd(reader);
+                        try assertEnd(&limited_reader);
                     },
                     .code => {
-                        var start = reader.context.bytes_left;
+                        var start = limited_reader.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
                         while (index < count) : (index += 1) {
                             const code_len = try readLeb(u32, reader);
-                            const offset = @intCast(u32, start - reader.context.bytes_left);
+                            const offset = @intCast(u32, start - limited_reader.bytes_left);
                             const data = try gpa.alloc(u8, code_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
@@ -528,7 +528,7 @@ fn Parser(comptime ReaderType: type) type {
                         }
                     },
                     .data => {
-                        var start = reader.context.bytes_left;
+                        var start = limited_reader.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
                         while (index < count) : (index += 1) {
@@ -537,7 +537,7 @@ fn Parser(comptime ReaderType: type) type {
                             _ = flags; // TODO: Do we need to check flags to detect passive/active memory?
                             _ = data_offset;
                             const data_len = try readLeb(u32, reader);
-                            const offset = @intCast(u32, start - reader.context.bytes_left);
+                            const offset = @intCast(u32, start - limited_reader.bytes_left);
                             const data = try gpa.alloc(u8, data_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
@@ -864,11 +864,12 @@ fn readInit(reader: anytype) !std.wasm.InitExpression {
     return init_expr;
 }
 
-fn assertEnd(reader: anytype) !void {
+fn assertEnd(limited_reader: anytype) !void {
     var buf: [1]u8 = undefined;
+    const reader = limited_reader.reader();
     const len = try reader.read(&buf);
     if (len != 0) return error.MalformedSection;
-    if (reader.context.bytes_left != 0) return error.MalformedSection;
+    if (limited_reader.bytes_left != 0) return error.MalformedSection;
 }
 
 /// Parses an object file into atoms, for code and data sections

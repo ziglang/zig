@@ -270,11 +270,11 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+            std.io.Writer(error{OutOfMemory});
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+            return Writer.init(self, appendWrite);
         }
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
@@ -687,25 +687,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self: *Self,
             allocator: Allocator,
         };
-
-        pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
-        else
-            std.io.Writer(WriterContext, error{OutOfMemory}, appendWrite);
-
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self, allocator: Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = allocator } };
-        }
-
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
-        /// Invalidates pointers if additional memory is needed.
-        fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
-            try context.self.appendSlice(context.allocator, m);
-            return m.len;
-        }
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.

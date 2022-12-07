@@ -122,7 +122,7 @@ pub const Zld = struct {
         const cpu_arch = self.options.target.cpu.arch;
         const reader = file.reader();
         const fat_offset = try fat.getLibraryOffset(reader, cpu_arch);
-        try reader.context.seekTo(fat_offset);
+        try file.seekTo(fat_offset);
 
         var archive = Archive{
             .name = name,

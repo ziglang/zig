@@ -2,19 +2,26 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 
-pub fn Writer(
-    comptime Context: type,
-    comptime WriteError: type,
-    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
-) type {
+pub fn Writer(comptime WriteError: type) type {
     return struct {
-        context: Context,
+        context: *anyopaque,
+        writeFn: *const fn (ctx: *anyopaque, bytes: []const u8) Error!usize,
 
         const Self = @This();
         pub const Error = WriteError;
 
+        pub fn init(
+            context: anytype,
+            comptime writeFn: *const fn (ctx: @TypeOf(context), bytes: []const u8) Error!usize,
+        ) Self {
+            return Self{
+                .context = context,
+                .writeFn = makeWrapper(context, Error, writeFn),
+            };
+        }
+
         pub fn write(self: Self, bytes: []const u8) Error!usize {
-            return writeFn(self.context, bytes);
+            return self.writeFn(self.context, bytes);
         }
 
         pub fn writeAll(self: Self, bytes: []const u8) Error!void {
@@ -88,4 +95,20 @@ pub fn Writer(
             return self.writeAll(mem.asBytes(&value));
         }
     };
+}
+
+fn makeWrapper(
+    context: anytype,
+    comptime Error: type,
+    comptime writeFn: *const fn (ctx: @TypeOf(context), bytes: []const u8) Error!usize,
+) *const fn (ctx: *anyopaque, bytes: []const u8) Error!usize {
+    const Context = @TypeOf(context.*);
+    const ContextPtr = @TypeOf(context);
+    return struct {
+        fn wrapper(ctx: *anyopaque, bytes: []const u8) Error!usize {
+            const aligned = @alignCast(@alignOf(Context), ctx);
+            const casted = @ptrCast(ContextPtr, aligned);
+            return writeFn(casted, bytes);
+        }
+    }.wrapper;
 }

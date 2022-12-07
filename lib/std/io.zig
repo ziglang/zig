@@ -162,10 +162,13 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
 /// A Writer that doesn't write to anything.
-pub const null_writer = @as(NullWriter, .{ .context = {} });
+pub const null_writer = NullWriter{
+    .context = undefined,
+    .writeFn = dummyWrite,
+};
 
-const NullWriter = Writer(void, error{}, dummyWrite);
-fn dummyWrite(context: void, data: []const u8) error{}!usize {
+const NullWriter = Writer(error{});
+fn dummyWrite(context: *anyopaque, data: []const u8) error{}!usize {
     _ = context;
     return data.len;
 }

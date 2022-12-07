@@ -4,26 +4,33 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
 
-pub fn Reader(
-    comptime Context: type,
-    comptime ReadError: type,
-    /// Returns the number of bytes read. It may be less than buffer.len.
-    /// If the number of bytes read is 0, it means end of stream.
-    /// End of stream is not an error condition.
-    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
-) type {
+pub fn Reader(comptime ReadError: type) type {
     return struct {
         pub const Error = ReadError;
 
-        context: Context,
+        context: *anyopaque,
+        readFn: *const fn (context: *anyopaque, buffer: []u8) Error!usize,
 
         const Self = @This();
+
+        pub fn init(
+            context: anytype,
+            /// Returns the number of bytes read. It may be less than buffer.len.
+            /// If the number of bytes read is 0, it means end of stream.
+            /// End of stream is not an error condition.
+            comptime readFn: *const fn (ctx: @TypeOf(context), buffer: []u8) Error!usize,
+        ) Self {
+            return Self{
+                .context = context,
+                .readFn = makeWrapper(context, Error, readFn),
+            };
+        }
 
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
         pub fn read(self: Self, buffer: []u8) Error!usize {
-            return readFn(self.context, buffer);
+            return self.readFn(self.context, buffer);
         }
 
         /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -361,6 +368,22 @@ pub fn Reader(
             return E.InvalidValue;
         }
     };
+}
+
+fn makeWrapper(
+    context: anytype,
+    comptime Error: type,
+    comptime readFn: *const fn (ctx: @TypeOf(context), buffer: []u8) Error!usize,
+) *const fn (ctx: *anyopaque, buffer: []u8) Error!usize {
+    const Context = @TypeOf(context.*);
+    const ContextPtr = @TypeOf(context);
+    return struct {
+        fn wrapper(ctx: *anyopaque, buffer: []u8) Error!usize {
+            const aligned = @alignCast(@alignOf(Context), ctx);
+            const casted = @ptrCast(ContextPtr, aligned);
+            return readFn(casted, buffer);
+        }
+    }.wrapper;
 }
 
 test "Reader" {

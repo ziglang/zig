@@ -1372,16 +1372,34 @@ pub const File = struct {
         }
     }
 
-    pub const Reader = io.Reader(File, ReadError, read);
+    pub const Reader = io.Reader(ReadError);
 
-    pub fn reader(file: File) Reader {
-        return .{ .context = file };
+    pub fn reader(file: *const File) Reader {
+        // HACK: The Reader interface expects a mutable pointer to context, but there is no need
+        //       to have that here, as `readFn` never modifies the memory of the `File` struct.
+        //       We want the `Reader` interface to handle these kinds of situations, but sadly
+        //       there is no way to discard const and compile time, so that would mean that
+        //       `FixedBufferStream` could not be used in that context.
+        return Reader.init(@intToPtr(*File, @ptrToInt(file)), readFn);
     }
 
-    pub const Writer = io.Writer(File, WriteError, write);
+    fn readFn(self: *File, buffer: []u8) ReadError!usize {
+        return self.read(buffer);
+    }
 
-    pub fn writer(file: File) Writer {
-        return .{ .context = file };
+    pub const Writer = io.Writer(WriteError);
+
+    pub fn writer(file: *const File) Writer {
+        // HACK: The Writer interface expects a mutable pointer to context, but there is no need
+        //       to have that here, as `writeFn` never modifies the memory of the `File` struct.
+        //       We want the `Writer` interface to handle these kinds of situations, but sadly
+        //       there is no way to discard const and compile time, so that would mean that
+        //       `FixedBufferStream` could not be used in that context.
+        return Writer.init(@intToPtr(*File, @ptrToInt(file)), writeFn);
+    }
+
+    fn writeFn(self: *File, bytes: []const u8) WriteError!usize {
+        return self.write(bytes);
     }
 
     pub const SeekableStream = io.SeekableStream(

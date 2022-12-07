@@ -2932,7 +2932,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const WriteError = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, WriteError, write);
+        pub const Writer = std.io.Writer(WriteError);
 
         underlying_writer: UnderlyingWriter,
 
@@ -2955,7 +2955,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         indent_next_line: usize = 0,
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+            return Writer.init(self, write);
         }
 
         pub fn write(self: *Self, bytes: []const u8) WriteError!usize {

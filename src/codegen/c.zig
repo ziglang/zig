@@ -6695,7 +6695,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const Error = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.Writer(Error);
 
         pub const indent_delta = 1;
 
@@ -6704,7 +6704,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         current_line_empty: bool = true,
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+            return Writer.init(self, write);
         }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {

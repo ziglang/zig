@@ -2098,7 +2098,12 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         const offset = @intCast(u32, atom.code.items.len);
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
-        try atom.code.writer(wasm.base.allocator).writeIntLittle(u32, len - 1);
+        {
+            var managed = atom.code.toManaged(wasm.base.allocator);
+            defer atom.code = managed.moveToUnmanaged();
+            try managed.writer().writeIntLittle(u32, len - 1);
+        }
+
         // create relocation to the error name
         try atom.relocs.append(wasm.base.allocator, .{
             .index = names_symbol_index,

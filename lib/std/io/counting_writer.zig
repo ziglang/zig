@@ -9,7 +9,7 @@ pub fn CountingWriter(comptime WriterType: type) type {
         child_stream: WriterType,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(Error);
 
         const Self = @This();
 
@@ -20,7 +20,7 @@ pub fn CountingWriter(comptime WriterType: type) type {
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+            return Writer.init(self, write);
         }
     };
 }

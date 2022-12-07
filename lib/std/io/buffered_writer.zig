@@ -10,7 +10,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         end: usize = 0,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(Error);
 
         const Self = @This();
 
@@ -20,7 +20,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+            return Writer.init(self, write);
         }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {
