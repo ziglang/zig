@@ -12,12 +12,6 @@ const expectStringStartsWith = std.testing.expectStringStartsWith;
 // failures.
 
 test "anon fn param" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 uses line/column for the names but we're moving away from that for
-        // incremental compilation purposes.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -43,12 +37,6 @@ test "anon fn param" {
 }
 
 test "anon field init" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 uses line/column for the names but we're moving away from that for
-        // incremental compilation purposes.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -84,11 +72,6 @@ test "basic" {
 }
 
 test "top level decl" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -208,11 +191,6 @@ pub fn expectEqualStringsIgnoreDigits(expected: []const u8, actual: []const u8) 
 }
 
 test "local variable" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -231,7 +209,6 @@ test "local variable" {
 }
 
 test "comptime parameters not converted to anytype in function type" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -241,12 +218,6 @@ test "comptime parameters not converted to anytype in function type" {
 }
 
 test "anon name strategy used in sub expression" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 uses line/column for the names but we're moving away from that for
-        // incremental compilation purposes.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

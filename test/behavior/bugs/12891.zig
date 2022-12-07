@@ -7,8 +7,6 @@ test "issue12891" {
     try std.testing.expect(i < f);
 }
 test "nan" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
-
     const f = comptime std.math.nan(f64);
     var i: usize = 0;
     try std.testing.expect(!(f < i));

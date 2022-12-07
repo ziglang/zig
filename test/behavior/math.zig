@@ -94,7 +94,6 @@ fn testOneClz(comptime T: type, x: T) u32 {
 }
 
 test "@clz vectors" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -156,7 +155,6 @@ fn testOneCtz(comptime T: type, x: T) u32 {
 }
 
 test "@ctz vectors" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -971,8 +969,6 @@ test "overflow arithmetic with u0 values" {
 }
 
 test "allow signed integer division/remainder when values are comptime-known and positive or exact" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try expect(5 / 3 == 1);
     try expect(-5 / -3 == 1);
     try expect(-6 / 3 == -2);
@@ -1009,14 +1005,8 @@ test "quad hex float literal parsing accurate" {
                 try expect(@bitCast(u128, f) == 0x40042eab345678439abcdefea5678234);
             }
             {
-                // TODO: modify stage1/parse_f128.c to use round-to-even
-                if (builtin.zig_backend == .stage1) {
-                    var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
-                    try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134674); // round-down
-                } else {
-                    var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
-                    try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134675); // round-to-even
-                }
+                var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
+                try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134675); // round-to-even
             }
             {
                 var f: f128 = 0x1.353e45674d89abacc3a2ebf3ff4ffp-50;
@@ -1270,7 +1260,8 @@ test "@sqrt" {
     try testSqrt(f16, 13.0);
     comptime try testSqrt(f16, 13.0);
 
-    if (builtin.zig_backend == .stage1) {
+    // TODO: make this pass
+    if (false) {
         const x = 14.0;
         const y = x * x;
         const z = @sqrt(y);

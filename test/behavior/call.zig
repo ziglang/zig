@@ -45,10 +45,7 @@ test "basic invocations" {
     }
     {
         // call of non comptime-known function
-        var alias_foo = switch (builtin.zig_backend) {
-            .stage1 => foo,
-            else => &foo,
-        };
+        var alias_foo = &foo;
         try expect(@call(.{ .modifier = .no_async }, alias_foo, .{}) == 1234);
         try expect(@call(.{ .modifier = .never_tail }, alias_foo, .{}) == 1234);
         try expect(@call(.{ .modifier = .never_inline }, alias_foo, .{}) == 1234);
@@ -71,7 +68,9 @@ test "tuple parameters" {
     try expect(@call(.{}, add, .{ 12, b }) == 46);
     try expect(@call(.{}, add, .{ a, b }) == 46);
     try expect(@call(.{}, add, .{ 12, 34 }) == 46);
-    if (builtin.zig_backend == .stage1) comptime try expect(@call(.{}, add, .{ 12, 34 }) == 46); // TODO
+    if (false) {
+        comptime try expect(@call(.{}, add, .{ 12, 34 }) == 46); // TODO
+    }
     try expect(comptime @call(.{}, add, .{ 12, 34 }) == 46);
     {
         const separate_args0 = .{ a, b };
@@ -246,8 +245,6 @@ test "function call with 40 arguments" {
 }
 
 test "arguments to comptime parameters generated in comptime blocks" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const S = struct {
         fn fortyTwo() i32 {
             return 42;
@@ -261,7 +258,6 @@ test "arguments to comptime parameters generated in comptime blocks" {
 }
 
 test "forced tail call" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
@@ -294,7 +290,6 @@ test "forced tail call" {
 }
 
 test "inline call preserves tail call" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
@@ -329,7 +324,6 @@ test "inline call preserves tail call" {
 }
 
 test "inline call doesn't re-evaluate non generic struct" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

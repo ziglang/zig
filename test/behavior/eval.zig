@@ -606,15 +606,16 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
 
 // This one is still up for debate in the language specification.
 // Application code should not rely on this behavior until it is solidified.
-// Currently, stage1 has special case code to make this pass for string literals
-// but it does not work if the values are constructed with comptime code, or if
+// Historically, stage1 had special case code to make this pass for string literals
+// but it did not work if the values are constructed with comptime code, or if
 // arrays of non-u8 elements are used instead.
 // The official language specification might not make this guarantee. However, if
 // it does make this guarantee, it will make it consistently for all types, not
-// only string literals. This is why stage2 currently has a string table for
-// string literals, to match stage1 and pass this test, however the end-game once
-// the lang spec issue is settled would be to use a global InternPool for comptime
-// memoized objects, making this behavior consistent across all types.
+// only string literals. This is why Zig currently has a string table for
+// string literals, to match legacy stage1 behavior and pass this test, however
+// the end-game once the lang spec issue is settled would be to use a global
+// InternPool for comptime memoized objects, making this behavior consistent
+// across all types.
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
@@ -742,7 +743,6 @@ fn scalar(x: u32) u32 {
 }
 
 test "array concatenation peer resolves element types - value" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -758,7 +758,6 @@ test "array concatenation peer resolves element types - value" {
 }
 
 test "array concatenation peer resolves element types - pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -774,7 +773,6 @@ test "array concatenation peer resolves element types - pointer" {
 }
 
 test "array concatenation sets the sentinel - value" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -794,7 +792,6 @@ test "array concatenation sets the sentinel - value" {
 }
 
 test "array concatenation sets the sentinel - pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var a = [2]u3{ 1, 7 };
@@ -811,7 +808,6 @@ test "array concatenation sets the sentinel - pointer" {
 }
 
 test "array multiplication sets the sentinel - value" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -829,7 +825,6 @@ test "array multiplication sets the sentinel - value" {
 }
 
 test "array multiplication sets the sentinel - pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -894,8 +889,6 @@ test "const type-annotated local initialized with function call has correct type
 }
 
 test "comptime pointer load through elem_ptr" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 fails this test
-
     const S = struct {
         x: usize,
     };
@@ -1038,7 +1031,6 @@ test "comptime break operand passing through runtime condition converted to runt
 }
 
 test "comptime break operand passing through runtime switch converted to runtime break" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -1294,8 +1286,6 @@ test "repeated value is correctly expanded" {
 }
 
 test "value in if block is comptime-known" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const first = blk: {
         const s = if (false) "a" else "b";
         break :blk "foo" ++ s;
@@ -1330,8 +1320,6 @@ test "lazy value is resolved as slice operand" {
 }
 
 test "break from inline loop depends on runtime condition" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const S = struct {
         fn foo(a: u8) bool {
             return a == 4;
@@ -1405,7 +1393,7 @@ test "length of global array is determinable at comptime" {
 
 test "continue nested inline for loop" {
     // TODO: https://github.com/ziglang/zig/issues/13175
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     var a: u8 = 0;
     loop: inline for ([_]u8{ 1, 2 }) |x| {
@@ -1422,7 +1410,7 @@ test "continue nested inline for loop" {
 
 test "continue nested inline for loop in named block expr" {
     // TODO: https://github.com/ziglang/zig/issues/13175
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     var a: u8 = 0;
     loop: inline for ([_]u8{ 1, 2 }) |x| {

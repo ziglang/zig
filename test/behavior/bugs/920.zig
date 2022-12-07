@@ -2,23 +2,14 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Random = std.rand.Random;
 
-const zeroCaseFn = switch (builtin.zig_backend) {
-    .stage1 => fn (*Random, f64) f64,
-    else => *const fn (*Random, f64) f64,
-};
-const pdfFn = switch (builtin.zig_backend) {
-    .stage1 => fn (f64) f64,
-    else => *const fn (f64) f64,
-};
-
 const ZigTable = struct {
     r: f64,
     x: [257]f64,
     f: [257]f64,
 
-    pdf: pdfFn,
+    pdf: *const fn (f64) f64,
     is_symmetric: bool,
-    zero_case: zeroCaseFn,
+    zero_case: *const fn (*Random, f64) f64,
 };
 
 fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn (f64) f64, comptime f_inv: fn (f64) f64, comptime zero_case: fn (*Random, f64) f64) ZigTable {

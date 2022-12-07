@@ -102,12 +102,6 @@ test "array len field" {
 }
 
 test "array with sentinels" {
-    if (builtin.zig_backend == .stage1) {
-        // Stage1 test coverage disabled at runtime because of
-        // https://github.com/ziglang/zig/issues/4372
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {

@@ -47,7 +47,6 @@ test "@mulAdd f80" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     comptime try testMulAdd80();
@@ -91,7 +90,6 @@ fn vector16() !void {
 }
 
 test "vector f16" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -115,7 +113,6 @@ fn vector32() !void {
 }
 
 test "vector f32" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -139,7 +136,6 @@ fn vector64() !void {
 }
 
 test "vector f64" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -162,7 +158,6 @@ fn vector80() !void {
 }
 
 test "vector f80" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -187,7 +182,6 @@ fn vector128() !void {
 }
 
 test "vector f128" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

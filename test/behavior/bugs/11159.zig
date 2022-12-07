@@ -8,8 +8,6 @@ test {
 }
 
 test {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         comptime x: i32 = 0,
         comptime y: u32 = 0,

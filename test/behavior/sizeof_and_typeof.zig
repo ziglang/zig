@@ -101,52 +101,6 @@ test "@offsetOf" {
     try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @offsetOf(A, "i"));
 }
 
-test "@offsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
-    // Stage2 has different packed struct semantics.
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
-    const p3a_len = 3;
-    const P3 = packed struct {
-        a: [p3a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P3, "a"));
-    try std.testing.expect(p3a_len == @offsetOf(P3, "b"));
-
-    const p5a_len = 5;
-    const P5 = packed struct {
-        a: [p5a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P5, "a"));
-    try std.testing.expect(p5a_len == @offsetOf(P5, "b"));
-
-    const p6a_len = 6;
-    const P6 = packed struct {
-        a: [p6a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P6, "a"));
-    try std.testing.expect(p6a_len == @offsetOf(P6, "b"));
-
-    const p7a_len = 7;
-    const P7 = packed struct {
-        a: [p7a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P7, "a"));
-    try std.testing.expect(p7a_len == @offsetOf(P7, "b"));
-
-    const p9a_len = 9;
-    const P9 = packed struct {
-        a: [p9a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P9, "a"));
-    try std.testing.expect(p9a_len == @offsetOf(P9, "b"));
-
-    // 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25 etc. are further cases
-}
-
 test "@bitOffsetOf" {
     // Packed structs have fixed memory layout
     try expect(@bitOffsetOf(P, "a") == 0);
@@ -211,8 +165,6 @@ test "branching logic inside @TypeOf" {
 }
 
 test "@bitSizeOf" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try expect(@bitSizeOf(u2) == 2);
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
@@ -224,11 +176,6 @@ test "@bitSizeOf" {
 }
 
 test "@sizeOf comparison against zero" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the wrong answer for size of pointers to zero bit types
-        return error.SkipZigTest;
-    }
-
     const S0 = struct {
         f: *@This(),
     };

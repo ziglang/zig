@@ -16,7 +16,6 @@ test "global variable alignment" {
 }
 
 test "slicing array of length 1 can not assume runtime index is always zero" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -61,10 +60,6 @@ test "alignment of struct with pointer has same alignment as usize" {
 }
 
 test "alignment and size of structs with 128-bit fields" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the wrong answer for a lot of targets
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -313,7 +308,6 @@ test "function alignment" {
 }
 
 test "implicitly decreasing fn alignment" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
@@ -337,7 +331,6 @@ fn alignedBig() align(16) i32 {
 
 test "@alignCast functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     // function alignment is a compile error on wasm32/wasm64
@@ -380,8 +373,6 @@ test "function align expression depends on generic parameter" {
 }
 
 test "function callconv expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             try expect(foobar(.C, 1) == 2);
@@ -435,8 +426,6 @@ fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
 }
 
 test "alignment of function with c calling convention" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     var runtime_nothing = &nothing;
     const casted1 = @ptrCast(*const u8, runtime_nothing);
     const casted2 = @ptrCast(*const fn () callconv(.C) void, casted1);
@@ -495,7 +484,7 @@ test "struct field explicit alignment" {
 }
 
 test "align(@alignOf(T)) T does not force resolution of T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (true) return error.SkipZigTest; // TODO
 
     const S = struct {
         const A = struct {
@@ -519,7 +508,6 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -557,8 +545,6 @@ test "@alignCast null" {
 }
 
 test "alignment of slice element" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const a: []align(1024) const u8 = undefined;
     try expect(@TypeOf(&a[0]) == *align(1024) const u8);
 }

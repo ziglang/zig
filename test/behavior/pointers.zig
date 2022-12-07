@@ -135,9 +135,6 @@ test "peer type resolution with C pointers" {
 }
 
 test "peer type resolution with C pointer and const pointer" {
-    // stage1 incorrectly resolves to [*]u8
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     var ptr_c: [*c]u8 = undefined;
     const ptr_const: u8 = undefined;
     try expect(@TypeOf(ptr_c, &ptr_const) == [*c]const u8);

@@ -182,7 +182,6 @@ test "slicing zero length array" {
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try expect(@ptrToInt(x) == 0x1000);
@@ -444,10 +443,7 @@ test "slice syntax resulting in pointer-to-array" {
             var array: [2]u8 = [2]u8{ 1, 2 };
             var slice: ?[]u8 = &array;
             comptime try expect(@TypeOf(&array, slice) == ?[]u8);
-            if (builtin.zig_backend != .stage1) {
-                // stage1 is not passing this case
-                comptime try expect(@TypeOf(slice, &array) == ?[]u8);
-            }
+            comptime try expect(@TypeOf(slice, &array) == ?[]u8);
             comptime try expect(@TypeOf(slice.?[0..2]) == *[2]u8);
         }
 
@@ -479,13 +475,7 @@ test "slice pointer-to-array null terminated" {
         var slice: [:0]u8 = &array;
         try expect(@TypeOf(slice[1..3]) == *[2]u8);
         try expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
-
-        if (builtin.zig_backend == .stage1) {
-            try expect(@TypeOf(slice[1..]) == [:0]u8);
-        } else {
-            // stage2 gives a more accurate, correct answer
-            try expect(@TypeOf(slice[1..]) == *[4:0]u8);
-        }
+        try expect(@TypeOf(slice[1..]) == *[4:0]u8);
     }
 
     var array = [5:0]u8{ 1, 2, 3, 4, 5 };
@@ -509,12 +499,7 @@ test "slice pointer-to-array zero length" {
             var array = [0:0]u8{};
             var src_slice: [:0]u8 = &array;
             var slice = src_slice[0..0];
-            if (builtin.zig_backend == .stage1) {
-                try expect(@TypeOf(slice) == *[0]u8);
-            } else {
-                // stage2 gives a more accurate, correct answer
-                try expect(@TypeOf(slice) == *[0:0]u8);
-            }
+            try expect(@TypeOf(slice) == *[0:0]u8);
         }
     }
 
@@ -573,16 +558,11 @@ test "array concat of slices gives ptr to array" {
         var b: []const u8 = "asdf";
         const c = a ++ b;
         try expect(std.mem.eql(u8, c, "aoeuasdf"));
-        if (builtin.zig_backend != .stage1) {
-            // spec change: array concat now returns pointer-to-array for slices
-            try expect(@TypeOf(c) == *const [8]u8);
-        }
+        try expect(@TypeOf(c) == *const [8]u8);
     }
 }
 
 test "array mult of slice gives ptr to array" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // Stage 1 does not support multiplying slices
-
     comptime {
         var a: []const u8 = "aoeu";
         const c = a ** 2;
@@ -626,8 +606,6 @@ test "slice sentinel access at comptime" {
 }
 
 test "slicing array with sentinel as end index" {
-    // Doesn't work in stage1
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -645,8 +623,6 @@ test "slicing array with sentinel as end index" {
 }
 
 test "slicing slice with sentinel as end index" {
-    // Doesn't work in stage1
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {

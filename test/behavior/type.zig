@@ -229,7 +229,7 @@ test "Type.Vector" {
 }
 
 test "Type.AnyFrame" {
-    if (builtin.zig_backend != .stage1) {
+    if (true) {
         // https://github.com/ziglang/zig/issues/6025
         return error.SkipZigTest;
     }
@@ -246,8 +246,6 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "Type.ErrorSet" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try testing.expect(@Type(.{ .ErrorSet = null }) == anyerror);
 
     // error sets don't compare equal so just check if they compile
@@ -369,12 +367,7 @@ test "Type.Enum" {
     try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
-            // stage2 only has auto layouts
-            .layout = if (builtin.zig_backend == .stage1)
-                .Extern
-            else
-                .Auto,
-
+            .layout = .Auto,
             .tag_type = u32,
             .fields = &.{
                 .{ .name = "a", .value = 1 },
@@ -501,8 +494,6 @@ test "Type.Union from regular enum" {
 }
 
 test "Type.Fn" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     if (true) {
         // https://github.com/ziglang/zig/issues/12360
         return error.SkipZigTest;
