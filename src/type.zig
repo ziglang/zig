@@ -1554,10 +1554,10 @@ pub const Type = extern union {
     ) @TypeOf(writer).Error!void {
         _ = options;
         comptime assert(unused_format_string.len == 0);
-        if (@import("builtin").zig_backend != .stage1) {
-            // This is disabled to work around a stage2 bug where this function recursively
-            // causes more generic function instantiations resulting in an infinite loop
-            // in the compiler.
+        if (true) {
+            // This is disabled to work around a bug where this function
+            // recursively causes more generic function instantiations
+            // resulting in an infinite loop in the compiler.
             try writer.writeAll("[TODO fix internal compiler bug regarding dump]");
             return;
         }
@@ -6551,9 +6551,7 @@ pub const Type = extern union {
                     else => {},
                 }
             } else {
-                // TODO stage1 type inference bug
                 const T = Type.Tag;
-
                 const type_payload = try arena.create(Type.Payload.ElemType);
                 type_payload.* = .{
                     .base = .{

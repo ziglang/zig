@@ -6,8 +6,8 @@ const Status = uefi.Status;
 
 /// Protocol for touchscreens
 pub const AbsolutePointerProtocol = extern struct {
-    _reset: std.meta.FnPtr(fn (*const AbsolutePointerProtocol, bool) callconv(.C) Status),
-    _get_state: std.meta.FnPtr(fn (*const AbsolutePointerProtocol, *AbsolutePointerState) callconv(.C) Status),
+    _reset: *const fn (*const AbsolutePointerProtocol, bool) callconv(.C) Status,
+    _get_state: *const fn (*const AbsolutePointerProtocol, *AbsolutePointerState) callconv(.C) Status,
     wait_for_input: Event,
     mode: *AbsolutePointerMode,
 

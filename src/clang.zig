@@ -161,12 +161,11 @@ pub const ASTUnit = opaque {
     extern fn ZigClangASTUnit_getSourceManager(*ASTUnit) *SourceManager;
 
     pub const visitLocalTopLevelDecls = ZigClangASTUnit_visitLocalTopLevelDecls;
-    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(*ASTUnit, context: ?*anyopaque, Fn: ?VisitorFn) bool;
-
-    const VisitorFn = if (@import("builtin").zig_backend == .stage1)
-        fn (?*anyopaque, *const Decl) callconv(.C) bool
-    else
-        *const fn (?*anyopaque, *const Decl) callconv(.C) bool;
+    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(
+        *ASTUnit,
+        context: ?*anyopaque,
+        Fn: ?*const fn (?*anyopaque, *const Decl) callconv(.C) bool,
+    ) bool;
 
     pub const getLocalPreprocessingEntities_begin = ZigClangASTUnit_getLocalPreprocessingEntities_begin;
     extern fn ZigClangASTUnit_getLocalPreprocessingEntities_begin(*ASTUnit) PreprocessingRecord.iterator;

@@ -5427,11 +5427,6 @@ pub fn build_crt_file(
     });
     errdefer comp.gpa.free(basename);
 
-    // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -5443,7 +5438,10 @@ pub fn build_crt_file(
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
+        .emit_bin = .{
+            .directory = null, // Put it in the cache directory.
+            .basename = basename,
+        },
         .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
@@ -5488,15 +5486,16 @@ pub fn build_crt_file(
     });
 }
 
-pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
+pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // Avoid deadlocking on building import libs such as kernel32.lib
-    // This can happen when the user uses `build-exe foo.obj -lkernel32` and then
-    // when we create a sub-Compilation for zig libc, it also tries to build kernel32.lib.
+    // This can happen when the user uses `build-exe foo.obj -lkernel32` and
+    // then when we create a sub-Compilation for zig libc, it also tries to
+    // build kernel32.lib.
     if (comp.bin_file.options.skip_linker_dependencies) return;
 
-    // This happens when an `extern "foo"` function is referenced by the stage1 backend.
-    // If we haven't seen this library yet and we're targeting Windows, we need to queue up
-    // a work item to produce the DLL import library for this.
+    // This happens when an `extern "foo"` function is referenced.
+    // If we haven't seen this library yet and we're targeting Windows, we need
+    // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
     if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
         try comp.work_queue.writeItem(.{

@@ -523,13 +523,13 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 /// If ABI alignment of `ty` is OK for atomic operations, returns 0.
 /// Otherwise returns the alignment required on a pointer for the target
 /// to perform atomic operations.
+// TODO this function does not take into account CPU features, which can affect
+// this value. Audit this!
 pub fn atomicPtrAlignment(
     target: std.Target,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!u32 {
-    // TODO this was ported from stage1 but it does not take into account CPU features,
-    // which can affect this value. Audit this!
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,

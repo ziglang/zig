@@ -7,7 +7,7 @@ const hii = uefi.protocols.hii;
 /// Display a popup window
 pub const HIIPopupProtocol = extern struct {
     revision: u64,
-    _create_popup: std.meta.FnPtr(fn (*const HIIPopupProtocol, HIIPopupStyle, HIIPopupType, hii.HIIHandle, u16, ?*HIIPopupSelection) callconv(.C) Status),
+    _create_popup: *const fn (*const HIIPopupProtocol, HIIPopupStyle, HIIPopupType, hii.HIIHandle, u16, ?*HIIPopupSelection) callconv(.C) Status,
 
     /// Displays a popup window.
     pub fn createPopup(self: *const HIIPopupProtocol, style: HIIPopupStyle, popup_type: HIIPopupType, handle: hii.HIIHandle, msg: u16, user_selection: ?*HIIPopupSelection) Status {

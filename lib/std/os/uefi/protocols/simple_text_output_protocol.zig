@@ -5,15 +5,15 @@ const Status = uefi.Status;
 
 /// Character output devices
 pub const SimpleTextOutputProtocol = extern struct {
-    _reset: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status),
-    _output_string: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status),
-    _test_string: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status),
-    _query_mode: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(.C) Status),
-    _set_mode: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status),
-    _set_attribute: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status),
-    _clear_screen: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol) callconv(.C) Status),
-    _set_cursor_position: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize, usize) callconv(.C) Status),
-    _enable_cursor: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status),
+    _reset: *const fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
+    _output_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
+    _test_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
+    _query_mode: *const fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(.C) Status,
+    _set_mode: *const fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
+    _set_attribute: *const fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
+    _clear_screen: *const fn (*const SimpleTextOutputProtocol) callconv(.C) Status,
+    _set_cursor_position: *const fn (*const SimpleTextOutputProtocol, usize, usize) callconv(.C) Status,
+    _enable_cursor: *const fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
     mode: *SimpleTextOutputMode,
 
     /// Resets the text output device hardware.

@@ -2009,8 +2009,6 @@ fn fullStructInit(tree: Ast, info: full.StructInit.Components) full.StructInit {
 
 fn fullPtrType(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
-    // TODO: looks like stage1 isn't quite smart enough to handle enum
-    // literals in some places here
     const Size = std.builtin.Type.Pointer.Size;
     const size: Size = switch (token_tags[info.main_token]) {
         .asterisk,

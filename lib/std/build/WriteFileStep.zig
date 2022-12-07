@@ -62,9 +62,9 @@ fn make(step: *Step) !void {
     // If, for example, a hard-coded path was used as the location to put WriteFileStep
     // files, then two WriteFileSteps executing in parallel might clobber each other.
 
-    // TODO port the cache system from stage1 to zig std lib. Until then we use blake2b
-    // directly and construct the path, and no "cache hit" detection happens; the files
-    // are always written.
+    // TODO port the cache system from the compiler to zig std lib. Until then
+    // we use blake2b directly and construct the path, and no "cache hit"
+    // detection happens; the files are always written.
     var hash = std.crypto.hash.blake2.Blake2b384.init(.{});
 
     // Random bytes to make WriteFileStep unique. Refresh this with

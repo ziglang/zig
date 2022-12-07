@@ -6,7 +6,7 @@ const Status = uefi.Status;
 
 pub const SimpleFileSystemProtocol = extern struct {
     revision: u64,
-    _open_volume: std.meta.FnPtr(fn (*const SimpleFileSystemProtocol, **const FileProtocol) callconv(.C) Status),
+    _open_volume: *const fn (*const SimpleFileSystemProtocol, **const FileProtocol) callconv(.C) Status,
 
     pub fn openVolume(self: *const SimpleFileSystemProtocol, root: **const FileProtocol) Status {
         return self._open_volume(self, root);

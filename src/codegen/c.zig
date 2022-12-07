@@ -4972,8 +4972,7 @@ fn airStructFieldPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     if (f.liveness.isUnused(inst)) {
         try reap(f, inst, &.{extra.struct_operand});
-        // TODO this @as is needed because of a stage1 bug
-        return @as(CValue, CValue.none);
+        return .none;
     }
 
     const struct_ptr = try f.resolveInst(extra.struct_operand);
@@ -4987,8 +4986,7 @@ fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue
 
     if (f.liveness.isUnused(inst)) {
         try reap(f, inst, &.{ty_op.operand});
-        // TODO this @as is needed because of a stage1 bug
-        return @as(CValue, CValue.none);
+        return .none;
     }
 
     const struct_ptr = try f.resolveInst(ty_op.operand);

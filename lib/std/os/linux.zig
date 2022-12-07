@@ -936,16 +936,10 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, operation)));
 }
 
-var vdso_clock_gettime = if (builtin.zig_backend == .stage1)
-    @ptrCast(?*const anyopaque, init_vdso_clock_gettime)
-else
-    @ptrCast(?*const anyopaque, &init_vdso_clock_gettime);
+var vdso_clock_gettime = @ptrCast(?*const anyopaque, &init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = if (builtin.zig_backend == .stage1)
-    fn (i32, *timespec) callconv(.C) usize
-else
-    *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
@@ -1151,8 +1145,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restore_rt_ptr = if (builtin.zig_backend == .stage1) restore_rt else &restore_rt;
-        const restore_ptr = if (builtin.zig_backend == .stage1) restore else &restore;
+        const restore_rt_ptr = &restore_rt;
+        const restore_ptr = &restore;
         const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
         ksa = k_sigaction{
             .handler = new.handler.handler,
@@ -3145,8 +3139,8 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    const restorer = std.meta.FnPtr(fn () callconv(.C) void);
+    const handler = ?*const fn (c_int) align(1) callconv(.C) void;
+    const restorer = *const fn () callconv(.C) void;
 };
 
 pub const k_sigaction = switch (native_arch) {
@@ -3172,8 +3166,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -3181,7 +3175,7 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?std.meta.FnPtr(fn () callconv(.C) void) = null,
+    restorer: ?*const fn () callconv(.C) void = null,
 };
 
 pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
@@ -3314,25 +3308,12 @@ pub const epoll_data = extern union {
     u64: u64,
 };
 
-pub const epoll_event = switch (builtin.zig_backend) {
-    // stage1 crashes with the align(4) field so we have this workaround
-    .stage1 => switch (native_arch) {
-        .x86_64 => packed struct {
-            events: u32,
-            data: epoll_data,
-        },
-        else => extern struct {
-            events: u32,
-            data: epoll_data,
-        },
-    },
-    else => extern struct {
-        events: u32,
-        data: epoll_data align(switch (native_arch) {
-            .x86_64 => 4,
-            else => @alignOf(epoll_data),
-        }),
-    },
+pub const epoll_event = extern struct {
+    events: u32,
+    data: epoll_data align(switch (native_arch) {
+        .x86_64 => 4,
+        else => @alignOf(epoll_data),
+    }),
 };
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;

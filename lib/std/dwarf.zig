@@ -638,7 +638,7 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.line_strp => FormValue{ .LineStrPtr = try readAddress(in_stream, endian, is_64) },
         FORM.indirect => {
             const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
-            if (builtin.zig_backend != .stage1) {
+            if (true) {
                 return parseFormValue(allocator, in_stream, child_form_id, endian, is_64);
             }
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));

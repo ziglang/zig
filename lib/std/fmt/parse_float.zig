@@ -70,9 +70,7 @@ test "fmt.parseFloat" {
 }
 
 test "fmt.parseFloat nan and inf" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12027
         return error.SkipZigTest;
     }

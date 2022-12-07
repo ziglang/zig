@@ -361,11 +361,7 @@ pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Senti
     const ReturnType = Sentinel(T, sentinel_val);
     switch (@typeInfo(T)) {
         .Pointer => |info| switch (info.size) {
-            .Slice => if (@import("builtin").zig_backend == .stage1)
-                return @bitCast(ReturnType, p)
-            else
-                return @ptrCast(ReturnType, p),
-            .Many, .One => return @ptrCast(ReturnType, p),
+            .Slice, .Many, .One => return @ptrCast(ReturnType, p),
             .C => {},
         },
         .Optional => |info| switch (@typeInfo(info.child)) {
@@ -658,8 +654,6 @@ pub fn FieldEnum(comptime T: type) type {
     const field_infos = fields(T);
 
     if (field_infos.len == 0) {
-        // TODO simplify when stage1 is removed
-        if (@import("builtin").zig_backend == .stage1) @compileError("stage1 doesn't allow empty enums");
         return @Type(.{
             .Enum = .{
                 .layout = .Auto,
@@ -742,9 +736,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
 }
 
 test "std.meta.FieldEnum" {
-    if (comptime @import("builtin").zig_backend != .stage1) {
-        try expectEqualEnum(enum {}, FieldEnum(struct {}));
-    }
+    try expectEqualEnum(enum {}, FieldEnum(struct {}));
     try expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
@@ -1238,28 +1230,4 @@ pub fn isError(error_union: anytype) bool {
 test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
-}
-
-/// This function returns a function pointer for a given function signature.
-/// It's a helper to make code compatible to both stage1 and stage2.
-///
-/// **WARNING:** This function is deprecated and will be removed together with stage1.
-pub fn FnPtr(comptime Fn: type) type {
-    return if (@import("builtin").zig_backend != .stage1)
-        *const Fn
-    else
-        Fn;
-}
-
-test "FnPtr" {
-    var func: FnPtr(fn () i64) = undefined;
-
-    // verify that we can perform runtime exchange
-    // and not have a function body in stage2:
-
-    func = std.time.timestamp;
-    _ = func();
-
-    func = std.time.milliTimestamp;
-    _ = func();
 }

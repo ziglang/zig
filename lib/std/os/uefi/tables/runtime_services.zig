@@ -19,50 +19,50 @@ pub const RuntimeServices = extern struct {
     hdr: TableHeader,
 
     /// Returns the current time and date information, and the time-keeping capabilities of the hardware platform.
-    getTime: std.meta.FnPtr(fn (time: *uefi.Time, capabilities: ?*TimeCapabilities) callconv(.C) Status),
+    getTime: *const fn (time: *uefi.Time, capabilities: ?*TimeCapabilities) callconv(.C) Status,
 
     /// Sets the current local time and date information
-    setTime: std.meta.FnPtr(fn (time: *uefi.Time) callconv(.C) Status),
+    setTime: *const fn (time: *uefi.Time) callconv(.C) Status,
 
     /// Returns the current wakeup alarm clock setting
-    getWakeupTime: std.meta.FnPtr(fn (enabled: *bool, pending: *bool, time: *uefi.Time) callconv(.C) Status),
+    getWakeupTime: *const fn (enabled: *bool, pending: *bool, time: *uefi.Time) callconv(.C) Status,
 
     /// Sets the system wakeup alarm clock time
-    setWakeupTime: std.meta.FnPtr(fn (enable: *bool, time: ?*uefi.Time) callconv(.C) Status),
+    setWakeupTime: *const fn (enable: *bool, time: ?*uefi.Time) callconv(.C) Status,
 
     /// Changes the runtime addressing mode of EFI firmware from physical to virtual.
-    setVirtualAddressMap: std.meta.FnPtr(fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: [*]MemoryDescriptor) callconv(.C) Status),
+    setVirtualAddressMap: *const fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: [*]MemoryDescriptor) callconv(.C) Status,
 
     /// Determines the new virtual address that is to be used on subsequent memory accesses.
-    convertPointer: std.meta.FnPtr(fn (debug_disposition: usize, address: **anyopaque) callconv(.C) Status),
+    convertPointer: *const fn (debug_disposition: usize, address: **anyopaque) callconv(.C) Status,
 
     /// Returns the value of a variable.
-    getVariable: std.meta.FnPtr(fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*u32, data_size: *usize, data: ?*anyopaque) callconv(.C) Status),
+    getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*u32, data_size: *usize, data: ?*anyopaque) callconv(.C) Status,
 
     /// Enumerates the current variable names.
-    getNextVariableName: std.meta.FnPtr(fn (var_name_size: *usize, var_name: [*:0]u16, vendor_guid: *align(8) Guid) callconv(.C) Status),
+    getNextVariableName: *const fn (var_name_size: *usize, var_name: [*:0]u16, vendor_guid: *align(8) Guid) callconv(.C) Status,
 
     /// Sets the value of a variable.
-    setVariable: std.meta.FnPtr(fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: u32, data_size: usize, data: *anyopaque) callconv(.C) Status),
+    setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: u32, data_size: usize, data: *anyopaque) callconv(.C) Status,
 
     /// Return the next high 32 bits of the platform's monotonic counter
-    getNextHighMonotonicCount: std.meta.FnPtr(fn (high_count: *u32) callconv(.C) Status),
+    getNextHighMonotonicCount: *const fn (high_count: *u32) callconv(.C) Status,
 
     /// Resets the entire platform.
-    resetSystem: std.meta.FnPtr(fn (reset_type: ResetType, reset_status: Status, data_size: usize, reset_data: ?*const anyopaque) callconv(.C) noreturn),
+    resetSystem: *const fn (reset_type: ResetType, reset_status: Status, data_size: usize, reset_data: ?*const anyopaque) callconv(.C) noreturn,
 
     /// Passes capsules to the firmware with both virtual and physical mapping.
     /// Depending on the intended consumption, the firmware may process the capsule immediately.
     /// If the payload should persist across a system reset, the reset value returned from
     /// `queryCapsuleCapabilities` must be passed into resetSystem and will cause the capsule
     /// to be processed by the firmware as part of the reset process.
-    updateCapsule: std.meta.FnPtr(fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, scatter_gather_list: EfiPhysicalAddress) callconv(.C) Status),
+    updateCapsule: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, scatter_gather_list: EfiPhysicalAddress) callconv(.C) Status,
 
     /// Returns if the capsule can be supported via `updateCapsule`
-    queryCapsuleCapabilities: std.meta.FnPtr(fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: ResetType) callconv(.C) Status),
+    queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: ResetType) callconv(.C) Status,
 
     /// Returns information about the EFI variables
-    queryVariableInfo: std.meta.FnPtr(fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(.C) Status),
+    queryVariableInfo: *const fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(.C) Status,
 
     pub const signature: u64 = 0x56524553544e5552;
 };

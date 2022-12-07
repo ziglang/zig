@@ -3293,8 +3293,7 @@ pub const LibExeObjStep = struct {
             while (try it.next()) |entry| {
                 // The compiler can put these files into the same directory, but we don't
                 // want to copy them over.
-                if (mem.eql(u8, entry.name, "stage1.id") or
-                    mem.eql(u8, entry.name, "llvm-ar.id") or
+                if (mem.eql(u8, entry.name, "llvm-ar.id") or
                     mem.eql(u8, entry.name, "libs.txt") or
                     mem.eql(u8, entry.name, "builtin.zig") or
                     mem.eql(u8, entry.name, "zld.id") or
@@ -3607,7 +3606,7 @@ pub const Step = struct {
     loop_flag: bool,
     done_flag: bool,
 
-    const MakeFn = std.meta.FnPtr(fn (self: *Step) anyerror!void);
+    const MakeFn = *const fn (self: *Step) anyerror!void;
 
     pub const Id = enum {
         top_level,

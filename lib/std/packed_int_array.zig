@@ -338,12 +338,12 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
     };
 }
 
-const we_are_testing_this_with_stage1_which_leaks_comptime_memory = true;
-
 test "PackedIntArray" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
+    // TODO: enable this test
+    if (true) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -405,7 +405,9 @@ test "PackedIntArray initAllTo" {
 test "PackedIntSlice" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
+    // TODO enable this test
+    if (true) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -444,7 +446,9 @@ test "PackedIntSlice" {
 }
 
 test "PackedIntSlice of PackedInt(Array/Slice)" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+    // TODO enable this test
+    if (true) return error.SkipZigTest;
+
     const max_bits = 16;
     const int_count = 19;
 
