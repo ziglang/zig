@@ -6242,10 +6242,6 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
-    // Note: there is an open issue preventing this from working on aarch64:
-    // https://github.com/ziglang/zig/issues/3282
-    if (builtin.target.cpu.arch == .aarch64) return error.SkipZigTest;
-
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;

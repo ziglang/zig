@@ -60,10 +60,6 @@ test "float widening f16 to f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    // TODO https://github.com/ziglang/zig/issues/3282
-    if (builtin.cpu.arch == .aarch64) return error.SkipZigTest;
-    if (builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
-
     var x: f16 = 12.34;
     var y: f128 = x;
     try expect(x == y);
