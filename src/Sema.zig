@@ -21011,6 +21011,9 @@ fn analyzeMinMax(
 
         if (rhs_val.isUndef()) return sema.addConstUndef(simd_op.result_ty);
 
+        try sema.resolveLazyValue(lhs_val);
+        try sema.resolveLazyValue(rhs_val);
+
         const opFunc = switch (air_tag) {
             .min => Value.numberMin,
             .max => Value.numberMax,
