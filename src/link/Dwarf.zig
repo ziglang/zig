@@ -44,9 +44,11 @@ abbrev_table_offset: ?u64 = null,
 /// Table of debug symbol names.
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
-di_files: std.ArrayListUnmanaged(DIFile) = .{},
-di_files_free_list: std.ArrayListUnmanaged(u28) = .{},
-di_files_lookup: std.AutoHashMapUnmanaged(*const Module.File, u28) = .{},
+/// Quick lookup array of all defined source files referenced by at least one Decl.
+/// They will end up in the DWARF debug_line header as two lists:
+/// * []include_directory
+/// * []file_names
+di_files: std.AutoArrayHashMapUnmanaged(*const Module.File, void) = .{},
 
 /// List of atoms that are owned directly by the DWARF module.
 /// TODO convert links in DebugInfoAtom into indices and make
@@ -54,17 +56,6 @@ di_files_lookup: std.AutoHashMapUnmanaged(*const Module.File, u28) = .{},
 managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 
 global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
-
-const DIFile = struct {
-    file_source: *const Module.File,
-    ref_count: u32,
-
-    fn getFullyResolvedPath(dif: DIFile, allocator: Allocator) ![]const u8 {
-        const path = try dif.file_source.fullPath(allocator);
-        defer allocator.free(path);
-        return fs.realpathAlloc(allocator, path);
-    }
-};
 
 pub const Atom = struct {
     /// Previous/next linked list pointers.
@@ -922,8 +913,6 @@ pub fn deinit(self: *Dwarf) void {
     self.atom_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.di_files.deinit(gpa);
-    self.di_files_free_list.deinit(gpa);
-    self.di_files_lookup.deinit(gpa);
     self.global_abbrev_relocs.deinit(gpa);
 
     for (self.managed_atoms.items) |atom| {
@@ -1154,7 +1143,7 @@ pub fn commitDeclState(
                 self.dbg_line_fn_last = src_fn;
 
                 // TODO TEXME JK
-                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(module) * 100);
+                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(&[0][]u8{}, &[0][]u8{}) * 100);
             }
 
             const last_src_fn = self.dbg_line_fn_last.?;
@@ -1649,16 +1638,6 @@ pub fn freeDecl(self: *Dwarf, decl: *Module.Decl) void {
     if (self.dbg_line_fn_last == fn_link) {
         self.dbg_line_fn_last = fn_link.prev;
     }
-
-    const file_source = decl.getFileScope();
-    if (self.di_files_lookup.get(file_source)) |dif_index| {
-        const dif = &self.di_files.items[dif_index];
-        dif.ref_count -= 1;
-        if (dif.ref_count == 0) {
-            self.di_files_free_list.append(gpa, dif_index) catch {};
-        }
-        _ = self.di_files_lookup.remove(file_source);
-    }
 }
 
 pub fn writeDbgAbbrev(self: *Dwarf) !void {
@@ -1902,7 +1881,8 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     }
     // Write the form for the compile unit, which must match the abbrev table above.
     const name_strp = try self.makeString(module.root_pkg.root_src_path);
-    const comp_dir_strp = try self.makeString(module.root_pkg.root_src_directory.path orelse ".");
+    const compile_unit_dir = self.getCompDir(module);
+    const comp_dir_strp = try self.makeString(compile_unit_dir);
     const producer_strp = try self.makeString(link.producer_string);
 
     di_buf.appendAssumeCapacity(@enumToInt(AbbrevKind.compile_unit));
@@ -1952,6 +1932,21 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
         },
         else => unreachable,
     }
+}
+
+fn getCompDir(self: Dwarf, module: *Module) []const u8 {
+    // For macOS stack traces, we want to avoid having to parse the compilation unit debug
+    // info. As long as each debug info file has a path independent of the compilation unit
+    // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
+    // info. If we provide an absolute path to LLVM here for the compilation unit debug
+    // info, LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we
+    // pass "." for the compilation unit directory. This forces each debug file to have a
+    // directory rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug
+    // files will no longer reference DW_AT_comp_dir, for the purpose of being able to
+    // support the common practice of stripping all but the line number sections from an
+    // executable.
+    if (self.bin_file.tag == .macho) return ".";
+    return module.root_pkg.root_src_directory.path orelse ".";
 }
 
 fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
@@ -2299,10 +2294,15 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     const dbg_line_prg_end = self.getDebugLineProgramEnd().?;
     assert(dbg_line_prg_end != 0);
 
+    // Convert all input DI files into a set of include dirs and file names.
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+    const paths = try self.genIncludeDirsAndFileNames(arena.allocator(), module);
+
     // The size of this header is variable, depending on the number of directories,
     // files, and padding. We have a function to compute the upper bound size, however,
     // because it's needed for determining where to put the offset of the first `SrcFn`.
-    const needed_bytes = self.dbgLineNeededHeaderBytes(module);
+    const needed_bytes = self.dbgLineNeededHeaderBytes(paths.dirs, paths.files);
     log.debug("dbg_line_prg_off = {x}, needed_bytes = {x}", .{ dbg_line_prg_off, needed_bytes });
     var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
     defer di_buf.deinit();
@@ -2356,17 +2356,22 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         0, // `DW.LNS.set_prologue_end`
         0, // `DW.LNS.set_epilogue_begin`
         1, // `DW.LNS.set_isa`
-        0, // include_directories (none except the compilation unit cwd)
     });
 
-    for (self.di_files.items) |dif, i| {
-        const full_path = try dif.getFullyResolvedPath(self.allocator);
-        defer self.allocator.free(full_path);
-        log.debug("adding new file name at {d} of '{s}'", .{ i + 1, full_path });
-        di_buf.appendSliceAssumeCapacity(full_path);
+    for (paths.dirs) |dir, i| {
+        log.debug("adding new include dir at {d} of '{s}'", .{ i + 1, dir });
+        di_buf.appendSliceAssumeCapacity(dir);
+        di_buf.appendAssumeCapacity(0);
+    }
+    di_buf.appendAssumeCapacity(0); // include directories sentinel
+
+    for (paths.files) |file, i| {
+        const dir_index = paths.files_dirs_indexes[i];
+        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{ i + 1, file, dir_index + 1 });
+        di_buf.appendSliceAssumeCapacity(file);
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
-            0, // directory_index
+            @intCast(u8, dir_index + 1), // directory_index
             0, // mtime (TODO supply this)
             0, // file size bytes (TODO supply this)
         });
@@ -2442,25 +2447,28 @@ fn ptrWidthBytes(self: Dwarf) u8 {
     };
 }
 
-fn dbgLineNeededHeaderBytes(self: Dwarf, module: *Module) u32 {
+fn dbgLineNeededHeaderBytes(self: Dwarf, dirs: []const []const u8, files: []const []const u8) u32 {
+    _ = self;
     const directory_entry_format_count = 1;
     const file_name_entry_format_count = 1;
-    const directory_count = 1;
-    const file_name_count = self.di_files.items.len;
-    const root_src_dir_path_len = if (module.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
+    const directory_count = dirs.len + 1;
+    const file_name_count = files.len;
+
+    var dir_names_len: usize = 0;
+    for (dirs) |dir| {
+        dir_names_len += dir.len + 1;
+    }
 
     var file_names_len: usize = 0;
-    for (self.di_files.items) |dif| {
-        const dir_path = dif.file_source.pkg.root_src_directory.path orelse ".";
-        file_names_len += dir_path.len + dif.file_source.sub_file_path.len + 1;
+    for (files) |file| {
+        file_names_len += file.len + 1;
     }
 
     return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
         directory_count * 8 + file_name_count * 8 +
         // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
         // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        root_src_dir_path_len +
-        file_names_len);
+        dir_names_len + file_names_len);
 }
 
 /// The reloc offset for the line offset of a function from the previous function's line.
@@ -2571,46 +2579,60 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
     }
 }
 
-fn allocateDIFileIndex(self: *Dwarf) !u28 {
-    try self.di_files.ensureUnusedCapacity(self.allocator, 1);
-
-    const index = blk: {
-        if (self.di_files_free_list.popOrNull()) |index| {
-            log.debug("  (reusing DIFile index {d})", .{index});
-            break :blk index;
-        } else {
-            const index = @intCast(u28, self.di_files.items.len);
-            log.debug("  (allocating DIFile index {d})", .{index});
-            _ = self.di_files.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-
-    return index;
-}
-
 fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     const decl = mod.declPtr(decl_index);
     const file_scope = decl.getFileScope();
-    const gop = try self.di_files_lookup.getOrPut(self.allocator, file_scope);
+    const gop = try self.di_files.getOrPut(self.allocator, file_scope);
     if (!gop.found_existing) {
-        gop.value_ptr.* = try self.allocateDIFileIndex();
-        self.di_files.items[gop.value_ptr.*] = .{
-            .file_source = file_scope,
-            .ref_count = 1,
-        };
-
         switch (self.bin_file.tag) {
             .elf => self.bin_file.cast(File.Elf).?.debug_line_header_dirty = true,
             .macho => self.bin_file.cast(File.MachO).?.d_sym.?.debug_line_header_dirty = true,
             .wasm => {},
             else => unreachable,
         }
-    } else {
-        const dif = &self.di_files.items[gop.value_ptr.*];
-        dif.ref_count += 1;
     }
-    return gop.value_ptr.*;
+    return @intCast(u28, gop.index);
+}
+
+fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator, module: *Module) !struct {
+    dirs: []const []const u8,
+    files: []const []const u8,
+    files_dirs_indexes: []u28,
+} {
+    var dirs = std.StringArrayHashMap(void).init(arena);
+    try dirs.ensureTotalCapacity(self.di_files.count());
+
+    var files = std.ArrayList([]const u8).init(arena);
+    try files.ensureTotalCapacityPrecise(self.di_files.count());
+
+    var files_dir_indexes = std.ArrayList(u28).init(arena);
+    try files_dir_indexes.ensureTotalCapacity(self.di_files.count());
+
+    const comp_dir = self.getCompDir(module);
+
+    for (self.di_files.keys()) |dif| {
+        const full_path = try dif.fullPath(arena);
+        const dir_path = std.fs.path.dirname(full_path) orelse ".";
+        const sub_file_path = std.fs.path.basename(full_path);
+
+        const dir_index: u28 = blk: {
+            const actual_dir_path = if (mem.indexOf(u8, dir_path, comp_dir)) |_| inner: {
+                if (comp_dir.len == dir_path.len) break :blk 0;
+                break :inner dir_path[comp_dir.len + 1 ..];
+            } else dir_path;
+            const dirs_gop = dirs.getOrPutAssumeCapacity(actual_dir_path);
+            break :blk @intCast(u28, dirs_gop.index);
+        };
+
+        files_dir_indexes.appendAssumeCapacity(dir_index);
+        files.appendAssumeCapacity(sub_file_path);
+    }
+
+    return .{
+        .dirs = dirs.keys(),
+        .files = files.items,
+        .files_dirs_indexes = files_dir_indexes.items,
+    };
 }
 
 fn addDbgInfoErrorSet(
