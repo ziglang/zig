@@ -2373,10 +2373,7 @@ pub fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype, options: Str
 }
 
 test {
-    if (builtin.zig_backend != .stage1) {
-        // https://github.com/ziglang/zig/issues/8442
-        _ = @import("json/test.zig");
-    }
+    _ = @import("json/test.zig");
     _ = @import("json/write_stream.zig");
 }
 

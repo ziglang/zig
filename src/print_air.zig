@@ -848,7 +848,7 @@ const Writer = struct {
                 if ((bits >> 31) != 0) break :blk false;
                 extra_index += 1;
                 tomb_op_index += 31;
-            } else unreachable;
+            }
         };
         return w.writeInstRef(s, operand, dies);
     }

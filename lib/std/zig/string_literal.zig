@@ -266,7 +266,7 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                 index += 1;
             },
         }
-    } else unreachable; // TODO should not need else unreachable on while(true)
+    }
 }
 
 /// Higher level API. Does not return extra info about parse errors.

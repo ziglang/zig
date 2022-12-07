@@ -254,7 +254,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
 
         // Inner writer wrapped in a HuffmanBitWriter
         hm_bw: hm_bw.HuffmanBitWriter(WriterType) = undefined,
-        bulk_hasher: std.meta.FnPtr(fn ([]u8, []u32) u32),
+        bulk_hasher: *const fn ([]u8, []u32) u32,
 
         sync: bool, // requesting flush
         best_speed_enc: *fast.DeflateFast, // Encoder for best_speed

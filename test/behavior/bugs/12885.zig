@@ -11,8 +11,6 @@ const Foo = @Type(.{
     .ErrorSet = &info.args,
 });
 test "ErrorSet comptime_field_ptr" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     try expect(Foo == error{bar});
 }
 

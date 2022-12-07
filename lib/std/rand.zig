@@ -30,7 +30,7 @@ pub const RomuTrio = @import("rand/RomuTrio.zig");
 
 pub const Random = struct {
     ptr: *anyopaque,
-    fillFn: std.meta.FnPtr(fn (ptr: *anyopaque, buf: []u8) void),
+    fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 
     pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
         const Ptr = @TypeOf(pointer);

@@ -71,7 +71,7 @@ import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 
-/// This is a temporary addition to stage2 in order to match stage1 behavior,
+/// This is a temporary addition to stage2 in order to match legacy behavior,
 /// however the end-game once the lang spec is settled will be to use a global
 /// InternPool for comptime memoized objects, making this behavior consistent across all types,
 /// not only string literals. Or, we might decide to not guarantee string literals
@@ -3544,17 +3544,15 @@ fn freeExportList(gpa: Allocator, export_list: *ArrayListUnmanaged(*Export)) voi
     export_list.deinit(gpa);
 }
 
+// TODO https://github.com/ziglang/zig/issues/8643
 const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
-// TODO This is taking advantage of matching stage1 debug union layout.
-// We need a better language feature for initializing a union with
-// a runtime-known tag.
-const Stage1DataLayout = extern struct {
+const HackDataLayout = extern struct {
     data: [8]u8 align(@alignOf(Zir.Inst.Data)),
     safety_tag: u8,
 };
 comptime {
     if (data_has_safety_tag) {
-        assert(@sizeOf(Stage1DataLayout) == @sizeOf(Zir.Inst.Data));
+        assert(@sizeOf(HackDataLayout) == @sizeOf(Zir.Inst.Data));
     }
 }
 
@@ -3695,7 +3693,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 const tags = zir.instructions.items(.tag);
                 for (zir.instructions.items(.data)) |*data, i| {
                     const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
-                    const as_struct = @ptrCast(*Stage1DataLayout, data);
+                    const as_struct = @ptrCast(*HackDataLayout, data);
                     as_struct.* = .{
                         .safety_tag = @enumToInt(union_tag),
                         .data = safety_buffer[i],
@@ -3881,7 +3879,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
         for (file.zir.instructions.items(.data)) |*data, i| {
-            const as_struct = @ptrCast(*const Stage1DataLayout, data);
+            const as_struct = @ptrCast(*const HackDataLayout, data);
             safety_buffer[i] = as_struct.data;
         }
     }

@@ -5,8 +5,6 @@ const minInt = std.math.minInt;
 
 test "@bitReverse large exotic integer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    // Currently failing on stage1 for big-endian targets
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try expect(@bitReverse(@as(u95, 0x123456789abcdef111213141)) == 0x4146424447bd9eac8f351624);
 }
@@ -96,7 +94,6 @@ fn vector8() !void {
 }
 
 test "bitReverse vectors u8" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -115,7 +112,6 @@ fn vector16() !void {
 }
 
 test "bitReverse vectors u16" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -134,7 +130,6 @@ fn vector24() !void {
 }
 
 test "bitReverse vectors u24" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -153,7 +148,6 @@ fn vector0() !void {
 }
 
 test "bitReverse vectors u0" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 

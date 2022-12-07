@@ -364,3 +364,10 @@ test "try terminating an infinite loop" {
         _ = try Foo.bar();
     } else unreachable);
 }
+
+test "while loop with comptime true condition needs no else block to return value with break" {
+    const x = while (true) {
+        break @as(u32, 69);
+    };
+    try expect(x == 69);
+}

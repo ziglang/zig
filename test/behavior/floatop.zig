@@ -114,7 +114,7 @@ fn testSqrt() !void {
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), 1.0488088481701516, epsilon));
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.0)), 1.4142135623730950, epsilon));
 
-    if (builtin.zig_backend == .stage1) {
+    if (false) {
         if (has_f80_rt) {
             // TODO https://github.com/ziglang/zig/issues/10875
             if (builtin.os.tag != .freebsd) {
@@ -181,10 +181,6 @@ test "more @sqrt f16 tests" {
 }
 
 test "@sin" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -205,7 +201,6 @@ fn testSin() !void {
 }
 
 test "@sin with vectors" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -226,10 +221,6 @@ fn testSinWithVectors() !void {
 }
 
 test "@cos" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -250,7 +241,6 @@ fn testCos() !void {
 }
 
 test "@cos with vectors" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -781,7 +771,6 @@ test "f128 at compile time is lossy" {
 }
 
 test "comptime fixed-width float zero divided by zero produces NaN" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -793,7 +782,6 @@ test "comptime fixed-width float zero divided by zero produces NaN" {
 }
 
 test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -810,8 +798,6 @@ test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
 }
 
 test "comptime_float zero divided by zero produces zero" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try expect((0.0 / 0.0) == 0.0);
 }
 

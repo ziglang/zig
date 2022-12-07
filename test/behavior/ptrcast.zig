@@ -20,7 +20,6 @@ fn testReinterpretBytesAsInteger() !void {
 }
 
 test "reinterpret an array over multiple elements, with no well-defined layout" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -77,8 +76,6 @@ fn testReinterpretBytesAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct (with under-aligned fields) into another" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try testReinterpretExternStructAsExternStruct();
     comptime try testReinterpretExternStructAsExternStruct();
 }
@@ -101,8 +98,6 @@ fn testReinterpretExternStructAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct into another" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try testReinterpretOverAlignedExternStructAsExternStruct();
     comptime try testReinterpretOverAlignedExternStructAsExternStruct();
 }
@@ -127,7 +122,6 @@ fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
 }
 
 test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -151,7 +145,6 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
 }
 
 test "lower reinterpreted comptime field ptr" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

@@ -1359,7 +1359,7 @@ fn analyzeBodyInner(
                             break check_block.runtime_index;
                         }
                         check_block = check_block.parent.?;
-                    } else unreachable;
+                    };
 
                     if (@enumToInt(target_runtime_index) < @enumToInt(block.runtime_index)) {
                         const runtime_src = block.runtime_cond orelse block.runtime_loop.?;
@@ -1733,7 +1733,7 @@ fn analyzeBodyInner(
             break always_noreturn;
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
-    } else unreachable;
+    };
 
     // balance out dbg_block_begins in case of early noreturn
     const noreturn_inst = block.instructions.popOrNull();
@@ -3478,7 +3478,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 .store => break candidate,
                 else => break :ct,
             }
-        } else unreachable; // TODO shouldn't need this
+        };
 
         while (true) {
             if (search_index == 0) break :ct;
@@ -3704,7 +3704,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .store => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const bitcast_inst = while (true) {
                     if (search_index == 0) break :ct;
@@ -3716,7 +3716,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .bitcast => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const const_inst = while (true) {
                     if (search_index == 0) break :ct;
@@ -3728,7 +3728,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         .constant => break candidate,
                         else => break :ct,
                     }
-                } else unreachable; // TODO shouldn't need this
+                };
 
                 const store_op = air_datas[store_inst].bin_op;
                 const store_val = (try sema.resolveMaybeUndefVal(store_op.rhs)) orelse break :ct;
@@ -8307,7 +8307,7 @@ fn handleExternLibName(
                 .{ lib_name, lib_name },
             );
         }
-        comp.stage1AddLinkLib(lib_name) catch |err| {
+        comp.addLinkLib(lib_name) catch |err| {
             return sema.fail(block, src_loc, "unable to add link lib '{s}': {s}", .{
                 lib_name, @errorName(err),
             });
@@ -8401,15 +8401,11 @@ fn funcCommon(
             }
         }
 
-        // These locals are pulled out from the init expression below to work around
-        // a stage1 compiler bug.
         // In the case of generic calling convention, or generic alignment, we use
         // default values which are only meaningful for the generic function, *not*
         // the instantiation, which can depend on comptime parameters.
         // Related proposal: https://github.com/ziglang/zig/issues/11834
-        const cc_workaround = cc orelse .Unspecified;
-        const align_workaround = alignment orelse 0;
-
+        const cc_resolved = cc orelse .Unspecified;
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
@@ -8421,7 +8417,7 @@ fn funcCommon(
                 comptime_params,
                 i,
                 &is_generic,
-                cc_workaround,
+                cc_resolved,
                 has_body,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
@@ -8433,7 +8429,7 @@ fn funcCommon(
                         comptime_params,
                         i,
                         &is_generic,
-                        cc_workaround,
+                        cc_resolved,
                         has_body,
                     );
                     return error.AnalysisFail;
@@ -8481,10 +8477,10 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !try sema.validateExternType(return_type, .ret_ty)) {
+        if (!Type.fnCallingConventionAllowsZigTypes(cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
-                    return_type.fmt(sema.mod), @tagName(cc_workaround),
+                    return_type.fmt(sema.mod), @tagName(cc_resolved),
                 });
                 errdefer msg.destroy(sema.gpa);
 
@@ -8533,7 +8529,7 @@ fn funcCommon(
         }
 
         const arch = sema.mod.getTarget().cpu.arch;
-        if (switch (cc_workaround) {
+        if (switch (cc_resolved) {
             .Unspecified, .C, .Naked, .Async, .Inline => null,
             .Interrupt => switch (arch) {
                 .x86, .x86_64, .avr, .msp430 => null,
@@ -8569,13 +8565,13 @@ fn funcCommon(
             },
         }) |allowed_platform| {
             return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
-                @tagName(cc_workaround),
+                @tagName(cc_resolved),
                 allowed_platform,
                 @tagName(arch),
             });
         }
 
-        if (cc_workaround == .Inline and is_noinline) {
+        if (cc_resolved == .Inline and is_noinline) {
             return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
         if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
@@ -8593,9 +8589,9 @@ fn funcCommon(
             .param_types = param_types,
             .comptime_params = comptime_params.ptr,
             .return_type = return_type,
-            .cc = cc_workaround,
+            .cc = cc_resolved,
             .cc_is_generic = cc == null,
-            .alignment = align_workaround,
+            .alignment = alignment orelse 0,
             .align_is_generic = alignment == null,
             .section_is_generic = section == .generic,
             .addrspace_is_generic = address_space == null,
@@ -14964,7 +14960,7 @@ fn zirClosureGet(
             break tv;
         }
         scope = scope.parent.?;
-    } else unreachable;
+    };
 
     if (tv.val.tag() == .unreachable_value and !block.is_typeof and sema.func == null) {
         const msg = msg: {
@@ -19107,8 +19103,6 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const operand_elem_size = operand_elem_ty.abiSize(target);
         const dest_elem_size = dest_elem_ty.abiSize(target);
         if (operand_elem_size != dest_elem_size) {
-            // note that this is not implemented in stage1 so we should probably wait
-            // until that codebase is replaced before implementing this in stage2.
             return sema.fail(block, dest_ty_src, "TODO: implement @ptrCast between slices changing the length", .{});
         }
     }

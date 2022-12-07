@@ -334,7 +334,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
 
         // Next step in the decompression,
         // and decompression state.
-        step: std.meta.FnPtr(fn (*Self) Error!void),
+        step: *const fn (*Self) Error!void,
         step_state: DecompressorState,
         final: bool,
         err: ?Error,
@@ -479,12 +479,6 @@ pub fn Decompressor(comptime ReaderType: type) type {
         }
 
         pub fn close(self: *Self) ?Error {
-            if (@import("builtin").zig_backend == .stage1) {
-                if (self.err == Error.EndOfStreamWithNoError) {
-                    return null;
-                }
-                return self.err;
-            }
             if (self.err == @as(?Error, error.EndOfStreamWithNoError)) {
                 return null;
             }

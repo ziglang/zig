@@ -149,10 +149,6 @@ test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .wasm32) {
-        // https://github.com/ziglang/zig/issues/9660
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
         // https://github.com/ziglang/zig/issues/9660
         return error.SkipZigTest;

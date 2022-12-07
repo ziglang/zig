@@ -1392,8 +1392,9 @@ pub const Object = struct {
         const dir_path = file.pkg.root_src_directory.path orelse ".";
         const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
         defer gpa.free(sub_file_path_z);
-        const stage1_workaround = std.fs.path.dirname(file.sub_file_path) orelse "";
-        const dir_path_z = try std.fs.path.joinZ(gpa, &.{ dir_path, stage1_workaround });
+        const dir_path_z = try std.fs.path.joinZ(gpa, &.{
+            dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
+        });
         defer gpa.free(dir_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
         gop.value_ptr.* = di_file.toNode();
@@ -6107,12 +6108,11 @@ pub const FuncGen = struct {
     }
 
     fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        // Eventually, the Zig compiler needs to be reworked to have inline assembly go
-        // through the same parsing code regardless of backend, and have LLVM-flavored
-        // inline assembly be *output* from that assembler.
-        // We don't have such an assembler implemented yet though. For now, this
-        // implementation feeds the inline assembly code directly to LLVM, same
-        // as stage1.
+        // Eventually, the Zig compiler needs to be reworked to have inline
+        // assembly go through the same parsing code regardless of backend, and
+        // have LLVM-flavored inline assembly be *output* from that assembler.
+        // We don't have such an assembler implemented yet though. For now,
+        // this implementation feeds the inline assembly code directly to LLVM.
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);

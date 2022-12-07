@@ -6,12 +6,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "implicit cast vector to array - bool" {
-    if (builtin.zig_backend == .stage1) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -180,9 +174,7 @@ test "tuple to vector" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // Regressed with LLVM 14:
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -197,9 +189,7 @@ test "tuple to vector" {
             }
 
             try std.testing.expectEqual(v, Vec3{ 1, 1, 1 });
-            if (builtin.zig_backend != .stage1) {
-                try std.testing.expectEqual(v, .{ 1, 1, 1 });
-            }
+            try std.testing.expectEqual(v, .{ 1, 1, 1 });
         }
     };
     try S.doTheTest();
@@ -406,12 +396,6 @@ test "initialize vector which is a struct field" {
 }
 
 test "vector comparison operators" {
-    if (builtin.zig_backend == .stage1) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -801,7 +785,6 @@ test "vector reduce operation" {
 }
 
 test "vector @reduce comptime" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -937,10 +920,6 @@ test "saturating shift-left" {
 }
 
 test "multiplication-assignment operator with an array operand" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 emits a compile error
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -961,10 +940,6 @@ test "multiplication-assignment operator with an array operand" {
 }
 
 test "@addWithOverflow" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 doesn't support vector args
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1011,10 +986,6 @@ test "@addWithOverflow" {
 }
 
 test "@subWithOverflow" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 doesn't support vector args
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1045,10 +1016,6 @@ test "@subWithOverflow" {
 }
 
 test "@mulWithOverflow" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 doesn't support vector args
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1069,10 +1036,6 @@ test "@mulWithOverflow" {
 }
 
 test "@shlWithOverflow" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 doesn't support vector args
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

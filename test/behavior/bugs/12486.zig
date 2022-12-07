@@ -23,8 +23,6 @@ const ErrStruct = struct {
 };
 
 test {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     _ = OptEnum{
         .opt_enum = .{
             .EnumVariant = 1,

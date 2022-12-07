@@ -322,7 +322,7 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .stage2_llvm) {
         // Regressed in LLVM 14:
         // https://github.com/llvm/llvm-project/issues/55522
         return error.SkipZigTest;
@@ -3187,8 +3187,6 @@ pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
 }
 
 test "asBytes" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .Big => "\xDE\xAD\xBE\xEF",
@@ -3282,8 +3280,6 @@ pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, 
 }
 
 test "bytesAsValue" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .Big => "\xDE\xAD\xBE\xEF",
@@ -3485,8 +3481,6 @@ test "sliceAsBytes with sentinel slice" {
 }
 
 test "sliceAsBytes packed struct at runtime and comptime" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const Foo = packed struct {
         a: u4,
         b: u4,

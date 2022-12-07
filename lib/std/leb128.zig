@@ -347,9 +347,7 @@ fn test_write_leb128(value: anytype) !void {
 }
 
 test "serialize unsigned LEB128" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .riscv64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12031
         return error.SkipZigTest;
     }
@@ -368,9 +366,7 @@ test "serialize unsigned LEB128" {
 }
 
 test "serialize signed LEB128" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .riscv64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12031
         return error.SkipZigTest;
     }

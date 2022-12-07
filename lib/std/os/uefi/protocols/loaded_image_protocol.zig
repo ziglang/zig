@@ -20,7 +20,7 @@ pub const LoadedImageProtocol = extern struct {
     image_size: u64,
     image_code_type: MemoryType,
     image_data_type: MemoryType,
-    _unload: std.meta.FnPtr(fn (*const LoadedImageProtocol, Handle) callconv(.C) Status),
+    _unload: *const fn (*const LoadedImageProtocol, Handle) callconv(.C) Status,
 
     /// Unloads an image from memory.
     pub fn unload(self: *const LoadedImageProtocol, handle: Handle) Status {

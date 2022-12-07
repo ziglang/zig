@@ -3289,15 +3289,11 @@ fn parseCrossTargetOrReportFatalError(
             fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
         },
         error.UnknownObjectFormat => {
-            {
+            help: {
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch
-                    // TODO change this back to `break :help`
-                    // this working around a stage1 bug.
-                    //break :help;
-                        @panic("out of memory");
+                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }

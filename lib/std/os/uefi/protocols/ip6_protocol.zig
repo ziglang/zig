@@ -8,15 +8,15 @@ const ManagedNetworkConfigData = uefi.protocols.ManagedNetworkConfigData;
 const SimpleNetworkMode = uefi.protocols.SimpleNetworkMode;
 
 pub const Ip6Protocol = extern struct {
-    _get_mode_data: std.meta.FnPtr(fn (*const Ip6Protocol, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status),
-    _configure: std.meta.FnPtr(fn (*const Ip6Protocol, ?*const Ip6ConfigData) callconv(.C) Status),
-    _groups: std.meta.FnPtr(fn (*const Ip6Protocol, bool, ?*const Ip6Address) callconv(.C) Status),
-    _routes: std.meta.FnPtr(fn (*const Ip6Protocol, bool, ?*const Ip6Address, u8, ?*const Ip6Address) callconv(.C) Status),
-    _neighbors: std.meta.FnPtr(fn (*const Ip6Protocol, bool, *const Ip6Address, ?*const MacAddress, u32, bool) callconv(.C) Status),
-    _transmit: std.meta.FnPtr(fn (*const Ip6Protocol, *Ip6CompletionToken) callconv(.C) Status),
-    _receive: std.meta.FnPtr(fn (*const Ip6Protocol, *Ip6CompletionToken) callconv(.C) Status),
-    _cancel: std.meta.FnPtr(fn (*const Ip6Protocol, ?*Ip6CompletionToken) callconv(.C) Status),
-    _poll: std.meta.FnPtr(fn (*const Ip6Protocol) callconv(.C) Status),
+    _get_mode_data: *const fn (*const Ip6Protocol, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
+    _configure: *const fn (*const Ip6Protocol, ?*const Ip6ConfigData) callconv(.C) Status,
+    _groups: *const fn (*const Ip6Protocol, bool, ?*const Ip6Address) callconv(.C) Status,
+    _routes: *const fn (*const Ip6Protocol, bool, ?*const Ip6Address, u8, ?*const Ip6Address) callconv(.C) Status,
+    _neighbors: *const fn (*const Ip6Protocol, bool, *const Ip6Address, ?*const MacAddress, u32, bool) callconv(.C) Status,
+    _transmit: *const fn (*const Ip6Protocol, *Ip6CompletionToken) callconv(.C) Status,
+    _receive: *const fn (*const Ip6Protocol, *Ip6CompletionToken) callconv(.C) Status,
+    _cancel: *const fn (*const Ip6Protocol, ?*Ip6CompletionToken) callconv(.C) Status,
+    _poll: *const fn (*const Ip6Protocol) callconv(.C) Status,
 
     /// Gets the current operational settings for this instance of the EFI IPv6 Protocol driver.
     pub fn getModeData(self: *const Ip6Protocol, ip6_mode_data: ?*Ip6ModeData, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) Status {

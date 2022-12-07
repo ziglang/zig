@@ -5,9 +5,9 @@ const Status = uefi.Status;
 
 /// Graphics output
 pub const GraphicsOutputProtocol = extern struct {
-    _query_mode: std.meta.FnPtr(fn (*const GraphicsOutputProtocol, u32, *usize, **GraphicsOutputModeInformation) callconv(.C) Status),
-    _set_mode: std.meta.FnPtr(fn (*const GraphicsOutputProtocol, u32) callconv(.C) Status),
-    _blt: std.meta.FnPtr(fn (*const GraphicsOutputProtocol, ?[*]GraphicsOutputBltPixel, GraphicsOutputBltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(.C) Status),
+    _query_mode: *const fn (*const GraphicsOutputProtocol, u32, *usize, **GraphicsOutputModeInformation) callconv(.C) Status,
+    _set_mode: *const fn (*const GraphicsOutputProtocol, u32) callconv(.C) Status,
+    _blt: *const fn (*const GraphicsOutputProtocol, ?[*]GraphicsOutputBltPixel, GraphicsOutputBltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(.C) Status,
     mode: *GraphicsOutputProtocolMode,
 
     /// Returns information for an available graphics mode that the graphics device and the set of active video output devices supports.

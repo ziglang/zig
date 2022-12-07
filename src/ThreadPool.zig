@@ -15,10 +15,7 @@ const Runnable = struct {
     runFn: RunProto,
 };
 
-const RunProto = switch (builtin.zig_backend) {
-    .stage1 => fn (*Runnable) void,
-    else => *const fn (*Runnable) void,
-};
+const RunProto = *const fn (*Runnable) void;
 
 pub fn init(pool: *ThreadPool, allocator: std.mem.Allocator) !void {
     pool.* = .{

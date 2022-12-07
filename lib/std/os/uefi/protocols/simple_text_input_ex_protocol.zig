@@ -6,12 +6,12 @@ const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputExProtocol = extern struct {
-    _reset: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status),
-    _read_key_stroke_ex: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status),
+    _reset: *const fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status,
+    _read_key_stroke_ex: *const fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status,
     wait_for_key_ex: Event,
-    _set_state: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status),
-    _register_key_notify: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const KeyData, std.meta.FnPtr(fn (*const KeyData) callconv(.C) usize), **anyopaque) callconv(.C) Status),
-    _unregister_key_notify: std.meta.FnPtr(fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status),
+    _set_state: *const fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status,
+    _register_key_notify: *const fn (*const SimpleTextInputExProtocol, *const KeyData, *const fn (*const KeyData) callconv(.C) usize, **anyopaque) callconv(.C) Status,
+    _unregister_key_notify: *const fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status,
 
     /// Resets the input device hardware.
     pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) Status {
@@ -29,7 +29,7 @@ pub const SimpleTextInputExProtocol = extern struct {
     }
 
     /// Register a notification function for a particular keystroke for the input device.
-    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: std.meta.FnPtr(fn (*const KeyData) callconv(.C) usize), handle: **anyopaque) Status {
+    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: *const fn (*const KeyData) callconv(.C) usize, handle: **anyopaque) Status {
         return self._register_key_notify(self, key_data, notify, handle);
     }
 

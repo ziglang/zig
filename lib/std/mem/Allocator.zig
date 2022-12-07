@@ -20,7 +20,7 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    alloc: std.meta.FnPtr(fn (ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8),
+    alloc: *const fn (ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8,
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the
     /// length requested from the most recent successful call to `alloc` or
@@ -37,7 +37,7 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    resize: std.meta.FnPtr(fn (ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool),
+    resize: *const fn (ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool,
 
     /// Free and invalidate a buffer.
     ///
@@ -50,7 +50,7 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    free: std.meta.FnPtr(fn (ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void),
+    free: *const fn (ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void,
 };
 
 pub fn noResize(

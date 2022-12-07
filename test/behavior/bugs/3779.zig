@@ -6,7 +6,6 @@ const tag_name = @tagName(TestEnum.TestEnumValue);
 const ptr_tag_name: [*:0]const u8 = tag_name;
 
 test "@tagName() returns a string literal" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 gets the type wrong
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try std.testing.expect(*const [13:0]u8 == @TypeOf(tag_name));
@@ -19,7 +18,6 @@ const error_name = @errorName(TestError.TestErrorCode);
 const ptr_error_name: [*:0]const u8 = error_name;
 
 test "@errorName() returns a string literal" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 gets the type wrong
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try std.testing.expect(*const [13:0]u8 == @TypeOf(error_name));
@@ -32,7 +30,6 @@ const type_name = @typeName(TestType);
 const ptr_type_name: [*:0]const u8 = type_name;
 
 test "@typeName() returns a string literal" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 gets the type wrong
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try std.testing.expect(*const [type_name.len:0]u8 == @TypeOf(type_name));

@@ -151,7 +151,6 @@ test "fn returning empty error set can be passed as fn returning any error" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -465,11 +464,6 @@ test "nested catch" {
 }
 
 test "function pointer with return type that is error union with payload which is pointer of parent struct" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 has wrong function pointer semantics
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -582,9 +576,6 @@ pub fn testBuiltinErrorName(err: anyerror) [:0]const u8 {
 }
 
 test "error set equality" {
-    // This tests using stage2 logic (#11022)
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const a = error{One};
     const b = error{One};
 
@@ -752,7 +743,6 @@ const NoReturn = struct {
 };
 
 test "error union of noreturn used with if" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -767,7 +757,6 @@ test "error union of noreturn used with if" {
 }
 
 test "error union of noreturn used with try" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -779,7 +768,6 @@ test "error union of noreturn used with try" {
 }
 
 test "error union of noreturn used with catch" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -807,7 +795,6 @@ test "alignment of wrapping an error union payload" {
 }
 
 test "compare error union and error set" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var a: anyerror = error.Foo;
@@ -857,8 +844,6 @@ test "error from comptime string" {
 }
 
 test "field access of anyerror results in smaller error set" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const E1 = @TypeOf(error.Foo);
     try expect(@TypeOf(E1.Foo) == E1);
     const E2 = error{ A, B, C };

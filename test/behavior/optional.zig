@@ -377,8 +377,6 @@ const NoReturn = struct {
 };
 
 test "optional of noreturn used with if" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     NoReturn.a = 64;
     if (NoReturn.loop()) |_| {
         @compileError("bad");
@@ -388,8 +386,6 @@ test "optional of noreturn used with if" {
 }
 
 test "optional of noreturn used with orelse" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     NoReturn.a = 64;
     const val = NoReturn.testOrelse();
     try expect(val == 123);
@@ -419,7 +415,6 @@ test "alignment of wrapping an optional payload" {
 }
 
 test "Optional slice size is optimized" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;

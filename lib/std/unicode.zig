@@ -354,9 +354,7 @@ fn testUtf16CountCodepoints() !void {
 
 test "utf16 count codepoints" {
     try testUtf16CountCodepoints();
-    // TODO stage1 error: out of bounds slice
-    if (@import("builtin").zig_backend != .stage1)
-        comptime try testUtf16CountCodepoints();
+    comptime try testUtf16CountCodepoints();
 }
 
 test "utf8 encode" {

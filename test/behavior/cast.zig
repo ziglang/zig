@@ -113,8 +113,6 @@ test "@intToFloat" {
 }
 
 test "@intToFloat(f80)" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -699,11 +697,6 @@ test "peer type resolution: error set supersets" {
 }
 
 test "peer type resolution: disjoint error sets" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the order of the error names wrong after merging the sets.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -733,11 +726,6 @@ test "peer type resolution: disjoint error sets" {
 }
 
 test "peer type resolution: error union and error set" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the order of the error names wrong after merging the sets.
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1080,7 +1068,6 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 }
 
 test "compile time int to ptr of function" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try foobar(FUNCTION_CONSTANT);
@@ -1421,8 +1408,6 @@ test "floatToInt to zero-bit int" {
 }
 
 test "peer type resolution of function pointer and function body" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const T = fn () u32;
     const a: T = undefined;
     const b: *const T = undefined;

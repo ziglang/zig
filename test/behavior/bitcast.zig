@@ -155,10 +155,6 @@ test "bitcast generates a temporary value" {
 }
 
 test "@bitCast packed structs at runtime and comptime" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the wrong answer for a lot of targets
-        return error.SkipZigTest;
-    }
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -323,7 +319,6 @@ test "@bitCast packed struct of floats" {
 }
 
 test "comptime @bitCast packed struct to int and back" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -377,8 +372,7 @@ test "comptime bitcast with fields following f80" {
 }
 
 test "bitcast vector to integer and back" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO: https://github.com/ziglang/zig/issues/13220
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 gets the comptime cast wrong
+    if (true) return error.SkipZigTest; // TODO: https://github.com/ziglang/zig/issues/13220
 
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
     var x = @splat(16, true);

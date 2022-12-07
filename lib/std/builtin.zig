@@ -698,8 +698,9 @@ pub const CompilerBackend = enum(u64) {
     /// in which case this value is appropriate. Be cool and make sure your
     /// code supports `other` Zig compilers!
     other = 0,
-    /// The original Zig compiler created in 2015 by Andrew Kelley.
-    /// Implemented in C++. Uses LLVM.
+    /// The original Zig compiler created in 2015 by Andrew Kelley. Implemented
+    /// in C++. Used LLVM. Deleted from the ZSF ziglang/zig codebase on
+    /// December 6th, 2022.
     stage1 = 1,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// LLVM backend.
@@ -738,7 +739,7 @@ pub const CompilerBackend = enum(u64) {
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {
     name: []const u8,
-    func: std.meta.FnPtr(fn () anyerror!void),
+    func: *const fn () anyerror!void,
     async_frame_size: ?usize,
 };
 
@@ -760,8 +761,8 @@ else
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
     @setCold(true);
 
-    // Until self-hosted catches up with stage1 language features, we have a simpler
-    // default panic function:
+    // For backends that cannot handle the language features depended on by the
+    // default panic handler, we have a simpler panic handler:
     if (builtin.zig_backend == .stage2_c or
         builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_arm or

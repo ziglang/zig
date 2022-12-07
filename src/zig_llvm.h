@@ -337,7 +337,6 @@ ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const 
 
 // synchronize with llvm/include/ADT/Triple.h::ArchType
 // synchronize with std.Target.Cpu.Arch
-// synchronize with src/stage1/target.cpp::arch_list
 // synchronize with codegen/llvm/bindings.zig::ArchType
 enum ZigLLVM_ArchType {
     ZigLLVM_UnknownArch,
@@ -428,7 +427,6 @@ enum ZigLLVM_VendorType {
 // synchronize with llvm/include/ADT/Triple.h::OsType
 // synchronize with std.Target.Os.Tag
 // synchronize with codegen/llvm/bindings.zig::OsType
-// synchronize with src/stage1/target.cpp::os_list
 enum ZigLLVM_OSType {
     ZigLLVM_UnknownOS,
 

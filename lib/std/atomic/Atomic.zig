@@ -214,8 +214,8 @@ pub fn Atomic(comptime T: type) type {
             inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
                 // x86 supports dedicated bitwise instructions
                 if (comptime builtin.target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
-                    // TODO: stage2 currently doesn't like the inline asm this function emits.
-                    if (builtin.zig_backend == .stage1) {
+                    // TODO: this causes std lib test failures when enabled
+                    if (false) {
                         return x86BitRmw(self, op, bit, ordering);
                     }
                 }

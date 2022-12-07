@@ -21,8 +21,8 @@ test "simple generic fn" {
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (builtin.zig_backend == .stage1) {
-        // TODO: stage2 is incorrectly emitting the following:
+    if (false) {
+        // TODO: zig is incorrectly emitting the following:
         // error: cast of value 1.23e-01 to type 'f32' loses information
         try expect(max(f32, 0.123, 0.456) == 0.456);
     }
@@ -342,8 +342,6 @@ test "generic instantiation of tagged union with only one field" {
 }
 
 test "nested generic function" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const S = struct {
         fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
             try callback(data);

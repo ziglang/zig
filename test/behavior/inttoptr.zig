@@ -1,8 +1,6 @@
 const builtin = @import("builtin");
 
 test "casting integer address to function pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     addressToFunction();
     comptime addressToFunction();
 }
