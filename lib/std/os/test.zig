@@ -1054,11 +1054,6 @@ test "access smoke test" {
 }
 
 test "timerfd" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/13721
-        return error.SkipZigTest;
-    }
-
     if (native_os != .linux)
         return error.SkipZigTest;
 
@@ -1066,16 +1061,16 @@ test "timerfd" {
     var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
     defer os.close(tfd);
 
+    // Fire event 10_000_000ns = 10ms after the os.timerfd_settime call.
     var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
     try os.timerfd_settime(tfd, 0, &sit, null);
 
     var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
-    try expectEqual(try os.poll(&fds, -1), 1);
-    var git = try os.timerfd_gettime(tfd);
-    try expectEqual(git, .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } });
+    try expectEqual(@as(usize, 1), try os.poll(&fds, -1)); // -1 => infinite waiting
 
-    try os.timerfd_settime(tfd, 0, &sit, null);
-    try expectEqual(try os.poll(&fds, 5), 0);
+    var git = try os.timerfd_gettime(tfd);
+    var expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    try expectEqual(expect_disarmed_timer, git);
 }
 
 test "isatty" {
