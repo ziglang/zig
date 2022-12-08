@@ -280,6 +280,13 @@ pub fn build(b: *Builder) !void {
             try addStaticLlvmOptionsToExe(exe);
             try addStaticLlvmOptionsToExe(test_cases);
         }
+        if (target.isWindows()) {
+            inline for (.{ exe, test_cases }) |artifact| {
+                artifact.linkSystemLibrary("version");
+                artifact.linkSystemLibrary("uuid");
+                artifact.linkSystemLibrary("ole32");
+            }
+        }
     }
 
     const semver = try std.SemanticVersion.parse(version);
@@ -537,7 +544,11 @@ fn addCmakeCfgOptionsToExe(
     exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
-        b.fmt("{s}{s}{s}", .{ exe.target.libPrefix(), "zigcpp", exe.target.staticLibSuffix() }),
+        b.fmt("{s}{s}{s}", .{
+            cfg.cmake_static_library_prefix,
+            "zigcpp",
+            cfg.cmake_static_library_suffix,
+        }),
     }) catch unreachable);
     assert(cfg.lld_include_dir.len != 0);
     exe.addIncludePath(cfg.lld_include_dir);
@@ -610,12 +621,6 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
 
     // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
     exe.linkSystemLibrary("c++");
-
-    if (exe.target.getOs().tag == .windows) {
-        exe.linkSystemLibrary("version");
-        exe.linkSystemLibrary("uuid");
-        exe.linkSystemLibrary("ole32");
-    }
 }
 
 fn addCxxKnownPath(
@@ -669,6 +674,8 @@ const CMakeConfig = struct {
     llvm_linkage: std.build.LibExeObjStep.Linkage,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
+    cmake_static_library_prefix: []const u8,
+    cmake_static_library_suffix: []const u8,
     cxx_compiler: []const u8,
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
@@ -732,6 +739,8 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .llvm_linkage = undefined,
         .cmake_binary_dir = undefined,
         .cmake_prefix_path = undefined,
+        .cmake_static_library_prefix = undefined,
+        .cmake_static_library_suffix = undefined,
         .cxx_compiler = undefined,
         .lld_include_dir = undefined,
         .lld_libraries = undefined,
@@ -750,6 +759,14 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_CMAKE_PREFIX_PATH ",
             .field = "cmake_prefix_path",
+        },
+        .{
+            .prefix = "#define ZIG_CMAKE_STATIC_LIBRARY_PREFIX ",
+            .field = "cmake_static_library_prefix",
+        },
+        .{
+            .prefix = "#define ZIG_CMAKE_STATIC_LIBRARY_SUFFIX ",
+            .field = "cmake_static_library_suffix",
         },
         .{
             .prefix = "#define ZIG_CXX_COMPILER ",
