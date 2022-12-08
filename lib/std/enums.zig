@@ -1,6 +1,6 @@
 //! This module contains utilities and data structures for working with enums.
 
-const std = @import("std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const EnumField = std.builtin.Type.EnumField;
@@ -369,6 +369,11 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
 
         bits: BitSet = BitSet.initEmpty(),
 
+        /// Returns a set containing no keys.
+        pub fn initEmpty() Self {
+            return .{ .bits = BitSet.initEmpty() };
+        }
+
         /// Returns a set containing all possible keys.
         pub fn initFull() Self {
             return .{ .bits = BitSet.initFull() };
@@ -425,6 +430,54 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
             self.bits.setIntersection(other.bits);
         }
 
+        /// Returns true iff both sets have the same keys.
+        pub fn eql(self: Self, other: Self) bool {
+            return self.bits.eql(other.bits);
+        }
+
+        /// Returns true iff all the keys in this set are
+        /// in the other set. The other set may have keys
+        /// not found in this set.
+        pub fn subsetOf(self: Self, other: Self) bool {
+            return self.bits.subsetOf(other.bits);
+        }
+
+        /// Returns true iff this set contains all the keys
+        /// in the other set. This set may have keys not
+        /// found in the other set.
+        pub fn supersetOf(self: Self, other: Self) bool {
+            return self.bits.supersetOf(other.bits);
+        }
+
+        /// Returns a set with all the keys not in this set.
+        pub fn complement(self: Self) Self {
+            return .{ .bits = self.bits.complement() };
+        }
+
+        /// Returns a set with keys that are in either this
+        /// set or the other set.
+        pub fn unionWith(self: Self, other: Self) Self {
+            return .{ .bits = self.bits.unionWith(other.bits) };
+        }
+
+        /// Returns a set with keys that are in both this
+        /// set and the other set.
+        pub fn intersectWith(self: Self, other: Self) Self {
+            return .{ .bits = self.bits.intersectWith(other.bits) };
+        }
+
+        /// Returns a set with keys that are in either this
+        /// set or the other set, but not both.
+        pub fn xorWith(self: Self, other: Self) Self {
+            return .{ .bits = self.bits.xorWith(other.bits) };
+        }
+
+        /// Returns a set with keys that are in this set
+        /// except for keys in the other set.
+        pub fn differenceWith(self: Self, other: Self) Self {
+            return .{ .bits = self.bits.differenceWith(other.bits) };
+        }
+
         /// Returns an iterator over this set, which iterates in
         /// index order.  Modifications to the set during iteration
         /// may or may not be observed by the iterator, but will
@@ -444,6 +497,81 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
             }
         };
     };
+}
+
+test "pure EnumSet fns" {
+    const Suit = enum { spades, hearts, clubs, diamonds };
+
+    const empty = EnumSet(Suit).initEmpty();
+    const full = EnumSet(Suit).initFull();
+
+    const black = black: {
+        var set = EnumSet(Suit).initEmpty();
+        set.insert(.spades);
+        set.insert(.clubs);
+        break :black set;
+    };
+
+    const red = red: {
+        var set = EnumSet(Suit).initEmpty();
+        set.insert(.hearts);
+        set.insert(.diamonds);
+        break :red set;
+    };
+
+    try testing.expect(empty.eql(empty));
+    try testing.expect(full.eql(full));
+    try testing.expect(!empty.eql(full));
+    try testing.expect(!full.eql(empty));
+    try testing.expect(!empty.eql(black));
+    try testing.expect(!full.eql(red));
+    try testing.expect(!red.eql(empty));
+    try testing.expect(!black.eql(full));
+
+    try testing.expect(empty.subsetOf(empty));
+    try testing.expect(empty.subsetOf(full));
+    try testing.expect(full.subsetOf(full));
+    try testing.expect(!black.subsetOf(red));
+    try testing.expect(!red.subsetOf(black));
+
+    try testing.expect(full.supersetOf(full));
+    try testing.expect(full.supersetOf(empty));
+    try testing.expect(empty.supersetOf(empty));
+    try testing.expect(!black.supersetOf(red));
+    try testing.expect(!red.supersetOf(black));
+
+    try testing.expect(empty.complement().eql(full));
+    try testing.expect(full.complement().eql(empty));
+    try testing.expect(black.complement().eql(red));
+    try testing.expect(red.complement().eql(black));
+
+    try testing.expect(empty.unionWith(empty).eql(empty));
+    try testing.expect(empty.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(empty).eql(full));
+    try testing.expect(black.unionWith(red).eql(full));
+    try testing.expect(red.unionWith(black).eql(full));
+
+    try testing.expect(empty.intersectWith(empty).eql(empty));
+    try testing.expect(empty.intersectWith(full).eql(empty));
+    try testing.expect(full.intersectWith(full).eql(full));
+    try testing.expect(full.intersectWith(empty).eql(empty));
+    try testing.expect(black.intersectWith(red).eql(empty));
+    try testing.expect(red.intersectWith(black).eql(empty));
+
+    try testing.expect(empty.xorWith(empty).eql(empty));
+    try testing.expect(empty.xorWith(full).eql(full));
+    try testing.expect(full.xorWith(full).eql(empty));
+    try testing.expect(full.xorWith(empty).eql(full));
+    try testing.expect(black.xorWith(red).eql(full));
+    try testing.expect(red.xorWith(black).eql(full));
+
+    try testing.expect(empty.differenceWith(empty).eql(empty));
+    try testing.expect(empty.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(empty).eql(full));
+    try testing.expect(full.differenceWith(red).eql(black));
+    try testing.expect(full.differenceWith(black).eql(red));
 }
 
 /// A map from keys to values, using an index lookup.  Uses a
