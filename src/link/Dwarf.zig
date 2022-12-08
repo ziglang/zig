@@ -2170,7 +2170,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
         },
     }
 
-    const needed_size = di_buf.items.len;
+    const needed_size = @intCast(u32, di_buf.items.len);
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
@@ -2190,21 +2190,10 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
         },
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-            const dwarf_seg = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
-            const debug_aranges_sect = &d_sym.sections.items[d_sym.debug_aranges_section_index.?];
-            const allocated_size = d_sym.allocatedSize(debug_aranges_sect.offset);
-            if (needed_size > allocated_size) {
-                debug_aranges_sect.size = 0; // free the space
-                const new_offset = d_sym.findFreeSpace(needed_size, 16);
-                debug_aranges_sect.addr = dwarf_seg.vmaddr + new_offset - dwarf_seg.fileoff;
-                debug_aranges_sect.offset = @intCast(u32, new_offset);
-            }
-            debug_aranges_sect.size = needed_size;
-            log.debug("__debug_aranges start=0x{x} end=0x{x}", .{
-                debug_aranges_sect.offset,
-                debug_aranges_sect.offset + needed_size,
-            });
-            const file_pos = debug_aranges_sect.offset;
+            const sect_index = d_sym.debug_aranges_section_index.?;
+            try d_sym.growSection(sect_index, needed_size);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset;
             try d_sym.file.pwriteAll(di_buf.items, file_pos);
         },
         .wasm => {

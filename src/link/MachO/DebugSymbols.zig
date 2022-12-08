@@ -171,6 +171,7 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void 
         if (amt != existing_size) return error.InputOutput;
         sect.offset = @intCast(u32, new_offset);
     }
+
     sect.size = needed_size;
     self.markDirty(sect_index);
 }
