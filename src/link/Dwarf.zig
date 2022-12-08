@@ -1104,8 +1104,7 @@ pub fn commitDeclState(
                                 try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
                             },
                             .macho => {
-                                const macho_file = self.bin_file.cast(File.MachO).?;
-                                const d_sym = &macho_file.d_sym.?;
+                                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                                 const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
                                 const file_pos = debug_line_sect.offset + src_fn.off;
                                 try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
@@ -1327,8 +1326,7 @@ pub fn commitDeclState(
     while (decl_state.exprloc_relocs.popOrNull()) |reloc| {
         switch (self.bin_file.tag) {
             .macho => {
-                const macho_file = self.bin_file.cast(File.MachO).?;
-                const d_sym = &macho_file.d_sym.?;
+                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                 try d_sym.relocs.append(d_sym.allocator, .{
                     .type = switch (reloc.type) {
                         .direct_load => .direct_load,
@@ -1379,8 +1377,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom: *Atom, len: u32) !void {
                         try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
                     .macho => {
-                        const macho_file = self.bin_file.cast(File.MachO).?;
-                        const d_sym = &macho_file.d_sym.?;
+                        const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                         const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
                         const file_pos = debug_info_sect.offset + atom.off;
                         try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
@@ -1475,8 +1472,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
         },
 
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = &macho_file.d_sym.?;
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const sect_index = d_sym.debug_info_section_index.?;
             try d_sym.growSection(sect_index, needed_size);
             const sect = d_sym.getSection(sect_index);
@@ -1544,9 +1540,8 @@ pub fn updateDeclLineNumber(self: *Dwarf, decl: *const Module.Decl) !void {
             try elf_file.base.file.?.pwriteAll(&data, file_pos);
         },
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = macho_file.d_sym.?;
-            const sect = d_sym.sections.items[d_sym.debug_line_section_index.?];
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+            const sect = d_sym.getSection(d_sym.debug_line_section_index.?);
             const file_pos = sect.offset + decl.fn_link.macho.off + self.getRelocDbgLineOff();
             try d_sym.file.pwriteAll(&data, file_pos);
         },
@@ -1769,8 +1764,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
             try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
         },
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = &macho_file.d_sym.?;
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
             const debug_abbrev_sect = &d_sym.sections.items[d_sym.debug_abbrev_section_index.?];
             const allocated_size = d_sym.allocatedSize(debug_abbrev_sect.offset);
@@ -1895,8 +1889,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
             try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
         },
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = &macho_file.d_sym.?;
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const debug_info_sect = d_sym.getSection(d_sym.debug_info_section_index.?);
             const file_pos = debug_info_sect.offset;
             try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
@@ -2227,8 +2220,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
             try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
         },
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = &macho_file.d_sym.?;
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const dwarf_seg = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
             const debug_aranges_sect = &d_sym.sections.items[d_sym.debug_aranges_section_index.?];
             const allocated_size = d_sym.allocatedSize(debug_aranges_sect.offset);
@@ -2385,8 +2377,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         const needed_with_padding = padToIdeal(needed_bytes);
         const delta = needed_with_padding - dbg_line_prg_off;
 
-        const macho_file = self.bin_file.cast(File.MachO).?;
-        const d_sym = &macho_file.d_sym.?;
+        const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
         const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
         const needed_size = debug_line_sect.size + delta;
 
@@ -2442,8 +2433,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
             try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
         },
         .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            const d_sym = &macho_file.d_sym.?;
+            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const debug_line_sect = d_sym.getSection(d_sym.debug_line_section_index.?);
             const file_pos = debug_line_sect.offset;
             try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
@@ -2585,8 +2575,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
                     break :blk debug_info_sect.sh_offset;
                 },
                 .macho => {
-                    const macho_file = self.bin_file.cast(File.MachO).?;
-                    const d_sym = &macho_file.d_sym.?;
+                    const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                     const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
                     break :blk debug_info_sect.offset;
                 },
@@ -2606,8 +2595,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
                     try elf_file.base.file.?.pwriteAll(&buf, file_pos + reloc.atom.off + reloc.offset);
                 },
                 .macho => {
-                    const macho_file = self.bin_file.cast(File.MachO).?;
-                    const d_sym = &macho_file.d_sym.?;
+                    const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                     try d_sym.file.pwriteAll(&buf, file_pos + reloc.atom.off + reloc.offset);
                 },
                 .wasm => {
