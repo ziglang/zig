@@ -2309,7 +2309,13 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
 
                 try d_sym.file.pwriteAll(buffer, file_pos + delta);
             },
-            .wasm => @panic("TODO grow section"),
+            .wasm => {
+                const wasm_file = self.bin_file.cast(File.Wasm).?;
+                const debug_line = &wasm_file.debug_line_atom.?.code;
+                mem.copy(u8, buffer, debug_line.items[src_fn.off..]);
+                try debug_line.resize(self.allocator, debug_line.items.len + delta);
+                mem.copy(u8, debug_line.items[src_fn.off + delta ..], buffer);
+            },
             else => unreachable,
         }
 
