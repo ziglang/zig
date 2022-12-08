@@ -169,6 +169,7 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void 
             existing_size,
         );
         if (amt != existing_size) return error.InputOutput;
+
         sect.offset = @intCast(u32, new_offset);
     }
 
@@ -283,24 +284,11 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     }
 
     {
-        const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != debug_strtab_sect.size) {
-            const allocated_size = self.allocatedSize(debug_strtab_sect.offset);
-            const needed_size = self.dwarf.strtab.items.len;
-
-            if (needed_size > allocated_size) {
-                debug_strtab_sect.size = 0; // free the space
-                const new_offset = self.findFreeSpace(needed_size, 1);
-                debug_strtab_sect.offset = @intCast(u32, new_offset);
-            }
-            debug_strtab_sect.size = @intCast(u32, needed_size);
-
-            log.debug("__debug_strtab start=0x{x} end=0x{x}", .{
-                debug_strtab_sect.offset,
-                debug_strtab_sect.offset + needed_size,
-            });
-
-            try self.file.pwriteAll(self.dwarf.strtab.items, debug_strtab_sect.offset);
+        const sect_index = self.debug_str_section_index.?;
+        if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != self.getSection(sect_index).size) {
+            const needed_size = @intCast(u32, self.dwarf.strtab.items.len);
+            try self.growSection(sect_index, needed_size);
+            try self.file.pwriteAll(self.dwarf.strtab.items, self.getSection(sect_index).offset);
             self.debug_string_table_dirty = false;
         }
     }

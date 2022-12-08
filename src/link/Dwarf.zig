@@ -2569,7 +2569,10 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     if (!gop.found_existing) {
         switch (self.bin_file.tag) {
             .elf => self.bin_file.cast(File.Elf).?.debug_line_header_dirty = true,
-            .macho => self.bin_file.cast(File.MachO).?.d_sym.?.debug_line_header_dirty = true,
+            .macho => {
+                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+                d_sym.markDirty(d_sym.debug_line_section_index.?);
+            },
             .wasm => {},
             else => unreachable,
         }
