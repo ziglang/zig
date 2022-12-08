@@ -70,3 +70,30 @@ tidy --drop-empty-elements no -qe ../zig-cache/langref.html
 
 # Produce the experimental std lib documentation.
 stage3-debug/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
+
+# Ensure that updating the wasm binary from this commit will result in a viable build.
+stage3-debug/bin/zig build update-zig1
+
+rm -rf ../build-new
+mkdir ../build-new
+cd ../build-new
+
+export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+cmake .. \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -GNinja
+
+unset CC
+unset CXX
+
+ninja install
+
+stage3/bin/zig test ../test/behavior.zig -I../test
