@@ -137,7 +137,6 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
         off + size,
     });
 
-    sect.addr = segment.vmaddr + off - segment.fileoff;
     sect.offset = @intCast(u32, off);
 
     const index = @intCast(u8, self.sections.items.len);
@@ -152,11 +151,13 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void 
     const sect = self.getSectionPtr(sect_index);
 
     if (needed_size > self.allocatedSize(sect.offset)) {
+        const existing_size = sect.size;
+        sect.size = 0; // free the space
         const new_offset = self.findFreeSpace(needed_size, 1);
 
         log.debug("moving {s} section: {} bytes from 0x{x} to 0x{x}", .{
             sect.sectName(),
-            sect.size,
+            existing_size,
             sect.offset,
             new_offset,
         });
@@ -165,9 +166,9 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void 
             sect.offset,
             self.file,
             new_offset,
-            sect.size,
+            existing_size,
         );
-        if (amt != sect.size) return error.InputOutput;
+        if (amt != existing_size) return error.InputOutput;
         sect.offset = @intCast(u32, new_offset);
     }
     sect.size = needed_size;
@@ -275,7 +276,6 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     }
 
     {
-        const dwarf_segment = self.getDwarfSegmentPtr();
         const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
         if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != debug_strtab_sect.size) {
             const allocated_size = self.allocatedSize(debug_strtab_sect.offset);
@@ -284,7 +284,6 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
             if (needed_size > allocated_size) {
                 debug_strtab_sect.size = 0; // free the space
                 const new_offset = self.findFreeSpace(needed_size, 1);
-                debug_strtab_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                 debug_strtab_sect.offset = @intCast(u32, new_offset);
             }
             debug_strtab_sect.size = @intCast(u32, needed_size);

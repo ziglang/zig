@@ -1745,21 +1745,10 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         },
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-            const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
-            const debug_abbrev_sect = &d_sym.sections.items[d_sym.debug_abbrev_section_index.?];
-            const allocated_size = d_sym.allocatedSize(debug_abbrev_sect.offset);
-            if (needed_size > allocated_size) {
-                debug_abbrev_sect.size = 0; // free the space
-                const offset = d_sym.findFreeSpace(needed_size, 1);
-                debug_abbrev_sect.offset = @intCast(u32, offset);
-                debug_abbrev_sect.addr = dwarf_segment.vmaddr + offset - dwarf_segment.fileoff;
-            }
-            debug_abbrev_sect.size = needed_size;
-            log.debug("__debug_abbrev start=0x{x} end=0x{x}", .{
-                debug_abbrev_sect.offset,
-                debug_abbrev_sect.offset + needed_size,
-            });
-            const file_pos = debug_abbrev_sect.offset + abbrev_offset;
+            const sect_index = d_sym.debug_abbrev_section_index.?;
+            try d_sym.growSection(sect_index, needed_size);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset + abbrev_offset;
             try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
         },
         .wasm => {
