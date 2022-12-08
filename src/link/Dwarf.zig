@@ -1166,7 +1166,7 @@ pub fn commitDeclState(
                 .macho => {
                     const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                     const sect_index = d_sym.debug_line_section_index.?;
-                    try d_sym.growSection(sect_index, needed_size);
+                    try d_sym.growSection(sect_index, needed_size, true);
                     const sect = d_sym.getSection(sect_index);
                     const file_pos = sect.offset + src_fn.off;
                     try pwriteDbgLineNops(
@@ -1414,7 +1414,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const sect_index = d_sym.debug_info_section_index.?;
-            try d_sym.growSection(sect_index, needed_size);
+            try d_sym.growSection(sect_index, needed_size, true);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset + atom.off;
             try pwriteDbgInfoNops(
@@ -1697,7 +1697,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const sect_index = d_sym.debug_abbrev_section_index.?;
-            try d_sym.growSection(sect_index, needed_size);
+            try d_sym.growSection(sect_index, needed_size, false);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset + abbrev_offset;
             try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
@@ -2134,7 +2134,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const sect_index = d_sym.debug_aranges_section_index.?;
-            try d_sym.growSection(sect_index, needed_size);
+            try d_sym.growSection(sect_index, needed_size, false);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset;
             try d_sym.file.pwriteAll(di_buf.items, file_pos);
@@ -2301,7 +2301,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
                 const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                 const sect_index = d_sym.debug_line_section_index.?;
                 const needed_size = @intCast(u32, d_sym.getSection(sect_index).size + delta);
-                try d_sym.growSection(sect_index, needed_size);
+                try d_sym.growSection(sect_index, needed_size, true);
                 const file_pos = d_sym.getSection(sect_index).offset + src_fn.off;
 
                 const amt = try d_sym.file.preadAll(buffer, file_pos);

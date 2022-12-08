@@ -147,7 +147,7 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     return index;
 }
 
-pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void {
+pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32, requires_file_copy: bool) !void {
     const sect = self.getSectionPtr(sect_index);
 
     if (needed_size > self.allocatedSize(sect.offset)) {
@@ -162,13 +162,15 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void 
             new_offset,
         });
 
-        const amt = try self.file.copyRangeAll(
-            sect.offset,
-            self.file,
-            new_offset,
-            existing_size,
-        );
-        if (amt != existing_size) return error.InputOutput;
+        if (requires_file_copy) {
+            const amt = try self.file.copyRangeAll(
+                sect.offset,
+                self.file,
+                new_offset,
+                existing_size,
+            );
+            if (amt != existing_size) return error.InputOutput;
+        }
 
         sect.offset = @intCast(u32, new_offset);
     }
@@ -287,7 +289,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         const sect_index = self.debug_str_section_index.?;
         if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != self.getSection(sect_index).size) {
             const needed_size = @intCast(u32, self.dwarf.strtab.items.len);
-            try self.growSection(sect_index, needed_size);
+            try self.growSection(sect_index, needed_size, false);
             try self.file.pwriteAll(self.dwarf.strtab.items, self.getSection(sect_index).offset);
             self.debug_string_table_dirty = false;
         }
