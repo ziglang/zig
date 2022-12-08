@@ -3158,7 +3158,7 @@ pub fn isatty(handle: fd_t) bool {
     if (builtin.os.tag == .wasi) {
         var statbuf: fdstat_t = undefined;
         const err = system.fd_fdstat_get(handle, &statbuf);
-        if (err != 0) {
+        if (@enumToInt(err) != 0) {
             // errno = err;
             return false;
         }
