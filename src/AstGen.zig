@@ -9098,6 +9098,8 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
                     .always => return true,
                     .forward1 => node = node_datas[node].rhs,
                 }
+                // Missing builtin arg is not a parsing error, expect an error later.
+                if (node == 0) return false;
             },
 
             .builtin_call, .builtin_call_comma => {
@@ -9112,6 +9114,8 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
                     .always => return true,
                     .forward1 => node = params[1],
                 }
+                // Missing builtin arg is not a parsing error, expect an error later.
+                if (node == 0) return false;
             },
         }
     }
