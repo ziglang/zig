@@ -1,6 +1,6 @@
 //! This module contains utilities and data structures for working with enums.
 
-const std = @import("std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const EnumField = std.builtin.Type.EnumField;
@@ -302,6 +302,280 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         }
     };
     return IndexedMap(EnumIndexer(E), V, mixin.EnumMapExt);
+}
+
+/// A multiset of enum elements up to a count of usize. Backed
+/// by an EnumMap. This type does no dynamic allocation and can
+/// be copied by value.
+pub fn EnumMultiSet(comptime E: type) type {
+    return BoundedEnumMultiSet(E, usize);
+}
+
+/// A multiset of enum elements up to CountSize. Backed by an
+/// EnumMap. This type does no dynamic allocation and can be
+/// copied by value.
+pub fn BoundedEnumMultiSet(comptime E: type, comptime CountSize: type) type {
+    return struct {
+        const Self = @This();
+
+        counts: EnumMap(E, CountSize),
+
+        /// Initializes the multiset using a struct of counts.
+        pub fn init(init_counts: EnumFieldStruct(E, CountSize, 0)) Self {
+            var self = initWithCount(0);
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const c = @field(init_counts, field.name);
+                const key = @intToEnum(E, field.value);
+                self.counts.put(key, c);
+            }
+            return self;
+        }
+
+        /// Initializes the multiset with a count of zero.
+        pub fn initEmpty() Self {
+            return initWithCount(0);
+        }
+
+        /// Initializes the multiset with all keys at the
+        /// same count.
+        pub fn initWithCount(c: CountSize) Self {
+            return .{
+                .counts = EnumMap(E, CountSize).initFull(c),
+            };
+        }
+
+        /// Returns the total number of key counts in the multiset.
+        pub fn count(self: Self) usize {
+            var sum: usize = 0;
+            for (self.counts.values) |c| {
+                sum += c;
+            }
+            return sum;
+        }
+
+        /// Checks if at least one key in multiset.
+        pub fn contains(self: Self, key: E) bool {
+            return self.counts.getAssertContains(key) > 0;
+        }
+
+        /// Removes all instance of a key from multiset. Same as
+        /// setCount(key, 0).
+        pub fn removeAll(self: *Self, key: E) void {
+            return self.counts.put(key, 0);
+        }
+
+        /// Increases the key count by given amount. Caller asserts
+        /// operation will not overflow.
+        pub fn addCountAssertSafe(self: *Self, key: E, c: CountSize) void {
+            self.counts.getPtrAssertContains(key).* += c;
+        }
+
+        /// Increases the key count by given amount.
+        pub fn addCount(self: *Self, key: E, c: CountSize) error{Overflow}!void {
+            self.counts.put(key, try std.math.add(CountSize, self.counts.getAssertContains(key), c));
+        }
+
+        /// Decreases the key count by given amount. If amount is
+        /// greater than the number of keys in multset, then key count
+        /// will be set to zero.
+        pub fn subtractCount(self: *Self, key: E, c: CountSize) void {
+            self.counts.getPtrAssertContains(key).* -= @min(self.getCount(key), c);
+        }
+
+        /// Returns the count for a key.
+        pub fn getCount(self: Self, key: E) CountSize {
+            return self.counts.getAssertContains(key);
+        }
+
+        /// Set the count for a key.
+        pub fn setCount(self: *Self, key: E, c: CountSize) void {
+            self.counts.put(key, c);
+        }
+
+        /// Increases the all key counts by given multiset. Caller
+        /// asserts operation will not overflow any key.
+        pub fn addCountsAssertSafe(self: *Self, other: Self) void {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                self.addCountAssertSafe(key, other.getCount(key));
+            }
+        }
+
+        /// Increases the all key counts by given multiset.
+        pub fn addCounts(self: *Self, other: Self) error{Overflow}!void {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                try self.addCount(key, other.getCount(key));
+            }
+        }
+
+        /// Deccreases the all key counts by given multiset.
+        pub fn subtractCounts(self: *Self, other: Self) void {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                self.subtractCount(key, other.getCount(key));
+            }
+        }
+
+        /// Returns true iff all key counts are the same as
+        /// given multiset.
+        pub fn eql(self: Self, other: Self) bool {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                if (self.getCount(key) != other.getCount(key)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        pub const Entry = EnumMap(E, CountSize).Entry;
+        pub const Iterator = EnumMap(E, CountSize).Iterator;
+
+        /// Returns an iterator over this multiset. Keys with zero
+        /// counts are included. Modifications to the set during
+        /// iteration may or may not be observed by the iterator,
+        /// but will not invalidate it.
+        pub fn iterator(self: *Self) Iterator {
+            return self.counts.iterator();
+        }
+    };
+}
+
+test "EnumMultiSet" {
+    const Ball = enum { red, green, blue };
+
+    const empty = EnumMultiSet(Ball).initEmpty();
+    const mix = EnumMultiSet(Ball).init(.{
+        .red = 0,
+        .green = 1,
+        .blue = 2,
+    });
+    const ten_of_each = EnumMultiSet(Ball).initWithCount(10);
+
+    try testing.expectEqual(empty.count(), 0);
+    try testing.expectEqual(mix.count(), 3);
+    try testing.expectEqual(ten_of_each.count(), 30);
+
+    try testing.expect(!empty.contains(.red));
+    try testing.expect(!empty.contains(.green));
+    try testing.expect(!empty.contains(.blue));
+
+    try testing.expect(!mix.contains(.red));
+    try testing.expect(mix.contains(.green));
+    try testing.expect(mix.contains(.blue));
+
+    try testing.expect(ten_of_each.contains(.red));
+    try testing.expect(ten_of_each.contains(.green));
+    try testing.expect(ten_of_each.contains(.blue));
+
+    {
+        var copy = ten_of_each;
+        copy.removeAll(.red);
+        try testing.expect(!copy.contains(.red));
+
+        // removeAll second time does nothing
+        copy.removeAll(.red);
+        try testing.expect(!copy.contains(.red));
+    }
+
+    {
+        var copy = ten_of_each;
+        copy.addCountAssertSafe(.red, 6);
+        try testing.expectEqual(copy.getCount(.red), 16);
+    }
+
+    {
+        var copy = ten_of_each;
+        try copy.addCount(.red, 6);
+        try testing.expectEqual(copy.getCount(.red), 16);
+
+        try testing.expectError(error.Overflow, copy.addCount(.red, std.math.maxInt(usize)));
+    }
+
+    {
+        var copy = ten_of_each;
+        copy.subtractCount(.red, 4);
+        try testing.expectEqual(copy.getCount(.red), 6);
+
+        // subtracting more it contains does not underflow
+        copy.subtractCount(.green, 14);
+        try testing.expectEqual(copy.getCount(.green), 0);
+    }
+
+    try testing.expectEqual(empty.getCount(.green), 0);
+    try testing.expectEqual(mix.getCount(.green), 1);
+    try testing.expectEqual(ten_of_each.getCount(.green), 10);
+
+    {
+        var copy = empty;
+        copy.setCount(.red, 6);
+        try testing.expectEqual(copy.getCount(.red), 6);
+    }
+
+    {
+        var copy = mix;
+        copy.addCountsAssertSafe(ten_of_each);
+        try testing.expectEqual(copy.getCount(.red), 10);
+        try testing.expectEqual(copy.getCount(.green), 11);
+        try testing.expectEqual(copy.getCount(.blue), 12);
+    }
+
+    {
+        var copy = mix;
+        try copy.addCounts(ten_of_each);
+        try testing.expectEqual(copy.getCount(.red), 10);
+        try testing.expectEqual(copy.getCount(.green), 11);
+        try testing.expectEqual(copy.getCount(.blue), 12);
+
+        const full = EnumMultiSet(Ball).initWithCount(std.math.maxInt(usize));
+        try testing.expectError(error.Overflow, copy.addCounts(full));
+    }
+
+    {
+        var copy = ten_of_each;
+        copy.subtractCounts(mix);
+        try testing.expectEqual(copy.getCount(.red), 10);
+        try testing.expectEqual(copy.getCount(.green), 9);
+        try testing.expectEqual(copy.getCount(.blue), 8);
+    }
+
+    try testing.expect(empty.eql(empty));
+    try testing.expect(mix.eql(mix));
+    try testing.expect(ten_of_each.eql(ten_of_each));
+    try testing.expect(!empty.eql(mix));
+    try testing.expect(!mix.eql(ten_of_each));
+    try testing.expect(!ten_of_each.eql(empty));
+
+    {
+        var copy = empty;
+        var it = copy.iterator();
+        var entry = it.next().?;
+        try testing.expectEqual(entry.key, .red);
+        try testing.expectEqual(entry.value.*, 0);
+        entry = it.next().?;
+        try testing.expectEqual(entry.key, .green);
+        try testing.expectEqual(entry.value.*, 0);
+        entry = it.next().?;
+        try testing.expectEqual(entry.key, .blue);
+        try testing.expectEqual(entry.value.*, 0);
+        try testing.expectEqual(it.next(), null);
+    }
+
+    {
+        var copy = mix;
+        var it = copy.iterator();
+        var entry = it.next().?;
+        try testing.expectEqual(entry.key, .red);
+        try testing.expectEqual(entry.value.*, 0);
+        entry = it.next().?;
+        try testing.expectEqual(entry.key, .green);
+        try testing.expectEqual(entry.value.*, 1);
+        entry = it.next().?;
+        try testing.expectEqual(entry.key, .blue);
+        try testing.expectEqual(entry.value.*, 2);
+        try testing.expectEqual(it.next(), null);
+    }
 }
 
 /// An array keyed by an enum, backed by a dense array.
