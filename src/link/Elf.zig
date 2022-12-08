@@ -931,6 +931,94 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 }
 
+fn growAllocSection(self: *Elf, shdr_index: u16, phdr_index: u16, needed_size: u64) !void {
+    // TODO Also detect virtual address collisions.
+    const shdr = &self.sections.items[shdr_index];
+    const phdr = &self.program_headers.items[phdr_index];
+
+    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const existing_size = if (self.atoms.get(phdr_index)) |last| blk: {
+            const sym = self.local_symbols.items[last.local_sym_index];
+            break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
+        } else if (shdr_index == self.got_section_index.?) blk: {
+            break :blk shdr.sh_size;
+        } else 0;
+        shdr.sh_size = 0;
+
+        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+            self.getString(shdr.sh_name),
+            new_offset,
+            new_offset + existing_size,
+        });
+
+        const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
+        if (amt != existing_size) return error.InputOutput;
+
+        shdr.sh_offset = new_offset;
+        phdr.p_offset = new_offset;
+    }
+
+    shdr.sh_size = needed_size;
+    phdr.p_memsz = needed_size;
+    phdr.p_filesz = needed_size;
+
+    self.markDirty(shdr_index, phdr_index);
+}
+
+pub fn growNonAllocSection(self: *Elf, shdr_index: u16, needed_size: u64, min_alignment: u32) !void {
+    const shdr = &self.sections.items[shdr_index];
+
+    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+        const existing_size = if (self.symtab_section_index.? == shdr_index) blk: {
+            const sym_size: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Sym),
+                .p64 => @sizeOf(elf.Elf64_Sym),
+            };
+            break :blk @as(u64, shdr.sh_info) * sym_size;
+        } else shdr.sh_size;
+        shdr.sh_size = 0;
+        // Move all the symbols to a new file location.
+        const new_offset = self.findFreeSpace(needed_size, min_alignment);
+        log.debug("moving '{s}' from 0x{x} to 0x{x}", .{ self.getString(shdr.sh_name), shdr.sh_offset, new_offset });
+        const amt = try self.base.file.?.copyRangeAll(
+            shdr.sh_offset,
+            self.base.file.?,
+            new_offset,
+            existing_size,
+        );
+        if (amt != existing_size) return error.InputOutput;
+        shdr.sh_offset = new_offset;
+    }
+
+    shdr.sh_size = needed_size; // anticipating adding the global symbols later
+
+    self.markDirty(shdr_index, null);
+}
+
+pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
+    self.shdr_table_dirty = true; // TODO look into only writing one section
+
+    if (phdr_index) |_| {
+        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
+    }
+
+    if (self.dwarf) |_| {
+        if (self.debug_info_section_index.? == shdr_index) {
+            self.debug_info_header_dirty = true;
+        } else if (self.debug_line_section_index.? == shdr_index) {
+            self.debug_line_header_dirty = true;
+        } else if (self.debug_abbrev_section_index.? == shdr_index) {
+            self.debug_abbrev_section_dirty = true;
+        } else if (self.debug_str_section_index.? == shdr_index) {
+            self.debug_strtab_dirty = true;
+        } else if (self.debug_aranges_section_index.? == shdr_index) {
+            self.debug_aranges_section_dirty = true;
+        }
+    }
+}
+
 pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
@@ -2134,26 +2222,9 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
-        const text_capacity = self.allocatedSize(shdr.sh_offset);
         const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
-        if (needed_size > text_capacity) {
-            // Must move the entire section.
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const text_size = if (self.atoms.get(phdr_index)) |last| blk: {
-                const sym = self.local_symbols.items[last.local_sym_index];
-                break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
-            } else 0;
-            log.debug("new PT_LOAD file offset 0x{x} to 0x{x}", .{ new_offset, new_offset + text_size });
-            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, text_size);
-            if (amt != text_size) return error.InputOutput;
-            shdr.sh_offset = new_offset;
-            phdr.p_offset = new_offset;
-        }
+        try self.growAllocSection(shdr_index, phdr_index, needed_size);
         _ = try self.atoms.put(self.base.allocator, phdr_index, text_block);
-
-        shdr.sh_size = needed_size;
-        phdr.p_memsz = needed_size;
-        phdr.p_filesz = needed_size;
 
         if (self.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
@@ -2165,9 +2236,6 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // model each package as a different compilation unit.
             self.debug_aranges_section_dirty = true;
         }
-
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
     }
     shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
 
@@ -2747,31 +2815,14 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
 }
 
 fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
-    const shdr = &self.sections.items[self.got_section_index.?];
-    const phdr = &self.program_headers.items[self.phdr_got_index.?];
     const entry_size: u16 = self.archPtrWidthBytes();
     if (self.offset_table_count_dirty) {
-        // TODO Also detect virtual address collisions.
-        const allocated_size = self.allocatedSize(shdr.sh_offset);
         const needed_size = self.offset_table.items.len * entry_size;
-        if (needed_size > allocated_size) {
-            // Must move the entire got section.
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, shdr.sh_size);
-            if (amt != shdr.sh_size) return error.InputOutput;
-            shdr.sh_offset = new_offset;
-            phdr.p_offset = new_offset;
-        }
-        shdr.sh_size = needed_size;
-        phdr.p_memsz = needed_size;
-        phdr.p_filesz = needed_size;
-
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-
+        try self.growAllocSection(self.got_section_index.?, self.phdr_got_index.?, needed_size);
         self.offset_table_count_dirty = false;
     }
     const endian = self.base.options.target.cpu.arch.endian();
+    const shdr = &self.sections.items[self.got_section_index.?];
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
     switch (entry_size) {
         2 => {
@@ -2810,23 +2861,8 @@ fn writeSymbol(self: *Elf, index: usize) !void {
             .p64 => @alignOf(elf.Elf64_Sym),
         };
         const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-        if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
-            // Move all the symbols to a new file location.
-            const new_offset = self.findFreeSpace(needed_size, sym_align);
-            log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
-            const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-            const amt = try self.base.file.?.copyRangeAll(
-                syms_sect.sh_offset,
-                self.base.file.?,
-                new_offset,
-                existing_size,
-            );
-            if (amt != existing_size) return error.InputOutput;
-            syms_sect.sh_offset = new_offset;
-        }
+        try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align);
         syms_sect.sh_info = @intCast(u32, self.local_symbols.items.len);
-        syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
-        self.shdr_table_dirty = true; // TODO look into only writing one section
     }
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const off = switch (self.ptr_width) {
@@ -2874,22 +2910,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Sym),
     };
     const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-    if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
-        // Move all the symbols to a new file location.
-        const new_offset = self.findFreeSpace(needed_size, sym_align);
-        log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
-        const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-        const amt = try self.base.file.?.copyRangeAll(
-            syms_sect.sh_offset,
-            self.base.file.?,
-            new_offset,
-            existing_size,
-        );
-        if (amt != existing_size) return error.InputOutput;
-        syms_sect.sh_offset = new_offset;
-    }
-    syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
-    self.shdr_table_dirty = true; // TODO look into only writing one section
+    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;

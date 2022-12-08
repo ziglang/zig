@@ -1150,29 +1150,9 @@ pub fn commitDeclState(
             switch (self.bin_file.tag) {
                 .elf => {
                     const elf_file = self.bin_file.cast(File.Elf).?;
-                    const debug_line_sect = &elf_file.sections.items[elf_file.debug_line_section_index.?];
-                    if (needed_size != debug_line_sect.sh_size) {
-                        if (needed_size > elf_file.allocatedSize(debug_line_sect.sh_offset)) {
-                            const new_offset = elf_file.findFreeSpace(needed_size, 1);
-                            const existing_size = last_src_fn.off;
-                            log.debug("moving .debug_line section: {d} bytes from 0x{x} to 0x{x}", .{
-                                existing_size,
-                                debug_line_sect.sh_offset,
-                                new_offset,
-                            });
-                            const amt = try elf_file.base.file.?.copyRangeAll(
-                                debug_line_sect.sh_offset,
-                                elf_file.base.file.?,
-                                new_offset,
-                                existing_size,
-                            );
-                            if (amt != existing_size) return error.InputOutput;
-                            debug_line_sect.sh_offset = new_offset;
-                        }
-                        debug_line_sect.sh_size = needed_size;
-                        elf_file.shdr_table_dirty = true; // TODO look into making only the one section dirty
-                        elf_file.debug_line_header_dirty = true;
-                    }
+                    const shdr_index = elf_file.debug_line_section_index.?;
+                    try elf_file.growNonAllocSection(shdr_index, needed_size, 1);
+                    const debug_line_sect = elf_file.sections.items[shdr_index];
                     const file_pos = debug_line_sect.sh_offset + src_fn.off;
                     try pwriteDbgLineNops(
                         elf_file.base.file.?,
@@ -1417,29 +1397,9 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_info_sect = &elf_file.sections.items[elf_file.debug_info_section_index.?];
-            if (needed_size != debug_info_sect.sh_size) {
-                if (needed_size > elf_file.allocatedSize(debug_info_sect.sh_offset)) {
-                    const new_offset = elf_file.findFreeSpace(needed_size, 1);
-                    const existing_size = last_decl.off;
-                    log.debug("moving .debug_info section: {d} bytes from 0x{x} to 0x{x}", .{
-                        existing_size,
-                        debug_info_sect.sh_offset,
-                        new_offset,
-                    });
-                    const amt = try elf_file.base.file.?.copyRangeAll(
-                        debug_info_sect.sh_offset,
-                        elf_file.base.file.?,
-                        new_offset,
-                        existing_size,
-                    );
-                    if (amt != existing_size) return error.InputOutput;
-                    debug_info_sect.sh_offset = new_offset;
-                }
-                debug_info_sect.sh_size = needed_size;
-                elf_file.shdr_table_dirty = true; // TODO look into making only the one section dirty
-                elf_file.debug_info_header_dirty = true;
-            }
+            const shdr_index = elf_file.debug_info_section_index.?;
+            try elf_file.growNonAllocSection(shdr_index, needed_size, 1);
+            const debug_info_sect = elf_file.sections.items[shdr_index];
             const file_pos = debug_info_sect.sh_offset + atom.off;
             try pwriteDbgInfoNops(
                 elf_file.base.file.?,
@@ -1728,18 +1688,9 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_abbrev_sect = &elf_file.sections.items[elf_file.debug_abbrev_section_index.?];
-            const allocated_size = elf_file.allocatedSize(debug_abbrev_sect.sh_offset);
-            if (needed_size > allocated_size) {
-                debug_abbrev_sect.sh_size = 0; // free the space
-                debug_abbrev_sect.sh_offset = elf_file.findFreeSpace(needed_size, 1);
-            }
-            debug_abbrev_sect.sh_size = needed_size;
-            log.debug(".debug_abbrev start=0x{x} end=0x{x}", .{
-                debug_abbrev_sect.sh_offset,
-                debug_abbrev_sect.sh_offset + needed_size,
-            });
-
+            const shdr_index = elf_file.debug_abbrev_section_index.?;
+            try elf_file.growNonAllocSection(shdr_index, needed_size, 1);
+            const debug_abbrev_sect = elf_file.sections.items[shdr_index];
             const file_pos = debug_abbrev_sect.sh_offset + abbrev_offset;
             try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
         },
@@ -2174,17 +2125,9 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_aranges_sect = &elf_file.sections.items[elf_file.debug_aranges_section_index.?];
-            const allocated_size = elf_file.allocatedSize(debug_aranges_sect.sh_offset);
-            if (needed_size > allocated_size) {
-                debug_aranges_sect.sh_size = 0; // free the space
-                debug_aranges_sect.sh_offset = elf_file.findFreeSpace(needed_size, 16);
-            }
-            debug_aranges_sect.sh_size = needed_size;
-            log.debug(".debug_aranges start=0x{x} end=0x{x}", .{
-                debug_aranges_sect.sh_offset,
-                debug_aranges_sect.sh_offset + needed_size,
-            });
+            const shdr_index = elf_file.debug_aranges_section_index.?;
+            try elf_file.growNonAllocSection(shdr_index, needed_size, 16);
+            const debug_aranges_sect = elf_file.sections.items[shdr_index];
             const file_pos = debug_aranges_sect.sh_offset;
             try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
         },
@@ -2335,21 +2278,40 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         const needed_with_padding = padToIdeal(needed_bytes);
         const delta = needed_with_padding - dbg_line_prg_off;
 
-        const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-        const sect_index = d_sym.debug_line_section_index.?;
-        const needed_size = @intCast(u32, d_sym.getSection(sect_index).size + delta);
-        try d_sym.growSection(sect_index, needed_size);
-
         var src_fn = self.dbg_line_fn_first.?;
         const last_fn = self.dbg_line_fn_last.?;
-        const file_pos = d_sym.getSection(sect_index).offset + src_fn.off;
 
         var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - src_fn.off);
         defer gpa.free(buffer);
-        const amt = try d_sym.file.preadAll(buffer, file_pos);
-        if (amt != buffer.len) return error.InputOutput;
 
-        try d_sym.file.pwriteAll(buffer, file_pos + delta);
+        switch (self.bin_file.tag) {
+            .elf => {
+                const elf_file = self.bin_file.cast(File.Elf).?;
+                const shdr_index = elf_file.debug_line_section_index.?;
+                const needed_size = elf_file.sections.items[shdr_index].sh_size + delta;
+                try elf_file.growNonAllocSection(shdr_index, needed_size, 1);
+                const file_pos = elf_file.sections.items[shdr_index].sh_offset + src_fn.off;
+
+                const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
+                if (amt != buffer.len) return error.InputOutput;
+
+                try elf_file.base.file.?.pwriteAll(buffer, file_pos + delta);
+            },
+            .macho => {
+                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+                const sect_index = d_sym.debug_line_section_index.?;
+                const needed_size = @intCast(u32, d_sym.getSection(sect_index).size + delta);
+                try d_sym.growSection(sect_index, needed_size);
+                const file_pos = d_sym.getSection(sect_index).offset + src_fn.off;
+
+                const amt = try d_sym.file.preadAll(buffer, file_pos);
+                if (amt != buffer.len) return error.InputOutput;
+
+                try d_sym.file.pwriteAll(buffer, file_pos + delta);
+            },
+            .wasm => @panic("TODO grow section"),
+            else => unreachable,
+        }
 
         while (true) {
             src_fn.off += delta;
@@ -2568,7 +2530,10 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
     if (!gop.found_existing) {
         switch (self.bin_file.tag) {
-            .elf => self.bin_file.cast(File.Elf).?.debug_line_header_dirty = true,
+            .elf => {
+                const elf_file = self.bin_file.cast(File.Elf).?;
+                elf_file.markDirty(elf_file.debug_line_section_index.?, null);
+            },
             .macho => {
                 const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
                 d_sym.markDirty(d_sym.debug_line_section_index.?);
