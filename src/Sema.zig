@@ -2189,6 +2189,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
         const err_path = err_msg.src_loc.file_scope.fullPath(sema.mod.gpa) catch unreachable;
         const err_source = err_msg.src_loc.file_scope.getSource(sema.mod.gpa) catch unreachable;
+        if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
         const err_span = err_msg.src_loc.span(sema.mod.gpa) catch unreachable;
         const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
         std.debug.print("compile error during Sema:\n{s}:{d}:{d}: error: {s}\n{s}\n\n", .{
