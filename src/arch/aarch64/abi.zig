@@ -64,7 +64,6 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
         .ComptimeInt,
         .Undefined,
         .Null,
-        .BoundFn,
         .Fn,
         .Opaque,
         .EnumLiteral,

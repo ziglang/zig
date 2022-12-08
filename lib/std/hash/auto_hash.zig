@@ -101,7 +101,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
-        .AnyFrame, .BoundFn, .Fn => hash(hasher, @ptrToInt(key), strat),
+        .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
 
         .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 

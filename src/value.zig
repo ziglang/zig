@@ -2419,7 +2419,6 @@ pub const Value = extern union {
         if (val.tag() == .runtime_value) return;
 
         switch (zig_ty_tag) {
-            .BoundFn => unreachable, // TODO remove this from the language
             .Opaque => unreachable, // Cannot hash opaque types
 
             .Void,
@@ -2566,7 +2565,6 @@ pub const Value = extern union {
         if (val.tag() == .runtime_value) return;
 
         switch (ty.zigTypeTag()) {
-            .BoundFn => unreachable, // TODO remove this from the language
             .Opaque => unreachable, // Cannot hash opaque types
             .Void,
             .NoReturn,

@@ -538,8 +538,6 @@ pub const DeclGen = struct {
             .Type,
             => unreachable, // Must be comptime.
 
-            .BoundFn => unreachable, // this type will be deleted from the language.
-
             else => |tag| return self.todo("Implement zig type '{}'", .{tag}),
         };
     }

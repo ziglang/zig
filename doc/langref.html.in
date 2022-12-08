@@ -9366,12 +9366,7 @@ test "integer truncation" {
           <li>{#link|union#}</li>
       </ul>
       <p>
-      For these types, {#syntax#}@Type{#endsyntax#} is not available:
-      </p>
-      <ul>
-          <li>{#link|Functions#}</li>
-          <li>BoundFn</li>
-      </ul>
+      {#syntax#}@Type{#endsyntax#} is not available for {#link|Functions#}.
       {#header_close#}
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>

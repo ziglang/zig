@@ -252,7 +252,7 @@ fn testUnion() !void {
     try expect(typeinfo_info == .Union);
     try expect(typeinfo_info.Union.layout == .Auto);
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
-    try expect(typeinfo_info.Union.fields.len == 25);
+    try expect(typeinfo_info.Union.fields.len == 24);
     try expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
     try expect(typeinfo_info.Union.decls.len == 22);
 

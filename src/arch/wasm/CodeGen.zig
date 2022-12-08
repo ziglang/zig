@@ -1599,7 +1599,6 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .EnumLiteral,
         .Undefined,
         .Null,
-        .BoundFn,
         .Opaque,
         => unreachable,
 

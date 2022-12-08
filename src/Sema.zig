@@ -9275,7 +9275,6 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 dest_ty.fmt(sema.mod), container,
             });
         },
-        .BoundFn => @panic("TODO remove this type from the language and compiler"),
 
         .Array,
         .Bool,
@@ -9339,7 +9338,6 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 operand_ty.fmt(sema.mod), container,
             });
         },
-        .BoundFn => @panic("TODO remove this type from the language and compiler"),
 
         .Array,
         .Bool,
@@ -9777,7 +9775,6 @@ fn zirSwitchCond(
         .Undefined,
         .Null,
         .Optional,
-        .BoundFn,
         .Opaque,
         .Vector,
         .Frame,
@@ -10361,7 +10358,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Undefined,
         .Null,
         .Optional,
-        .BoundFn,
         .Opaque,
         .Vector,
         .Frame,
@@ -14833,7 +14829,6 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .NoReturn,
         .Undefined,
         .Null,
-        .BoundFn,
         .Opaque,
         => return sema.fail(block, operand_src, "no size available for type '{}'", .{ty.fmt(sema.mod)}),
 
@@ -14877,7 +14872,6 @@ fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .NoReturn,
         .Undefined,
         .Null,
-        .BoundFn,
         .Opaque,
         => return sema.fail(block, operand_src, "no size available for type '{}'", .{operand_ty.fmt(sema.mod)}),
 
@@ -15908,7 +15902,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
-        .BoundFn => @panic("TODO remove this type from the language and compiler"),
         .Frame => return sema.failWithUseOfAsync(block, src),
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
     }
@@ -18609,7 +18602,6 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             const ty = try Type.Tag.function.create(sema.arena, fn_info);
             return sema.addType(ty);
         },
-        .BoundFn => @panic("TODO delete BoundFn from the language"),
         .Frame => return sema.failWithUseOfAsync(block, src),
     }
 }
@@ -21790,7 +21782,6 @@ fn validateRunTimeType(
 
         .Enum => return !(try sema.typeRequiresComptime(ty)),
 
-        .BoundFn,
         .ComptimeFloat,
         .ComptimeInt,
         .EnumLiteral,
@@ -21876,7 +21867,6 @@ fn explainWhyTypeIsComptimeInner(
             try mod.errNoteNonLazy(src_loc, msg, "types are not available at runtime", .{});
         },
 
-        .BoundFn,
         .ComptimeFloat,
         .ComptimeInt,
         .EnumLiteral,
@@ -21986,7 +21976,6 @@ fn validateExternType(
         .Null,
         .ErrorUnion,
         .ErrorSet,
-        .BoundFn,
         .Frame,
         => return false,
         .Void => return position == .union_field or position == .ret_ty,
@@ -22058,7 +22047,6 @@ fn explainWhyTypeIsNotExtern(
         .Null,
         .ErrorUnion,
         .ErrorSet,
-        .BoundFn,
         .Frame,
         => return,
 
@@ -22116,7 +22104,6 @@ fn validatePackedType(ty: Type) bool {
         .Null,
         .ErrorUnion,
         .ErrorSet,
-        .BoundFn,
         .Frame,
         .NoReturn,
         .Opaque,
@@ -22158,7 +22145,6 @@ fn explainWhyTypeIsNotPacked(
         .EnumLiteral,
         .Undefined,
         .Null,
-        .BoundFn,
         .Frame,
         .NoReturn,
         .Opaque,

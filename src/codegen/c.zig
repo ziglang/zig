@@ -866,7 +866,6 @@ pub const DeclGen = struct {
                 .NoReturn,
                 .Undefined,
                 .Null,
-                .BoundFn,
                 .Opaque,
                 => unreachable,
 
@@ -1320,7 +1319,6 @@ pub const DeclGen = struct {
             .NoReturn => unreachable,
             .Undefined => unreachable,
             .Null => unreachable,
-            .BoundFn => unreachable,
             .Opaque => unreachable,
 
             .Frame,
@@ -2050,8 +2048,6 @@ pub const DeclGen = struct {
             .ComptimeInt,
             .Type,
             => unreachable, // must be const or comptime
-
-            .BoundFn => unreachable, // this type will be deleted from the language
         }
     }
 
