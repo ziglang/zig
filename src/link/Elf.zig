@@ -967,7 +967,13 @@ fn growAllocSection(self: *Elf, shdr_index: u16, phdr_index: u16, needed_size: u
     self.markDirty(shdr_index, phdr_index);
 }
 
-pub fn growNonAllocSection(self: *Elf, shdr_index: u16, needed_size: u64, min_alignment: u32) !void {
+pub fn growNonAllocSection(
+    self: *Elf,
+    shdr_index: u16,
+    needed_size: u64,
+    min_alignment: u32,
+    requires_file_copy: bool,
+) !void {
     const shdr = &self.sections.items[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
@@ -982,13 +988,17 @@ pub fn growNonAllocSection(self: *Elf, shdr_index: u16, needed_size: u64, min_al
         // Move all the symbols to a new file location.
         const new_offset = self.findFreeSpace(needed_size, min_alignment);
         log.debug("moving '{s}' from 0x{x} to 0x{x}", .{ self.getString(shdr.sh_name), shdr.sh_offset, new_offset });
-        const amt = try self.base.file.?.copyRangeAll(
-            shdr.sh_offset,
-            self.base.file.?,
-            new_offset,
-            existing_size,
-        );
-        if (amt != existing_size) return error.InputOutput;
+
+        if (requires_file_copy) {
+            const amt = try self.base.file.?.copyRangeAll(
+                shdr.sh_offset,
+                self.base.file.?,
+                new_offset,
+                existing_size,
+            );
+            if (amt != existing_size) return error.InputOutput;
+        }
+
         shdr.sh_offset = new_offset;
     }
 
@@ -1191,45 +1201,21 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     {
-        const shstrtab_sect = &self.sections.items[self.shstrtab_index.?];
-        if (self.shstrtab_dirty or self.shstrtab.items.len != shstrtab_sect.sh_size) {
-            const allocated_size = self.allocatedSize(shstrtab_sect.sh_offset);
-            const needed_size = self.shstrtab.items.len;
-
-            if (needed_size > allocated_size) {
-                shstrtab_sect.sh_size = 0; // free the space
-                shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
-            }
-            shstrtab_sect.sh_size = needed_size;
-            log.debug("writing shstrtab start=0x{x} end=0x{x}", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
-
+        const shdr_index = self.shstrtab_index.?;
+        if (self.shstrtab_dirty or self.shstrtab.items.len != self.sections.items[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, self.shstrtab.items.len, 1, false);
+            const shstrtab_sect = self.sections.items[shdr_index];
             try self.base.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.shstrtab_index.?);
-            }
             self.shstrtab_dirty = false;
         }
     }
 
     if (self.dwarf) |dwarf| {
-        const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        if (self.debug_strtab_dirty or dwarf.strtab.items.len != debug_strtab_sect.sh_size) {
-            const allocated_size = self.allocatedSize(debug_strtab_sect.sh_offset);
-            const needed_size = dwarf.strtab.items.len;
-
-            if (needed_size > allocated_size) {
-                debug_strtab_sect.sh_size = 0; // free the space
-                debug_strtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
-            }
-            debug_strtab_sect.sh_size = needed_size;
-            log.debug("debug_strtab start=0x{x} end=0x{x}", .{ debug_strtab_sect.sh_offset, debug_strtab_sect.sh_offset + needed_size });
-
+        const shdr_index = self.debug_str_section_index.?;
+        if (self.debug_strtab_dirty or dwarf.strtab.items.len != self.sections.items[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, dwarf.strtab.items.len, 1, false);
+            const debug_strtab_sect = self.sections.items[shdr_index];
             try self.base.file.?.pwriteAll(dwarf.strtab.items, debug_strtab_sect.sh_offset);
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.debug_str_section_index.?);
-            }
             self.debug_strtab_dirty = false;
         }
     }
@@ -2861,7 +2847,7 @@ fn writeSymbol(self: *Elf, index: usize) !void {
             .p64 => @alignOf(elf.Elf64_Sym),
         };
         const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-        try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align);
+        try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
         syms_sect.sh_info = @intCast(u32, self.local_symbols.items.len);
     }
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
@@ -2910,7 +2896,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Sym),
     };
     const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align);
+    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
