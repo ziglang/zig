@@ -765,7 +765,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     }
     const expected_args_tuple_len = fn_args_fields.len - 1;
     if (extra_args.len != expected_args_tuple_len) {
-        @compileError("The provided function expects " ++ (comptime std.fmt.comptimePrint("{d}", .{expected_args_tuple_len})) ++ " extra arguments, but the provided tuple contains " ++ (comptime std.fmt.comptimePrint("{d}", .{extra_args.len})));
+        @compileError("The provided function expects " ++ std.fmt.comptimePrint("{d}", .{expected_args_tuple_len}) ++ " extra arguments, but the provided tuple contains " ++ std.fmt.comptimePrint("{d}", .{extra_args.len}));
     }
 
     // Setup the tuple that will actually be used with @call (we'll need to insert

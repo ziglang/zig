@@ -199,7 +199,7 @@ pub fn format(
         switch (missing_count) {
             0 => unreachable,
             1 => @compileError("unused argument in '" ++ fmt ++ "'"),
-            else => @compileError((comptime comptimePrint("{d}", .{missing_count})) ++ " unused arguments in '" ++ fmt ++ "'"),
+            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
         }
     }
 }

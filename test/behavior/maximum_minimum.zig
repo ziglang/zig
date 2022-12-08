@@ -95,3 +95,10 @@ test "@min for vectors" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "@min/@max on lazy values" {
+    const A = extern struct { u8_4: [4]u8 };
+    const B = extern struct { u8_16: [16]u8 };
+    const size = @max(@sizeOf(A), @sizeOf(B));
+    try expect(size == @sizeOf(B));
+}

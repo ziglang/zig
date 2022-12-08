@@ -5405,6 +5405,13 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         },
         else => |e| return e,
     };
+    {
+        try sema.mod.ensureDeclAnalyzed(decl_index);
+        const exported_decl = sema.mod.declPtr(decl_index);
+        if (exported_decl.val.castTag(.function)) |some| {
+            return sema.analyzeExport(block, src, options, some.data.owner_decl);
+        }
+    }
     try sema.analyzeExport(block, src, options, decl_index);
 }
 
@@ -17870,6 +17877,13 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             operand_ty.fmt(mod),
         }),
     };
+    if (enum_ty.enumFieldCount() == 0) {
+        // TODO I don't think this is the correct way to handle this but
+        // it prevents a crash.
+        return sema.fail(block, operand_src, "cannot get @tagName of empty enum '{}'", .{
+            enum_ty.fmt(mod),
+        });
+    }
     const enum_decl_index = enum_ty.getOwnerDecl();
     const casted_operand = try sema.coerce(block, enum_ty, operand, operand_src);
     if (try sema.resolveDefinedValue(block, operand_src, casted_operand)) |val| {
@@ -20996,6 +21010,9 @@ fn analyzeMinMax(
         const rhs_val = simd_op.rhs_val orelse break :rs rhs_src;
 
         if (rhs_val.isUndef()) return sema.addConstUndef(simd_op.result_ty);
+
+        try sema.resolveLazyValue(lhs_val);
+        try sema.resolveLazyValue(rhs_val);
 
         const opFunc = switch (air_tag) {
             .min => Value.numberMin,

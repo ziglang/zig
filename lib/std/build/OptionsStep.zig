@@ -177,7 +177,7 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
         .Float,
         .Null,
         => try out.print("{any}", .{val}),
-        else => @compileError(comptime std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
+        else => @compileError(std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
     }
 }
 

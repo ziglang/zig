@@ -4,7 +4,9 @@ const mulc3 = @import("./mulc3.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__multc3, .{ .name = "__multc3", .linkage = common.linkage });
+    if (@import("builtin").zig_backend != .stage2_c) {
+        @export(__multc3, .{ .name = "__multc3", .linkage = common.linkage });
+    }
 }
 
 pub fn __multc3(a: f128, b: f128, c: f128, d: f128) callconv(.C) mulc3.Complex(f128) {
