@@ -1184,31 +1184,11 @@ pub fn commitDeclState(
                 },
 
                 .macho => {
-                    const macho_file = self.bin_file.cast(File.MachO).?;
-                    const d_sym = &macho_file.d_sym.?;
-                    const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
-                    if (needed_size != debug_line_sect.size) {
-                        if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
-                            const new_offset = d_sym.findFreeSpace(needed_size, 1);
-                            const existing_size = last_src_fn.off;
-                            std.log.scoped(.dsym).debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
-                                existing_size,
-                                debug_line_sect.offset,
-                                new_offset,
-                            });
-                            const amt = try d_sym.file.copyRangeAll(
-                                debug_line_sect.offset,
-                                d_sym.file,
-                                new_offset,
-                                existing_size,
-                            );
-                            if (amt != existing_size) return error.InputOutput;
-                            debug_line_sect.offset = @intCast(u32, new_offset);
-                        }
-                        debug_line_sect.size = needed_size;
-                        d_sym.debug_line_header_dirty = true;
-                    }
-                    const file_pos = debug_line_sect.offset + src_fn.off;
+                    const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+                    const sect_index = d_sym.debug_line_section_index.?;
+                    try d_sym.growSection(sect_index, needed_size);
+                    const sect = d_sym.getSection(sect_index);
+                    const file_pos = sect.offset + src_fn.off;
                     try pwriteDbgLineNops(
                         d_sym.file,
                         file_pos,
