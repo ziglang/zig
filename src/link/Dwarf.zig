@@ -1106,7 +1106,7 @@ pub fn commitDeclState(
                             .macho => {
                                 const macho_file = self.bin_file.cast(File.MachO).?;
                                 const d_sym = &macho_file.d_sym.?;
-                                const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
+                                const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
                                 const file_pos = debug_line_sect.offset + src_fn.off;
                                 try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
                             },
@@ -1187,7 +1187,7 @@ pub fn commitDeclState(
                 .macho => {
                     const macho_file = self.bin_file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
-                    const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
+                    const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
                     if (needed_size != debug_line_sect.size) {
                         if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
                             const new_offset = d_sym.findFreeSpace(needed_size, 1);
@@ -1381,7 +1381,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom: *Atom, len: u32) !void {
                     .macho => {
                         const macho_file = self.bin_file.cast(File.MachO).?;
                         const d_sym = &macho_file.d_sym.?;
-                        const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
+                        const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
                         const file_pos = debug_info_sect.offset + atom.off;
                         try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
@@ -1477,29 +1477,10 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
         .macho => {
             const macho_file = self.bin_file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
-            if (needed_size != debug_info_sect.size) {
-                if (needed_size > d_sym.allocatedSize(debug_info_sect.offset)) {
-                    const new_offset = d_sym.findFreeSpace(needed_size, 1);
-                    const existing_size = last_decl.off;
-                    std.log.scoped(.dsym).debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
-                        existing_size,
-                        debug_info_sect.offset,
-                        new_offset,
-                    });
-                    const amt = try d_sym.file.copyRangeAll(
-                        debug_info_sect.offset,
-                        d_sym.file,
-                        new_offset,
-                        existing_size,
-                    );
-                    if (amt != existing_size) return error.InputOutput;
-                    debug_info_sect.offset = @intCast(u32, new_offset);
-                }
-                debug_info_sect.size = needed_size;
-                d_sym.debug_info_header_dirty = true;
-            }
-            const file_pos = debug_info_sect.offset + atom.off;
+            const sect_index = d_sym.debug_info_section_index.?;
+            try d_sym.growSection(sect_index, needed_size);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset + atom.off;
             try pwriteDbgInfoNops(
                 d_sym.file,
                 file_pos,
@@ -1916,7 +1897,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
         .macho => {
             const macho_file = self.bin_file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const debug_info_sect = d_sym.sections.items[d_sym.debug_info_section_index.?];
+            const debug_info_sect = d_sym.getSection(d_sym.debug_info_section_index.?);
             const file_pos = debug_info_sect.offset;
             try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
         },
@@ -2406,7 +2387,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
 
         const macho_file = self.bin_file.cast(File.MachO).?;
         const d_sym = &macho_file.d_sym.?;
-        const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
+        const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
         const needed_size = debug_line_sect.size + delta;
 
         if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
@@ -2463,7 +2444,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         .macho => {
             const macho_file = self.bin_file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const debug_line_sect = d_sym.sections.items[d_sym.debug_line_section_index.?];
+            const debug_line_sect = d_sym.getSection(d_sym.debug_line_section_index.?);
             const file_pos = debug_line_sect.offset;
             try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
         },
@@ -2606,7 +2587,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
                 .macho => {
                     const macho_file = self.bin_file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
-                    const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
+                    const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
                     break :blk debug_info_sect.offset;
                 },
                 // for wasm, the offset is always 0 as we write to memory first

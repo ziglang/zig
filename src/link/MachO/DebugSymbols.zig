@@ -148,6 +148,40 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     return index;
 }
 
+pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32) !void {
+    const sect = self.getSectionPtr(sect_index);
+
+    if (needed_size > self.allocatedSize(sect.offset)) {
+        const new_offset = self.findFreeSpace(needed_size, 1);
+
+        log.debug("moving {s} section: {} bytes from 0x{x} to 0x{x}", .{
+            sect.sectName(),
+            sect.size,
+            sect.offset,
+            new_offset,
+        });
+
+        const amt = try self.file.copyRangeAll(
+            sect.offset,
+            self.file,
+            new_offset,
+            sect.size,
+        );
+        if (amt != sect.size) return error.InputOutput;
+        sect.offset = @intCast(u32, new_offset);
+    }
+    sect.size = needed_size;
+    self.markDirty(sect_index);
+}
+
+pub fn markDirty(self: *DebugSymbols, sect_index: u8) void {
+    if (self.debug_info_section_index.? == sect_index) {
+        self.debug_info_header_dirty = true;
+    } else if (self.debug_line_section_index.? == sect_index) {
+        self.debug_line_header_dirty = true;
+    }
+}
+
 fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
     const end = start + padToIdeal(size);
     for (self.sections.items) |section| {
@@ -555,4 +589,14 @@ fn getDwarfSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
 fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
     const index = self.linkedit_segment_cmd_index.?;
     return &self.segments.items[index];
+}
+
+pub fn getSectionPtr(self: *DebugSymbols, sect: u8) *macho.section_64 {
+    assert(sect < self.sections.items.len);
+    return &self.sections.items[sect];
+}
+
+pub fn getSection(self: DebugSymbols, sect: u8) macho.section_64 {
+    assert(sect < self.sections.items.len);
+    return self.sections.items[sect];
 }
