@@ -437,7 +437,13 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.append(0xFD);
     try leb128.writeULEB128(writer, opcode);
     switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
-        .v128_store, .v128_load => {
+        .v128_store,
+        .v128_load,
+        .v128_load8_splat,
+        .v128_load16_splat,
+        .v128_load32_splat,
+        .v128_load64_splat,
+        => {
             const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
             try encodeMemArg(mem_arg, writer);
         },
@@ -445,6 +451,13 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
             const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
             try writer.writeAll(std.mem.asBytes(simd_value));
         },
+        .i8x16_splat,
+        .i16x8_splat,
+        .i32x4_splat,
+        .i64x2_splat,
+        .f32x4_splat,
+        .f64x2_splat,
+        => {}, // opcode already written
         else => |tag| return emit.fail("TODO: Implement simd instruction: {s}\n", .{@tagName(tag)}),
     }
 }

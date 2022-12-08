@@ -4430,9 +4430,56 @@ fn airIntToFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
+    const ty = func.air.typeOfIndex(inst);
+    const elem_ty = ty.childType();
 
-    _ = operand;
-    return func.fail("TODO: Implement wasm airSplat", .{});
+    const result = try func.allocLocal(ty);
+    if (determineSimdStoreStrategy(ty, func.target) == .direct) blk: {
+        switch (operand) {
+            // when the operand lives in the linear memory section, we can directly
+            // load and splat the value at once. Meaning we do not first have to load
+            // the scalar value onto the stack.
+            .stack_offset, .memory, .memory_offset => {
+                const opcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => std.wasm.simdOpcode(.v128_load8_splat),
+                    16 => std.wasm.simdOpcode(.v128_load16_splat),
+                    32 => std.wasm.simdOpcode(.v128_load32_splat),
+                    64 => std.wasm.simdOpcode(.v128_load64_splat),
+                    else => break :blk, // Cannot make use of simd-instructions
+                };
+                try func.emitWValue(operand);
+                // TODO: Add helper functions for simd opcodes
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                // stores as := opcode, offset, alignment (opcode::memarg)
+                try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                    opcode,
+                    operand.offset(),
+                    elem_ty.abiAlignment(func.target),
+                });
+                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addLabel(.local_set, result.local.value);
+                return func.finishAir(inst, result, &.{ty_op.operand});
+            },
+            .local => {
+                const opcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => std.wasm.simdOpcode(.i8x16_splat),
+                    16 => std.wasm.simdOpcode(.i16x8_splat),
+                    32 => if (elem_ty.isInt()) std.wasm.simdOpcode(.i32x4_splat) else std.wasm.simdOpcode(.f32x4_splat),
+                    64 => if (elem_ty.isInt()) std.wasm.simdOpcode(.i64x2_splat) else std.wasm.simdOpcode(.f64x2_splat),
+                    else => break :blk, // Cannot make use of simd-instructions
+                };
+                try func.emitWValue(operand);
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                try func.mir_extra.append(func.gpa, opcode);
+                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addLabel(.local_set, result.local.value);
+                return func.finishAir(inst, result, &.{ty_op.operand});
+            },
+            else => unreachable,
+        }
+    }
+
+    return func.fail("TODO: Implement wasm airSplat unrolled", .{});
 }
 
 fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
