@@ -180,6 +180,12 @@ pub fn markDirty(self: *DebugSymbols, sect_index: u8) void {
         self.debug_info_header_dirty = true;
     } else if (self.debug_line_section_index.? == sect_index) {
         self.debug_line_header_dirty = true;
+    } else if (self.debug_abbrev_section_index.? == sect_index) {
+        self.debug_abbrev_section_dirty = true;
+    } else if (self.debug_str_section_index.? == sect_index) {
+        self.debug_string_table_dirty = true;
+    } else if (self.debug_aranges_section_index.? == sect_index) {
+        self.debug_aranges_section_dirty = true;
     }
 }
 
