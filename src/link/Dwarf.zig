@@ -2336,16 +2336,13 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         const delta = needed_with_padding - dbg_line_prg_off;
 
         const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-        const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
-        const needed_size = debug_line_sect.size + delta;
-
-        if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
-            @panic("TODO grow debug_line section");
-        }
+        const sect_index = d_sym.debug_line_section_index.?;
+        const needed_size = @intCast(u32, d_sym.getSection(sect_index).size + delta);
+        try d_sym.growSection(sect_index, needed_size);
 
         var src_fn = self.dbg_line_fn_first.?;
         const last_fn = self.dbg_line_fn_last.?;
-        const file_pos = debug_line_sect.offset + src_fn.off;
+        const file_pos = d_sym.getSection(sect_index).offset + src_fn.off;
 
         var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - src_fn.off);
         defer gpa.free(buffer);
@@ -2353,8 +2350,6 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
         if (amt != buffer.len) return error.InputOutput;
 
         try d_sym.file.pwriteAll(buffer, file_pos + delta);
-
-        debug_line_sect.size = needed_size;
 
         while (true) {
             src_fn.off += delta;

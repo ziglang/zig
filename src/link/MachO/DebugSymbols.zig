@@ -202,7 +202,7 @@ fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
     return null;
 }
 
-pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
+fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
     const segment = self.getDwarfSegmentPtr();
     var offset: u64 = segment.fileoff;
     while (self.detectAllocCollision(offset, object_size)) |item_end| {
@@ -464,7 +464,7 @@ fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: u32, sizeofcmds: 
     try self.file.pwriteAll(mem.asBytes(&header), 0);
 }
 
-pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
+fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     const seg = self.getDwarfSegmentPtr();
     assert(start >= seg.fileoff);
     var min_pos: u64 = std.math.maxInt(u64);
