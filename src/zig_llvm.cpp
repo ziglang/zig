@@ -31,6 +31,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/OptBisect.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
@@ -410,6 +411,18 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
   return wrap(Type::getTokenTy(*unwrap(context_ref)));
+}
+
+
+ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
+    // In LLVM15 we just have an OptBisect singleton we can edit.
+    OptBisect& bisect = getOptBisector();
+    bisect.setLimit(limit);
+
+    // In LLVM16 OptBisect will be wrapped in OptPassGate, and will need to be set per context.
+    // static OptBisect _opt_bisector;
+    // _opt_bisector.setLimit(limit);
+    // unwrap(context_ref)->setOptPassGate(_opt_bisector);
 }
 
 LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name, LLVMTypeRef FunctionTy, unsigned AddressSpace) {
