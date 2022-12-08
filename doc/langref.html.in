@@ -2975,8 +2975,10 @@ test "using slices for strings" {
     const world: []const u8 = "世界";
 
     var all_together: [100]u8 = undefined;
-    // You can use slice syntax on an array to convert an array into a slice.
-    const all_together_slice = all_together[0..];
+    // You can use slice syntax with at least one runtime-know index on an
+    // array to convert an array into a slice.
+    var start : usize = 0;
+    const all_together_slice = all_together[start..];
     // String concatenation example.
     const hello_world = try fmt.bufPrint(all_together_slice, "{s} {s}", .{ hello, world });
 
@@ -3002,7 +3004,8 @@ test "slice pointer" {
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
 
-    // Again, slicing with constant indexes will produce another pointer to an array:
+    // Again, slicing with comptime-know indexes will produce another pointer
+    // to an array:
     const ptr2 = slice[2..3];
     try expect(ptr2.len == 1);
     try expect(ptr2[0] == 3);
