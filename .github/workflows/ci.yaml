@@ -9,15 +9,6 @@ concurrency:
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
   cancel-in-progress: true
 jobs:
-  x86_64-windows:
-    runs-on: windows-latest
-    env: 
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Build and Test
-        run: ci/x86_64-windows.ps1
   aarch64-windows:
     runs-on: [self-hosted, Windows, aarch64]
     env:
@@ -26,4 +17,4 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build and Test
-        run: ./ci/windows/build.ps1
+        run: ci/aarch64-windows.ps1
