@@ -723,7 +723,7 @@ endif()
 set(HOST_TARGET_TRIPLE "${HOST_TARGET_ARCH}-${HOST_TARGET_OS}")
 
 if(MSVC)
-  set(ZIG_WASM2C_COMPILE_FLAGS "/std:c99 /O2")
+  set(ZIG_WASM2C_COMPILE_FLAGS "")
   set(ZIG1_COMPILE_FLAGS "/std:c99 /Os")
   set(ZIG2_COMPILE_FLAGS "/std:c99 /O0")
   set(ZIG2_LINK_FLAGS "/STACK:16777216")
@@ -744,7 +744,7 @@ set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
 set(ZIG_COMPILER_RT_C_SOURCE "${CMAKE_BINARY_DIR}/compiler_rt.c")
 
 add_executable(zig-wasm2c ${ZIG_WASM2C_SOURCES})
-set_target_properties(zig-wasm2c PROPERTIES COMPILE_FLAGS ${ZIG_WASM2C_COMPILE_FLAGS})
+set_target_properties(zig-wasm2c PROPERTIES COMPILE_FLAGS "${ZIG_WASM2C_COMPILE_FLAGS}")
 target_include_directories(zig-wasm2c PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
 target_compile_definitions(zig-wasm2c PRIVATE ZSTD_DISABLE_ASM)
 
@@ -758,7 +758,12 @@ add_custom_command(
 
 add_executable(zig1 ${ZIG1_C_SOURCE} "${CMAKE_SOURCE_DIR}/stage1/wasi.c")
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
-target_link_libraries(zig1 LINK_PUBLIC m)
+
+if(MSVC)
+  target_link_options(zig1 PRIVATE /STACK:0x10000000)
+else()
+  target_link_libraries(zig1 LINK_PUBLIC m)
+endif()
 target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
 target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
 
