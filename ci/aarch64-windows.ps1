@@ -12,7 +12,7 @@ if (!(Test-Path "..\$ZIG_LLVM_CLANG_LLD_NAME.zip")) {
 
     Write-Output "Extracting..."
     Add-Type -AssemblyName System.IO.Compression.FileSystem ;
-    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\..\$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD")
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\..\$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD\..")
 }
 
 function CheckLastExitCode {
