@@ -3559,12 +3559,75 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
 /// result eventually gets discarded.
+// TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
-    asm volatile (""
-        :
-        : [val] "rm" (val),
-        : "memory"
-    );
+    var a: u8 = 0;
+    if (@typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime) return;
+
+    const max_gp_register_bits = @bitSizeOf(c_long);
+    const t = @typeInfo(@TypeOf(val));
+    switch (t) {
+        .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
+        .Enum => doNotOptimizeAway(@enumToInt(val)),
+        .Bool => doNotOptimizeAway(@boolToInt(val)),
+        .Int => {
+            const bits = t.Int.bits;
+            if (bits <= max_gp_register_bits) {
+                const val2 = @as(
+                    std.meta.Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
+                    val,
+                );
+                asm volatile (""
+                    :
+                    : [val2] "r" (val2),
+                );
+            } else doNotOptimizeAway(&val);
+        },
+        .Float => {
+            if (t.Float.bits == 32 or t.Float.bits == 64) {
+                asm volatile (""
+                    :
+                    : [val] "rm" (val),
+                );
+            } else doNotOptimizeAway(&val);
+        },
+        .Pointer => asm volatile (""
+            :
+            : [val] "m" (val),
+            : "memory"
+        ),
+        .Array => {
+            if (t.Array.len * @sizeOf(t.Array.child) <= 64) {
+                for (val) |v| doNotOptimizeAway(v);
+            } else doNotOptimizeAway(&val);
+        },
+        else => doNotOptimizeAway(&val),
+    }
+}
+
+test "doNotOptimizeAway" {
+    comptime doNotOptimizeAway("test");
+
+    doNotOptimizeAway(null);
+    doNotOptimizeAway(true);
+    doNotOptimizeAway(0);
+    doNotOptimizeAway(0.0);
+    doNotOptimizeAway(@as(u1, 0));
+    doNotOptimizeAway(@as(u3, 0));
+    doNotOptimizeAway(@as(u8, 0));
+    doNotOptimizeAway(@as(u16, 0));
+    doNotOptimizeAway(@as(u32, 0));
+    doNotOptimizeAway(@as(u64, 0));
+    doNotOptimizeAway(@as(u128, 0));
+    doNotOptimizeAway(@as(u13, 0));
+    doNotOptimizeAway(@as(u37, 0));
+    doNotOptimizeAway(@as(u96, 0));
+    doNotOptimizeAway(@as(u200, 0));
+    doNotOptimizeAway(@as(f32, 0.0));
+    doNotOptimizeAway(@as(f64, 0.0));
+    doNotOptimizeAway([_]u8{0} ** 4);
+    doNotOptimizeAway([_]u8{0} ** 100);
+    doNotOptimizeAway(@as(std.builtin.Endian, .Little));
 }
 
 test "alignForward" {

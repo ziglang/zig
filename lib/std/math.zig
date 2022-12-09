@@ -195,13 +195,8 @@ test "approxEqAbs and approxEqRel" {
     }
 }
 
-pub fn doNotOptimizeAway(value: anytype) void {
-    // TODO: use @declareSideEffect() when it is available.
-    // https://github.com/ziglang/zig/issues/6168
-    const T = @TypeOf(value);
-    var x: T = undefined;
-    const p = @ptrCast(*volatile T, &x);
-    p.* = x;
+pub fn doNotOptimizeAway(val: anytype) void {
+    return mem.doNotOptimizeAway(val);
 }
 
 pub fn raiseInvalid() void {
