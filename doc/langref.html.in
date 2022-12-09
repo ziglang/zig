@@ -10646,18 +10646,18 @@ const c = @cImport({
         when linking with C code.
       </p>
       {#syntax_block|c|varytarget.h#}long FOO = __LONG_MAX__;{#end_syntax_block#}
-      {#shell_samp#}$ zig translate-c -target <em>thumb-freestanding-gnueabihf</em> varytarget.h|grep FOO
-pub export var FOO: c_long = <em>2147483647</em>;
-$ zig translate-c -target <em>x86_64-macos-gnu</em> varytarget.h|grep FOO
-pub export var FOO: c_long = <em>9223372036854775807</em>;{#end_shell_samp#}
+      {#shell_samp#}$ zig translate-c -target thumb-freestanding-gnueabihf varytarget.h|grep FOO
+pub export var FOO: c_long = 2147483647;
+$ zig translate-c -target x86_64-macos-gnu varytarget.h|grep FOO
+pub export var FOO: c_long = 9223372036854775807;{#end_shell_samp#}
       {#syntax_block|c|varycflags.h#}enum FOO { BAR };
 int do_something(enum FOO foo);
       {#end_syntax_block#}
       {#shell_samp#}$ zig translate-c varycflags.h|grep -B1 do_something
-pub const enum_FOO = <em>c_uint</em>;
+pub const enum_FOO = c_uint;
 pub extern fn do_something(foo: enum_FOO) c_int;
-$ zig translate-c <em>-cflags -fshort-enums --</em> varycflags.h|grep -B1 do_something
-pub const enum_FOO = <em>u8</em>;
+$ zig translate-c -cflags -fshort-enums -- varycflags.h|grep -B1 do_something
+pub const enum_FOO = u8;
 pub extern fn do_something(foo: enum_FOO) c_int;{#end_shell_samp#}
       {#header_close#}
       {#header_open|@cImport vs translate-c#}
