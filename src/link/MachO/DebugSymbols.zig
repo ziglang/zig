@@ -137,7 +137,6 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
         off + size,
     });
 
-    sect.addr = segment.vmaddr + off - segment.fileoff;
     sect.offset = @intCast(u32, off);
 
     const index = @intCast(u8, self.sections.items.len);
@@ -146,6 +145,52 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     segment.nsects += 1;
 
     return index;
+}
+
+pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32, requires_file_copy: bool) !void {
+    const sect = self.getSectionPtr(sect_index);
+
+    if (needed_size > self.allocatedSize(sect.offset)) {
+        const existing_size = sect.size;
+        sect.size = 0; // free the space
+        const new_offset = self.findFreeSpace(needed_size, 1);
+
+        log.debug("moving {s} section: {} bytes from 0x{x} to 0x{x}", .{
+            sect.sectName(),
+            existing_size,
+            sect.offset,
+            new_offset,
+        });
+
+        if (requires_file_copy) {
+            const amt = try self.file.copyRangeAll(
+                sect.offset,
+                self.file,
+                new_offset,
+                existing_size,
+            );
+            if (amt != existing_size) return error.InputOutput;
+        }
+
+        sect.offset = @intCast(u32, new_offset);
+    }
+
+    sect.size = needed_size;
+    self.markDirty(sect_index);
+}
+
+pub fn markDirty(self: *DebugSymbols, sect_index: u8) void {
+    if (self.debug_info_section_index.? == sect_index) {
+        self.debug_info_header_dirty = true;
+    } else if (self.debug_line_section_index.? == sect_index) {
+        self.debug_line_header_dirty = true;
+    } else if (self.debug_abbrev_section_index.? == sect_index) {
+        self.debug_abbrev_section_dirty = true;
+    } else if (self.debug_str_section_index.? == sect_index) {
+        self.debug_string_table_dirty = true;
+    } else if (self.debug_aranges_section_index.? == sect_index) {
+        self.debug_aranges_section_dirty = true;
+    }
 }
 
 fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
@@ -160,7 +205,7 @@ fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) ?u64 {
     return null;
 }
 
-pub fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
+fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 {
     const segment = self.getDwarfSegmentPtr();
     var offset: u64 = segment.fileoff;
     while (self.detectAllocCollision(offset, object_size)) |item_end| {
@@ -213,7 +258,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     }
 
     if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.writeDbgAbbrev(&macho_file.base);
+        try self.dwarf.writeDbgAbbrev();
         self.debug_abbrev_section_dirty = false;
     }
 
@@ -223,7 +268,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
         const low_pc = text_section.addr;
         const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(&macho_file.base, module, low_pc, high_pc);
+        try self.dwarf.writeDbgInfoHeader(module, low_pc, high_pc);
         self.debug_info_header_dirty = false;
     }
 
@@ -231,36 +276,21 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
         const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
-        try self.dwarf.writeDbgAranges(&macho_file.base, text_section.addr, text_section.size);
+        try self.dwarf.writeDbgAranges(text_section.addr, text_section.size);
         self.debug_aranges_section_dirty = false;
     }
 
     if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader(&macho_file.base, module);
+        try self.dwarf.writeDbgLineHeader(module);
         self.debug_line_header_dirty = false;
     }
 
     {
-        const dwarf_segment = self.getDwarfSegmentPtr();
-        const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != debug_strtab_sect.size) {
-            const allocated_size = self.allocatedSize(debug_strtab_sect.offset);
-            const needed_size = self.dwarf.strtab.items.len;
-
-            if (needed_size > allocated_size) {
-                debug_strtab_sect.size = 0; // free the space
-                const new_offset = self.findFreeSpace(needed_size, 1);
-                debug_strtab_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
-                debug_strtab_sect.offset = @intCast(u32, new_offset);
-            }
-            debug_strtab_sect.size = @intCast(u32, needed_size);
-
-            log.debug("__debug_strtab start=0x{x} end=0x{x}", .{
-                debug_strtab_sect.offset,
-                debug_strtab_sect.offset + needed_size,
-            });
-
-            try self.file.pwriteAll(self.dwarf.strtab.items, debug_strtab_sect.offset);
+        const sect_index = self.debug_str_section_index.?;
+        if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != self.getSection(sect_index).size) {
+            const needed_size = @intCast(u32, self.dwarf.strtab.items.len);
+            try self.growSection(sect_index, needed_size, false);
+            try self.file.pwriteAll(self.dwarf.strtab.items, self.getSection(sect_index).offset);
             self.debug_string_table_dirty = false;
         }
     }
@@ -424,7 +454,7 @@ fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: u32, sizeofcmds: 
     try self.file.pwriteAll(mem.asBytes(&header), 0);
 }
 
-pub fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
+fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     const seg = self.getDwarfSegmentPtr();
     assert(start >= seg.fileoff);
     var min_pos: u64 = std.math.maxInt(u64);
@@ -555,4 +585,14 @@ fn getDwarfSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
 fn getLinkeditSegmentPtr(self: *DebugSymbols) *macho.segment_command_64 {
     const index = self.linkedit_segment_cmd_index.?;
     return &self.segments.items[index];
+}
+
+pub fn getSectionPtr(self: *DebugSymbols, sect: u8) *macho.section_64 {
+    assert(sect < self.sections.items.len);
+    return &self.sections.items[sect];
+}
+
+pub fn getSection(self: DebugSymbols, sect: u8) macho.section_64 {
+    assert(sect < self.sections.items.len);
+    return self.sections.items[sect];
 }

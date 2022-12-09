@@ -361,7 +361,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     if (!options.strip and options.module != null) {
-        wasm_bin.dwarf = Dwarf.init(allocator, .wasm, options.target);
+        wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, options.target);
         try wasm_bin.initDebugSections();
     }
 
@@ -910,7 +910,6 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
 
     if (wasm.dwarf) |*dwarf| {
         try dwarf.commitDeclState(
-            &wasm.base,
             mod,
             decl_index,
             // Actual value will be written after relocation.
@@ -990,7 +989,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl: *const Module.Decl)
         defer wasm.base.allocator.free(decl_name);
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
-        try dw.updateDeclLineNumber(&wasm.base, decl);
+        try dw.updateDeclLineNumber(decl);
     }
 }
 
@@ -2299,7 +2298,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(&wasm.base, wasm.base.options.module.?);
+            try dwarf.flushModule(wasm.base.options.module.?);
         }
     }
 
@@ -2668,12 +2667,12 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     if (!wasm.base.options.strip) {
         if (wasm.dwarf) |*dwarf| {
             const mod = wasm.base.options.module.?;
-            try dwarf.writeDbgAbbrev(&wasm.base);
+            try dwarf.writeDbgAbbrev();
             // for debug info and ranges, the address is always 0,
             // as locations are always offsets relative to 'code' section.
-            try dwarf.writeDbgInfoHeader(&wasm.base, mod, 0, code_section_size);
-            try dwarf.writeDbgAranges(&wasm.base, 0, code_section_size);
-            try dwarf.writeDbgLineHeader(&wasm.base, mod);
+            try dwarf.writeDbgInfoHeader(mod, 0, code_section_size);
+            try dwarf.writeDbgAranges(0, code_section_size);
+            try dwarf.writeDbgLineHeader(mod);
         }
 
         var debug_bytes = std.ArrayList(u8).init(wasm.base.allocator);
