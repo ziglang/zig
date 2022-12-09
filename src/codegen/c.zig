@@ -3262,11 +3262,20 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.object.dg.renderTypeForBuiltinFnName(writer, field_ty);
         try writer.writeAll("((");
         try f.renderTypecast(writer, field_ty);
-        try writer.writeAll(")zig_shr_");
+        try writer.writeByte(')');
+        const cant_cast = host_ty.isInt() and host_ty.bitSize(target) > 64;
+        if (cant_cast) {
+            if (field_ty.bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+            try writer.writeAll("zig_lo_");
+            try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
+            try writer.writeByte('(');
+        }
+        try writer.writeAll("zig_shr_");
         try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
         try writer.writeByte('(');
         try f.writeCValueDeref(writer, operand);
         try writer.print(", {})", .{try f.fmtIntLiteral(bit_offset_ty, bit_offset_val)});
+        if (cant_cast) try writer.writeByte(')');
         try f.object.dg.renderBuiltinInfo(writer, field_ty, .Bits);
         try writer.writeByte(')');
     } else {
@@ -3539,15 +3548,26 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.writeCValueDeref(writer, ptr_val);
         try writer.print(", {x}), zig_shl_", .{try f.fmtIntLiteral(host_ty, mask_val)});
         try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
-        try writer.writeAll("((");
-        try f.renderTypecast(writer, host_ty);
-        try writer.writeByte(')');
+        try writer.writeByte('(');
+        const cant_cast = host_ty.isInt() and host_ty.bitSize(target) > 64;
+        if (cant_cast) {
+            if (src_ty.bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+            try writer.writeAll("zig_as_");
+            try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
+            try writer.writeAll("(0, ");
+        } else {
+            try writer.writeByte('(');
+            try f.renderTypecast(writer, host_ty);
+            try writer.writeByte(')');
+        }
+
         if (src_ty.isPtrAtRuntime()) {
             try writer.writeByte('(');
             try f.renderTypecast(writer, Type.usize);
             try writer.writeByte(')');
         }
         try f.writeCValue(writer, src_val, .Other);
+        if (cant_cast) try writer.writeByte(')');
         try writer.print(", {}))", .{try f.fmtIntLiteral(bit_offset_ty, bit_offset_val)});
     } else {
         try f.writeCValueDeref(writer, ptr_val);
@@ -5236,13 +5256,22 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
                 try writer.writeAll("((");
                 try f.renderTypecast(writer, field_int_ty);
-                try writer.writeAll(")zig_shr_");
+                try writer.writeByte(')');
+                const cant_cast = int_info.bits > 64;
+                if (cant_cast) {
+                    if (field_int_ty.bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+                    try writer.writeAll("zig_lo_");
+                    try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
+                    try writer.writeByte('(');
+                }
+                try writer.writeAll("zig_shr_");
                 try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
                 try writer.writeByte('(');
                 try f.writeCValue(writer, struct_byval, .Other);
                 try writer.writeAll(", ");
                 try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                 try writer.writeByte(')');
+                if (cant_cast) try writer.writeByte(')');
                 try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .Bits);
                 try writer.writeAll(");\n");
                 if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
