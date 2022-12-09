@@ -10237,6 +10237,16 @@ fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: std.Targe
             .local => llvm.address_space.amdgpu.private,
             else => unreachable,
         },
+        .avr => switch (address_space) {
+            .generic => llvm.address_space.default,
+            .flash => llvm.address_space.avr.flash,
+            .flash1 => llvm.address_space.avr.flash1,
+            .flash2 => llvm.address_space.avr.flash2,
+            .flash3 => llvm.address_space.avr.flash3,
+            .flash4 => llvm.address_space.avr.flash4,
+            .flash5 => llvm.address_space.avr.flash5,
+            else => unreachable,
+        },
         else => switch (address_space) {
             .generic => llvm.address_space.default,
             else => unreachable,
