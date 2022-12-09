@@ -2511,7 +2511,7 @@ test "null terminated array" {
       and vectors. Zig provides the {#link|@splat#} builtin to easily convert from scalars
       to vectors, and it supports {#link|@reduce#} and array indexing syntax to convert
       from vectors to scalars. Vectors also support assignment to and from fixed-length
-      arrays with comptime known length.
+      arrays with comptime-known length.
       </p>
       <p>
       For rearranging elements within and between vectors, Zig provides the {#link|@shuffle#} and {#link|@select#} functions.
@@ -2557,7 +2557,7 @@ test "Conversion between vectors, arrays, and slices" {
     var offset: u32 = 1;
     // To extract a comptime-known length from a runtime-known offset,
     // first extract a new slice from the starting offset, then an array of
-    // comptime known length
+    // comptime-known length
     const vec3: @Vector(2, f32) = slice[offset..][0..2].*;
     try expectEqual(slice[offset], vec2[0]);
     try expectEqual(slice[offset + 1], vec2[1]);
@@ -3013,7 +3013,7 @@ test "slice pointer" {
 
       {#header_open|Sentinel-Terminated Slices#}
       <p>
-      The syntax {#syntax#}[:x]T{#endsyntax#} is a slice which has a runtime known length
+      The syntax {#syntax#}[:x]T{#endsyntax#} is a slice which has a runtime-known length
       and also guarantees a sentinel value at the element indexed by the length. The type does not
       guarantee that there are no sentinel elements before that. Sentinel-terminated slices allow element
       access to the {#syntax#}len{#endsyntax#} index.
@@ -3233,7 +3233,7 @@ test "default struct initialization fields" {
         .b = 5,
     };
     if (x.a + x.b != 1239) {
-        @compileError("it's even comptime known!");
+        @compileError("it's even comptime-known!");
     }
 }
       {#code_end#}
@@ -4256,7 +4256,7 @@ fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
         // This prong is analyzed `fields.len - 1` times with `idx` being an
-        // unique comptime known value each time.
+        // unique comptime-known value each time.
         inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].field_type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
@@ -4351,8 +4351,8 @@ const U = union(enum) {
 
 fn getNum(u: U) u32 {
     switch (u) {
-        // Here `num` is a runtime known value that is either
-        // `u.a` or `u.b` and `tag` is `u`'s comptime known tag value.
+        // Here `num` is a runtime-known value that is either
+        // `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
         inline else => |num, tag| {
             if (tag == .b) {
                 return @floatToInt(u32, num);
@@ -6398,7 +6398,7 @@ test "coercion to error unions" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "coercing large integer type to smaller one when value is comptime known to fit" {
+test "coercing large integer type to smaller one when value is comptime-known to fit" {
     const x: u64 = 255;
     const y: u8 = x;
     try expect(y == 255);
