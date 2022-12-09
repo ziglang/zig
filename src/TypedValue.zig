@@ -142,12 +142,10 @@ pub fn print(
         .extern_options_type => return writer.writeAll("std.builtin.ExternOptions"),
         .type_info_type => return writer.writeAll("std.builtin.Type"),
 
-        .empty_struct_value => return writer.writeAll(".{}"),
-        .aggregate => {
+        .empty_struct_value, .aggregate => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
             }
-            const values = val.castTag(.aggregate).?;
             if (ty.zigTypeTag() == .Struct) {
                 try writer.writeAll(".{");
                 const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
@@ -161,13 +159,7 @@ pub fn print(
                     }
                     try print(.{
                         .ty = ty.structFieldType(i),
-                        .val = switch (ty.containerLayout()) {
-                            .Packed => values.data[i],
-                            else => ty.structFieldValueComptime(i) orelse b: {
-                                const vals = values.data;
-                                break :b vals[i];
-                            },
-                        },
+                        .val = val.fieldValue(ty, i),
                     }, writer, level - 1, mod);
                 }
                 if (ty.structFieldCount() > max_aggregate_items) {
@@ -184,7 +176,7 @@ pub fn print(
 
                     var i: u32 = 0;
                     while (i < max_len) : (i += 1) {
-                        buf[i] = std.math.cast(u8, values.data[i].toUnsignedInt(target)) orelse break :str;
+                        buf[i] = std.math.cast(u8, val.fieldValue(ty, i).toUnsignedInt(target)) orelse break :str;
                     }
 
                     const truncated = if (len > max_string_len) " (truncated)" else "";
@@ -199,7 +191,7 @@ pub fn print(
                     if (i != 0) try writer.writeAll(", ");
                     try print(.{
                         .ty = elem_ty,
-                        .val = values.data[i],
+                        .val = val.fieldValue(ty, i),
                     }, writer, level - 1, mod);
                 }
                 if (len > max_aggregate_items) {
