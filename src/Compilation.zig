@@ -1035,9 +1035,6 @@ pub const InitOptions = struct {
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
-    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
-    /// paths when consolidating CodeView streams into a single PDB file.
-    pdb_source_path: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1740,27 +1737,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             };
         };
 
-        const pdb_source_path: ?[]const u8 = options.pdb_source_path orelse blk: {
-            if (builtin.target.os.tag == .windows) {
-                // PDB requires all file paths to be fully resolved, and it is really the
-                // linker's responsibility to canonicalize any path extracted from the CodeView
-                // in the object file. However, LLD-link has some very questionable defaults, and
-                // in particular, it purposely bakes in path separator of the host system it was
-                // built on rather than the targets, or just throw an error. Thankfully, they have
-                // left a backdoor we can use via -PDBSOURCEPATH.
-                const mod = module orelse break :blk null;
-                var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const resolved_path = if (mod.main_pkg.root_src_directory.path) |base_path| p: {
-                    if (std.fs.path.isAbsolute(base_path)) break :blk base_path;
-                    const resolved_path = std.os.realpath(base_path, &buffer) catch break :blk null;
-                    const pos = std.mem.lastIndexOfLinear(u8, resolved_path, base_path) orelse resolved_path.len;
-                    break :p resolved_path[0..pos];
-                } else std.os.realpath(".", &buffer) catch break :blk null;
-                break :blk try arena.dupe(u8, resolved_path);
-            }
-            break :blk null;
-        };
-
         const implib_emit: ?link.Emit = blk: {
             const emit_implib = options.emit_implib orelse break :blk null;
 
@@ -1906,7 +1882,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_undefined_symbols = .{},
-            .pdb_source_path = pdb_source_path,
         });
         errdefer bin_file.destroy();
         comp.* = .{
