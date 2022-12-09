@@ -2415,8 +2415,8 @@ test "anonymous list literal syntax" {
 }
       {#code_end#}
       <p>
-      If there is no type in the result location then an anonymous list literal actually
-      turns into a {#link|struct#} with numbered field names:
+      If there is no type in the {#link|result location|Result Location Semantics#} then an
+      anonymous list literal actually turns into a {#link|struct#} with numbered field names:
       </p>
       {#code_begin|test|infer_list_literal#}
 const std = @import("std");
@@ -3497,7 +3497,8 @@ fn List(comptime T: type) type {
       {#header_open|Anonymous Struct Literals#}
       <p>
       Zig allows omitting the struct type of a literal. When the result is {#link|coerced|Type Coercion#},
-      the struct literal will directly instantiate the result location, with no copy:
+      the struct literal will directly instantiate the {#link|result location|Result Location Semantics#},
+      with no copy:
       </p>
       {#code_begin|test|struct_result#}
 const std = @import("std");
@@ -3515,8 +3516,8 @@ test "anonymous struct literal" {
 }
       {#code_end#}
       <p>
-      The struct type can be inferred. Here the result location does not include a type, and
-      so Zig infers the type:
+      The struct type can be inferred. Here the {#link|result location|Result Location Semantics#}
+      does not include a type, and so Zig infers the type:
       </p>
       {#code_begin|test|struct_anon#}
 const std = @import("std");
