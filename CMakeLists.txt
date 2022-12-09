@@ -181,16 +181,6 @@ set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 
 set(ZIG_WASM2C_SOURCES
     "${CMAKE_SOURCE_DIR}/stage1/wasm2c.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/huf_decompress.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_ddict.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_decompress.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/decompress/zstd_decompress_block.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/entropy_common.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/error_private.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/fse_decompress.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/pool.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/xxhash.c"
-    "${CMAKE_SOURCE_DIR}/stage1/zstd/lib/common/zstd_common.c"
 )
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
@@ -738,21 +728,19 @@ else()
   endif()
 endif()
 
-set(ZIG1_WASM_ZST_SOURCE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm.zst")
+set(ZIG1_WASM_MODULE "${CMAKE_SOURCE_DIR}/stage1/zig1.wasm")
 set(ZIG1_C_SOURCE "${CMAKE_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${CMAKE_BINARY_DIR}/zig2.c")
 set(ZIG_COMPILER_RT_C_SOURCE "${CMAKE_BINARY_DIR}/compiler_rt.c")
 
 add_executable(zig-wasm2c ${ZIG_WASM2C_SOURCES})
 set_target_properties(zig-wasm2c PROPERTIES COMPILE_FLAGS "${ZIG_WASM2C_COMPILE_FLAGS}")
-target_include_directories(zig-wasm2c PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
-target_compile_definitions(zig-wasm2c PRIVATE ZSTD_DISABLE_ASM)
 
 add_custom_command(
   OUTPUT "${ZIG1_C_SOURCE}"
-  COMMAND zig-wasm2c "${ZIG1_WASM_ZST_SOURCE}" "${ZIG1_C_SOURCE}"
-  DEPENDS zig-wasm2c "${ZIG1_WASM_ZST_SOURCE}"
-  COMMENT STATUS "Converting ${ZIG1_WASM_ZST_SOURCE} to ${ZIG1_C_SOURCE}"
+  COMMAND zig-wasm2c "${ZIG1_WASM_MODULE}" "${ZIG1_C_SOURCE}"
+  DEPENDS zig-wasm2c "${ZIG1_WASM_MODULE}"
+  COMMENT STATUS "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
@@ -764,8 +752,6 @@ if(MSVC)
 else()
   target_link_libraries(zig1 LINK_PUBLIC m)
 endif()
-target_include_directories(zig1 PUBLIC "${CMAKE_SOURCE_DIR}/stage1/zstd/lib")
-target_compile_definitions(zig1 PRIVATE ZSTD_DISABLE_ASM)
 
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
