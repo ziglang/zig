@@ -443,20 +443,19 @@ pub const Object = struct {
             });
             defer gpa.free(producer);
 
-            // For macOS stack traces, we want to avoid having to parse the compilation unit debug
-            // info. As long as each debug info file has a path independent of the compilation unit
-            // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
-            // info. If we provide an absolute path to LLVM here for the compilation unit debug
-            // info, LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we
-            // pass "." for the compilation unit directory. This forces each debug file to have a
-            // directory rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug
-            // files will no longer reference DW_AT_comp_dir, for the purpose of being able to
-            // support the common practice of stripping all but the line number sections from an
-            // executable.
-            const compile_unit_dir = d: {
-                if (options.target.isDarwin()) break :d ".";
-                const mod = options.module orelse break :d ".";
-                break :d mod.root_pkg.root_src_directory.path orelse ".";
+            // We fully resolve all paths at this point to avoid lack of source line info in stack
+            // traces or lack of debugging information which, if relative paths were used, would
+            // be very location dependent.
+            // TODO: the only concern I have with this is WASI as either host or target, should
+            // we leave the paths as relative then?
+            var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const compile_unit_dir = blk: {
+                const path = d: {
+                    const mod = options.module orelse break :d ".";
+                    break :d mod.root_pkg.root_src_directory.path orelse ".";
+                };
+                if (std.fs.path.isAbsolute(path)) break :blk path;
+                break :blk std.os.realpath(path, &buf) catch path; // If realpath fails, fallback to whatever path was
             };
             const compile_unit_dir_z = try gpa.dupeZ(u8, compile_unit_dir);
             defer gpa.free(compile_unit_dir_z);
@@ -1389,13 +1388,20 @@ pub const Object = struct {
         if (gop.found_existing) {
             return @ptrCast(*llvm.DIFile, gop.value_ptr.*);
         }
-        const dir_path = file.pkg.root_src_directory.path orelse ".";
+        const dir_path_z = d: {
+            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const dir_path = file.pkg.root_src_directory.path orelse ".";
+            const resolved_dir_path = if (std.fs.path.isAbsolute(dir_path))
+                dir_path
+            else
+                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
+            break :d try std.fs.path.joinZ(gpa, &.{
+                resolved_dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
+            });
+        };
+        defer gpa.free(dir_path_z);
         const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
         defer gpa.free(sub_file_path_z);
-        const dir_path_z = try std.fs.path.joinZ(gpa, &.{
-            dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
-        });
-        defer gpa.free(dir_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
         gop.value_ptr.* = di_file.toNode();
         return di_file;
