@@ -1771,7 +1771,8 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     }
     // Write the form for the compile unit, which must match the abbrev table above.
     const name_strp = try self.makeString(module.root_pkg.root_src_path);
-    const compile_unit_dir = self.getCompDir(module);
+    var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const compile_unit_dir = resolveCompilationDir(module, &compile_unit_dir_buffer);
     const comp_dir_strp = try self.makeString(compile_unit_dir);
     const producer_strp = try self.makeString(link.producer_string);
 
@@ -1823,19 +1824,15 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     }
 }
 
-fn getCompDir(self: Dwarf, module: *Module) []const u8 {
-    // For macOS stack traces, we want to avoid having to parse the compilation unit debug
-    // info. As long as each debug info file has a path independent of the compilation unit
-    // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
-    // info. If we provide an absolute path to LLVM here for the compilation unit debug
-    // info, LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we
-    // pass "." for the compilation unit directory. This forces each debug file to have a
-    // directory rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug
-    // files will no longer reference DW_AT_comp_dir, for the purpose of being able to
-    // support the common practice of stripping all but the line number sections from an
-    // executable.
-    if (self.bin_file.tag == .macho) return ".";
-    return module.root_pkg.root_src_directory.path orelse ".";
+fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []const u8 {
+    // We fully resolve all paths at this point to avoid lack of source line info in stack
+    // traces or lack of debugging information which, if relative paths were used, would
+    // be very location dependent.
+    // TODO: the only concern I have with this is WASI as either host or target, should
+    // we leave the paths as relative then?
+    const comp_dir_path = module.root_pkg.root_src_directory.path orelse ".";
+    if (std.fs.path.isAbsolute(comp_dir_path)) return comp_dir_path;
+    return std.os.realpath(comp_dir_path, buffer) catch comp_dir_path; // If realpath fails, fallback to whatever comp_dir_path was
 }
 
 fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
@@ -2149,7 +2146,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     }
 }
 
-pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
+pub fn writeDbgLineHeader(self: *Dwarf) !void {
     const gpa = self.allocator;
 
     const ptr_width_bytes: u8 = self.ptrWidthBytes();
@@ -2167,7 +2164,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, module: *Module) !void {
     // Convert all input DI files into a set of include dirs and file names.
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
-    const paths = try self.genIncludeDirsAndFileNames(arena.allocator(), module);
+    const paths = try self.genIncludeDirsAndFileNames(arena.allocator());
 
     // The size of this header is variable, depending on the number of directories,
     // files, and padding. We have a function to compute the upper bound size, however,
@@ -2551,7 +2548,7 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     return @intCast(u28, gop.index + 1);
 }
 
-fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator, module: *Module) !struct {
+fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
     dirs: []const []const u8,
     files: []const []const u8,
     files_dirs_indexes: []u28,
@@ -2565,19 +2562,22 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator, module: *Module) !
     var files_dir_indexes = std.ArrayList(u28).init(arena);
     try files_dir_indexes.ensureTotalCapacity(self.di_files.count());
 
-    const comp_dir = self.getCompDir(module);
-
     for (self.di_files.keys()) |dif| {
-        const full_path = try dif.fullPath(arena);
-        const dir_path = std.fs.path.dirname(full_path) orelse ".";
-        const sub_file_path = std.fs.path.basename(full_path);
+        const dir_path = d: {
+            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const dir_path = dif.pkg.root_src_directory.path orelse ".";
+            const abs_dir_path = if (std.fs.path.isAbsolute(dir_path))
+                dir_path
+            else
+                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
+            break :d try std.fs.path.join(arena, &.{
+                abs_dir_path, std.fs.path.dirname(dif.sub_file_path) orelse "",
+            });
+        };
+        const sub_file_path = try arena.dupe(u8, std.fs.path.basename(dif.sub_file_path));
 
         const dir_index: u28 = blk: {
-            const actual_dir_path = if (mem.indexOf(u8, dir_path, comp_dir)) |_| inner: {
-                if (comp_dir.len == dir_path.len) break :blk 0;
-                break :inner dir_path[comp_dir.len + 1 ..];
-            } else dir_path;
-            const dirs_gop = dirs.getOrPutAssumeCapacity(actual_dir_path);
+            const dirs_gop = dirs.getOrPutAssumeCapacity(dir_path);
             break :blk @intCast(u28, dirs_gop.index + 1);
         };
 
