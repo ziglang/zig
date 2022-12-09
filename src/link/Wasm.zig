@@ -2672,7 +2672,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             // as locations are always offsets relative to 'code' section.
             try dwarf.writeDbgInfoHeader(mod, 0, code_section_size);
             try dwarf.writeDbgAranges(0, code_section_size);
-            try dwarf.writeDbgLineHeader(mod);
+            try dwarf.writeDbgLineHeader();
         }
 
         var debug_bytes = std.ArrayList(u8).init(wasm.base.allocator);

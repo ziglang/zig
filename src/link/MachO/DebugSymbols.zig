@@ -281,7 +281,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     }
 
     if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader(module);
+        try self.dwarf.writeDbgLineHeader();
         self.debug_line_header_dirty = false;
     }
 

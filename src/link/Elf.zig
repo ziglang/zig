@@ -1149,7 +1149,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
 
         if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader(module);
+            try dw.writeDbgLineHeader();
             self.debug_line_header_dirty = false;
         }
     }
