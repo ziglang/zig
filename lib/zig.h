@@ -38,6 +38,12 @@ typedef char bool;
 #define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
+#if _MSC_VER
+#define zig_const_arr
+#else
+#define zig_const_arr static const
+#endif
+
 #if zig_has_attribute(naked) || defined(__GNUC__)
 #define zig_naked __attribute__((naked))
 #elif defined(_MSC_VER)
@@ -65,7 +71,7 @@ typedef char bool;
 #elif zig_has_attribute(aligned)
 #define zig_align(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
-#define zig_align zig_align_unavailable
+#define zig_align(alignment) __declspec(align(alignment))
 #else
 #define zig_align zig_align_unavailable
 #endif
@@ -73,7 +79,8 @@ typedef char bool;
 #if zig_has_attribute(aligned)
 #define zig_align_fn(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
-#define zig_align_fn zig_align_fn_unavailable
+// TODO: Figure out how to do this under MSVC
+#define zig_align_fn(alignment)
 #else
 #define zig_align_fn zig_align_fn_unavailable
 #endif
@@ -92,6 +99,9 @@ typedef char bool;
 
 #if zig_has_attribute(alias)
 #define zig_export(sig, symbol, name) zig_extern sig __attribute__((alias(symbol)))
+#elif _MSC_VER
+#define zig_export(sig, symbol, name) sig;\
+    __pragma(comment(linker, "/alternatename:" name "=" symbol ))
 #else
 #define zig_export(sig, symbol, name) __asm(name " = " symbol)
 #endif
@@ -1327,13 +1337,15 @@ static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
     return res;
 }
 
-static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
-    return zig_sub_i128(zig_div_trunc_i128(lhs, rhs), (((lhs.hi ^ rhs.hi) & zig_rem_i128(lhs, rhs).hi) < zig_as_i64(0)) ? zig_as_i128(0, 1) : zig_as_i128(0, 0));
-}
+// TODO: Implement
+static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs);
+
+// TODO: Implement
+static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs);
 
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 rem = zig_rem_i128(lhs, rhs);
-    return rem + (((lhs.hi ^ rhs.hi) & rem.hi) < zig_as_i64(0) ? rhs : zig_as_i128(0, 0));
+    return zig_add_i128(rem, (((lhs.hi ^ rhs.hi) & rem.hi) < zig_as_i64(0) ? rhs : zig_as_i128(0, 0)));
 }
 
 #endif /* zig_has_int128 */
@@ -1358,7 +1370,7 @@ static inline zig_i128 zig_max_i128(zig_i128 lhs, zig_i128 rhs) {
 }
 
 static inline zig_i128 zig_shr_i128(zig_i128 lhs, zig_u8 rhs) {
-    zig_i128 sign_mask = zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i32(0) ? -zig_as_i128(0, 1) : zig_as_i128(0, 0);
+    zig_i128 sign_mask = zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i32(0) ? zig_sub_i128(zig_as_i128(0, 0), zig_as_i128(0, 1)) : zig_as_i128(0, 0);
     return zig_xor_i128(zig_bitcast_i128(zig_shr_u128(zig_bitcast_u128(zig_xor_i128(lhs, sign_mask)), rhs)), sign_mask);
 }
 
@@ -1375,7 +1387,7 @@ static inline zig_u128 zig_shlw_u128(zig_u128 lhs, zig_u8 rhs, zig_u8 bits) {
 }
 
 static inline zig_i128 zig_shlw_i128(zig_i128 lhs, zig_u8 rhs, zig_u8 bits) {
-    return zig_wrap_i128(zig_bitcast_i128(zig_shl_u128(zig_bitcast_u128(lhs), zig_bitcast_u128(rhs))), bits);
+    return zig_wrap_i128(zig_bitcast_i128(zig_shl_u128(zig_bitcast_u128(lhs), rhs)), bits);
 }
 
 static inline zig_u128 zig_addw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
@@ -1393,6 +1405,9 @@ static inline zig_u128 zig_subw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
 static inline zig_i128 zig_subw_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
     return zig_wrap_i128(zig_bitcast_i128(zig_sub_u128(zig_bitcast_u128(lhs), zig_bitcast_u128(rhs))), bits);
 }
+
+// TODO: Implement
+static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs);
 
 static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_mul_u128(lhs, rhs), bits);
@@ -1496,15 +1511,15 @@ static inline bool zig_mulo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, zig_
 
 #else /* zig_has_int128 */
 
-static inline bool zig_addo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs) {
-    return zig_addo_u64(&res->hi, lhs.hi, rhs.hi, UINT64_MAX) |
-           zig_addo_u64(&res->hi, res->hi, zig_addo_u64(&res->lo, lhs.lo, rhs.lo, UINT64_MAX));
-}
+/* static inline bool zig_addo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs) { */
+/*     return zig_addo_u64(&res->hi, lhs.hi, rhs.hi, UINT64_MAX) | */
+/*            zig_addo_u64(&res->hi, res->hi, zig_addo_u64(&res->lo, lhs.lo, rhs.lo, UINT64_MAX)); */
+/* } */
 
-static inline bool zig_subo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs) {
-    return zig_subo_u64(&res->hi, lhs.hi, rhs.hi, UINT64_MAX) |
-           zig_subo_u64(&res->hi, res->hi, zig_subo_u64(&res->lo, lhs.lo, rhs.lo, UINT64_MAX));
-}
+/* static inline bool zig_subo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs) { */
+/*     return zig_subo_u64(&res->hi, lhs.hi, rhs.hi, UINT64_MAX) | */
+/*            zig_subo_u64(&res->hi, res->hi, zig_subo_u64(&res->lo, lhs.lo, rhs.lo, UINT64_MAX)); */
+/* } */
 
 #endif /* zig_has_int128 */
 
@@ -1512,7 +1527,12 @@ static inline zig_u128 zig_shls_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     zig_u128 res;
     if (zig_cmp_u128(rhs, zig_as_u128(0, bits)) >= zig_as_i32(0))
         return zig_cmp_u128(lhs, zig_as_u128(0, 0)) != zig_as_i32(0) ? zig_maxInt(u128, bits) : lhs;
+
+#if zig_has_int128
     return zig_shlo_u128(&res, lhs, (zig_u8)rhs, bits) ? zig_maxInt(u128, bits) : res;
+#else
+    return zig_shlo_u128(&res, lhs, (zig_u8)rhs.lo, bits) ? zig_maxInt(u128, bits) : res;
+#endif
 }
 
 static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
@@ -1593,7 +1613,7 @@ static inline zig_u128 zig_byte_swap_u128(zig_u128 val, zig_u8 bits) {
 }
 
 static inline zig_i128 zig_byte_swap_i128(zig_i128 val, zig_u8 bits) {
-    return zig_byte_swap_u128(zig_bitcast_u128(val), bits);
+    return zig_bitcast_i128(zig_byte_swap_u128(zig_bitcast_u128(val), bits));
 }
 
 static inline zig_u128 zig_bit_reverse_u128(zig_u128 val, zig_u8 bits) {
@@ -1603,7 +1623,7 @@ static inline zig_u128 zig_bit_reverse_u128(zig_u128 val, zig_u8 bits) {
 }
 
 static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
-    return zig_bit_reverse_u128(zig_bitcast_u128(val), bits);
+    return zig_bitcast_i128(zig_bit_reverse_u128(zig_bitcast_u128(val), bits));
 }
 
 /* ========================= Floating Point Support ========================= */

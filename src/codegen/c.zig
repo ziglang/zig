@@ -848,12 +848,13 @@ pub const DeclGen = struct {
 
                     const ai = ty.arrayInfo();
                     if (ai.elem_type.eql(Type.u8, dg.module)) {
-                        try writer.writeByte('"');
+                        var literal = stringLiteral(writer);
+                        try literal.start();
                         const c_len = ty.arrayLenIncludingSentinel();
                         var index: usize = 0;
                         while (index < c_len) : (index += 1)
-                            try writeStringLiteralChar(writer, 0xaa);
-                        return writer.writeByte('"');
+                            try literal.writeChar(0xaa);
+                        return literal.end();
                     } else {
                         try writer.writeByte('{');
                         const c_len = ty.arrayLenIncludingSentinel();
@@ -1060,23 +1061,40 @@ pub const DeclGen = struct {
                         defer arena.deinit();
                         const arena_allocator = arena.allocator();
 
+                        // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal
+                        const max_string_initializer_len = 65535;
+
                         const ai = ty.arrayInfo();
                         if (ai.elem_type.eql(Type.u8, dg.module)) {
-                            try writer.writeByte('"');
-                            var index: usize = 0;
-                            while (index < ai.len) : (index += 1) {
-                                const elem_val = try val.elemValue(dg.module, arena_allocator, index);
-                                const elem_val_u8 = if (elem_val.isUndef())
-                                    undefPattern(u8)
-                                else
-                                    @intCast(u8, elem_val.toUnsignedInt(target));
-                                try writeStringLiteralChar(writer, elem_val_u8);
+                            if (ai.len <= max_string_initializer_len) {
+                                var literal = stringLiteral(writer);
+                                try literal.start();
+                                var index: usize = 0;
+                                while (index < ai.len) : (index += 1) {
+                                    const elem_val = try val.elemValue(dg.module, arena_allocator, index);
+                                    const elem_val_u8 = if (elem_val.isUndef()) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(target));
+                                    try literal.writeChar(elem_val_u8);
+                                }
+                                if (ai.sentinel) |s| {
+                                    const s_u8 = @intCast(u8, s.toUnsignedInt(target));
+                                    try literal.writeChar(s_u8);
+                                }
+                                try literal.end();
+                            } else {
+                                try writer.writeByte('{');
+                                var index: usize = 0;
+                                while (index < ai.len) : (index += 1) {
+                                    if (index != 0) try writer.writeByte(',');
+                                    const elem_val = try val.elemValue(dg.module, arena_allocator, index);
+                                    const elem_val_u8 = if (elem_val.isUndef()) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(target));
+                                    try writer.print("'\\x{x}'", .{ elem_val_u8 });
+                                }
+                                if (ai.sentinel) |s| {
+                                    if (index != 0) try writer.writeByte(',');
+                                    try dg.renderValue(writer, ai.elem_type, s, .Initializer);
+                                }
+                                try writer.writeByte('}');
                             }
-                            if (ai.sentinel) |s| {
-                                const s_u8 = @intCast(u8, s.toUnsignedInt(target));
-                                try writeStringLiteralChar(writer, s_u8);
-                            }
-                            try writer.writeByte('"');
                         } else {
                             try writer.writeByte('{');
                             var index: usize = 0;
@@ -2134,7 +2152,7 @@ pub const DeclGen = struct {
             const c_len_val = Value.initPayload(&c_len_pl.base);
 
             try suffix_writer.writeByte('[');
-            if (mutability == .ConstArgument and depth == 0) try suffix_writer.writeAll("static const ");
+            if (mutability == .ConstArgument and depth == 0) try suffix_writer.writeAll("zig_const_arr ");
             try suffix.writer().print("{}]", .{try dg.fmtIntLiteral(Type.usize, c_len_val)});
             render_ty = array_info.elem_type;
             depth += 1;
@@ -6793,6 +6811,68 @@ fn compilerRtAbbrev(ty: Type, target: std.Target) []const u8 {
     } else unreachable;
 }
 
+fn StringLiteral(comptime WriterType: type) type {
+    // msvc has a length limit of 16380 per string literal (before concatenation)
+    const max_char_len = 4;
+    const max_len = 16380 - max_char_len;
+
+    return struct {
+        cur_len: usize = 0,
+        counting_writer: std.io.CountingWriter(WriterType),
+
+        pub const Error = WriterType.Error;
+
+        const Self = @This();
+
+        pub fn start(self: *Self) Error!void {
+            const writer = self.counting_writer.writer();
+            try writer.writeByte('\"');
+        }
+
+        pub fn end(self: *Self) Error!void {
+            const writer = self.counting_writer.writer();
+            try writer.writeByte('\"');
+        }
+
+        fn writeStringLiteralChar(writer: anytype, c: u8) !void {
+            switch (c) {
+                7 => try writer.writeAll("\\a"),
+                8 => try writer.writeAll("\\b"),
+                '\t' => try writer.writeAll("\\t"),
+                '\n' => try writer.writeAll("\\n"),
+                11 => try writer.writeAll("\\v"),
+                12 => try writer.writeAll("\\f"),
+                '\r' => try writer.writeAll("\\r"),
+                '"', '\'', '?', '\\' => try writer.print("\\{c}", .{c}),
+                else => switch (c) {
+                    ' '...'~' => try writer.writeByte(c),
+                    else => try writer.print("\\{o:0>3}", .{c}),
+                },
+            }
+        }
+
+        pub fn writeChar(self: *Self,  c: u8) Error!void {
+            const writer = self.counting_writer.writer();
+
+            if (self.cur_len == 0 and self.counting_writer.bytes_written > 1)
+                try writer.writeAll("\"\"");
+
+            const len = self.counting_writer.bytes_written;
+            try writeStringLiteralChar(writer, c);
+
+            const char_length = self.counting_writer.bytes_written - len;
+            assert(char_length <= max_char_len);
+            self.cur_len += char_length;
+
+            if (self.cur_len >= max_len) self.cur_len = 0;
+        }
+    };
+}
+
+fn stringLiteral(child_stream: anytype) StringLiteral(@TypeOf(child_stream)) {
+    return .{ .counting_writer = std.io.countingWriter(child_stream) };
+}
+
 fn formatStringLiteral(
     str: []const u8,
     comptime fmt: []const u8,
@@ -6800,31 +6880,16 @@ fn formatStringLiteral(
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
-    try writer.writeByte('\"');
+
+    var literal = stringLiteral(writer);
+    try literal.start();
     for (str) |c|
-        try writeStringLiteralChar(writer, c);
-    try writer.writeByte('\"');
+        try literal.writeChar(c);
+    try literal.end();
 }
 
 fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
     return .{ .data = str };
-}
-
-fn writeStringLiteralChar(writer: anytype, c: u8) !void {
-    switch (c) {
-        7 => try writer.writeAll("\\a"),
-        8 => try writer.writeAll("\\b"),
-        '\t' => try writer.writeAll("\\t"),
-        '\n' => try writer.writeAll("\\n"),
-        11 => try writer.writeAll("\\v"),
-        12 => try writer.writeAll("\\f"),
-        '\r' => try writer.writeAll("\\r"),
-        '"', '\'', '?', '\\' => try writer.print("\\{c}", .{c}),
-        else => switch (c) {
-            ' '...'~' => try writer.writeByte(c),
-            else => try writer.print("\\{o:0>3}", .{c}),
-        },
-    }
 }
 
 fn undefPattern(comptime IntType: type) IntType {
@@ -6905,7 +6970,15 @@ fn formatIntLiteral(
         return writer.print("{s}_{s}", .{ abbrev, if (int.positive) "MAX" else "MIN" });
     }
 
-    if (!int.positive) try writer.writeByte('-');
+    // TODO: If > 64 bit, need to use a subtract from zero fn here instead of negate
+    if (!int.positive) {
+        if (c_bits > 64) {
+            try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
+        } else {
+            try writer.writeByte('-');
+        }
+    }
+
     switch (data.ty.tag()) {
         .c_short, .c_ushort, .c_int, .c_uint, .c_long, .c_ulong, .c_longlong, .c_ulonglong => {},
         else => try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits }),
@@ -6976,6 +7049,7 @@ fn formatIntLiteral(
             .mod = data.mod,
         }, fmt, options, writer);
 
+        if (!int.positive and c_bits > 64) try writer.writeByte(')');
         return writer.writeByte(')');
     }
 
