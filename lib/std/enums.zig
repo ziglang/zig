@@ -307,14 +307,14 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
 /// A multiset of enum elements up to a count of usize. Backed
 /// by an EnumArray. This type does no dynamic allocation and can
 /// be copied by value.
-pub fn EnumMultiSet(comptime E: type) type {
-    return BoundedEnumMultiSet(E, usize);
+pub fn EnumMultiset(comptime E: type) type {
+    return BoundedEnumMultiset(E, usize);
 }
 
 /// A multiset of enum elements up to CountSize. Backed by an
 /// EnumArray. This type does no dynamic allocation and can be
 /// copied by value.
-pub fn BoundedEnumMultiSet(comptime E: type, comptime CountSize: type) type {
+pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
     return struct {
         const Self = @This();
 
@@ -472,28 +472,28 @@ pub fn BoundedEnumMultiSet(comptime E: type, comptime CountSize: type) type {
     };
 }
 
-test "EnumMultiSet" {
+test "EnumMultiset" {
     const Ball = enum { red, green, blue };
 
-    const empty = EnumMultiSet(Ball).initEmpty();
-    const mix = EnumMultiSet(Ball).init(.{
+    const empty = EnumMultiset(Ball).initEmpty();
+    const r0_g1_b2 = EnumMultiset(Ball).init(.{
         .red = 0,
         .green = 1,
         .blue = 2,
     });
-    const ten_of_each = EnumMultiSet(Ball).initWithCount(10);
+    const ten_of_each = EnumMultiset(Ball).initWithCount(10);
 
     try testing.expectEqual(empty.count(), 0);
-    try testing.expectEqual(mix.count(), 3);
+    try testing.expectEqual(r0_g1_b2.count(), 3);
     try testing.expectEqual(ten_of_each.count(), 30);
 
     try testing.expect(!empty.contains(.red));
     try testing.expect(!empty.contains(.green));
     try testing.expect(!empty.contains(.blue));
 
-    try testing.expect(!mix.contains(.red));
-    try testing.expect(mix.contains(.green));
-    try testing.expect(mix.contains(.blue));
+    try testing.expect(!r0_g1_b2.contains(.red));
+    try testing.expect(r0_g1_b2.contains(.green));
+    try testing.expect(r0_g1_b2.contains(.blue));
 
     try testing.expect(ten_of_each.contains(.red));
     try testing.expect(ten_of_each.contains(.green));
@@ -534,7 +534,7 @@ test "EnumMultiSet" {
     }
 
     try testing.expectEqual(empty.getCount(.green), 0);
-    try testing.expectEqual(mix.getCount(.green), 1);
+    try testing.expectEqual(r0_g1_b2.getCount(.green), 1);
     try testing.expectEqual(ten_of_each.getCount(.green), 10);
 
     {
@@ -544,7 +544,7 @@ test "EnumMultiSet" {
     }
 
     {
-        var copy = mix;
+        var copy = r0_g1_b2;
         copy.addSetAssertSafe(ten_of_each);
         try testing.expectEqual(copy.getCount(.red), 10);
         try testing.expectEqual(copy.getCount(.green), 11);
@@ -552,19 +552,19 @@ test "EnumMultiSet" {
     }
 
     {
-        var copy = mix;
+        var copy = r0_g1_b2;
         try copy.addSet(ten_of_each);
         try testing.expectEqual(copy.getCount(.red), 10);
         try testing.expectEqual(copy.getCount(.green), 11);
         try testing.expectEqual(copy.getCount(.blue), 12);
 
-        const full = EnumMultiSet(Ball).initWithCount(std.math.maxInt(usize));
+        const full = EnumMultiset(Ball).initWithCount(std.math.maxInt(usize));
         try testing.expectError(error.Overflow, copy.addSet(full));
     }
 
     {
         var copy = ten_of_each;
-        copy.removeSet(mix);
+        copy.removeSet(r0_g1_b2);
         try testing.expectEqual(copy.getCount(.red), 10);
         try testing.expectEqual(copy.getCount(.green), 9);
         try testing.expectEqual(copy.getCount(.blue), 8);
@@ -576,38 +576,38 @@ test "EnumMultiSet" {
     }
 
     try testing.expect(empty.eql(empty));
-    try testing.expect(mix.eql(mix));
+    try testing.expect(r0_g1_b2.eql(r0_g1_b2));
     try testing.expect(ten_of_each.eql(ten_of_each));
-    try testing.expect(!empty.eql(mix));
-    try testing.expect(!mix.eql(ten_of_each));
+    try testing.expect(!empty.eql(r0_g1_b2));
+    try testing.expect(!r0_g1_b2.eql(ten_of_each));
     try testing.expect(!ten_of_each.eql(empty));
 
     {
-        const result = mix.plusAssertSafe(ten_of_each);
+        const result = r0_g1_b2.plusAssertSafe(ten_of_each);
         try testing.expectEqual(result.getCount(.red), 10);
         try testing.expectEqual(result.getCount(.green), 11);
         try testing.expectEqual(result.getCount(.blue), 12);
     }
 
     {
-        const result = try mix.plus(ten_of_each);
+        const result = try r0_g1_b2.plus(ten_of_each);
         try testing.expectEqual(result.getCount(.red), 10);
         try testing.expectEqual(result.getCount(.green), 11);
         try testing.expectEqual(result.getCount(.blue), 12);
 
-        const full = EnumMultiSet(Ball).initWithCount(std.math.maxInt(usize));
+        const full = EnumMultiset(Ball).initWithCount(std.math.maxInt(usize));
         try testing.expectError(error.Overflow, result.plus(full));
     }
 
     {
-        const result = ten_of_each.minus(mix);
+        const result = ten_of_each.minus(r0_g1_b2);
         try testing.expectEqual(result.getCount(.red), 10);
         try testing.expectEqual(result.getCount(.green), 9);
         try testing.expectEqual(result.getCount(.blue), 8);
     }
 
     {
-        const result = ten_of_each.minus(mix).minus(ten_of_each);
+        const result = ten_of_each.minus(r0_g1_b2).minus(ten_of_each);
         try testing.expectEqual(result.getCount(.red), 0);
         try testing.expectEqual(result.getCount(.green), 0);
         try testing.expectEqual(result.getCount(.blue), 0);
@@ -629,7 +629,7 @@ test "EnumMultiSet" {
     }
 
     {
-        var copy = mix;
+        var copy = r0_g1_b2;
         var it = copy.iterator();
         var entry = it.next().?;
         try testing.expectEqual(entry.key, .red);
