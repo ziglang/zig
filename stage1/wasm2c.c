@@ -97,21 +97,20 @@ int main(int argc, char **argv) {
           "#include <stdint.h>\n"
           "#include <stdlib.h>\n"
           "#include <string.h>\n"
+          "\n"
+          "static uint16_t i16_byteswap(uint16_t src) {\n"
+          "    return (uint16_t)(uint8_t)(src >> 0) << 8 |\n"
+          "           (uint16_t)(uint8_t)(src >> 8) << 0;\n"
+          "}\n"
+          "static uint32_t i32_byteswap(uint32_t src) {\n"
+          "    return (uint32_t)i16_byteswap(src >>  0) << 16 |\n"
+          "           (uint32_t)i16_byteswap(src >> 16) <<  0;\n"
+          "}\n"
+          "static uint64_t i64_byteswap(uint64_t src) {\n"
+          "    return (uint64_t)i32_byteswap(src >>  0) << 32 |\n"
+          "           (uint64_t)i32_byteswap(src >> 32) <<  0;\n"
+          "}\n"
           "\n", out);
-    if (is_big_endian)
-        fputs("static uint16_t i16_byteswap(uint16_t src) {\n"
-              "    return (uint16_t)(uint8_t)(src >> 0) << 8 |\n"
-              "           (uint16_t)(uint8_t)(src >> 8) << 0;\n"
-              "}\n"
-              "static uint32_t i32_byteswap(uint32_t src) {\n"
-              "    return (uint32_t)i16_byteswap(src >>  0) << 16 |\n"
-              "           (uint32_t)i16_byteswap(src >> 16) <<  0;\n"
-              "}\n"
-              "static uint64_t i64_byteswap(uint64_t src) {\n"
-              "    return (uint64_t)i32_byteswap(src >>  0) << 32 |\n"
-              "           (uint64_t)i32_byteswap(src >> 32) <<  0;\n"
-              "}\n"
-              "\n", out);
     fputs("static uint16_t load16_align0(const uint8_t *ptr) {\n"
           "    uint16_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
@@ -165,6 +164,39 @@ int main(int argc, char **argv) {
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    return val;\n"
+          "}\n"
+          "\n"
+          "static uint32_t i32_popcnt(uint32_t lhs) {\n"
+          "    lhs = lhs - ((lhs >> 1) & UINT32_C(0x55555555));\n"
+          "    lhs = (lhs & UINT32_C(0x33333333)) + ((lhs >> 2) & UINT32_C(0x33333333));\n"
+          "    lhs = (lhs + (lhs >> 4)) & UINT32_C(0x0F0F0F0F);\n"
+          "    return (lhs * UINT32_C(0x01010101)) >> 24;\n"
+          "}\n"
+          "static uint32_t i32_ctz(uint32_t lhs) {\n"
+          "    return i32_popcnt(~lhs & (lhs - 1));\n"
+          "}\n"
+          "static uint32_t i32_clz(uint32_t lhs) {\n"
+          "    lhs = i32_byteswap(lhs);\n"
+          "    lhs = (lhs & UINT32_C(0x0F0F0F0F)) << 4 | (lhs & UINT32_C(0xF0F0F0F0)) >> 4;\n"
+          "    lhs = (lhs & UINT32_C(0x33333333)) << 2 | (lhs & UINT32_C(0xCCCCCCCC)) >> 2;\n"
+          "    lhs = (lhs & UINT32_C(0x55555555)) << 1 | (lhs & UINT32_C(0xAAAAAAAA)) >> 1;\n"
+          "    return i32_ctz(lhs);\n"
+          "}\n"
+          "static uint64_t i64_popcnt(uint64_t lhs) {\n"
+          "    lhs = lhs - ((lhs >> 1) & UINT64_C(0x5555555555555555));\n"
+          "    lhs = (lhs & UINT64_C(0x3333333333333333)) + ((lhs >> 2) & UINT64_C(0x3333333333333333));\n"
+          "    lhs = (lhs + (lhs >> 4)) & UINT64_C(0x0F0F0F0F0F0F0F0F);\n"
+          "    return (lhs * UINT64_C(0x0101010101010101)) >> 56;\n"
+          "}\n"
+          "static uint64_t i64_ctz(uint64_t lhs) {\n"
+          "    return i64_popcnt(~lhs & (lhs - 1));\n"
+          "}\n"
+          "static uint64_t i64_clz(uint64_t lhs) {\n"
+          "    lhs = i64_byteswap(lhs);\n"
+          "    lhs = (lhs & UINT64_C(0x0F0F0F0F0F0F0F0F)) << 4 | (lhs & UINT32_C(0xF0F0F0F0F0F0F0F0)) >> 4;\n"
+          "    lhs = (lhs & UINT64_C(0x3333333333333333)) << 2 | (lhs & UINT32_C(0xCCCCCCCCCCCCCCCC)) >> 2;\n"
+          "    lhs = (lhs & UINT64_C(0x5555555555555555)) << 1 | (lhs & UINT32_C(0xAAAAAAAAAAAAAAAA)) >> 1;\n"
+          "    return i64_ctz(lhs);\n"
           "}\n"
           "\n"
           "static void store16_align0(uint8_t *ptr, uint16_t val) {\n", out);
@@ -787,6 +819,7 @@ int main(int argc, char **argv) {
                             } else unreachable_depth -= 1;
                             switch (opcode) {
                                 case WasmOpcode_else:
+                                    FuncGen_reuseReset(&fg);
                                     FuncGen_outdent(&fg, out);
                                     fputs("} else {\n", out);
                                     break;
@@ -968,10 +1001,10 @@ int main(int argc, char **argv) {
                         if (unreachable_depth == 0) {
                             uint32_t cond = FuncGen_stackPop(&fg);
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, FuncGen_localType(&fg, lhs));
-                            fprintf(out, "l%" PRIu32 " ? l%" PRIu32 " : l%" PRIu32 ";\n",
-                                    cond, lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%"PRIu32" = l%" PRIu32 " ? l%" PRIu32 " : l%" PRIu32 ";\n",
+                                    lhs, cond, lhs, rhs);
                         }
                         break;
 
@@ -1369,89 +1402,55 @@ int main(int argc, char **argv) {
 
                     case WasmOpcode_i32_eqz:
                         if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "!l%" PRIu32 ";\n", lhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = !l%" PRIu32 ";\n", lhs, lhs);
                         }
                         break;
                     case WasmOpcode_i32_eq:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " == l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_ne:
+                    case WasmOpcode_i32_lt_u:
+                    case WasmOpcode_i32_gt_u:
+                    case WasmOpcode_i32_le_u:
+                    case WasmOpcode_i32_ge_u:
+                        // i32 unsigned comparisons
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != l%" PRIu32 ";\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            const char *operator;
+                            switch (opcode) {
+                                case WasmOpcode_i32_eq:   operator = "=="; break;
+                                case WasmOpcode_i32_ne:   operator = "!="; break;
+                                case WasmOpcode_i32_lt_u: operator = "<";  break;
+                                case WasmOpcode_i32_gt_u: operator = ">";  break;
+                                case WasmOpcode_i32_le_u: operator = "<="; break;
+                                case WasmOpcode_i32_ge_u: operator = ">="; break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = l%" PRIu32 " %s l%" PRIu32 ";\n",
+                                    lhs, lhs, operator, rhs);
                         }
                         break;
                     case WasmOpcode_i32_lt_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " < (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_lt_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " < l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_gt_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " > (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_gt_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " > l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_le_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " <= (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_le_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " <= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_ge_s:
+                        // i32 signed comparisons
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " >= (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_ge_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >= l%" PRIu32 ";\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            const char *operator;
+                            switch (opcode) {
+                                case WasmOpcode_i32_lt_s: operator = "<";  break;
+                                case WasmOpcode_i32_gt_s: operator = ">";  break;
+                                case WasmOpcode_i32_le_s: operator = "<="; break;
+                                case WasmOpcode_i32_ge_s: operator = ">="; break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = (int32_t)l%" PRIu32 " %s (int32_t)l%" PRIu32
+                                    ";\n", lhs, lhs, operator, rhs);
                         }
                         break;
 
@@ -1463,685 +1462,385 @@ int main(int argc, char **argv) {
                         }
                         break;
                     case WasmOpcode_i64_eq:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " == l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_ne:
+                    case WasmOpcode_i64_lt_u:
+                    case WasmOpcode_i64_gt_u:
+                    case WasmOpcode_i64_le_u:
+                    case WasmOpcode_i64_ge_u:
+                    case WasmOpcode_f32_eq:
+                    case WasmOpcode_f32_ne:
+                    case WasmOpcode_f32_lt:
+                    case WasmOpcode_f32_gt:
+                    case WasmOpcode_f32_le:
+                    case WasmOpcode_f32_ge:
+                    case WasmOpcode_f64_eq:
+                    case WasmOpcode_f64_ne:
+                    case WasmOpcode_f64_lt:
+                    case WasmOpcode_f64_gt:
+                    case WasmOpcode_f64_le:
+                    case WasmOpcode_f64_ge:
+                        // non-i32 unsigned comparisons
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
                             uint32_t lhs = FuncGen_stackPop(&fg);
+                            const char *operator;
+                            switch (opcode) {
+                                case WasmOpcode_i64_eq:
+                                case WasmOpcode_f32_eq:
+                                case WasmOpcode_f64_eq:
+                                    operator = "==";
+                                    break;
+                                case WasmOpcode_i64_ne:
+                                case WasmOpcode_f32_ne:
+                                case WasmOpcode_f64_ne:
+                                    operator = "!=";
+                                    break;
+                                case WasmOpcode_i64_lt_u:
+                                case WasmOpcode_f32_lt:
+                                case WasmOpcode_f64_lt:
+                                    operator = "<";
+                                    break;
+                                case WasmOpcode_i64_gt_u:
+                                case WasmOpcode_f32_gt:
+                                case WasmOpcode_f64_gt:
+                                    operator = ">";
+                                    break;
+                                case WasmOpcode_i64_le_u:
+                                case WasmOpcode_f32_le:
+                                case WasmOpcode_f64_le:
+                                    operator = "<=";
+                                    break;
+                                case WasmOpcode_i64_ge_u:
+                                case WasmOpcode_f32_ge:
+                                case WasmOpcode_f64_ge:
+                                    operator = ">=";
+                                    break;
+                                default: panic("unreachable");
+                            }
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != l%" PRIu32 ";\n", lhs, rhs);
+                            fprintf(out, "l%" PRIu32 " = l%" PRIu32 " %s l%" PRIu32 ";\n",
+                                    lhs, lhs, operator, rhs);
                         }
                         break;
                     case WasmOpcode_i64_lt_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int64_t)l%" PRIu32 " < (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_lt_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " < l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_gt_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int64_t)l%" PRIu32 " > (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_gt_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " > l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_le_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int64_t)l%" PRIu32 " <= (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_le_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " <= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_ge_s:
+                        // i64 signed comparisons
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
                             uint32_t lhs = FuncGen_stackPop(&fg);
+                            const char *operator;
+                            switch (opcode) {
+                                case WasmOpcode_i64_lt_s: operator = "<";  break;
+                                case WasmOpcode_i64_gt_s: operator = ">";  break;
+                                case WasmOpcode_i64_le_s: operator = "<="; break;
+                                case WasmOpcode_i64_ge_s: operator = ">="; break;
+                                default: panic("unreachable");
+                            }
                             FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int64_t)l%" PRIu32 " >= (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_ge_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-
-                    case WasmOpcode_f32_eq:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " == l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_ne:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_lt:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " < l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_gt:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " > l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_le:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " <= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_ge:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-
-                    case WasmOpcode_f64_eq:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " == l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_ne:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_lt:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " < l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_gt:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " > l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_le:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " <= l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_ge:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >= l%" PRIu32 ";\n", lhs, rhs);
+                            fprintf(out, "l%" PRIu32 " = (int64_t)l%" PRIu32 " %s (int64_t)l%" PRIu32
+                                    ";\n", lhs, lhs, operator, rhs);
                         }
                         break;
 
                     case WasmOpcode_i32_clz:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != 0 ? __builtin_clz(l%" PRIu32 ") : 32;\n",
-                                    lhs, lhs);
-                        }
-                        break;
                     case WasmOpcode_i32_ctz:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " != 0 ? __builtin_ctz(l%" PRIu32 ") : 32;\n",
-                                    lhs, lhs);
-                        }
-                        break;
                     case WasmOpcode_i32_popcnt:
+                    case WasmOpcode_i64_clz:
+                    case WasmOpcode_i64_ctz:
+                    case WasmOpcode_i64_popcnt:
+                    case WasmOpcode_f32_abs:
+                    case WasmOpcode_f32_neg:
+                    case WasmOpcode_f32_ceil:
+                    case WasmOpcode_f32_floor:
+                    case WasmOpcode_f32_trunc:
+                    case WasmOpcode_f32_nearest:
+                    case WasmOpcode_f32_sqrt:
+                    case WasmOpcode_f64_abs:
+                    case WasmOpcode_f64_neg:
+                    case WasmOpcode_f64_ceil:
+                    case WasmOpcode_f64_floor:
+                    case WasmOpcode_f64_trunc:
+                    case WasmOpcode_f64_nearest:
+                    case WasmOpcode_f64_sqrt:
+                        // unary functions
                         if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "__builtin_popcount(l%" PRIu32 ");\n", lhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            const char *function;
+                            switch (opcode) {
+                                case WasmOpcode_i32_clz:     function = "i32_clz";    break;
+                                case WasmOpcode_i32_ctz:     function = "i32_ctz";    break;
+                                case WasmOpcode_i32_popcnt:  function = "i32_popcnt"; break;
+                                case WasmOpcode_i64_clz:     function = "i64_clz";    break;
+                                case WasmOpcode_i64_ctz:     function = "i64_ctz";    break;
+                                case WasmOpcode_i64_popcnt:  function = "i64_popcnt"; break;
+                                case WasmOpcode_f32_abs:     function = "fabsf";      break;
+                                case WasmOpcode_f32_neg:
+                                case WasmOpcode_f64_neg:     function = "-";          break;
+                                case WasmOpcode_f32_ceil:    function = "ceilf";      break;
+                                case WasmOpcode_f32_floor:   function = "floorf";     break;
+                                case WasmOpcode_f32_trunc:   function = "truncf";     break;
+                                case WasmOpcode_f32_nearest: function = "roundf";     break;
+                                case WasmOpcode_f32_sqrt:    function = "sqrtf";      break;
+                                case WasmOpcode_f64_abs:     function = "fabs";       break;
+                                case WasmOpcode_f64_ceil:    function = "ceil";       break;
+                                case WasmOpcode_f64_floor:   function = "floor";      break;
+                                case WasmOpcode_f64_trunc:   function = "trunc";      break;
+                                case WasmOpcode_f64_nearest: function = "round";      break;
+                                case WasmOpcode_f64_sqrt:    function = "sqrt";       break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = %s(l%" PRIu32 ");\n", lhs, function, lhs);
                         }
                         break;
                     case WasmOpcode_i32_add:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " + l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_sub:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " - l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_mul:
+                    case WasmOpcode_i32_div_u:
+                    case WasmOpcode_i32_rem_u:
+                    case WasmOpcode_i32_and:
+                    case WasmOpcode_i32_or:
+                    case WasmOpcode_i32_xor:
+                    case WasmOpcode_i64_add:
+                    case WasmOpcode_i64_sub:
+                    case WasmOpcode_i64_mul:
+                    case WasmOpcode_i64_div_u:
+                    case WasmOpcode_i64_rem_u:
+                    case WasmOpcode_i64_and:
+                    case WasmOpcode_i64_or:
+                    case WasmOpcode_i64_xor:
+                    case WasmOpcode_f32_add:
+                    case WasmOpcode_f32_sub:
+                    case WasmOpcode_f32_mul:
+                    case WasmOpcode_f32_div:
+                    case WasmOpcode_f64_add:
+                    case WasmOpcode_f64_sub:
+                    case WasmOpcode_f64_mul:
+                    case WasmOpcode_f64_div:
+                        // unsigned binary operators
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " * l%" PRIu32 ";\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            char operator;
+                            switch (opcode) {
+                                case WasmOpcode_i32_add:
+                                case WasmOpcode_i64_add:
+                                case WasmOpcode_f32_add:
+                                case WasmOpcode_f64_add:
+                                    operator = '+';
+                                    break;
+                                case WasmOpcode_i32_sub:
+                                case WasmOpcode_i64_sub:
+                                case WasmOpcode_f32_sub:
+                                case WasmOpcode_f64_sub:
+                                    operator = '-';
+                                    break;
+                                case WasmOpcode_i32_mul:
+                                case WasmOpcode_i64_mul:
+                                case WasmOpcode_f32_mul:
+                                case WasmOpcode_f64_mul:
+                                    operator = '*';
+                                    break;
+                                case WasmOpcode_i32_div_u:
+                                case WasmOpcode_i64_div_u:
+                                case WasmOpcode_f32_div:
+                                case WasmOpcode_f64_div:
+                                    operator = '/';
+                                    break;
+                                case WasmOpcode_i32_rem_u:
+                                case WasmOpcode_i64_rem_u:
+                                    operator = '%';
+                                    break;
+                                case WasmOpcode_i32_and:
+                                case WasmOpcode_i64_and:
+                                    operator = '&';
+                                    break;
+                                case WasmOpcode_i32_or:
+                                case WasmOpcode_i64_or:
+                                    operator = '|';
+                                    break;
+                                case WasmOpcode_i32_xor:
+                                case WasmOpcode_i64_xor:
+                                    operator = '^';
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " %c= l%" PRIu32 ";\n", lhs, operator, rhs);
                         }
                         break;
                     case WasmOpcode_i32_div_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " / (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_div_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " / l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_rem_s:
+                    case WasmOpcode_i64_div_s:
+                    case WasmOpcode_i64_rem_s:
+                        // signed binary operators
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " %% (int32_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_rem_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " %% l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_and:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " & l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_or:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " | l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_xor:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " ^ l%" PRIu32 ";\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            char operator;
+                            unsigned width;
+                            switch (opcode) {
+                                case WasmOpcode_i32_div_s:
+                                case WasmOpcode_i64_div_s:
+                                    operator = '/';
+                                    break;
+                                case WasmOpcode_i32_rem_s:
+                                case WasmOpcode_i64_rem_s:
+                                    operator = '%';
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            switch (opcode) {
+                                case WasmOpcode_i32_div_s:
+                                case WasmOpcode_i32_rem_s:
+                                    width = 32;
+                                    break;
+                                case WasmOpcode_i64_div_s:
+                                case WasmOpcode_i64_rem_s:
+                                    width = 64;
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = (uint%u_t)((int%u_t)l%" PRIu32 " %c "
+                                    "(int%u_t)l%" PRIu32 ");\n",
+                                    lhs, width, width, lhs, operator, width, rhs);
                         }
                         break;
                     case WasmOpcode_i32_shl:
+                    case WasmOpcode_i32_shr_u:
+                    case WasmOpcode_i64_shl:
+                    case WasmOpcode_i64_shr_u:
+                        // unsigned shift operators
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " << (l%" PRIu32 " & 0x1F);\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            char operator;
+                            unsigned width;
+                            switch (opcode) {
+                                case WasmOpcode_i32_shl:
+                                case WasmOpcode_i64_shl:
+                                    operator = '<';
+                                    break;
+                                case WasmOpcode_i32_shr_u:
+                                case WasmOpcode_i64_shr_u:
+                                    operator = '>';
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            switch (opcode) {
+                                case WasmOpcode_i32_shl:
+                                case WasmOpcode_i32_shr_u:
+                                    width = 32;
+                                    break;
+                                case WasmOpcode_i64_shl:
+                                case WasmOpcode_i64_shr_u:
+                                    width = 64;
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " %c%c= l%" PRIu32 " & 0x%X;\n",
+                                    lhs, operator, operator, rhs, width - 1);
                         }
                         break;
                     case WasmOpcode_i32_shr_s:
+                    case WasmOpcode_i64_shr_s:
+                        // signed shift operators
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "(int32_t)l%" PRIu32 " >> (l%" PRIu32 " & 0x1F);\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i32_shr_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >> (l%" PRIu32 " & 0x1F);\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            char operator;
+                            unsigned width;
+                            switch (opcode) {
+                                case WasmOpcode_i32_shr_s:
+                                case WasmOpcode_i64_shr_s:
+                                    operator = '>';
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            switch (opcode) {
+                                case WasmOpcode_i32_shr_s:
+                                    width = 32;
+                                    break;
+                                case WasmOpcode_i64_shr_s:
+                                    width = 64;
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = (uint%u_t)((int%u_t)l%" PRIu32 " %c%c "
+                                    "(l%" PRIu32 " & 0x%X));\n",
+                                    lhs, width, width, lhs, operator, operator, rhs, width - 1);
                         }
                         break;
                     case WasmOpcode_i32_rotl:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " << (l%" PRIu32 " & 0x1F) | "
-                                    "l%" PRIu32 " >> (-l%" PRIu32" & 0x1F);\n", lhs, rhs, lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i32_rotr:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i32);
-                            fprintf(out, "l%" PRIu32 " >> (l%" PRIu32 " & 0x1F) | "
-                                    "l%" PRIu32 " << (-l%" PRIu32" & 0x1F);\n", lhs, rhs, lhs, rhs);
-                        }
-                        break;
-
-                    case WasmOpcode_i64_clz:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " != 0 ? __builtin_clzll(l%" PRIu32 ") : 64;\n",
-                                    lhs, lhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_ctz:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " != 0 ? __builtin_ctzll(l%" PRIu32 ") : 64;\n",
-                                    lhs, lhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_popcnt:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "__builtin_popcountll(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_add:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " + l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_sub:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " - l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_mul:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " * l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_div_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "(int64_t)l%" PRIu32 " / (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_div_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " / l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_rem_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "(int64_t)l%" PRIu32 " %% (int64_t)l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_rem_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " %% l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_and:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " & l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_or:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " | l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_xor:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " ^ l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_shl:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " << (l%" PRIu32 " & 0x3F);\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_shr_s:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "(int64_t)l%" PRIu32 " >> (l%" PRIu32 " & 0x3F);\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_i64_shr_u:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " >> (l%" PRIu32 " & 0x3F);\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_rotl:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " << (l%" PRIu32 " & 0x3F) | "
-                                    "l%" PRIu32 " >> (-l%" PRIu32" & 0x3F);\n", lhs, rhs, lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_i64_rotr:
+                        // rotate operators
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_i64);
-                            fprintf(out, "l%" PRIu32 " >> (l%" PRIu32 " & 0x3F) | "
-                                    "l%" PRIu32 " << (-l%" PRIu32" & 0x3F);\n", lhs, rhs, lhs, rhs);
-                        }
-                        break;
-
-                    case WasmOpcode_f32_abs:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "fabsf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_neg:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "-l%" PRIu32 ";\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_ceil:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "ceilf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_floor:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "floorf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_trunc:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "truncf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_nearest:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "roundf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_sqrt:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "sqrtf(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_add:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "l%" PRIu32 " + l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_sub:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "l%" PRIu32 " - l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_mul:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "l%" PRIu32 " * l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f32_div:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "l%" PRIu32 " / l%" PRIu32 ";\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            char forward_operator;
+                            char reverse_operator;
+                            unsigned width;
+                            switch (opcode) {
+                                case WasmOpcode_i32_rotl:
+                                case WasmOpcode_i64_rotl:
+                                    forward_operator = '<';
+                                    reverse_operator = '>';
+                                    break;
+                                case WasmOpcode_i32_rotr:
+                                case WasmOpcode_i64_rotr:
+                                    forward_operator = '>';
+                                    reverse_operator = '<';
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            switch (opcode) {
+                                case WasmOpcode_i32_rotl:
+                                case WasmOpcode_i32_rotr:
+                                    width = 32;
+                                    break;
+                                case WasmOpcode_i64_rotl:
+                                case WasmOpcode_i64_rotr:
+                                    width = 64;
+                                    break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32" = l%" PRIu32 " %c%c (l%" PRIu32 " & 0x%X) | "
+                                    "l%" PRIu32 " %c%c (-l%" PRIu32" & 0x%X);\n", lhs,
+                                    lhs, forward_operator, forward_operator, rhs, width - 1,
+                                    lhs, reverse_operator, reverse_operator, rhs, width - 1);
                         }
                         break;
                     case WasmOpcode_f32_min:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "fminf(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_f32_max:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "fmaxf(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_f32_copysign:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f32);
-                            fprintf(out, "copysignf(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
-                        }
-                        break;
-
-                    case WasmOpcode_f64_abs:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "fabs(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_neg:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "-l%" PRIu32 ";\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_ceil:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "ceil(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_floor:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "floor(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_trunc:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "trunc(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_nearest:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "round(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_sqrt:
-                        if (unreachable_depth == 0) {
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "sqrt(l%" PRIu32 ");\n", lhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_add:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "l%" PRIu32 " + l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_sub:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "l%" PRIu32 " - l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_mul:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "l%" PRIu32 " * l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
-                    case WasmOpcode_f64_div:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "l%" PRIu32 " / l%" PRIu32 ";\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_f64_min:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "fmin(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_f64_max:
-                        if (unreachable_depth == 0) {
-                            uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "fmax(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
-                        }
-                        break;
                     case WasmOpcode_f64_copysign:
+                        // binary functions
                         if (unreachable_depth == 0) {
                             uint32_t rhs = FuncGen_stackPop(&fg);
-                            uint32_t lhs = FuncGen_stackPop(&fg);
-                            FuncGen_stackPush(&fg, out, WasmValType_f64);
-                            fprintf(out, "copysign(l%" PRIu32 ", l%" PRIu32 ");\n", lhs, rhs);
+                            uint32_t lhs = FuncGen_stackAt(&fg, 0);
+                            const char *function;
+                            switch (opcode) {
+                                case WasmOpcode_f32_min:      function = "fminf";     break;
+                                case WasmOpcode_f32_max:      function = "fmaxf";     break;
+                                case WasmOpcode_f32_copysign: function = "copysignf"; break;
+                                case WasmOpcode_f64_min:      function = "fmin";      break;
+                                case WasmOpcode_f64_max:      function = "fmax";      break;
+                                case WasmOpcode_f64_copysign: function = "copysign";  break;
+                                default: panic("unreachable");
+                            }
+                            FuncGen_indent(&fg, out);
+                            fprintf(out, "l%" PRIu32 " = %s(l%" PRIu32 ", l%" PRIu32 ");\n",
+                                    lhs, function, lhs, rhs);
                         }
                         break;
 
