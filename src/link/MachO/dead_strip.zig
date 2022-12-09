@@ -58,7 +58,8 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
                 const sym = zld.getSymbol(global);
                 if (sym.undf()) continue;
 
-                const object = zld.objects.items[global.getFile().?];
+                const file = global.getFile() orelse continue; // synthetic globals are atomless
+                const object = zld.objects.items[file];
                 const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
                 _ = try roots.getOrPut(atom_index);
 
