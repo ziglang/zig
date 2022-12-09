@@ -31938,6 +31938,8 @@ pub fn analyzeAddressSpace(
         .param => is_nv,
         .global, .shared, .local => is_gpu,
         .constant => is_gpu and (ctx == .constant),
+        // TODO this should also check how many flash banks the cpu has
+        .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
     };
 
     if (!supported) {
