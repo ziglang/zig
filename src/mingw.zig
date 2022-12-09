@@ -1018,7 +1018,44 @@ const mingwex_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "trunc.S",
 };
 
-const mingwex_arm32_src = [_][]const u8{
+const arm_common = [_][]const u8{
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "acosh.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "acoshf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "acoshl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "asinh.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "asinhf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "asinhl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "atanh.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "atanhf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "atanhl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "copysignl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "expm1.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "expm1f.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "expm1l.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ilogb.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ilogbf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ilogbl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log1p.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log1pf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log1pl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log2.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logb.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logbf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logbl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "pow.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "powf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "powl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "remainder.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "remainderf.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "remainderl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "remquol.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "s_remquo.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "s_remquof.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "scalbn.c",
+};
+
+const mingwex_arm32_src = arm_common ++ [_][]const u8{
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rintf.c",
@@ -1033,11 +1070,8 @@ const mingwex_arm32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_truncf.c",
 };
 
-const mingwex_arm64_src = [_][]const u8{
+const mingwex_arm64_src = arm_common ++ [_][]const u8{
     "misc" ++ path.sep_str ++ "initenv.c",
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log2.c",
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "pow.c",
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "scalbn.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
