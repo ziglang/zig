@@ -99,7 +99,6 @@ pub fn build(b: *Builder) !void {
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
     const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
-    const disable_libcpp = b.option(bool, "disable-libcpp", "Skip building/linking libcpp") orelse false;
 
     if (!skip_install_lib_files) {
         b.installDirectory(InstallDirectoryOptions{
