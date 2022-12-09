@@ -46,8 +46,7 @@ Set-Location -Path 'build-release'
   -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_AR="$ZIG" `
-  -DCMAKE_C_ARCHIVE_CREATE="<CMAKE_AR> ar qc <TARGET> <LINK_FLAGS> <OBJECTS>" `
-  -DCMAKE_CXX_ARCHIVE_CREATE="<CMAKE_AR> ar qc <TARGET> <LINK_FLAGS> <OBJECTS>" `
+  -DZIG_AR_WORKAROUND=ON `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
   -DZIG_STATIC=ON
