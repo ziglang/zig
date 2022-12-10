@@ -1351,6 +1351,13 @@ test "cast f128 to narrower types" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64 and
+        builtin.zig_backend == .stage2_c)
+    {
+        // https://github.com/ziglang/zig/issues/13876
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTest() !void {
             var x: f128 = 1234.0;

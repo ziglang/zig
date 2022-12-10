@@ -70,6 +70,13 @@ test "@mulAdd f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64 and
+        builtin.zig_backend == .stage2_c)
+    {
+        // https://github.com/ziglang/zig/issues/13876
+        return error.SkipZigTest;
+    }
+
     comptime try testMulAdd128();
     try testMulAdd128();
 }
