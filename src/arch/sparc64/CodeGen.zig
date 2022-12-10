@@ -573,7 +573,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
             .fpext           => @panic("TODO try self.airFpext(inst)"),
             .intcast         => try self.airIntCast(inst),
-            .trunc           => @panic("TODO try self.airTrunc(inst)"),
+            .trunc           => try self.airTrunc(inst),
             .bool_to_int     => try self.airBoolToInt(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => @panic("TODO try self.airIsNonNullPtr(inst)"),
@@ -2404,6 +2404,19 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement airTagName for {}", .{self.target.cpu.arch});
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = try self.resolveInst(ty_op.operand);
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    const dest_ty = self.air.typeOfIndex(inst);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
+        break :blk try self.trunc(inst, operand, operand_ty, dest_ty);
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airTry(self: *Self, inst: Air.Inst.Index) !void {
@@ -4367,6 +4380,53 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
             },
         }
     };
+}
+
+fn trunc(
+    self: *Self,
+    maybe_inst: ?Air.Inst.Index,
+    operand: MCValue,
+    operand_ty: Type,
+    dest_ty: Type,
+) !MCValue {
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = dest_ty.intInfo(self.target.*);
+
+    if (info_b.bits <= 64) {
+        const operand_reg = switch (operand) {
+            .register => |r| r,
+            else => operand_reg: {
+                if (info_a.bits <= 64) {
+                    const reg = try self.copyToTmpRegister(operand_ty, operand);
+                    break :operand_reg reg;
+                } else {
+                    return self.fail("TODO load least significant word into register", .{});
+                }
+            },
+        };
+        const lock = self.register_manager.lockReg(operand_reg);
+        defer if (lock) |reg| self.register_manager.unlockReg(reg);
+
+        const dest_reg = if (maybe_inst) |inst| blk: {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
+            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk operand_reg;
+            } else {
+                const reg = try self.register_manager.allocReg(inst, gp);
+                break :blk reg;
+            }
+        } else blk: {
+            const reg = try self.register_manager.allocReg(null, gp);
+            break :blk reg;
+        };
+
+        try self.truncRegister(operand_reg, dest_reg, info_b.signedness, info_b.bits);
+
+        return MCValue{ .register = dest_reg };
+    } else {
+        return self.fail("TODO: truncate to ints > 64 bits", .{});
+    }
 }
 
 fn truncRegister(
