@@ -144,6 +144,7 @@ const MCValue = union(enum) {
     memory: u64,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
+    /// Note that this stores the plain value (i.e without the effects of the stack bias).
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
@@ -273,6 +274,8 @@ pub fn generate(
     const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
+
+    log.debug("fn {s}", .{fn_owner_decl.name});
 
     var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
     defer {
@@ -518,8 +521,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_sat         => try self.airSubSat(inst),
             .mul_sat         => try self.airMulSat(inst),
             .shl_sat         => try self.airShlSat(inst),
-            .min             => @panic("TODO try self.airMin(inst)"),
-            .max             => @panic("TODO try self.airMax(inst)"),
+            .min, .max       => try self.airMinMax(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
             .slice           => try self.airSlice(inst),
@@ -573,7 +575,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
             .fpext           => @panic("TODO try self.airFpext(inst)"),
             .intcast         => try self.airIntCast(inst),
-            .trunc           => @panic("TODO try self.airTrunc(inst)"),
+            .trunc           => try self.airTrunc(inst),
             .bool_to_int     => try self.airBoolToInt(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => @panic("TODO try self.airIsNonNullPtr(inst)"),
@@ -595,27 +597,28 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .array_to_slice  => try self.airArrayToSlice(inst),
             .int_to_float    => try self.airIntToFloat(inst),
             .float_to_int    => try self.airFloatToInt(inst),
-            .cmpxchg_strong  => @panic("TODO try self.airCmpxchg(inst)"),
-            .cmpxchg_weak    => @panic("TODO try self.airCmpxchg(inst)"),
-            .atomic_rmw      => @panic("TODO try self.airAtomicRmw(inst)"),
-            .atomic_load     => @panic("TODO try self.airAtomicLoad(inst)"),
+            .cmpxchg_strong,
+            .cmpxchg_weak,
+            => try self.airCmpxchg(inst),
+            .atomic_rmw      => try self.airAtomicRmw(inst),
+            .atomic_load     => try self.airAtomicLoad(inst),
             .memcpy          => @panic("TODO try self.airMemcpy(inst)"),
             .memset          => try self.airMemset(inst),
-            .set_union_tag   => @panic("TODO try self.airSetUnionTag(inst)"),
-            .get_union_tag   => @panic("TODO try self.airGetUnionTag(inst)"),
+            .set_union_tag   => try self.airSetUnionTag(inst),
+            .get_union_tag   => try self.airGetUnionTag(inst),
             .clz             => try self.airClz(inst),
             .ctz             => try self.airCtz(inst),
             .popcount        => try self.airPopcount(inst),
             .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
-            .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
+            .bit_reverse     => try self.airBitReverse(inst),
             .tag_name        => try self.airTagName(inst),
-            .error_name      => @panic("TODO try self.airErrorName(inst)"),
-            .splat           => @panic("TODO try self.airSplat(inst)"),
+            .error_name      => try self.airErrorName(inst),
+            .splat           => try self.airSplat(inst),
             .select          => @panic("TODO try self.airSelect(inst)"),
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),
-            .union_init      => @panic("TODO try self.airUnionInit(inst)"),
+            .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => @panic("TODO try self.airMulAdd(inst)"),
             .addrspace_cast  => @panic("TODO try self.airAddrSpaceCast(int)"),
@@ -682,7 +685,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .save_err_return_trace_index=> @panic("TODO try self.airSaveErrReturnTraceIndex(inst)"),
 
             .wrap_optional         => try self.airWrapOptional(inst),
-            .wrap_errunion_payload => @panic("TODO try self.airWrapErrUnionPayload(inst)"),
+            .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .add_optimized,
@@ -991,12 +994,21 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     self.arg_index += 1;
 
     const ty = self.air.typeOfIndex(inst);
-    _ = ty;
 
-    const result = self.args[arg_index];
-    // TODO support stack-only arguments
-    // TODO Copy registers to the stack
-    const mcv = result;
+    const arg = self.args[arg_index];
+    const mcv = blk: {
+        switch (arg) {
+            .stack_offset => |off| {
+                const mod = self.bin_file.options.module.?;
+                const abi_size = math.cast(u32, ty.abiSize(self.target.*)) orelse {
+                    return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
+                };
+                const offset = off + abi_size;
+                break :blk MCValue{ .stack_offset = offset };
+            },
+            else => break :blk arg,
+        }
+    };
 
     try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
 
@@ -1011,6 +1023,22 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     return self.finishAir(inst, mcv, .{ .none, .none, .none });
+}
+
+fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
+    _ = self.air.instructions.items(.data)[inst].atomic_load;
+
+    return self.fail("TODO implement airAtomicLoad for {}", .{
+        self.target.cpu.arch,
+    });
+}
+
+fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
+    _ = self.air.instructions.items(.data)[inst].pl_op;
+
+    return self.fail("TODO implement airAtomicRmw for {}", .{
+        self.target.cpu.arch,
+    });
 }
 
 fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
@@ -1058,6 +1086,12 @@ fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void 
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result = try self.resolveInst(ty_op.operand);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airBitReverse for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1322,6 +1356,16 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
+fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    _ = extra;
+
+    return self.fail("TODO implement airCmpxchg for {}", .{
+        self.target.cpu.arch,
+    });
+}
+
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const condition = try self.resolveInst(pl_op.operand);
@@ -1406,6 +1450,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         const else_value = else_values[else_idx];
         const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
+            log.debug("condBr put branch table (key = %{d}, value = {})", .{ else_key, then_entry.value });
             parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
             if (else_value == .dead) {
                 assert(then_entry.value == .dead);
@@ -1519,6 +1564,16 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
+fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
+        _ = operand;
+        return self.fail("TODO implement airErrorName for {}", .{self.target.cpu.arch});
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
 fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .errunion_payload_ptr_set for {}", .{self.target.cpu.arch});
@@ -1553,6 +1608,12 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFloatToInt for {}", .{
         self.target.cpu.arch,
     });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1673,6 +1734,22 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
     _ = length;
 
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
+}
+
+fn airMinMax(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        try self.minMax(tag, lhs, rhs, lhs_ty, rhs_ty);
+
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMod(self: *Self, inst: Air.Inst.Index) !void {
@@ -2071,6 +2148,12 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
 }
 
+fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    _ = bin_op;
+    return self.fail("TODO implement airSetUnionTag for {}", .{self.target.cpu.arch});
+}
+
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
@@ -2270,6 +2353,12 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSplat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = try self.resolveInst(bin_op.lhs);
@@ -2378,6 +2467,19 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
+fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = try self.resolveInst(ty_op.operand);
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    const dest_ty = self.air.typeOfIndex(inst);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
+        break :blk try self.trunc(inst, operand, operand_ty, dest_ty);
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airTry(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const extra = self.air.extraData(Air.Try, pl_op.payload);
@@ -2403,6 +2505,13 @@ fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
     else
         return self.fail("TODO implement airUnaryMath for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    _ = extra;
+    return self.fail("TODO implement airUnionInit for {}", .{self.target.cpu.arch});
 }
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
@@ -2441,6 +2550,13 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
     };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// T to E!T
+fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement wrap errunion payload for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2843,7 +2959,18 @@ fn binOpImmediate(
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
 
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (lhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -2970,7 +3097,18 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (lhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -2983,7 +3121,18 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+        if (track_inst) |inst| {
+            const mcv = .{ .register = reg };
+            log.debug("binOpRegister move rhs %{d} to register: {} -> {}", .{ inst, rhs, mcv });
+            branch.inst_table.putAssumeCapacity(inst, mcv);
+
+            // If we're moving a condition flag MCV to register,
+            // mark it as free.
+            if (rhs == .condition_flags) {
+                assert(self.condition_flags_inst.? == inst);
+                self.condition_flags_inst = null;
+            }
+        }
 
         break :blk reg;
     };
@@ -3734,27 +3883,48 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
-    if (typed_value.val.isUndef())
+    var tv = typed_value;
+    log.debug("genTypedValue: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+
+    if (tv.val.castTag(.runtime_value)) |rt| {
+        tv.val = rt.data;
+    }
+
+    if (tv.val.isUndef())
         return MCValue{ .undef = {} };
 
-    if (typed_value.val.castTag(.decl_ref)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data);
+    if (tv.val.castTag(.decl_ref)) |payload| {
+        return self.lowerDeclRef(tv, payload.data);
     }
-    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data.decl_index);
+    if (tv.val.castTag(.decl_ref_mut)) |payload| {
+        return self.lowerDeclRef(tv, payload.data.decl_index);
     }
     const target = self.target.*;
 
-    switch (typed_value.ty.zigTypeTag()) {
+    switch (tv.ty.zigTypeTag()) {
+        .Pointer => switch (tv.ty.ptrSize()) {
+            .Slice => {},
+            else => {
+                switch (tv.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = tv.val.toUnsignedInt(target) };
+                    },
+                    else => {},
+                }
+            },
+        },
+        .Bool => {
+            return MCValue{ .immediate = @boolToInt(tv.val.toBool()) };
+        },
         .Int => {
-            const info = typed_value.ty.intInfo(self.target.*);
+            const info = tv.ty.intInfo(self.target.*);
             if (info.bits <= 64) {
                 const unsigned = switch (info.signedness) {
                     .signed => blk: {
-                        const signed = typed_value.val.toSignedInt(target);
+                        const signed = tv.val.toSignedInt(target);
                         break :blk @bitCast(u64, signed);
                     },
-                    .unsigned => typed_value.val.toUnsignedInt(target),
+                    .unsigned => tv.val.toUnsignedInt(target),
                 };
 
                 return MCValue{ .immediate = unsigned };
@@ -3762,38 +3932,84 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 return self.fail("TODO implement int genTypedValue of > 64 bits", .{});
             }
         },
+        .Optional => {
+            if (tv.ty.isPtrLikeOptional()) {
+                if (tv.val.isNull())
+                    return MCValue{ .immediate = 0 };
+
+                var buf: Type.Payload.ElemType = undefined;
+                return self.genTypedValue(.{
+                    .ty = tv.ty.optionalChild(&buf),
+                    .val = tv.val,
+                });
+            } else if (tv.ty.abiSize(self.target.*) == 1) {
+                return MCValue{ .immediate = @boolToInt(tv.val.isNull()) };
+            }
+        },
+        .Enum => {
+            if (tv.val.castTag(.enum_field_index)) |field_index| {
+                switch (tv.ty.tag()) {
+                    .enum_simple => {
+                        return MCValue{ .immediate = field_index.data };
+                    },
+                    .enum_full, .enum_nonexhaustive => {
+                        const enum_full = tv.ty.cast(Type.Payload.EnumFull).?.data;
+                        if (enum_full.values.count() != 0) {
+                            const tag_val = enum_full.values.keys()[field_index.data];
+                            return self.genTypedValue(.{ .ty = enum_full.tag_ty, .val = tag_val });
+                        } else {
+                            return MCValue{ .immediate = field_index.data };
+                        }
+                    },
+                    else => unreachable,
+                }
+            } else {
+                var int_tag_buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = tv.ty.intTagType(&int_tag_buffer);
+                return self.genTypedValue(.{ .ty = int_tag_ty, .val = tv.val });
+            }
+        },
         .ErrorSet => {
-            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+            const err_name = tv.val.castTag(.@"error").?.data.name;
             const module = self.bin_file.options.module.?;
             const global_error_set = module.global_error_set;
             const error_index = global_error_set.get(err_name).?;
             return MCValue{ .immediate = error_index };
         },
         .ErrorUnion => {
-            const error_type = typed_value.ty.errorUnionSet();
-            const payload_type = typed_value.ty.errorUnionPayload();
+            const error_type = tv.ty.errorUnionSet();
+            const payload_type = tv.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |pl| {
+            if (tv.val.castTag(.eu_payload)) |pl| {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return MCValue{ .immediate = 0 };
                 }
 
                 _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
+                return self.fail("TODO implement error union const of type '{}' (non-error)", .{tv.ty.fmtDebug()});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
+                    return self.genTypedValue(.{ .ty = error_type, .val = tv.val });
                 }
 
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
+                return self.fail("TODO implement error union const of type '{}' (error)", .{tv.ty.fmtDebug()});
             }
         },
         .ComptimeInt => unreachable, // semantic analysis prevents this
         .ComptimeFloat => unreachable, // semantic analysis prevents this
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .Opaque => unreachable,
+        else => {},
     }
+
+    return self.fail("TODO implement const of type '{}'", .{tv.ty.fmtDebug()});
 }
 
 fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
@@ -3802,6 +4018,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
+            log.debug("getResolvedInstValue %{} => {}", .{ inst, mcv });
             assert(mcv != .dead);
             return mcv;
         }
@@ -3993,6 +4210,83 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     }
 }
 
+fn minMax(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
+    assert(lhs_ty.eql(rhs_ty, mod));
+    switch (lhs_ty.zigTypeTag()) {
+        .Float => return self.fail("TODO min/max on floats", .{}),
+        .Vector => return self.fail("TODO min/max on vectors", .{}),
+        .Int => {
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 64) {
+                // TODO skip register setting when one of the operands
+                // is a small (fits in i13) immediate.
+                const rhs_is_register = rhs == .register;
+                const rhs_reg = if (rhs_is_register)
+                    rhs.register
+                else
+                    try self.register_manager.allocReg(null, gp);
+                const rhs_lock = self.register_manager.lockReg(rhs_reg);
+                defer if (rhs_lock) |reg| self.register_manager.unlockReg(reg);
+                if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+                const result_reg = try self.register_manager.allocReg(null, gp);
+                const result_lock = self.register_manager.lockReg(result_reg);
+                defer if (result_lock) |reg| self.register_manager.unlockReg(reg);
+                try self.genSetReg(lhs_ty, result_reg, lhs);
+
+                const cond_choose_rhs: Instruction.ICondition = switch (tag) {
+                    .max => switch (int_info.signedness) {
+                        .signed => Instruction.ICondition.gt,
+                        .unsigned => Instruction.ICondition.gu,
+                    },
+                    .min => switch (int_info.signedness) {
+                        .signed => Instruction.ICondition.lt,
+                        .unsigned => Instruction.ICondition.cs,
+                    },
+                    else => unreachable,
+                };
+
+                _ = try self.addInst(.{
+                    .tag = .cmp,
+                    .data = .{
+                        .arithmetic_2op = .{
+                            .is_imm = false,
+                            .rs1 = result_reg,
+                            .rs2_or_imm = .{ .rs2 = rhs_reg },
+                        },
+                    },
+                });
+
+                _ = try self.addInst(.{
+                    .tag = .movcc,
+                    .data = .{
+                        .conditional_move_int = .{
+                            .is_imm = false,
+                            .ccr = .xcc,
+                            .cond = .{ .icond = cond_choose_rhs },
+                            .rd = result_reg,
+                            .rs2_or_imm = .{ .rs2 = rhs_reg },
+                        },
+                    },
+                });
+
+                return MCValue{ .register = result_reg };
+            } else {
+                return self.fail("TODO min/max on integers > u64/i64", .{});
+            }
+        },
+        else => unreachable,
+    }
+}
+
 fn parseRegName(name: []const u8) ?Register {
     if (@hasDecl(Register, "parseRegName")) {
         return Register.parseRegName(name);
@@ -4017,6 +4311,7 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     branch.inst_table.putAssumeCapacity(inst, .dead);
+    log.debug("%{} death: {} -> .dead", .{ inst, prev_value });
     switch (prev_value) {
         .register => |reg| {
             self.register_manager.freeReg(reg);
@@ -4126,7 +4421,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits() and !tv.ty.isError()) {
+        if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -4134,7 +4429,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits() and !inst_ty.isError())
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
@@ -4332,6 +4627,53 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
             },
         }
     };
+}
+
+fn trunc(
+    self: *Self,
+    maybe_inst: ?Air.Inst.Index,
+    operand: MCValue,
+    operand_ty: Type,
+    dest_ty: Type,
+) !MCValue {
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = dest_ty.intInfo(self.target.*);
+
+    if (info_b.bits <= 64) {
+        const operand_reg = switch (operand) {
+            .register => |r| r,
+            else => operand_reg: {
+                if (info_a.bits <= 64) {
+                    const reg = try self.copyToTmpRegister(operand_ty, operand);
+                    break :operand_reg reg;
+                } else {
+                    return self.fail("TODO load least significant word into register", .{});
+                }
+            },
+        };
+        const lock = self.register_manager.lockReg(operand_reg);
+        defer if (lock) |reg| self.register_manager.unlockReg(reg);
+
+        const dest_reg = if (maybe_inst) |inst| blk: {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
+            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk operand_reg;
+            } else {
+                const reg = try self.register_manager.allocReg(inst, gp);
+                break :blk reg;
+            }
+        } else blk: {
+            const reg = try self.register_manager.allocReg(null, gp);
+            break :blk reg;
+        };
+
+        try self.truncRegister(operand_reg, dest_reg, info_b.signedness, info_b.bits);
+
+        return MCValue{ .register = dest_reg };
+    } else {
+        return self.fail("TODO: truncate to ints > 64 bits", .{});
+    }
 }
 
 fn truncRegister(

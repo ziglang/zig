@@ -43,6 +43,7 @@ const a = struct {
 
 test "initialization" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     var t = a.init();
     try std.testing.expect(t.foo.len == 0);
 }

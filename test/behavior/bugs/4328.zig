@@ -53,6 +53,7 @@ test "Peer resolution of extern function calls in @TypeOf" {
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {

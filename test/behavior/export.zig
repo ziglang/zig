@@ -22,6 +22,8 @@ const PackedUnion = packed union {
 };
 
 test "packed struct, enum, union parameters in extern function" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     testPackedStuff(&(PackedStruct{
         .a = 1,
         .b = 2,

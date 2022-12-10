@@ -76,6 +76,7 @@ const P = packed struct {
 
 test "@offsetOf" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -102,6 +103,8 @@ test "@offsetOf" {
 }
 
 test "@bitOffsetOf" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     // Packed structs have fixed memory layout
     try expect(@bitOffsetOf(P, "a") == 0);
     try expect(@bitOffsetOf(P, "b") == 8);
@@ -264,6 +267,7 @@ test "bitSizeOf comptime_int" {
 test "runtime instructions inside typeof in comptime only scope" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     {
         var y: i8 = 2;

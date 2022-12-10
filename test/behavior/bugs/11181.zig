@@ -12,6 +12,8 @@ test "const inferred array of slices" {
 }
 
 test "var inferred array of slices" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const T = struct { v: bool };
 
     var decls = [_][]const T{

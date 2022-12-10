@@ -23,6 +23,7 @@ test "reinterpret an array over multiple elements, with no well-defined layout" 
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretWithOffsetAndNoWellDefinedLayout();
     comptime try testReinterpretWithOffsetAndNoWellDefinedLayout();
@@ -38,6 +39,7 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretStructWrappedBytesAsInteger();
     comptime try testReinterpretStructWrappedBytesAsInteger();
@@ -56,6 +58,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
     comptime try testReinterpretBytesAsExternStruct();
@@ -126,6 +129,7 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
     comptime var bytes align(2) = [_]u8{ 1, 2, 3, 4, 5, 6 };
@@ -149,6 +153,7 @@ test "lower reinterpreted comptime field ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
     comptime var bytes align(4) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -169,6 +174,7 @@ test "lower reinterpreted comptime field ptr" {
 
 test "reinterpret struct field at comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const numNative = comptime Bytes.init(0x12345678);
     if (native_endian != .Little) {
@@ -200,6 +206,7 @@ test "comptime ptrcast keeps larger alignment" {
 test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
@@ -211,6 +218,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
 test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo(slice: []u32) []i32 {

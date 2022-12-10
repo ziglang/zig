@@ -45,6 +45,8 @@ const g1: i32 = 1233 + 1;
 var g2: i32 = 0;
 
 test "global variables" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     try expect(g2 == 0);
     g2 = g1;
     try expect(g2 == 1234);
@@ -112,18 +114,21 @@ fn first4KeysOfHomeRow() []const u8 {
 
 test "return string from function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 test "hex escape" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 test "multiline string" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 =
         \\one
@@ -136,6 +141,7 @@ test "multiline string" {
 
 test "multiline string comments at start" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 =
         //\\one
@@ -148,6 +154,7 @@ test "multiline string comments at start" {
 
 test "multiline string comments at end" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 =
         \\one
@@ -160,6 +167,7 @@ test "multiline string comments at end" {
 
 test "multiline string comments in middle" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 =
         \\one
@@ -172,6 +180,7 @@ test "multiline string comments in middle" {
 
 test "multiline string comments at multiple places" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 =
         \\one
@@ -190,6 +199,7 @@ test "string concatenation" {
 
 test "array mult operator" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
@@ -199,6 +209,7 @@ const OpaqueB = opaque {};
 
 test "opaque types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(*OpaqueA != *OpaqueB);
 
@@ -216,6 +227,7 @@ test "compile time global reinterpret" {
 
 test "cast undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array: [100]u8 = undefined;
     const slice = @as([]const u8, &array);
@@ -228,6 +240,7 @@ fn testCastUndefined(x: []const u8) void {
 test "implicit cast after unreachable" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(outer() == 1234);
 }
@@ -285,6 +298,7 @@ fn fB() []const u8 {
 
 test "call function pointer in struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, f3(true), "a"));
     try expect(mem.eql(u8, f3(false), "b"));
@@ -326,6 +340,7 @@ test "call result of if else expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, f2(true), "a"));
     try expect(mem.eql(u8, f2(false), "b"));
@@ -337,6 +352,7 @@ fn f2(x: bool) []const u8 {
 test "memcpy and memset intrinsics" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testMemcpyMemset();
     // TODO add comptime test coverage
@@ -367,6 +383,7 @@ fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
 test "take address of parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testTakeAddressOfParameter(12.34);
 }
@@ -443,6 +460,7 @@ fn testArray2DConstDoublePtr(ptr: *const f32) !void {
 
 test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x = @as(i32, @as(u16, nine()));
     try expect(x == 9);
@@ -453,6 +471,7 @@ fn nine() u8 {
 
 test "struct inside function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testStructInFn();
     comptime try testStructInFn();
@@ -474,6 +493,7 @@ fn testStructInFn() !void {
 
 test "fn call returning scalar optional in equality expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     try expect(getNull() == null);
 }
 
@@ -484,6 +504,7 @@ fn getNull() ?*i32 {
 test "global variable assignment with optional unwrapping with var initialized to undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         var data: i32 = 1234;
@@ -501,6 +522,7 @@ var global_foo: *i32 = undefined;
 
 test "peer result location with typed parent, runtime condition, comptime prongs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest(arg: i32) i32 {
@@ -592,6 +614,8 @@ test "self reference through fn ptr field" {
 }
 
 test "global variable initialized to global variable array element" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     try expect(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
@@ -605,6 +629,7 @@ var global_ptr = &gdt[0];
 
 test "global constant is loaded with a runtime-known index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -636,6 +661,7 @@ test "string escapes" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expectEqualStrings("\"", "\x22");
     try expectEqualStrings("\'", "\x27");
@@ -667,6 +693,7 @@ test "string concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
@@ -694,6 +721,7 @@ test "comptime manyptr concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s = "epic";
     const actual = manyptrConcat(s);
@@ -714,6 +742,7 @@ test "comptime manyptr concatenation" {
 test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const x = maybe(true) catch unreachable;
     try expect(x.? == 42);
@@ -728,6 +757,7 @@ fn maybe(x: bool) anyerror!?u32 {
 
 test "auto created variables have correct alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo(str: [*]const u8) u32 {
@@ -746,6 +776,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     @export(var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
@@ -787,6 +818,7 @@ test "if expression type coercion" {
 test "discarding the result of various expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo() !u32 {
@@ -826,6 +858,7 @@ test "labeled block implicitly ends in a break" {
 
 test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -856,6 +889,7 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         a: u32,
@@ -883,6 +917,7 @@ test "weird array and tuple initializations" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const E = enum { a, b };
     const S = struct { e: E };
@@ -1000,6 +1035,7 @@ comptime {
 
 test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u32 = 0;
     var b: [2]u32 = undefined;
