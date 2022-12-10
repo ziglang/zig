@@ -461,8 +461,9 @@ pub const DeclGen = struct {
                 .repeated => {
                     const elem_val = val.castTag(.repeated).?.data;
                     const elem_ty = ty.elemType();
-                    const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
-                    const constituents = try self.spv.gpa.alloc(IdRef, len);
+                    const len = @intCast(u32, ty.arrayLen());
+                    const total_len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
+                    const constituents = try self.spv.gpa.alloc(IdRef, total_len);
                     defer self.spv.gpa.free(constituents);
 
                     const elem_val_id = self.spv.allocId();
@@ -475,6 +476,31 @@ pub const DeclGen = struct {
                         try self.genConstant(constituents[len], elem_ty, sentinel, repr);
                     }
                     try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
+                        .id_result_type = result_ty_id,
+                        .id_result = result_id,
+                        .constituents = constituents,
+                    });
+                },
+                .str_lit => {
+                    // TODO: This is very efficient code generation, should probably implement constant caching for this.
+                    const str_lit = val.castTag(.str_lit).?.data;
+                    const bytes = self.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    const elem_ty = ty.elemType();
+                    const elem_ty_id = try self.resolveTypeId(elem_ty);
+                    const len = @intCast(u32, ty.arrayLen());
+                    const total_len = @intCast(u32, ty.arrayLenIncludingSentinel());
+                    const constituents = try self.spv.gpa.alloc(IdRef, total_len);
+                    defer self.spv.gpa.free(constituents);
+                    for (bytes) |byte, i| {
+                        constituents[i] = self.spv.allocId();
+                        try self.spv.emitConstant(elem_ty_id, constituents[i], .{ .uint32 = byte });
+                    }
+                    if (ty.sentinel()) |sentinel| {
+                        constituents[len] = self.spv.allocId();
+                        const byte = @intCast(u8, sentinel.toUnsignedInt(target));
+                        try self.spv.emitConstant(elem_ty_id, constituents[len], .{ .uint32 = byte });
+                    }
+                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
