@@ -3350,21 +3350,49 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
+    const inst_bits = inst_ty.bitSize(target);
+    const inst_int_info = inst_ty.intInfo(target);
+    const operand_ty = f.air.typeOf(ty_op.operand);
+    const operand_bits = operand_ty.bitSize(target);
+    const operand_int_info = operand_ty.intInfo(target);
+
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
-    const cant_cast = inst_ty.isInt() and inst_ty.bitSize(target) > 64;
-    if (cant_cast) {
-        if (f.air.typeOf(ty_op.operand).bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+
+    if (inst_bits <= 64 and operand_bits <= 64) {
+        if (toCIntBits(inst_int_info.bits) != toCIntBits(operand_int_info.bits) or inst_int_info.signedness != operand_int_info.signedness) {
+            try writer.writeByte('(');
+            try f.renderTypecast(writer, inst_ty);
+            try writer.writeByte(')');
+        }
+
+        try f.writeCValue(writer, operand, .Other);
+    } else if (inst_bits > 64 and operand_bits <= 64) {
         try writer.writeAll("zig_as_");
         try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
-        try writer.writeAll("(0, ");
-    } else {
-        try writer.writeByte('(');
-        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll("(0, "); // TODO: Should the 0 go through fmtIntLiteral?
+        try f.writeCValue(writer, operand, .FunctionArgument);
         try writer.writeByte(')');
+    } else if (inst_bits <= 64 and operand_bits > 64) {
+        try writer.writeAll("zig_lo_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+        try writer.writeByte('(');
+        try f.writeCValue(writer, operand, .FunctionArgument);
+        try writer.writeByte(')');
+    } else {
+        try writer.writeAll("zig_as_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+        try writer.writeAll("(zig_hi_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+        try writer.writeByte('(');
+        try f.writeCValue(writer, operand, .FunctionArgument);
+        try writer.writeAll("), zig_lo_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+        try writer.writeByte('(');
+        try f.writeCValue(writer, operand, .FunctionArgument);
+        try writer.writeAll("))");
     }
-    try f.writeCValue(writer, operand, .Other);
-    if (cant_cast) try writer.writeByte(')');
+
     try writer.writeAll(";\n");
     return local;
 }
@@ -3384,15 +3412,29 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     const target = f.object.dg.module.getTarget();
     const dest_int_info = inst_ty.intInfo(target);
     const dest_bits = dest_int_info.bits;
+    const dest_c_bits = toCIntBits(dest_int_info.bits) orelse
+        return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+    const operand_ty = f.air.typeOf(ty_op.operand);
+    const operand_int_info = operand_ty.intInfo(target);
 
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = (");
-    try f.renderTypecast(writer, inst_ty);
-    try writer.writeByte(')');
+    try writer.writeAll(" = ");
+
+    const needs_lo = operand_int_info.bits > 64 and dest_bits <= 64;
+    if (!needs_lo or dest_c_bits != 64 or dest_int_info.signedness != operand_int_info.signedness) {
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeByte(')');
+    }
+
+    if (needs_lo) {
+        try writer.writeAll("zig_lo_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+        try writer.writeByte('(');
+    }
 
     if (dest_bits >= 8 and std.math.isPowerOfTwo(dest_bits)) {
         try f.writeCValue(writer, operand, .Other);
-        try writer.writeAll(";\n");
     } else switch (dest_int_info.signedness) {
         .unsigned => {
             var arena = std.heap.ArenaAllocator.init(f.object.dg.gpa);
@@ -3404,13 +3446,13 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const mask_val = try inst_ty.maxInt(stack.get(), target);
 
+            // TODO: This needs to use _and_ to do this to support > 64 bits and !zig_has_int128
             try writer.writeByte('(');
             try f.writeCValue(writer, operand, .Other);
-            try writer.print(" & {x});\n", .{try f.fmtIntLiteral(inst_ty, mask_val)});
+            try writer.print(" & {x})", .{try f.fmtIntLiteral(inst_ty, mask_val)});
         },
         .signed => {
-            const operand_ty = f.air.typeOf(ty_op.operand);
-            const c_bits = toCIntBits(operand_ty.intInfo(target).bits) orelse
+            const c_bits = toCIntBits(operand_int_info.bits) orelse
                 return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
             var shift_pl = Value.Payload.U64{
                 .base = .{ .tag = .int_u64 },
@@ -3418,11 +3460,15 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             };
             const shift_val = Value.initPayload(&shift_pl.base);
 
+            // TODO: This needs to use shl and shr to do this to support > 64 bits and !zig_has_int128
             try writer.print("((int{d}_t)((uint{0d}_t)", .{c_bits});
             try f.writeCValue(writer, operand, .Other);
-            try writer.print(" << {}) >> {0});\n", .{try f.fmtIntLiteral(Type.u8, shift_val)});
+            try writer.print(" << {}) >> {0})", .{try f.fmtIntLiteral(Type.u8, shift_val)});
         },
     }
+
+    if (needs_lo) try writer.writeByte(')');
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -7010,9 +7056,9 @@ fn formatIntLiteral(
         return writer.print("{s}_{s}", .{ abbrev, if (int.positive) "MAX" else "MIN" });
     }
 
-    // TODO: If > 64 bit, need to use a subtract from zero fn here instead of negate
     if (!int.positive) {
         if (c_bits > 64) {
+            // TODO: Could use negate function instead?
             try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
         } else {
             try writer.writeByte('-');
