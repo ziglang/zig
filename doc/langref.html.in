@@ -3584,7 +3584,7 @@ const Type = enum {
     not_ok,
 };
 
-// Declare a specific instance of the enum.
+// Declare a specific enum element.
 const c = Type.ok;
 
 // If you want access to the ordinal value of an enum, you
