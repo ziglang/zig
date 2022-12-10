@@ -220,7 +220,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
 
         /// Returns the union of two bit sets. Bits in the
         /// result are set if the corresponding bits were set
-        /// in both inputs.
+        /// in either input.
         pub fn unionWith(self: Self, other: Self) Self {
             var result = self;
             result.setUnion(other);
@@ -238,7 +238,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
 
         /// Returns the xor of two bit sets. Bits in the
         /// result are set if the corresponding bits were
-        /// set in not the same in both inputs.
+        /// not the same in both inputs.
         pub fn xorWith(self: Self, other: Self) Self {
             var result = self;
             result.toggleSet(other);
@@ -586,7 +586,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns the union of two bit sets. Bits in the
         /// result are set if the corresponding bits were set
-        /// in both inputs.
+        /// in either input.
         pub fn unionWith(self: Self, other: Self) Self {
             var result = self;
             result.setUnion(other);
@@ -604,7 +604,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns the xor of two bit sets. Bits in the
         /// result are set if the corresponding bits were
-        /// set in not the same in both inputs.
+        /// not the same in both inputs.
         pub fn xorWith(self: Self, other: Self) Self {
             var result = self;
             result.toggleSet(other);
