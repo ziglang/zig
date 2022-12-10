@@ -992,12 +992,21 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     self.arg_index += 1;
 
     const ty = self.air.typeOfIndex(inst);
-    _ = ty;
 
-    const result = self.args[arg_index];
-    // TODO support stack-only arguments
-    // TODO Copy registers to the stack
-    const mcv = result;
+    const arg = self.args[arg_index];
+    const mcv = blk: {
+        switch (arg) {
+            .stack_offset => |off| {
+                const mod = self.bin_file.options.module.?;
+                const abi_size = math.cast(u32, ty.abiSize(self.target.*)) orelse {
+                    return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
+                };
+                const offset = off + abi_size;
+                break :blk MCValue{ .stack_offset = offset };
+            },
+            else => break :blk arg,
+        }
+    };
 
     try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
 
@@ -4182,7 +4191,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits() and !tv.ty.isError()) {
+        if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -4190,7 +4199,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits() and !inst_ty.isError())
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
