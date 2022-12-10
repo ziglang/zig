@@ -221,15 +221,13 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Int = struct {
         signedness: Signedness,
-        /// TODO make this u16 instead of comptime_int
-        bits: comptime_int,
+        bits: u16,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Float = struct {
-        /// TODO make this u16 instead of comptime_int
-        bits: comptime_int,
+        bits: u16,
     };
 
     /// This data structure is used by the Zig language code generation and
