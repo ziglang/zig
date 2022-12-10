@@ -927,9 +927,9 @@ pub const DeclGen = struct {
                 };
                 const int_val = Value.initPayload(&int_val_pl.base);
 
-                try writer.writeByte('(');
-                try dg.renderTypecast(writer, ty);
-                try writer.writeByte(')');
+                try writer.writeAll("zig_cast_");
+                try dg.renderTypeForBuiltinFnName(writer, ty);
+                try writer.writeByte(' ');
                 if (std.math.isFinite(f128_val)) {
                     try writer.writeAll("zig_as_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
@@ -3344,16 +3344,27 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
         return CValue.none;
     }
 
+    const target = f.object.dg.module.getTarget();
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = (");
-    try f.renderTypecast(writer, inst_ty);
-    try writer.writeByte(')');
+    try writer.writeAll(" = ");
+    const cant_cast = inst_ty.isInt() and inst_ty.bitSize(target) > 64;
+    if (cant_cast) {
+        if (f.air.typeOf(ty_op.operand).bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+        try writer.writeAll("zig_as_");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+        try writer.writeAll("(0, ");
+    } else {
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeByte(')');
+    }
     try f.writeCValue(writer, operand, .Other);
+    if (cant_cast) try writer.writeByte(')');
     try writer.writeAll(";\n");
     return local;
 }

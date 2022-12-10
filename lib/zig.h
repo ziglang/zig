@@ -1341,6 +1341,9 @@ static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
 static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs);
 
 // TODO: Implement
+static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs);
+
+// TODO: Implement
 static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs);
 
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
@@ -1781,6 +1784,18 @@ typedef zig_i128 zig_f128;
 #define zig_as_f128(fp, repr) repr
 #undef zig_as_special_f128
 #define zig_as_special_f128(sign, name, arg, repr) repr
+#endif
+
+#define zig_cast_f16 (zig_f16)
+#define zig_cast_f32 (zig_f32)
+#define zig_cast_f64 (zig_f64)
+#define zig_cast_f80 (zig_f80)
+#define zig_cast_c_longdouble (zig_c_longdouble)
+
+#if _MSC_VER && !zig_has_f128
+#define zig_cast_f128
+#else
+#define zig_cast_f128 (zig_f128)
 #endif
 
 #define zig_has_c_longdouble 1
