@@ -696,7 +696,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             );
                         }
                         _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    } else unreachable; // TODO issue #707
+                    };
                     try nodes.append(Node{ .SyntaxBlock = SyntaxBlock{ .source_type = source_type, .name = name, .source_token = source_token } });
                 } else {
                     return parseError(tokenizer, tag_token, "unrecognized tag name: {s}", .{tag_name});
