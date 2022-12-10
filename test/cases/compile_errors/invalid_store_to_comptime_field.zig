@@ -41,7 +41,7 @@ pub export fn entry4() void {
     _ = U.foo(.{ .foo = 2, .bar = 2 });
 }
 pub export fn entry5() void {
-    comptime var y = .{ 1, 2};
+    comptime var y = .{ 1, 2 };
     y = .{ 3, 4 };
 }
 // pub export fn entry5() void {
@@ -52,7 +52,15 @@ pub export fn entry5() void {
 //     };
 //     _ = S.foo(.{ -1234, 5679, x });
 // }
-
+pub export fn entry6() void {
+    const State = struct {
+        comptime id: bool = true,
+        fn init(comptime id: bool) @This() {
+            return @This(){ .id = id };
+        }
+    };
+    _ = State.init(false);
+}
 
 // error
 // target=native
@@ -65,3 +73,4 @@ pub export fn entry5() void {
 // :25:29: note: default value set here
 // :41:16: error: value stored in comptime field does not match the default value of the field
 // :45:12: error: value stored in comptime field does not match the default value of the field
+// :59:35: error: value stored in comptime field does not match the default value of the field

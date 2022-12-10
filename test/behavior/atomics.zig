@@ -151,11 +151,6 @@ test "cmpxchg on a global variable" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/10627
-        return error.SkipZigTest;
-    }
-
     _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
     try expect(a_global_variable == 42);
 }
@@ -218,12 +213,6 @@ test "atomicrmw with floats" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    if ((builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_c) and
-        builtin.cpu.arch == .aarch64)
-    {
-        // https://github.com/ziglang/zig/issues/10627
-        return error.SkipZigTest;
-    }
     try testAtomicRmwFloat();
     comptime try testAtomicRmwFloat();
 }
