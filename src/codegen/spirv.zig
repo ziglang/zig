@@ -776,6 +776,28 @@ pub const DeclGen = struct {
                 };
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_ty = ty.optionalChild(&buf);
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                    // Just use a bool.
+                    return try self.resolveType(Type.initTag(.bool), repr);
+                }
+
+                const payload_ty_ref = try self.resolveType(payload_ty, .indirect);
+                if (ty.optionalReprIsPayload()) {
+                    // Optional is actually a pointer.
+                    return payload_ty_ref;
+                }
+
+                const bool_ty_ref = try self.resolveType(Type.initTag(.bool), .indirect);
+
+                // its an actual optional
+                return try self.simpleStructType(&.{
+                    .{ .ty = payload_ty_ref, .name = "payload" },
+                    .{ .ty = bool_ty_ref, .name = "valid" },
+                });
+            },
             .Null,
             .Undefined,
             .EnumLiteral,
