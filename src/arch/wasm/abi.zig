@@ -80,7 +80,6 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
         .ComptimeInt,
         .Undefined,
         .Null,
-        .BoundFn,
         .Fn,
         .Opaque,
         .EnumLiteral,

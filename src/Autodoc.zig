@@ -607,7 +607,6 @@ const DocData = struct {
             is_test: bool = false,
             is_extern: bool = false,
         },
-        BoundFn: struct { name: []const u8 },
         Opaque: struct {
             name: []const u8,
             src: usize, // index into astNodes

@@ -185,7 +185,6 @@ pub const Type = extern union {
             .Void,
             .ErrorSet,
             .Fn,
-            .BoundFn,
             .Opaque,
             .AnyFrame,
             .Enum,
@@ -4074,7 +4073,6 @@ pub const Type = extern union {
             => return true,
 
             .Opaque => return is_extern,
-            .BoundFn,
             .ComptimeFloat,
             .ComptimeInt,
             .EnumLiteral,

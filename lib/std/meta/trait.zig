@@ -549,7 +549,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
-        .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,

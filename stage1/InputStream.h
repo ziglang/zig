@@ -4,67 +4,35 @@
 #include "panic.h"
 #include "wasm.h"
 
-#include <zstd.h>
-
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 struct InputStream {
     FILE *stream;
-    ZSTD_DStream *ds;
-    ZSTD_outBuffer out;
-    ZSTD_inBuffer in;
-    size_t pos;
 };
 
 static void InputStream_open(struct InputStream *self, const char *path) {
     self->stream = fopen(path, "rb");
     if (self->stream == NULL) panic("unable to open input file");
-    self->ds = ZSTD_createDStream();
-    if (self->ds == NULL) panic("unable to create zstd context");
-    size_t in_size = ZSTD_initDStream(self->ds);
-    if (ZSTD_isError(in_size)) panic(ZSTD_getErrorName(in_size));
-    self->out.size = ZSTD_DStreamOutSize();
-    self->out.dst = malloc(self->out.size + ZSTD_DStreamInSize());
-    if (self->out.dst == NULL) panic("unable to allocate input buffers");
-    self->out.pos = 0;
-    self->in.src = (const char *)self->out.dst + self->out.size;
-    self->in.size = fread((void *)self->in.src, 1, in_size, self->stream);
-    self->in.pos = 0;
-    self->pos = 0;
 }
 
 static void InputStream_close(struct InputStream *self) {
-    free(self->out.dst);
-    ZSTD_freeDStream(self->ds);
     fclose(self->stream);
 }
 
 static bool InputStream_atEnd(struct InputStream *self) {
-    while (self->pos >= self->out.pos) {
-        self->out.pos = 0;
-        self->pos = 0;
-        size_t in_size = ZSTD_decompressStream(self->ds, &self->out, &self->in);
-        if (ZSTD_isError(in_size)) panic(ZSTD_getErrorName(in_size));
-        if (self->in.pos >= self->in.size) {
-            size_t max_in_size = ZSTD_DStreamInSize();
-            if (in_size > max_in_size) in_size = max_in_size;
-            self->in.size = fread((void *)self->in.src, 1, in_size, self->stream);
-            self->in.pos = 0;
-            if (self->in.pos >= self->in.size) return true;
-        }
-    }
-    return false;
+    return feof(self->stream) != 0;
 }
 
 static uint8_t InputStream_readByte(struct InputStream *self) {
-    if (InputStream_atEnd(self)) panic("unexpected end of input stream");
-    uint8_t value = ((uint8_t *)self->out.dst)[self->pos];
-    self->pos += 1;
+    int value;
+    value = fgetc(self->stream);
+    if (value == EOF) panic("unexpected end of input stream");
     return value;
 }
 
@@ -168,26 +136,13 @@ static char *InputStream_readName(struct InputStream *self) {
     uint32_t len = InputStream_readLeb128_u32(self);
     char *name = malloc(len + 1);
     if (name == NULL) panic("out of memory");
-    for (uint32_t i = 0; i < len; ) {
-        if (InputStream_atEnd(self)) panic("unexpected end of input stream");
-        size_t remaining = self->out.pos - self->pos;
-        if (remaining > len - i) remaining = len - i;
-        memcpy(&name[i], &((char *)self->out.dst)[self->pos], remaining);
-        i += remaining;
-        self->pos += remaining;
-    }
-    name[len] = '\0';
+    if (fread(name, 1, len, self->stream) != len) panic("unexpected end of input stream");
+    name[len] = 0;
     return name;
 }
 
 static void InputStream_skipBytes(struct InputStream *self, size_t len) {
-    for (size_t i = 0; i < len; ) {
-        if (InputStream_atEnd(self)) panic("unexpected end of input stream");
-        size_t remaining = self->out.pos - self->pos;
-        if (remaining > len - i) remaining = len - i;
-        i += remaining;
-        self->pos += remaining;
-    }
+    if (fseek(self->stream, len, SEEK_CUR) == -1) panic("unexpected end of input stream");
 }
 
 static uint32_t InputStream_skipToSection(struct InputStream *self, uint8_t expected_id) {

@@ -2341,8 +2341,6 @@ pub const Object = struct {
             .Null => unreachable,
             .EnumLiteral => unreachable,
 
-            .BoundFn => @panic("TODO remove BoundFn from the language"),
-
             .Frame => @panic("TODO implement lowerDebugType for Frame types"),
             .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
         }
@@ -3094,8 +3092,6 @@ pub const DeclGen = struct {
             .Undefined => unreachable,
             .Null => unreachable,
             .EnumLiteral => unreachable,
-
-            .BoundFn => @panic("TODO remove BoundFn from the language"),
 
             .Frame => @panic("TODO implement llvmType for Frame types"),
             .AnyFrame => @panic("TODO implement llvmType for AnyFrame types"),
@@ -3896,7 +3892,6 @@ pub const DeclGen = struct {
             .NoReturn => unreachable,
             .Undefined => unreachable,
             .Null => unreachable,
-            .BoundFn => unreachable,
             .Opaque => unreachable,
 
             .Frame,
@@ -10792,7 +10787,6 @@ fn isByRef(ty: Type) bool {
         .EnumLiteral,
         .Undefined,
         .Null,
-        .BoundFn,
         .Opaque,
         => unreachable,
 

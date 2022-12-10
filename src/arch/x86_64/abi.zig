@@ -52,7 +52,6 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .ComptimeInt,
         .Undefined,
         .Null,
-        .BoundFn,
         .Fn,
         .Opaque,
         .EnumLiteral,

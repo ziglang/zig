@@ -46,7 +46,6 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
-        .BoundFn,
         .Opaque,
         .Frame,
         .AnyFrame,
