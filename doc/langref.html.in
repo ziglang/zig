@@ -2433,43 +2433,6 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
 
-      {#header_open|Anonymous List Literals#}
-      <p>Similar to {#link|Enum Literals#} and {#link|Anonymous Struct Literals#}
-      the type can be omitted from array literals:</p>
-      {#code_begin|test|anon_list#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "anonymous list literal syntax" {
-    var array: [4]u8 = .{11, 22, 33, 44};
-    try expect(array[0] == 11);
-    try expect(array[1] == 22);
-    try expect(array[2] == 33);
-    try expect(array[3] == 44);
-}
-      {#code_end#}
-      <p>
-      If there is no type in the {#link|result location|Result Location Semantics#} then an
-      anonymous list literal actually turns into a {#link|struct#} with numbered field names:
-      </p>
-      {#code_begin|test|infer_list_literal#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "fully anonymous list literal" {
-    try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
-}
-
-fn dump(args: anytype) !void {
-    try expect(args.@"0" == 1234);
-    try expect(args.@"1" == 12.34);
-    try expect(args.@"2");
-    try expect(args.@"3"[0] == 'h');
-    try expect(args.@"3"[1] == 'i');
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|Multidimensional Arrays#}
       <p>
       Multidimensional arrays can be created by nesting arrays:
@@ -3578,15 +3541,21 @@ fn dump(args: anytype) !void {
     try expect(args.s[1] == 'i');
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|Tuples#}
       <p>
       Anonymous structs can be created without specifying field names, and are referred to as "tuples".
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
-      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as {#link|identifiers|Identifiers#}.
+      they cannot be accessed with {#syntax#}.{#endsyntax#} syntax without also wrapping them in
+      {#syntax#}@""{#endsyntax#}. Names inside {#syntax#}@""{#endsyntax#} are always recognised as
+      {#link|identifiers|Identifiers#}.
       </p>
       <p>
-      Like arrays, tuples have a .len field, can be indexed and  work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
+      Like arrays, tuples have a .len field, can be indexed (provided the index is comptime-known)
+      and work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
       </p>
       {#code_begin|test|tuple#}
 const std = @import("std");
@@ -6488,7 +6457,22 @@ test "coercion between unions and enums" {
       {#see_also|union|enum#}
       {#header_close#}
       {#header_open|Type Coercion: undefined#}
-      <p>{#link|undefined#} can be cast to any type.</p>
+      <p>{#link|undefined#} can be coerced to any type.</p>
+      {#header_close#}
+
+      {#header_open|Type Coercion: tuples to arrays#}
+      <p>{#link|Tuples#} can be coerced to arrays, if all of the fields have the same type.</p>
+      {#code_begin|test|test_coerce_tuples_arrays#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+const Tuple = struct{ u8, u8 };
+test "coercion from homogenous tuple to array" {
+	const tuple: Tuple = .{5, 6};
+	const array: [2]u8 = tuple;
+	_ = array;
+}
+      {#code_end#}
       {#header_close#}
       {#header_close#}
 
