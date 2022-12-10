@@ -559,6 +559,7 @@ pub const DeclGen = struct {
             try writer.writeByte(')');
         }
         switch (ptr_val.tag()) {
+            .int_u64, .one => try writer.print("{x}", .{try dg.fmtIntLiteral(Type.usize, ptr_val)}),
             .decl_ref_mut, .decl_ref, .variable => {
                 const decl_index = switch (ptr_val.tag()) {
                     .decl_ref => ptr_val.castTag(.decl_ref).?.data,
@@ -640,6 +641,9 @@ pub const DeclGen = struct {
                 };
 
                 if (field_info.ty.hasRuntimeBitsIgnoreComptime()) {
+                    // Ensure complete type definition is visible before accessing fields.
+                    try dg.renderType(std.io.null_writer, field_ptr.container_ty, .Complete);
+
                     try writer.writeAll("&(");
                     try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
                     try writer.writeAll(")->");
@@ -671,6 +675,9 @@ pub const DeclGen = struct {
                     .data = payload_ptr.container_ty,
                 };
                 const container_ptr_ty = Type.initPayload(&container_ptr_ty_pl.base);
+
+                // Ensure complete type definition is visible before accessing fields.
+                try dg.renderType(std.io.null_writer, payload_ptr.container_ty, .Complete);
 
                 try writer.writeAll("&(");
                 try dg.renderParentPtr(writer, payload_ptr.container_ptr, container_ptr_ty);
