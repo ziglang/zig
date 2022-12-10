@@ -3862,27 +3862,48 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
-    if (typed_value.val.isUndef())
+    var tv = typed_value;
+    log.debug("genTypedValue: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+
+    if (tv.val.castTag(.runtime_value)) |rt| {
+        tv.val = rt.data;
+    }
+
+    if (tv.val.isUndef())
         return MCValue{ .undef = {} };
 
-    if (typed_value.val.castTag(.decl_ref)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data);
+    if (tv.val.castTag(.decl_ref)) |payload| {
+        return self.lowerDeclRef(tv, payload.data);
     }
-    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data.decl_index);
+    if (tv.val.castTag(.decl_ref_mut)) |payload| {
+        return self.lowerDeclRef(tv, payload.data.decl_index);
     }
     const target = self.target.*;
 
-    switch (typed_value.ty.zigTypeTag()) {
+    switch (tv.ty.zigTypeTag()) {
+        .Pointer => switch (tv.ty.ptrSize()) {
+            .Slice => {},
+            else => {
+                switch (tv.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = tv.val.toUnsignedInt(target) };
+                    },
+                    else => {},
+                }
+            },
+        },
+        .Bool => {
+            return MCValue{ .immediate = @boolToInt(tv.val.toBool()) };
+        },
         .Int => {
-            const info = typed_value.ty.intInfo(self.target.*);
+            const info = tv.ty.intInfo(self.target.*);
             if (info.bits <= 64) {
                 const unsigned = switch (info.signedness) {
                     .signed => blk: {
-                        const signed = typed_value.val.toSignedInt(target);
+                        const signed = tv.val.toSignedInt(target);
                         break :blk @bitCast(u64, signed);
                     },
-                    .unsigned => typed_value.val.toUnsignedInt(target),
+                    .unsigned => tv.val.toUnsignedInt(target),
                 };
 
                 return MCValue{ .immediate = unsigned };
@@ -3890,38 +3911,84 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 return self.fail("TODO implement int genTypedValue of > 64 bits", .{});
             }
         },
+        .Optional => {
+            if (tv.ty.isPtrLikeOptional()) {
+                if (tv.val.isNull())
+                    return MCValue{ .immediate = 0 };
+
+                var buf: Type.Payload.ElemType = undefined;
+                return self.genTypedValue(.{
+                    .ty = tv.ty.optionalChild(&buf),
+                    .val = tv.val,
+                });
+            } else if (tv.ty.abiSize(self.target.*) == 1) {
+                return MCValue{ .immediate = @boolToInt(tv.val.isNull()) };
+            }
+        },
+        .Enum => {
+            if (tv.val.castTag(.enum_field_index)) |field_index| {
+                switch (tv.ty.tag()) {
+                    .enum_simple => {
+                        return MCValue{ .immediate = field_index.data };
+                    },
+                    .enum_full, .enum_nonexhaustive => {
+                        const enum_full = tv.ty.cast(Type.Payload.EnumFull).?.data;
+                        if (enum_full.values.count() != 0) {
+                            const tag_val = enum_full.values.keys()[field_index.data];
+                            return self.genTypedValue(.{ .ty = enum_full.tag_ty, .val = tag_val });
+                        } else {
+                            return MCValue{ .immediate = field_index.data };
+                        }
+                    },
+                    else => unreachable,
+                }
+            } else {
+                var int_tag_buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = tv.ty.intTagType(&int_tag_buffer);
+                return self.genTypedValue(.{ .ty = int_tag_ty, .val = tv.val });
+            }
+        },
         .ErrorSet => {
-            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+            const err_name = tv.val.castTag(.@"error").?.data.name;
             const module = self.bin_file.options.module.?;
             const global_error_set = module.global_error_set;
             const error_index = global_error_set.get(err_name).?;
             return MCValue{ .immediate = error_index };
         },
         .ErrorUnion => {
-            const error_type = typed_value.ty.errorUnionSet();
-            const payload_type = typed_value.ty.errorUnionPayload();
+            const error_type = tv.ty.errorUnionSet();
+            const payload_type = tv.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |pl| {
+            if (tv.val.castTag(.eu_payload)) |pl| {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return MCValue{ .immediate = 0 };
                 }
 
                 _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
+                return self.fail("TODO implement error union const of type '{}' (non-error)", .{tv.ty.fmtDebug()});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
+                    return self.genTypedValue(.{ .ty = error_type, .val = tv.val });
                 }
 
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
+                return self.fail("TODO implement error union const of type '{}' (error)", .{tv.ty.fmtDebug()});
             }
         },
         .ComptimeInt => unreachable, // semantic analysis prevents this
         .ComptimeFloat => unreachable, // semantic analysis prevents this
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .Opaque => unreachable,
+        else => {},
     }
+
+    return self.fail("TODO implement const of type '{}'", .{tv.ty.fmtDebug()});
 }
 
 fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
