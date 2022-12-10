@@ -2215,6 +2215,12 @@ pub const SrcLoc = struct {
                 assert(src_loc.file_scope.tree_loaded);
                 return nodeToSpan(tree, node);
             },
+            .node_offset_main_token => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const main_token = tree.nodes.items(.main_token)[node];
+                return tokensToSpan(tree, main_token, main_token, main_token);
+            },
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -3009,6 +3015,10 @@ pub const LazySrcLoc = union(enum) {
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
     node_offset: TracedOffset,
+    /// The source location points to the main token of an AST node, found
+    /// by taking this AST node index offset from the containing Decl AST node.
+    /// The Decl is determined contextually.
+    node_offset_main_token: i32,
     /// The source location points to the beginning of a struct initializer.
     /// The Decl is determined contextually.
     node_offset_initializer: i32,
@@ -3275,6 +3285,7 @@ pub const LazySrcLoc = union(enum) {
             .byte_offset,
             .token_offset,
             .node_offset,
+            .node_offset_main_token,
             .node_offset_initializer,
             .node_offset_var_decl_ty,
             .node_offset_var_decl_align,
