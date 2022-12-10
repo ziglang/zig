@@ -1786,24 +1786,36 @@ typedef zig_i128 zig_f128;
 #define zig_as_special_f128(sign, name, arg, repr) repr
 #endif
 
+#define zig_has_c_longdouble 1
+#define zig_libc_name_c_longdouble(name) name##l
+#define zig_as_special_c_longdouble(sign, name, arg, repr) sign __builtin_##name##l(arg)
+#if !_MSC_VER // TODO: Is there a better way to detect this is just double?
+typedef long double zig_c_longdouble;
+#define zig_as_c_longdouble(fp, repr) fp##l
+#else
+#undef zig_has_c_longdouble
+#define zig_has_c_longdouble 0
+#define zig_repr_c_longdouble i128
+#define zig_bitSizeOf_c_longdouble 128
+typedef zig_i128 zig_c_longdouble;
+#define zig_as_c_longdouble(fp, repr) repr
+#undef zig_as_special_c_longdouble
+#define zig_as_special_c_longdouble(sign, name, arg, repr) repr
+#endif
+
 #define zig_cast_f16 (zig_f16)
 #define zig_cast_f32 (zig_f32)
 #define zig_cast_f64 (zig_f64)
-#define zig_cast_c_longdouble (zig_c_longdouble)
 
 #if _MSC_VER && !zig_has_f128
 #define zig_cast_f80
+#define zig_cast_c_longdouble
 #define zig_cast_f128
 #else
 #define zig_cast_f80 (zig_f80)
+#define zig_cast_c_longdouble (zig_c_longdouble)
 #define zig_cast_f128 (zig_f128)
 #endif
-
-#define zig_has_c_longdouble 1
-typedef long double zig_c_longdouble;
-#define zig_as_c_longdouble(fp, repr) fp##l
-#define zig_libc_name_c_longdouble(name) name##l
-#define zig_as_special_c_longdouble(sign, name, arg, repr) sign __builtin_##name##l(arg)
 
 #define zig_convert_builtin(ResType, operation, ArgType, version) \
     zig_extern zig_##ResType zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
