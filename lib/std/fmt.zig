@@ -2198,8 +2198,9 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeLower("abc 123")});
     try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeUpper("abc 123")});
     try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
 }
 

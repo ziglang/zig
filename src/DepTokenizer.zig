@@ -866,7 +866,7 @@ test "error target - continuation expecting end-of-line" {
     );
     try depTokenizer("foo.o: \\ ",
         \\target = {foo.o}
-        \\ERROR: illegal char \x20 at position 8: continuation expecting end-of-line
+        \\ERROR: illegal char ' ' at position 8: continuation expecting end-of-line
     );
     try depTokenizer("foo.o: \\x",
         \\target = {foo.o}
@@ -1053,10 +1053,10 @@ fn printCharValues(out: anytype, bytes: []const u8) !void {
 }
 
 fn printUnderstandableChar(out: anytype, char: u8) !void {
-    if (!std.ascii.isPrint(char) or char == ' ') {
-        try out.print("\\x{X:0>2}", .{char});
+    if (std.ascii.isPrint(char)) {
+        try out.print("'{c}'", .{char});
     } else {
-        try out.print("'{c}'", .{printable_char_tab[char]});
+        try out.print("\\x{X:0>2}", .{char});
     }
 }
 

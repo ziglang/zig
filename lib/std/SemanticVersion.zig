@@ -114,7 +114,7 @@ pub fn parse(text: []const u8) !Version {
             if (id.len == 0) return error.InvalidVersion;
 
             // Identifiers MUST comprise only ASCII alphanumerics and hyphens [0-9A-Za-z-].
-            for (id) |c| if (!std.ascii.isAlNum(c) and c != '-') return error.InvalidVersion;
+            for (id) |c| if (!std.ascii.isAlphanumeric(c) and c != '-') return error.InvalidVersion;
 
             // Numeric identifiers MUST NOT include leading zeroes.
             const is_num = for (id) |c| {
@@ -133,7 +133,7 @@ pub fn parse(text: []const u8) !Version {
             if (id.len == 0) return error.InvalidVersion;
 
             // Identifiers MUST comprise only ASCII alphanumerics and hyphens [0-9A-Za-z-].
-            for (id) |c| if (!std.ascii.isAlNum(c) and c != '-') return error.InvalidVersion;
+            for (id) |c| if (!std.ascii.isAlphanumeric(c) and c != '-') return error.InvalidVersion;
         }
     }
 

@@ -1531,7 +1531,7 @@ const Parser = struct {
                     // without types we don't know if '&&' was intended as 'bitwise_and address_of', or a c-style logical_and
                     // The best the parser can do is recommend changing it to 'and' or ' & &'
                     try p.warnMsg(.{ .tag = .invalid_ampersand_ampersand, .token = oper_token });
-                } else if (std.ascii.isSpace(char_before) != std.ascii.isSpace(char_after)) {
+                } else if (std.ascii.isWhitespace(char_before) != std.ascii.isWhitespace(char_after)) {
                     try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
                 }
             }
@@ -1728,7 +1728,7 @@ const Parser = struct {
                     var sentinel: Node.Index = 0;
                     if (p.eatToken(.identifier)) |ident| {
                         const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
-                        if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.spaces), "c")) {
+                        if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
                             p.tok_i -= 1;
                         }
                     } else if (p.eatToken(.colon)) |_| {
