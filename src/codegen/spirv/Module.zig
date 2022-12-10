@@ -556,9 +556,16 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
     }
 }
 
+pub fn changePtrStorageClass(self: *Module, ptr_ty_ref: Type.Ref, new_storage_class: spec.StorageClass) !Type.Ref {
+    const payload = try self.arena.create(Type.Payload.Pointer);
+    payload.* = self.typeRefType(ptr_ty_ref).payload(.pointer).*;
+    payload.storage_class = new_storage_class;
+    return try self.resolveType(Type.initPayload(&payload.base));
+}
+
 pub fn emitConstant(
     self: *Module,
-    ty_id: spec.IdRef,
+    ty_id: IdRef,
     result_id: IdRef,
     value: spec.LiteralContextDependentNumber,
 ) !void {

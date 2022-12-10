@@ -452,7 +452,7 @@ pub const DeclGen = struct {
                         constituents[i] = self.spv.allocId();
                         try self.genConstant(constituents[i], elem_ty, elem_val, repr);
                     }
-                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
@@ -474,7 +474,7 @@ pub const DeclGen = struct {
                         constituents[len] = self.spv.allocId();
                         try self.genConstant(constituents[len], elem_ty, sentinel, repr);
                     }
-                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = constituents,
@@ -494,7 +494,7 @@ pub const DeclGen = struct {
                         elem.* = self.spv.allocId();
                         try self.genConstant(elem.*, elem_ty, elem_vals[i], repr);
                     }
-                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_id,
                         .constituents = elem_refs,
@@ -547,7 +547,7 @@ pub const DeclGen = struct {
                 };
                 defer self.spv.gpa.free(constituents);
 
-                try section.emit(self.spv.gpa, .OpConstantComposite, .{
+                try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
                     .constituents = constituents,
@@ -558,11 +558,7 @@ pub const DeclGen = struct {
                     const decl_index = val.castTag(.decl_ref).?.data;
                     const decl_result_id = self.spv.allocId();
                     try self.genDeclRef(decl_result_id, decl_index);
-                    try section.emit(self.spv.gpa, .OpVariable, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .storage_class = spirvStorageClass(ty.ptrAddressSpace()),
-                    });
+                    try self.variable(.global, result_id, result_ty_ref, decl_result_id);
                 },
                 else => return self.todo("constant pointer of value type {s}", .{@tagName(val.tag())}),
             },
@@ -1490,48 +1486,73 @@ pub const DeclGen = struct {
         return try self.structFieldPtr(result_ptr_ty, struct_ptr_ty, struct_ptr, field_index);
     }
 
+    fn variable(
+        self: *DeclGen,
+        comptime context: enum { function, global },
+        result_id: IdRef,
+        ptr_ty_ref: SpvType.Ref,
+        initializer: ?IdRef,
+    ) !void {
+        const storage_class = self.spv.typeRefType(ptr_ty_ref).payload(.pointer).storage_class;
+        const actual_storage_class = switch (storage_class) {
+            .Generic => switch (context) {
+                .function => .Function,
+                .global => .CrossWorkgroup,
+            },
+            else => storage_class,
+        };
+        const actual_ptr_ty_ref = switch (storage_class) {
+            .Generic => try self.spv.changePtrStorageClass(ptr_ty_ref, actual_storage_class),
+            else => ptr_ty_ref,
+        };
+        const alloc_result_id = switch (storage_class) {
+            .Generic => self.spv.allocId(),
+            else => result_id,
+        };
+
+        const section = switch (actual_storage_class) {
+            .Generic => unreachable,
+            // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
+            // directly generate them into func.prologue instead of the body.
+            .Function => &self.func.prologue,
+            else => &self.spv.sections.types_globals_constants,
+        };
+        try section.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(actual_ptr_ty_ref),
+            .id_result = alloc_result_id,
+            .storage_class = actual_storage_class,
+            .initializer = initializer,
+        });
+
+        if (storage_class != .Generic) {
+            return;
+        }
+
+        // Now we need to convert the pointer.
+        // If this is a function local, we need to perform the conversion at runtime. Otherwise, we can do
+        // it ahead of time using OpSpecConstantOp.
+        switch (actual_storage_class) {
+            .Function => try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = self.typeId(ptr_ty_ref),
+                .id_result = result_id,
+                .pointer = alloc_result_id,
+            }),
+            else => {
+                try section.emitRaw(self.spv.gpa, .OpSpecConstantOp, 3 + 1);
+                section.writeOperand(IdRef, self.typeId(ptr_ty_ref));
+                section.writeOperand(IdRef, result_id);
+                section.writeOperand(Opcode, .OpPtrCastToGeneric);
+                section.writeOperand(IdRef, alloc_result_id);
+            },
+        }
+    }
+
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty = self.air.typeOfIndex(inst);
         const result_ty_ref = try self.resolveType(ty, .direct);
-        const result_ty_id = self.typeId(result_ty_ref);
         const result_id = self.spv.allocId();
-
-        const storage_class = spirvStorageClass(ty.ptrAddressSpace());
-
-        const ptr_ty_id = switch (storage_class) {
-            .Generic => blk: {
-                const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
-                payload.* = self.spv.typeRefType(result_ty_ref).payload(.pointer).*;
-                payload.storage_class = .Function;
-                break :blk try self.spv.resolveTypeId(SpvType.initPayload(&payload.base));
-            },
-            else => result_ty_id,
-        };
-        const actual_storage_class = switch (storage_class) {
-            .Generic, .Function => .Function,
-            else => storage_class,
-        };
-        const section = switch (storage_class) {
-            // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
-            // directly generate them into func.prologue instead of the body.
-            .Generic, .Function => &self.func.prologue,
-            else => &self.spv.sections.types_globals_constants,
-        };
-        try section.emit(self.spv.gpa, .OpVariable, .{
-            .id_result_type = ptr_ty_id,
-            .id_result = result_id,
-            .storage_class = actual_storage_class,
-        });
-        if (storage_class == .Generic) {
-            const casted_result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                .id_result_type = result_ty_id,
-                .id_result = casted_result_id,
-                .pointer = result_id,
-            });
-            return casted_result_id;
-        }
+        try self.variable(.function, result_id, result_ty_ref, null);
         return result_id;
     }
 
