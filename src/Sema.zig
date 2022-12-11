@@ -12059,8 +12059,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs);
-    const rhs_info = try sema.getArrayCatInfo(block, rhs_src, rhs);
+    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs) orelse {
+        return sema.fail(block, lhs_src, "expected indexable; found '{}'", .{lhs_ty.fmt(sema.mod)});
+    };
+    const rhs_info = try sema.getArrayCatInfo(block, rhs_src, rhs) orelse {
+        return sema.fail(block, rhs_src, "expected indexable; found '{}'", .{rhs_ty.fmt(sema.mod)});
+    };
 
     const resolved_elem_ty = t: {
         var trash_block = block.makeSubBlock();
@@ -12220,7 +12224,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return block.addAggregateInit(result_ty, element_refs);
 }
 
-fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) !Type.ArrayInfo {
+fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) !?Type.ArrayInfo {
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
         .Array => return operand_ty.arrayInfo(),
@@ -12248,7 +12252,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
         },
         else => {},
     }
-    return sema.fail(block, src, "expected indexable; found '{}'", .{operand_ty.fmt(sema.mod)});
+    return null;
 }
 
 fn analyzeTupleMul(
@@ -12330,16 +12334,33 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_ty = sema.typeOf(lhs);
     const src: LazySrcLoc = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const operator_src: LazySrcLoc = .{ .node_offset_main_token = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    // In `**` rhs must be comptime-known, but lhs can be runtime-known
-    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
-
     if (lhs_ty.isTuple()) {
+        // In `**` rhs must be comptime-known, but lhs can be runtime-known
+        const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
         return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor);
     }
 
-    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs);
+    // Analyze the lhs first, to catch the case that someone tried to do exponentiation
+    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs) orelse {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, lhs_src, "expected indexable; found '{}'", .{lhs_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            switch (lhs_ty.zigTypeTag()) {
+                .Int, .Float, .ComptimeFloat, .ComptimeInt, .Vector => {
+                    try sema.errNote(block, operator_src, msg, "this operator multiplies arrays; use std.math.pow for exponentiation", .{});
+                },
+                else => {},
+            }
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    };
+
+    // In `**` rhs must be comptime-known, but lhs can be runtime-known
+    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
 
     const result_len_u64 = std.math.mul(u64, lhs_info.len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
