@@ -238,9 +238,7 @@ pub const DeclGen = struct {
                 return try self.resolveDecl(fn_decl_index);
             }
 
-            const result_id = self.spv.allocId();
-            try self.genConstant(result_id, ty, val, .direct);
-            return result_id;
+            return try self.genConstant(ty, val, .direct);
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -396,9 +394,15 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    fn genConstant(self: *DeclGen, ty: Type, val: Value, repr: Repr) Error!IdRef {
+        const result_id = self.spv.allocId();
+        try self.genConstantForId(result_id, ty, val, repr);
+        return result_id;
+    }
+
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
-    fn genConstant(self: *DeclGen, result_id: IdRef, ty: Type, val: Value, repr: Repr) Error!void {
+    fn genConstantForId(self: *DeclGen, result_id: IdRef, ty: Type, val: Value, repr: Repr) Error!void {
         const target = self.getTarget();
         const section = &self.spv.sections.types_globals_constants;
         const result_ty_ref = try self.resolveType(ty, repr);
@@ -449,8 +453,7 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, len);
                     defer self.spv.gpa.free(constituents);
                     for (elem_vals[0..len], 0..) |elem_val, i| {
-                        constituents[i] = self.spv.allocId();
-                        try self.genConstant(constituents[i], elem_ty, elem_val, repr);
+                        constituents[i] = try self.genConstant(elem_ty, elem_val, repr);
                     }
                     try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
@@ -466,14 +469,12 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, total_len);
                     defer self.spv.gpa.free(constituents);
 
-                    const elem_val_id = self.spv.allocId();
-                    try self.genConstant(elem_val_id, elem_ty, elem_val, repr);
+                    const elem_val_id = try self.genConstant(elem_ty, elem_val, repr);
                     for (constituents[0..len]) |*elem| {
                         elem.* = elem_val_id;
                     }
                     if (ty.sentinel()) |sentinel| {
-                        constituents[len] = self.spv.allocId();
-                        try self.genConstant(constituents[len], elem_ty, sentinel, repr);
+                        constituents[len] = try self.genConstant(elem_ty, sentinel, repr);
                     }
                     try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
@@ -517,8 +518,7 @@ pub const DeclGen = struct {
                     const elem_refs = try self.gpa.alloc(IdRef, vector_len);
                     defer self.gpa.free(elem_refs);
                     for (elem_refs, 0..) |*elem, i| {
-                        elem.* = self.spv.allocId();
-                        try self.genConstant(elem.*, elem_ty, elem_vals[i], repr);
+                        elem.* = try self.genConstant(elem_ty, elem_vals[i], repr);
                     }
                     try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
                         .id_result_type = result_ty_id,
@@ -539,17 +539,15 @@ pub const DeclGen = struct {
                     const constituents = try self.spv.gpa.alloc(IdRef, tuple.types.len);
                     errdefer self.spv.gpa.free(constituents);
 
-                    var member_index: usize = 0;
+                    var member_i: usize = 0;
                     for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
                         if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-                        const member_id = self.spv.allocId();
-                        try self.genConstant(member_id, field_ty, field_val, repr);
-                        constituents[member_index] = member_id;
-                        member_index += 1;
+                        constituents[member_i] = try self.genConstant(field_ty, field_val, repr);
+                        member_i += 1;
                     }
 
-                    break :blk constituents[0..member_index];
+                    break :blk constituents[0..member_i];
                 } else blk: {
                     const struct_ty = ty.castTag(.@"struct").?.data;
 
@@ -560,16 +558,14 @@ pub const DeclGen = struct {
                     const field_vals = val.castTag(.aggregate).?.data;
                     const constituents = try self.spv.gpa.alloc(IdRef, struct_ty.fields.count());
                     errdefer self.spv.gpa.free(constituents);
-                    var member_index: usize = 0;
+                    var member_i: usize = 0;
                     for (struct_ty.fields.values(), 0..) |field, i| {
                         if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-                        const member_id = self.spv.allocId();
-                        try self.genConstant(member_id, field.ty, field_vals[i], repr);
-                        constituents[member_index] = member_id;
-                        member_index += 1;
+                        constituents[member_i] = try self.genConstant(field.ty, field_vals[i], repr);
+                        member_i += 1;
                     }
 
-                    break :blk constituents[0..member_index];
+                    break :blk constituents[0..member_i];
                 };
                 defer self.spv.gpa.free(constituents);
 
@@ -580,20 +576,14 @@ pub const DeclGen = struct {
                 });
             },
             .Pointer => switch (val.tag()) {
-                .decl_ref => {
-                    const decl_index = val.castTag(.decl_ref).?.data;
-                    const decl_result_id = self.spv.allocId();
-                    try self.genDeclRef(decl_result_id, decl_index);
-                    try self.variable(.global, result_id, result_ty_ref, decl_result_id);
-                },
+                .decl_ref_mut => try self.genDeclRef(result_ty_ref, result_id, val.castTag(.decl_ref_mut).?.data.decl_index),
+                .decl_ref => try self.genDeclRef(result_ty_ref, result_id, val.castTag(.decl_ref).?.data),
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
-                    const ptr_id = self.spv.allocId();
-                    try self.genConstant(ptr_id, ty.slicePtrFieldType(&buf), slice.ptr, .indirect);
-                    const len_id = self.spv.allocId();
-                    try self.genConstant(len_id, Type.usize, slice.len, .indirect);
+                    const ptr_id = try self.genConstant(ty.slicePtrFieldType(&buf), slice.ptr, .indirect);
+                    const len_id = try self.genConstant(Type.usize, slice.len, .indirect);
 
                     const constituents = [_]IdRef{ ptr_id, len_id };
                     try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
@@ -613,10 +603,11 @@ pub const DeclGen = struct {
         }
     }
 
-    fn genDeclRef(self: *DeclGen, result_id: IdRef, decl_index: Decl.Index) Error!void {
+    fn genDeclRef(self: *DeclGen, result_ty_ref: SpvType.Ref, result_id: IdRef, decl_index: Decl.Index) Error!void {
         const decl = self.module.declPtr(decl_index);
         self.module.markDeclAlive(decl);
-        try self.genConstant(result_id, decl.ty, decl.val, .indirect);
+        const decl_id = try self.genConstant(decl.ty, decl.val, .indirect);
+        try self.variable(.global, result_id, result_ty_ref, decl_id);
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
@@ -915,7 +906,7 @@ pub const DeclGen = struct {
                 .name = fqn,
             });
         } else {
-            try self.genConstant(result_id, decl.ty, decl.val, .direct);
+            try self.genConstantForId(result_id, decl.ty, decl.val, .direct);
         }
     }
 
