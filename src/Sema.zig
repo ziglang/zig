@@ -30757,16 +30757,17 @@ fn generateUnionTagTypeNumbered(
     new_decl.name_fully_qualified = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
+    const copied_int_ty = try int_ty.copy(new_decl_arena_allocator);
     enum_obj.* = .{
         .owner_decl = new_decl_index,
-        .tag_ty = int_ty,
+        .tag_ty = copied_int_ty,
         .fields = .{},
         .values = .{},
     };
     // Here we pre-allocate the maps using the decl arena.
     try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
     try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
-        .ty = int_ty,
+        .ty = copied_int_ty,
         .mod = mod,
     });
     try new_decl.finalizeNewArena(&new_decl_arena);
