@@ -660,6 +660,7 @@ pub const ReadError = error{
 /// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
+    if (buf.len == 0) return 0;
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, null, std.io.default_mode);
     }
@@ -787,6 +788,7 @@ pub const PReadError = ReadError || error{Unseekable};
 /// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
+    if (buf.len == 0) return 0;
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, offset, std.io.default_mode);
     }
@@ -1045,6 +1047,7 @@ pub const WriteError = error{
 /// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
+    if (bytes.len == 0) return 0;
     if (builtin.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, null, std.io.default_mode);
     }
@@ -1197,6 +1200,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
+    if (bytes.len == 0) return 0;
     if (builtin.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, offset, std.io.default_mode);
     }
