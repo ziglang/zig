@@ -584,7 +584,17 @@ pub const AllErrors = struct {
             Message.HashContext,
             std.hash_map.default_max_load_percentage,
         ).init(allocator);
-        const err_source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
+        const err_source = module_err_msg.src_loc.file_scope.getSource(module.gpa) catch |err| {
+            const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
+            try errors.append(.{
+                .plain = .{
+                    .msg = try std.fmt.allocPrint(allocator, "unable to load '{s}': {s}", .{
+                        file_path, @errorName(err),
+                    }),
+                },
+            });
+            return;
+        };
         const err_span = try module_err_msg.src_loc.span(module.gpa);
         const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
 
