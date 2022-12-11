@@ -4433,7 +4433,6 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = func.air.typeOfIndex(inst);
     const elem_ty = ty.childType();
 
-    const result = try func.allocLocal(ty);
     if (determineSimdStoreStrategy(ty, func.target) == .direct) blk: {
         switch (operand) {
             // when the operand lives in the linear memory section, we can directly
@@ -4447,6 +4446,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     64 => std.wasm.simdOpcode(.v128_load64_splat),
                     else => break :blk, // Cannot make use of simd-instructions
                 };
+                const result = try func.allocLocal(ty);
                 try func.emitWValue(operand);
                 // TODO: Add helper functions for simd opcodes
                 const extra_index = @intCast(u32, func.mir_extra.items.len);
@@ -4468,6 +4468,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     64 => if (elem_ty.isInt()) std.wasm.simdOpcode(.i64x2_splat) else std.wasm.simdOpcode(.f64x2_splat),
                     else => break :blk, // Cannot make use of simd-instructions
                 };
+                const result = try func.allocLocal(ty);
                 try func.emitWValue(operand);
                 const extra_index = @intCast(u32, func.mir_extra.items.len);
                 try func.mir_extra.append(func.gpa, opcode);
@@ -4478,8 +4479,22 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => unreachable,
         }
     }
+    const elem_size = elem_ty.bitSize(func.target);
+    const vector_len = @intCast(usize, ty.vectorLen());
+    if ((!std.math.isPowerOfTwo(elem_size) or elem_size % 8 != 0) and vector_len > 1) {
+        return func.fail("TODO: WebAssembly `@splat` for arbitrary element bitsize {d}", .{elem_size});
+    }
 
-    return func.fail("TODO: Implement wasm airSplat unrolled", .{});
+    const result = try func.allocStack(ty);
+    const elem_byte_size = @intCast(u32, elem_ty.abiSize(func.target));
+    var index: usize = 0;
+    var offset: u32 = 0;
+    while (index < vector_len) : (index += 1) {
+        try func.store(result, operand, elem_ty, offset);
+        offset += elem_byte_size;
+    }
+
+    return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
