@@ -15,6 +15,86 @@ const arch_bits = switch (native_arch) {
     else => struct {},
 };
 
+pub const EXC_TYPES_COUNT = arch_bits.EXC_TYPES_COUNT;
+pub const THREAD_STATE_NONE = arch_bits.THREAD_STATE_NONE;
+
+/// Could not access memory
+pub const EXC_BAD_ACCESS = 1;
+/// Instruction failed
+pub const EXC_BAD_INSTRUCTION = 2;
+/// Arithmetic exception
+pub const EXC_ARITHMETIC = 3;
+/// Emulation instruction
+pub const EXC_EMULATION = 4;
+/// Software generated exception
+pub const EXC_SOFTWARE = 5;
+/// Trace, breakpoint, etc.
+pub const EXC_BREAKPOINT = 6;
+/// System calls.
+pub const EXC_SYSCALL = 7;
+/// Mach system calls.
+pub const EXC_MACH_SYSCALL = 8;
+/// RPC alert
+pub const EXC_RPC_ALERT = 9;
+/// Abnormal process exit
+pub const EXC_CRASH = 10;
+/// Hit resource consumption limit
+pub const EXC_RESOURCE = 11;
+/// Violated guarded resource protections
+pub const EXC_GUARD = 12;
+/// Abnormal process exited to corpse state
+pub const EXC_CORPSE_NOTIFY = 13;
+
+pub const EXC_MASK_BAD_ACCESS = 1 << EXC_BAD_ACCESS;
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << EXC_BAD_INSTRUCTION;
+pub const EXC_MASK_ARITHMETIC = 1 << EXC_ARITHMETIC;
+pub const EXC_MASK_EMULATION = 1 << EXC_EMULATION;
+pub const EXC_MASK_SOFTWARE = 1 << EXC_SOFTWARE;
+pub const EXC_MASK_BREAKPOINT = 1 << EXC_BREAKPOINT;
+pub const EXC_MASK_SYSCALL = 1 << EXC_SYSCALL;
+pub const EXC_MASK_MACH_SYSCALL = 1 << EXC_MACH_SYSCALL;
+pub const EXC_MASK_RPC_ALERT = 1 << EXC_RPC_ALERT;
+pub const EXC_MASK_CRASH = 1 << EXC_CRASH;
+pub const EXC_MASK_RESOURCE = 1 << EXC_RESOURCE;
+pub const EXC_MASK_GUARD = 1 << EXC_GUARD;
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << EXC_CORPSE_NOTIFY;
+pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
+
+pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
+    EXC_MASK_BAD_INSTRUCTION |
+    EXC_MASK_ARITHMETIC |
+    EXC_MASK_EMULATION |
+    EXC_MASK_SOFTWARE |
+    EXC_MASK_BREAKPOINT |
+    EXC_MASK_SYSCALL |
+    EXC_MASK_MACH_SYSCALL |
+    EXC_MASK_RPC_ALERT |
+    EXC_MASK_RESOURCE |
+    EXC_MASK_GUARD |
+    EXC_MASK_MACHINE;
+
+/// Send a catch_exception_raise message including the identity.
+pub const EXCEPTION_DEFAULT = 1;
+/// Send a catch_exception_raise_state message including the
+/// thread state.
+pub const EXCEPTION_STATE = 2;
+/// Send a catch_exception_raise_state_identity message including
+/// the thread identity and state.
+pub const EXCEPTION_STATE_IDENTITY = 3;
+/// Send a catch_exception_raise_identity_protected message including protected task
+/// and thread identity.
+pub const EXCEPTION_IDENTITY_PROTECTED = 4;
+/// Prefer sending a catch_exception_raice_backtrace message, if applicable.
+pub const MACH_EXCEPTION_BACKTRACE_PREFERRED = 0x20000000;
+/// include additional exception specific errors, not used yet.
+pub const MACH_EXCEPTION_ERRORS = 0x40000000;
+/// Send 64-bit code and subcode in the exception header */
+pub const MACH_EXCEPTION_CODES = 0x80000000;
+
+pub const MACH_EXCEPTION_MASK = MACH_EXCEPTION_CODES |
+    MACH_EXCEPTION_ERRORS |
+    MACH_EXCEPTION_BACKTRACE_PREFERRED;
+
 pub const ucontext_t = extern struct {
     onstack: c_int,
     sigmask: sigset_t,
@@ -166,6 +246,17 @@ pub const mach_vm_size_t = u64;
 pub const mach_msg_type_number_t = natural_t;
 pub const mach_msg_type_name_t = u32;
 pub const mach_port_right_t = natural_t;
+pub const task_t = mach_port_t;
+pub const exception_mask_t = u32;
+pub const exception_mask_array_t = [*]exception_mask_t;
+pub const exception_handler_t = mach_port_t;
+pub const exception_handler_array_t = [*]exception_handler_t;
+pub const exception_port_t = exception_handler_t;
+pub const exception_port_array_t = exception_handler_array_t;
+pub const exception_flavor_array_t = [*]thread_state_flavor_t;
+pub const exception_behavior_t = i32;
+pub const exception_behavior_array_t = [*]exception_behavior_t;
+pub const thread_state_flavor_t = i32;
 pub const ipc_space_t = mach_port_t;
 pub const ipc_space_port_t = ipc_space_t;
 
@@ -217,6 +308,23 @@ extern "c" var mach_task_self_: mach_port_t;
 pub fn mach_task_self() callconv(.C) mach_port_t {
     return mach_task_self_;
 }
+
+pub extern "c" fn task_get_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    masks: exception_mask_array_t,
+    masks_cnt: *mach_msg_type_number_t,
+    old_handlers: exception_handler_array_t,
+    old_behaviors: exception_behavior_array_t,
+    old_flavors: exception_flavor_array_t,
+) kern_return_t;
+pub extern "c" fn task_set_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    new_port: mach_port_t,
+    behavior: exception_behavior_t,
+    new_flavor: thread_state_flavor_t,
+) kern_return_t;
 
 pub const task_read_t = mach_port_t;
 

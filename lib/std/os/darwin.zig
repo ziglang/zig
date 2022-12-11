@@ -60,6 +60,67 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             }
         }
 
+        pub const PortInfo = struct {
+            mask: std.c.exception_mask_t,
+            masks: [std.c.EXC_TYPES_COUNT]std.c.exception_mask_t,
+            ports: [std.c.EXC_TYPES_COUNT]std.c.mach_port_t,
+            behaviors: [std.c.EXC_TYPES_COUNT]std.c.exception_behavior_t,
+            flavors: [std.c.EXC_TYPES_COUNT]std.c.thread_state_flavor_t,
+            count: std.c.mach_msg_type_number_t,
+        };
+
+        pub fn getExceptionPorts(self: MachTask, mask: std.c.exception_mask_t) !PortInfo {
+            var info = PortInfo{
+                .mask = mask,
+                .masks = undefined,
+                .ports = undefined,
+                .behaviors = undefined,
+                .flavors = undefined,
+                .count = 0,
+            };
+            info.count = info.ports.len / @sizeOf(std.c.mach_port_t);
+
+            switch (std.c.getKernError(std.c.task_get_exception_ports(
+                self.port,
+                info.mask,
+                &info.masks,
+                &info.count,
+                &info.ports,
+                &info.behaviors,
+                &info.flavors,
+            ))) {
+                .SUCCESS => return info,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("task_get_exception_ports kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn setExceptionPorts(
+            self: MachTask,
+            mask: std.c.exception_mask_t,
+            new_port: MachTask,
+            behavior: std.c.exception_behavior_t,
+            new_flavor: std.c.thread_state_flavor_t,
+        ) !void {
+            switch (std.c.getKernError(std.c.task_set_exception_ports(
+                self.port,
+                mask,
+                new_port.port,
+                behavior,
+                new_flavor,
+            ))) {
+                .SUCCESS => return,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("task_set_exception_ports kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
         pub const RegionInfo = struct {
             pub const Tag = enum {
                 basic,
