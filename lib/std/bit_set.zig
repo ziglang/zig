@@ -30,7 +30,7 @@
 //!   A variant of DynamicBitSet which does not store a pointer to its
 //!   allocator, in order to save space.
 
-const std = @import("std");
+const std = @import("std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
@@ -198,14 +198,14 @@ pub fn IntegerBitSet(comptime size: u16) type {
             return bit_length == 0 or self.mask == other.mask;
         }
 
-        /// Returns iff the first bit set is the subset of the
-        /// second one.
+        /// Returns true iff the first bit set is the subset
+        /// of the second one.
         pub fn subsetOf(self: Self, other: Self) bool {
             return self.intersectWith(other).eql(self);
         }
 
-        /// Returns iff the first bit set is the superset of the
-        /// second one.
+        /// Returns true iff the first bit set is the superset
+        /// of the second one.
         pub fn supersetOf(self: Self, other: Self) bool {
             return other.subsetOf(self);
         }
@@ -564,14 +564,14 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
             } else true;
         }
 
-        /// Returns iff the first bit set is the subset of the
-        /// second one.
+        /// Returns true iff the first bit set is the subset
+        /// of the second one.
         pub fn subsetOf(self: Self, other: Self) bool {
             return self.intersectWith(other).eql(self);
         }
 
-        /// Returns iff the first bit set is the superset of the
-        /// second one.
+        /// Returns true iff the first bit set is the superset
+        /// of the second one.
         pub fn supersetOf(self: Self, other: Self) bool {
             return other.subsetOf(self);
         }
@@ -957,6 +957,36 @@ pub const DynamicBitSetUnmanaged = struct {
         } else true;
     }
 
+    /// Returns true iff the first bit set is the subset
+    /// of the second one.
+    pub fn subsetOf(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] & other.masks[i] != self.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
+    /// Returns true iff the first bit set is the superset
+    /// of the second one.
+    pub fn supersetOf(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] & other.masks[i] != other.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
     /// Iterates through the items in the set, according to the options.
     /// The default options (.{}) will iterate indices of set bits in
     /// ascending order.  Modifications to the underlying bit set may
@@ -1287,6 +1317,46 @@ fn testEql(empty: anytype, full: anytype, len: usize) !void {
     }
 }
 
+fn testSubsetOf(empty: anytype, full: anytype, even: anytype, odd: anytype, len: usize) !void {
+    try testing.expect(empty.subsetOf(empty));
+    try testing.expect(empty.subsetOf(full));
+    try testing.expect(full.subsetOf(full));
+    switch (len) {
+        0 => {
+            try testing.expect(even.subsetOf(odd));
+            try testing.expect(odd.subsetOf(even));
+        },
+        1 => {
+            try testing.expect(!even.subsetOf(odd));
+            try testing.expect(odd.subsetOf(even));
+        },
+        else => {
+            try testing.expect(!even.subsetOf(odd));
+            try testing.expect(!odd.subsetOf(even));
+        },
+    }
+}
+
+fn testSupersetOf(empty: anytype, full: anytype, even: anytype, odd: anytype, len: usize) !void {
+    try testing.expect(full.supersetOf(full));
+    try testing.expect(full.supersetOf(empty));
+    try testing.expect(empty.supersetOf(empty));
+    switch (len) {
+        0 => {
+            try testing.expect(even.supersetOf(odd));
+            try testing.expect(odd.supersetOf(even));
+        },
+        1 => {
+            try testing.expect(even.supersetOf(odd));
+            try testing.expect(!odd.supersetOf(even));
+        },
+        else => {
+            try testing.expect(!even.supersetOf(odd));
+            try testing.expect(!odd.supersetOf(even));
+        },
+    }
+}
+
 fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     try testing.expectEqual(len, a.capacity());
     try testing.expectEqual(len, b.capacity());
@@ -1485,63 +1555,38 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     }
 }
 
+fn fillEven(set: anytype, len: usize) void {
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        set.setValue(i, i & 1 == 0);
+    }
+}
+
+fn fillOdd(set: anytype, len: usize) void {
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        set.setValue(i, i & 1 == 1);
+    }
+}
+
 fn testPureBitSet(comptime Set: type) !void {
     const empty = Set.initEmpty();
     const full = Set.initFull();
 
     const even = even: {
         var bit_set = Set.initEmpty();
-        var i: usize = 0;
-        while (i < Set.bit_length) : (i += 1) {
-            bit_set.setValue(i, i & 1 == 0);
-        }
+        fillEven(&bit_set, Set.bit_length);
         break :even bit_set;
     };
 
     const odd = odd: {
         var bit_set = Set.initEmpty();
-        var i: usize = 0;
-        while (i < Set.bit_length) : (i += 1) {
-            bit_set.setValue(i, i & 1 == 1);
-        }
+        fillOdd(&bit_set, Set.bit_length);
         break :odd bit_set;
     };
 
-    try testing.expect(empty.subsetOf(empty));
-    try testing.expect(empty.subsetOf(full));
-    try testing.expect(full.subsetOf(full));
-    switch (Set.bit_length) {
-        0 => {
-            try testing.expect(even.subsetOf(odd));
-            try testing.expect(odd.subsetOf(even));
-        },
-        1 => {
-            try testing.expect(!even.subsetOf(odd));
-            try testing.expect(odd.subsetOf(even));
-        },
-        else => {
-            try testing.expect(!even.subsetOf(odd));
-            try testing.expect(!odd.subsetOf(even));
-        },
-    }
-
-    try testing.expect(full.supersetOf(full));
-    try testing.expect(full.supersetOf(empty));
-    try testing.expect(empty.supersetOf(empty));
-    switch (Set.bit_length) {
-        0 => {
-            try testing.expect(even.supersetOf(odd));
-            try testing.expect(odd.supersetOf(even));
-        },
-        1 => {
-            try testing.expect(even.supersetOf(odd));
-            try testing.expect(!odd.supersetOf(even));
-        },
-        else => {
-            try testing.expect(!even.supersetOf(odd));
-            try testing.expect(!odd.supersetOf(even));
-        },
-    }
+    try testSubsetOf(empty, full, even, odd, Set.bit_length);
+    try testSupersetOf(empty, full, even, odd, Set.bit_length);
 
     try testing.expect(empty.complement().eql(full));
     try testing.expect(full.complement().eql(empty));
@@ -1621,33 +1666,45 @@ test "DynamicBitSetUnmanaged" {
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
 
-        var tmp = try a.clone(allocator);
-        defer tmp.deinit(allocator);
-        try testing.expectEqual(old_len, tmp.capacity());
+        var empty = try a.clone(allocator);
+        defer empty.deinit(allocator);
+        try testing.expectEqual(old_len, empty.capacity());
         var i: usize = 0;
         while (i < old_len) : (i += 1) {
-            try testing.expectEqual(a.isSet(i), tmp.isSet(i));
+            try testing.expectEqual(a.isSet(i), empty.isSet(i));
         }
 
         a.toggleSet(a); // zero a
-        tmp.toggleSet(tmp);
+        empty.toggleSet(empty);
 
         try a.resize(allocator, size, true);
-        try tmp.resize(allocator, size, false);
+        try empty.resize(allocator, size, false);
 
         if (size > old_len) {
             try testing.expectEqual(size - old_len, a.count());
         } else {
             try testing.expectEqual(@as(usize, 0), a.count());
         }
-        try testing.expectEqual(@as(usize, 0), tmp.count());
+        try testing.expectEqual(@as(usize, 0), empty.count());
 
-        var b = try DynamicBitSetUnmanaged.initFull(allocator, size);
-        defer b.deinit(allocator);
-        try testing.expectEqual(@as(usize, size), b.count());
+        var full = try DynamicBitSetUnmanaged.initFull(allocator, size);
+        defer full.deinit(allocator);
+        try testing.expectEqual(@as(usize, size), full.count());
 
-        try testEql(tmp, b, size);
-        try testBitSet(&a, &b, size);
+        try testEql(empty, full, size);
+        {
+            var even = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            defer even.deinit(allocator);
+            fillEven(&even, size);
+
+            var odd = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            defer odd.deinit(allocator);
+            fillOdd(&odd, size);
+
+            try testSubsetOf(empty, full, even, odd, size);
+            try testSupersetOf(empty, full, even, odd, size);
+        }
+        try testBitSet(&a, &full, size);
     }
 }
 
