@@ -5616,11 +5616,11 @@ pub fn sendmsg(
     /// The file descriptor of the sending socket.
     sockfd: socket_t,
     /// Message header and iovecs
-    msg: msghdr_const,
+    msg: *const msghdr_const,
     flags: u32,
 ) SendMsgError!usize {
     while (true) {
-        const rc = system.sendmsg(sockfd, @ptrCast(*const std.x.os.Socket.Message, &msg), @intCast(c_int, flags));
+        const rc = system.sendmsg(sockfd, msg, flags);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
