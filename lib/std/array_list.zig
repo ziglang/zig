@@ -51,7 +51,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return if (alignment) |a| ([:s]align(a) T) else [:s]T;
         }
 
-        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        /// Deinitialize with `deinit`.
         pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
@@ -62,7 +62,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Initialize with capacity to hold at least `num` elements.
         /// The resulting capacity is likely to be equal to `num`.
-        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        /// Deinitialize with `deinit`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
             try self.ensureTotalCapacityPrecise(num);
@@ -78,7 +78,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
-        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        /// Deinitialize with `deinit`.
         pub fn fromOwnedSlice(allocator: Allocator, slice: Slice) Self {
             return Self{
                 .items = slice,
@@ -475,7 +475,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 /// An ArrayList, but the allocator is passed as a parameter to the relevant functions
 /// rather than stored in the struct itself. The same allocator **must** be used throughout
 /// the entire lifetime of an ArrayListUnmanaged. Initialize directly or with
-/// `initCapacity`, and deinitialize with `deinit` or use `toOwnedSlice`.
+/// `initCapacity`, and deinitialize with `deinit`.
 pub fn ArrayListUnmanaged(comptime T: type) type {
     return ArrayListAlignedUnmanaged(T, null);
 }
@@ -483,7 +483,7 @@ pub fn ArrayListUnmanaged(comptime T: type) type {
 /// An ArrayListAligned, but the allocator is passed as a parameter to the relevant
 /// functions rather than stored  in the struct itself. The same allocator **must**
 /// be used throughout the entire lifetime of an ArrayListAlignedUnmanaged.
-/// Initialize directly or with `initCapacity`, and deinitialize with `deinit` or use `toOwnedSlice`.
+/// Initialize directly or with `initCapacity`, and deinitialize with `deinit`.
 pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -514,7 +514,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Initialize with capacity to hold at least num elements.
         /// The resulting capacity is likely to be equal to `num`.
-        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        /// Deinitialize with `deinit`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
             try self.ensureTotalCapacityPrecise(allocator, num);
