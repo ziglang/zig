@@ -164,6 +164,21 @@ pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
 pub const mach_vm_size_t = u64;
 pub const mach_msg_type_number_t = natural_t;
+pub const mach_port_right_t = natural_t;
+pub const ipc_space_t = mach_port_t;
+pub const ipc_space_port_t = ipc_space_t;
+
+pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
+    SEND = 0,
+    RECEIVE = 1,
+    SEND_ONCE = 2,
+    PORT_SET = 3,
+    DEAD_NAME = 4,
+    /// Obsolete right
+    LABELH = 5,
+    /// Right not implemented
+    NUMBER = 6,
+};
 
 extern "c" var mach_task_self_: mach_port_t;
 pub fn mach_task_self() callconv(.C) mach_port_t {
@@ -506,7 +521,12 @@ pub extern "c" fn mach_vm_protect(
     new_protection: vm_prot_t,
 ) kern_return_t;
 
-pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_allocate(
+    task: ipc_space_t,
+    right: mach_port_right_t,
+    name: *mach_port_name_t,
+) kern_return_t;
+pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
 
 pub extern "c" fn task_info(
     target_task: task_name_t,

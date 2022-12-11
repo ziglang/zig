@@ -24,6 +24,26 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             return self.port != 0;
         }
 
+        pub fn allocatePort(self: MachTask, right: std.c.MACH_PORT_RIGHT) MachError!MachTask {
+            var out_port: std.c.mach_port_name_t = undefined;
+            switch (std.c.getKernError(std.c.mach_port_allocate(
+                self.port,
+                @enumToInt(right),
+                &out_port,
+            ))) {
+                .SUCCESS => return .{ .port = out_port },
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("mach_task_allocate kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn deallocatePort(self: MachTask, port: MachTask) void {
+            _ = std.c.getKernError(std.c.mach_port_deallocate(self.port, port.port));
+        }
+
         pub const RegionInfo = struct {
             pub const Tag = enum {
                 basic,
