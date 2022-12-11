@@ -1068,3 +1068,103 @@ test "isatty" {
     var file = try tmp.dir.createFile("foo", .{});
     try expectEqual(os.isatty(file.handle), false);
 }
+
+test "read with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.read(file.handle, bytes);
+}
+
+test "pread with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.pread(file.handle, bytes, 0);
+}
+
+test "write with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{});
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.write(file.handle, bytes);
+}
+
+test "pwrite with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{});
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.pwrite(file.handle, bytes, 0);
+}
