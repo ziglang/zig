@@ -1065,3 +1065,11 @@ test "timerfd" {
     try os.timerfd_settime(tfd, 0, &sit, null);
     try expectEqual(try os.poll(&fds, 5), 0);
 }
+
+test "isatty" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("foo", .{});
+    try expectEqual(os.isatty(file.handle), false);
+}
