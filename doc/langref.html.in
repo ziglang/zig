@@ -4959,6 +4959,20 @@ fn deferUnwindExample() void {
 test "defer unwinding" {
     deferUnwindExample();
 }
+      {#code_end#}
+      {#code_begin|test_err|cannot return from defer expression#}
+// Inside a defer expression the return statement is not allowed.
+fn deferInvalidExample() !void {
+    defer {
+        return error.DeferError;
+    }
+
+    return error.DeferError;
+}
+      {#code_end#}
+      {#code_begin|test|errdefer#}
+const std = @import("std");
+const print = std.debug.print;
 
 // The errdefer keyword is similar to defer, but will only execute if the
 // scope returns with an error.
@@ -4976,19 +4990,6 @@ fn deferErrorExample(is_error: bool) !void {
     errdefer {
         print("encountered an error!\n", .{});
     }
-
-    // inside a defer method the return statement
-    // is not allowed.
-    // The following lines produce the following
-    // error if uncomment
-    // ```
-    // defer.zig:73:9: error: cannot return from defer expression
-    // return error.DeferError;
-    // ```
-    //
-    //defer {
-    //    return error.DeferError;
-    //}
 
     if (is_error) {
         return error.DeferError;
