@@ -120,11 +120,17 @@ string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_INCLUDE_DIR_ESCAPED "${ZIG_LIBC_
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
+set(ZIG_AR_WORKAROUND off CACHE BOOL "append 'ar' subcommand to CMAKE_AR")
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     set(ZIG_USE_LLVM_CONFIG ON CACHE BOOL "use llvm-config to find LLVM libraries")
 else()
     set(ZIG_USE_LLVM_CONFIG OFF CACHE BOOL "use llvm-config to find LLVM libraries")
+endif()
+
+if(ZIG_AR_WORKAROUND)
+  string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_C_ARCHIVE_CREATE ${CMAKE_C_ARCHIVE_CREATE})
+  string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
 find_package(llvm 15)
@@ -701,6 +707,8 @@ target_link_libraries(zigcpp LINK_PUBLIC
 if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "AMD64")
   set(HOST_TARGET_ARCH "x86_64")
 elseif(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
+  set(HOST_TARGET_ARCH "aarch64")
+elseif(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "ARM64")
   set(HOST_TARGET_ARCH "aarch64")
 else()
   string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" HOST_TARGET_ARCH)
