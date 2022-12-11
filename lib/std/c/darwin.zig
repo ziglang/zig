@@ -164,6 +164,7 @@ pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
 pub const mach_vm_size_t = u64;
 pub const mach_msg_type_number_t = natural_t;
+pub const mach_msg_type_name_t = u32;
 pub const mach_port_right_t = natural_t;
 pub const ipc_space_t = mach_port_t;
 pub const ipc_space_port_t = ipc_space_t;
@@ -178,6 +179,38 @@ pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
     LABELH = 5,
     /// Right not implemented
     NUMBER = 6,
+};
+
+pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
+    /// Must hold receive right
+    MOVE_RECEIVE = 16,
+
+    /// Must hold send right(s)
+    MOVE_SEND = 17,
+
+    /// Must hold sendonce right
+    MOVE_SEND_ONCE = 18,
+
+    /// Must hold send right(s)
+    COPY_SEND = 19,
+
+    /// Must hold receive right
+    MAKE_SEND = 20,
+
+    /// Must hold receive right
+    MAKE_SEND_ONCE = 21,
+
+    /// NOT VALID
+    COPY_RECEIVE = 22,
+
+    /// Must hold receive right
+    DISPOSE_RECEIVE = 24,
+
+    /// Must hold send right(s)
+    DISPOSE_SEND = 25,
+
+    /// Must hold sendonce right
+    DISPOSE_SEND_ONCE = 26,
 };
 
 extern "c" var mach_task_self_: mach_port_t;
@@ -527,6 +560,12 @@ pub extern "c" fn mach_port_allocate(
     name: *mach_port_name_t,
 ) kern_return_t;
 pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_insert_right(
+    task: ipc_space_t,
+    name: mach_port_name_t,
+    poly: mach_port_t,
+    poly_poly: mach_msg_type_name_t,
+) kern_return_t;
 
 pub extern "c" fn task_info(
     target_task: task_name_t,

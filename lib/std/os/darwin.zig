@@ -44,6 +44,22 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             _ = std.c.getKernError(std.c.mach_port_deallocate(self.port, port.port));
         }
 
+        pub fn insertRight(self: MachTask, port: MachTask, msg: std.c.MACH_MSG_TYPE) !void {
+            switch (std.c.getKernError(std.c.mach_port_insert_right(
+                self.port,
+                port.port,
+                port.port,
+                @enumToInt(msg),
+            ))) {
+                .SUCCESS => return,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("mach_port_insert_right kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
         pub const RegionInfo = struct {
             pub const Tag = enum {
                 basic,
