@@ -431,6 +431,30 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             return true;
         }
 
+        /// Returns true iff all key counts less than or
+        /// equal to the given multiset.
+        pub fn subsetOf(self: Self, other: Self) bool {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                if (self.getCount(key) > other.getCount(key)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// Returns true iff all key counts greater than or
+        /// equal to the given multiset.
+        pub fn supersetOf(self: Self, other: Self) bool {
+            inline for (@typeInfo(E).Enum.fields) |field| {
+                const key = @intToEnum(E, field.value);
+                if (self.getCount(key) < other.getCount(key)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /// Returns a multiset with the total key count of this
         /// multiset and the other multiset. Caller asserts
         /// operation will not overflow any key.
@@ -581,6 +605,38 @@ test "EnumMultiset" {
     try testing.expect(!empty.eql(r0_g1_b2));
     try testing.expect(!r0_g1_b2.eql(ten_of_each));
     try testing.expect(!ten_of_each.eql(empty));
+
+    try testing.expect(empty.subsetOf(empty));
+    try testing.expect(r0_g1_b2.subsetOf(r0_g1_b2));
+    try testing.expect(empty.subsetOf(r0_g1_b2));
+    try testing.expect(r0_g1_b2.subsetOf(ten_of_each));
+    try testing.expect(!ten_of_each.subsetOf(r0_g1_b2));
+    try testing.expect(!r0_g1_b2.subsetOf(empty));
+
+    try testing.expect(empty.supersetOf(empty));
+    try testing.expect(r0_g1_b2.supersetOf(r0_g1_b2));
+    try testing.expect(r0_g1_b2.supersetOf(empty));
+    try testing.expect(ten_of_each.supersetOf(r0_g1_b2));
+    try testing.expect(!r0_g1_b2.supersetOf(ten_of_each));
+    try testing.expect(!empty.supersetOf(r0_g1_b2));
+
+    {
+        // with multisets it could be the case where two
+        // multisets are neither subset nor superset of each
+        // other.
+
+        const r10 = EnumMultiset(Ball).init(.{
+            .red = 10,
+        });
+        const b10 = EnumMultiset(Ball).init(.{
+            .blue = 10,
+        });
+
+        try testing.expect(!r10.subsetOf(b10));
+        try testing.expect(!b10.subsetOf(r10));
+        try testing.expect(!r10.supersetOf(b10));
+        try testing.expect(!b10.supersetOf(r10));
+    }
 
     {
         const result = r0_g1_b2.plusAssertSafe(ten_of_each);
