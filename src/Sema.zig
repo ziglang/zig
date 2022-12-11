@@ -2257,6 +2257,9 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
         sema.owner_decl.analysis = .sema_failure;
         sema.owner_decl.generation = mod.generation;
     }
+    if (sema.func) |func| {
+        func.state = .sema_failure;
+    }
     const gop = mod.failed_decls.getOrPutAssumeCapacity(sema.owner_decl_index);
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
@@ -6385,6 +6388,7 @@ fn analyzeCall(
             }),
             else => unreachable,
         };
+        if (!is_comptime_call and module_fn.state == .sema_failure) return error.AnalysisFail;
 
         // Analyze the ZIR. The same ZIR gets analyzed into a runtime function
         // or an inlined call depending on what union tag the `label` field is
