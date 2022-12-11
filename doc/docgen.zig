@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
+const path = fs.path;
 const process = std.process;
 const ChildProcess = std.ChildProcess;
 const Progress = std.Progress;
@@ -48,6 +49,7 @@ pub fn main() !void {
     var in_file = try fs.cwd().openFile(in_file_name, .{ .mode = .read_only });
     defer in_file.close();
 
+    if (path.dirname(out_file_name)) |dirname| try fs.cwd().makePath(dirname);
     var out_file = try fs.cwd().createFile(out_file_name, .{});
     defer out_file.close();
 

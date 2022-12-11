@@ -39,7 +39,7 @@ pub fn build(b: *Builder) !void {
     const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
     const langref_out_path = fs.path.join(
         b.allocator,
-        &[_][]const u8{ b.cache_root, "langref.html" },
+        &[_][]const u8{ b.install_prefix, "share", "doc", "langref.html" },
     ) catch unreachable;
     const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
