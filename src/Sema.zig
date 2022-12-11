@@ -12337,13 +12337,13 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const operator_src: LazySrcLoc = .{ .node_offset_main_token = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    // In `**` rhs must be comptime-known, but lhs can be runtime-known
-    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
-
     if (lhs_ty.isTuple()) {
+        // In `**` rhs must be comptime-known, but lhs can be runtime-known
+        const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
         return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor);
     }
 
+    // Analyze the lhs first, to catch the case that someone tried to do exponentiation
     const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs) orelse {
         const msg = msg: {
             const msg = try sema.errMsg(block, lhs_src, "expected indexable; found '{}'", .{lhs_ty.fmt(sema.mod)});
@@ -12358,6 +12358,9 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         };
         return sema.failWithOwnedErrorMsg(msg);
     };
+
+    // In `**` rhs must be comptime-known, but lhs can be runtime-known
+    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
 
     const result_len_u64 = std.math.mul(u64, lhs_info.len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
