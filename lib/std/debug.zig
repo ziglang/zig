@@ -1110,7 +1110,12 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
             else => {},
         }
     }
-    assert(state == .oso_close);
+
+    switch (state) {
+        .init => return error.MissingDebugInfo,
+        .oso_close => {},
+        else => return error.InvalidDebugInfo,
+    }
 
     const symbols = allocator.shrink(symbols_buf, symbol_index);
 
