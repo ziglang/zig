@@ -2305,7 +2305,7 @@ comptime {
     assert(message.len == 5);
 }
 
-// A string literal is a single-item pointer to an array literal.
+// A string literal is a single-item pointer to an array.
 const same_message = "hello";
 
 comptime {
