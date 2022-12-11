@@ -2344,6 +2344,6 @@ pub extern "ws2_32" fn getnameinfo(
     Flags: i32,
 ) callconv(WINAPI) i32;
 
-pub extern "IPHLPAPI" fn if_nametoindex(
+pub extern "iphlpapi" fn if_nametoindex(
     InterfaceName: [*:0]const u8,
 ) callconv(WINAPI) u32;

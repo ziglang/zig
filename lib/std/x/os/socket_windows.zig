@@ -27,7 +27,7 @@ pub fn Mixin(comptime Socket: type) type {
                 return switch (ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => {
                         _ = try windows.WSAStartup(2, 2);
-                        return Socket.init(domain, socket_type, protocol, flags);
+                        return init(domain, socket_type, protocol, flags);
                     },
                     .WSAEAFNOSUPPORT => error.AddressFamilyNotSupported,
                     .WSAEMFILE => error.ProcessFdQuotaExceeded,
