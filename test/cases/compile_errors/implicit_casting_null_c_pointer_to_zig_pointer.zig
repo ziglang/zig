@@ -5,7 +5,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:24: error: null pointer casted to type '*u8'
+// :3:24: error: null pointer casted to type '*u8'

@@ -6,7 +6,7 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
 // :3:28: error: use of undefined value here causes undefined behavior

@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:10: error: index 0 outside slice of size 0
+// :3:10: error: use of undefined value here causes undefined behavior

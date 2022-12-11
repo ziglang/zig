@@ -20,12 +20,12 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:18: error: cast from 'u16' to 'u8' truncates bits
-// tmp.zig:8:22: error: integer value 300 cannot be coerced to type 'u8'
-// tmp.zig:13:20: error: expected type 'u8', found 'u16'
-// tmp.zig:13:20: note: unsigned 8-bit int cannot represent all possible unsigned 16-bit values
-// tmp.zig:18:25: error: expected type 'u64', found 'i8'
-// tmp.zig:18:25: note: unsigned 64-bit int cannot represent all possible signed 8-bit values
+// :3:31: error: type 'u8' cannot represent integer value '300'
+// :8:22: error: type 'u8' cannot represent integer value '300'
+// :13:20: error: expected type 'u8', found 'u16'
+// :13:20: note: unsigned 8-bit int cannot represent all possible unsigned 16-bit values
+// :18:25: error: expected type 'u64', found 'i8'
+// :18:25: note: unsigned 64-bit int cannot represent all possible signed 8-bit values

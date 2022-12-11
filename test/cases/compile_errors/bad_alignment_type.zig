@@ -8,8 +8,8 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:20: error: expected type 'u29', found 'bool'
-// tmp.zig:6:19: error: fractional component prevents float value 12.340000 from being casted to type 'u29'
+// :2:20: error: expected type 'u32', found 'bool'
+// :6:19: error: fractional component prevents float value '12.34' from coercion to type 'u32'

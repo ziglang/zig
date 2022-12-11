@@ -10,8 +10,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:22: error: specified integer tag type cannot represent every field
-// tmp.zig:1:22: note: type u2 cannot fit values in range 0...4
+// :1:22: error: specified integer tag type cannot represent every field
+// :1:22: note: type 'u2' cannot fit values in range 0...4

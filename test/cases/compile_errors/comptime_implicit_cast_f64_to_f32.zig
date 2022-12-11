@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:20: error: cast of value 16777217.000000 to type 'f32' loses information
+// :3:20: error: type 'f32' cannot represent float value '16777217'

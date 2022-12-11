@@ -6,7 +6,8 @@ export fn c(x: i32) i32 {return x + 2;}
 export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'
+// :1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'
+// :1:37: note: calling convention 'C' cannot cast into calling convention 'Unspecified'

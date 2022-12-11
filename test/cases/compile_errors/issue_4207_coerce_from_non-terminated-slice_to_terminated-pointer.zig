@@ -4,8 +4,9 @@ export fn foo() [*:0]const u8 {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
 // :3:18: error: expected type '[*:0]const u8', found '*[64]u8'
-// :3:18: note: destination pointer requires a terminating '0' sentinel
+// :3:18: note: destination pointer requires '0' sentinel
+// :1:18: note: function return type declared here

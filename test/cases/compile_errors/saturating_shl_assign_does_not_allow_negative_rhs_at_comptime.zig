@@ -6,7 +6,7 @@ export fn a() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// error: shift by negative value -2
+// :4:14: error: shift by negative amount '-2'

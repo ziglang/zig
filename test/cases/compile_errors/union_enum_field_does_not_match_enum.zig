@@ -15,8 +15,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:10:5: error: enum field not found: 'D'
-// tmp.zig:1:16: note: enum declared here
+// :10:5: error: no field named 'D' in enum 'tmp.Letter'
+// :1:16: note: enum declared here

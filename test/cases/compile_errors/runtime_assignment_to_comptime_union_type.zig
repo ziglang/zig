@@ -9,7 +9,8 @@ export fn f() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:7:23: error: unable to evaluate constant expression
+// :7:30: error: unable to resolve comptime value
+// :7:30: note: initializer of comptime only union must be comptime-known

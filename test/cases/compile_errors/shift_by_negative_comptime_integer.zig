@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:18: error: shift by negative value -1
+// :2:18: error: shift by negative amount '-1'

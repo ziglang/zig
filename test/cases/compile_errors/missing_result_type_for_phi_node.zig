@@ -6,7 +6,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:5:17: error: integer value 0 cannot be coerced to type 'void'
+// :5:11: error: incompatible types: 'void' and 'comptime_int'
