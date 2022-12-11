@@ -586,7 +586,23 @@ pub const DeclGen = struct {
                     try self.genDeclRef(decl_result_id, decl_index);
                     try self.variable(.global, result_id, result_ty_ref, decl_result_id);
                 },
-                else => return self.todo("constant pointer of value type {s}", .{@tagName(val.tag())}),
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+
+                    const ptr_id = self.spv.allocId();
+                    try self.genConstant(ptr_id, ty.slicePtrFieldType(&buf), slice.ptr, .indirect);
+                    const len_id = self.spv.allocId();
+                    try self.genConstant(len_id, Type.usize, slice.len, .indirect);
+
+                    const constituents = [_]IdRef{ ptr_id, len_id };
+                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
+                        .id_result_type = result_ty_id,
+                        .id_result = result_id,
+                        .constituents = &constituents,
+                    });
+                },
+                else => return self.todo("pointer of value type {s}", .{@tagName(val.tag())}),
             },
             .Fn => switch (repr) {
                 .direct => unreachable,
