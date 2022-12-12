@@ -13,8 +13,6 @@ const Tag = Node.Tag;
 
 const CallingConvention = std.builtin.CallingConvention;
 
-pub const ClangErrMsg = clang.Stage2ErrorMsg;
-
 pub const Error = std.mem.Allocator.Error;
 const MacroProcessingError = Error || error{UnexpectedMacroToken};
 const TypeError = Error || error{UnsupportedType};
@@ -350,7 +348,7 @@ pub fn translate(
     gpa: mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    errors: *[]ClangErrMsg,
+    errors: *[]clang.ErrorMsg,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
     // TODO stage2 bug
@@ -5113,10 +5111,6 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     const str = try c.locStr(loc);
     const location_comment = try std.fmt.allocPrint(c.arena, "// {s}", .{str});
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
-}
-
-pub fn freeErrors(errors: []ClangErrMsg) void {
-    errors.ptr.delete(errors.len);
 }
 
 const PatternList = struct {

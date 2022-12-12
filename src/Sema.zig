@@ -5130,20 +5130,58 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     if (c_import_res.errors.len != 0) {
         const msg = msg: {
+            defer @import("clang.zig").ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
+
             const msg = try sema.errMsg(&child_block, src, "C import failed", .{});
             errdefer msg.destroy(sema.gpa);
 
             if (!mod.comp.bin_file.options.link_libc)
                 try sema.errNote(&child_block, src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-            for (c_import_res.errors) |_| {
-                // TODO integrate with LazySrcLoc
-                // try mod.errNoteNonLazy(.{}, msg, "{s}", .{clang_err.msg_ptr[0..clang_err.msg_len]});
-                // if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
-                // clang_err.line + 1,
-                // clang_err.column + 1,
+            const gop = try sema.mod.cimport_errors.getOrPut(sema.gpa, sema.owner_decl_index);
+            if (!gop.found_existing) {
+                var errs = try std.ArrayListUnmanaged(Module.CImportError).initCapacity(sema.gpa, c_import_res.errors.len);
+                errdefer {
+                    for (errs.items) |err| err.deinit(sema.gpa);
+                    errs.deinit(sema.gpa);
+                }
+
+                for (c_import_res.errors) |c_error| {
+                    const path = if (c_error.filename_ptr) |some|
+                        try sema.gpa.dupeZ(u8, some[0..c_error.filename_len])
+                    else
+                        null;
+                    errdefer if (path) |some| sema.gpa.free(some);
+
+                    const c_msg = try sema.gpa.dupeZ(u8, c_error.msg_ptr[0..c_error.msg_len]);
+                    errdefer sema.gpa.free(c_msg);
+
+                    const line = line: {
+                        const source = c_error.source orelse break :line null;
+                        var start = c_error.offset;
+                        while (start > 0) : (start -= 1) {
+                            if (source[start - 1] == '\n') break;
+                        }
+                        var end = c_error.offset;
+                        while (true) : (end += 1) {
+                            if (source[end] == 0) break;
+                            if (source[end] == '\n') break;
+                        }
+                        break :line try sema.gpa.dupeZ(u8, source[start..end]);
+                    };
+                    errdefer if (line) |some| sema.gpa.free(some);
+
+                    errs.appendAssumeCapacity(.{
+                        .path = path orelse null,
+                        .source_line = line orelse null,
+                        .line = c_error.line,
+                        .column = c_error.column,
+                        .offset = c_error.offset,
+                        .msg = c_msg,
+                    });
+                }
+                gop.value_ptr.* = errs.items;
             }
-            @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);

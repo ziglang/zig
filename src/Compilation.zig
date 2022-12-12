@@ -31,6 +31,7 @@ const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
 const translate_c = @import("translate_c.zig");
+const clang = @import("clang.zig");
 const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
@@ -2749,6 +2750,9 @@ pub fn totalErrorCount(self: *Compilation) usize {
             const decl = module.declPtr(key);
             if (decl.getFileScope().okToReportErrors()) {
                 total += 1;
+                if (module.cimport_errors.get(key)) |errors| {
+                    total += errors.len;
+                }
             }
         }
         if (module.emit_h) |emit_h| {
@@ -2858,6 +2862,23 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 // We'll try again once parsing succeeds.
                 if (decl.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
+                    if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
+                        if (c_error.path) |some|
+                            try errors.append(.{
+                                .src = .{
+                                    .src_path = try arena_allocator.dupe(u8, std.mem.span(some)),
+                                    .span = .{ .start = c_error.offset, .end = c_error.offset + 1, .main = c_error.offset },
+                                    .msg = try arena_allocator.dupe(u8, std.mem.span(c_error.msg)),
+                                    .line = c_error.line,
+                                    .column = c_error.column,
+                                    .source_line = if (c_error.source_line) |line| try arena_allocator.dupe(u8, std.mem.span(line)) else null,
+                                },
+                            })
+                        else
+                            try errors.append(.{
+                                .plain = .{ .msg = try arena_allocator.dupe(u8, std.mem.span(c_error.msg)) },
+                            });
+                    };
                 }
             }
         }
@@ -3524,7 +3545,7 @@ test "cImport" {
 
 const CImportResult = struct {
     out_zig_path: []u8,
-    errors: []translate_c.ClangErrMsg,
+    errors: []clang.ErrorMsg,
 };
 
 /// Caller owns returned memory.
@@ -3599,7 +3620,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
         const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
-        var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
+        var clang_errors: []clang.ErrorMsg = &[0]clang.ErrorMsg{};
         var tree = translate_c.translate(
             comp.gpa,
             new_argv.ptr,
@@ -3665,7 +3686,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     }
     return CImportResult{
         .out_zig_path = out_zig_path,
-        .errors = &[0]translate_c.ClangErrMsg{},
+        .errors = &[0]clang.ErrorMsg{},
     };
 }
 

@@ -31,6 +31,7 @@ const target_util = @import("target.zig");
 const build_options = @import("build_options");
 const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
+const clang = @import("clang.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -111,6 +112,9 @@ failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
+/// If a decl failed due to a cimport error, the corresponding Clang errors
+/// are stored here.
+cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, []CImportError) = .{},
 
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
@@ -171,6 +175,21 @@ reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     referencer: Decl.Index,
     src: LazySrcLoc,
 }) = .{},
+
+pub const CImportError = struct {
+    offset: u32,
+    line: u32,
+    column: u32,
+    path: ?[*:0]u8,
+    source_line: ?[*:0]u8,
+    msg: [*:0]u8,
+
+    pub fn deinit(err: CImportError, gpa: Allocator) void {
+        if (err.path) |some| gpa.free(std.mem.span(some));
+        if (err.source_line) |some| gpa.free(std.mem.span(some));
+        gpa.free(std.mem.span(err.msg));
+    }
+};
 
 pub const StringLiteralContext = struct {
     bytes: *ArrayListUnmanaged(u8),
@@ -3449,6 +3468,11 @@ pub fn deinit(mod: *Module) void {
     }
     mod.failed_exports.deinit(gpa);
 
+    for (mod.cimport_errors.values()) |errs| {
+        for (errs) |err| err.deinit(gpa);
+    }
+    mod.cimport_errors.deinit(gpa);
+
     mod.compile_log_decls.deinit(gpa);
 
     for (mod.decl_exports.values()) |*export_list| {
@@ -5381,6 +5405,9 @@ pub fn clearDecl(
     if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
         kv.value.destroy(gpa);
     }
+    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
+        for (kv.value) |err| err.deinit(gpa);
+    }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
             kv.value.destroy(gpa);
@@ -5767,6 +5794,9 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl_index });
     if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
         kv.value.destroy(mod.gpa);
+    }
+    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
+        for (kv.value) |err| err.deinit(mod.gpa);
     }
     if (decl.has_tv and decl.owns_tv) {
         if (decl.val.castTag(.function)) |payload| {
