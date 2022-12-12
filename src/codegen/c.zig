@@ -90,7 +90,15 @@ const FormatTypeAsCIdentContext = struct {
 const ValueRenderLocation = enum {
     FunctionArgument,
     Initializer,
+    StaticInitializer,
     Other,
+
+    pub fn isInitializer(self: ValueRenderLocation) bool {
+        return switch (self) {
+            .Initializer, .StaticInitializer => true,
+            else => false,
+        };
+    }
 };
 
 const BuiltinInfo = enum {
@@ -718,7 +726,7 @@ pub const DeclGen = struct {
                         return writer.writeAll("false");
                     }
                 },
-                .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val)}),
+                .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteralLoc(ty, val, location)}),
                 .Float => {
                     const bits = ty.floatBits(target);
                     var int_pl = Type.Payload.Bits{ .base = .{ .tag = .int_signed }, .data = bits };
@@ -742,7 +750,7 @@ pub const DeclGen = struct {
                     return writer.writeByte(')');
                 },
                 .Pointer => if (ty.isSlice()) {
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -770,7 +778,7 @@ pub const DeclGen = struct {
                         return dg.renderValue(writer, payload_ty, val, location);
                     }
 
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -784,7 +792,7 @@ pub const DeclGen = struct {
                 },
                 .Struct => switch (ty.containerLayout()) {
                     .Auto, .Extern => {
-                        if (location != .Initializer) {
+                        if (!location.isInitializer()) {
                             try writer.writeByte('(');
                             try dg.renderTypecast(writer, ty);
                             try writer.writeByte(')');
@@ -806,7 +814,7 @@ pub const DeclGen = struct {
                     .Packed => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, Value.undef)}),
                 },
                 .Union => {
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -831,7 +839,7 @@ pub const DeclGen = struct {
                     return writer.writeByte('}');
                 },
                 .ErrorUnion => {
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -844,7 +852,7 @@ pub const DeclGen = struct {
                     });
                 },
                 .Array, .Vector => {
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -899,7 +907,7 @@ pub const DeclGen = struct {
                 .decl_ref_mut,
                 .decl_ref,
                 => try dg.renderParentPtr(writer, val, ty),
-                else => try writer.print("{}", .{try dg.fmtIntLiteral(ty, val)}),
+                else => try writer.print("{}", .{try dg.fmtIntLiteralLoc(ty, val, location)}),
             },
             .Float => {
                 const bits = ty.floatBits(target);
@@ -934,6 +942,7 @@ pub const DeclGen = struct {
                 try writer.writeAll("zig_cast_");
                 try dg.renderTypeForBuiltinFnName(writer, ty);
                 try writer.writeByte(' ');
+                var empty = true;
                 if (std.math.isFinite(f128_val)) {
                     try writer.writeAll("zig_as_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
@@ -946,11 +955,14 @@ pub const DeclGen = struct {
                         128 => try writer.print("{x}", .{f128_val}),
                         else => unreachable,
                     }
-                } else {
-                    const operation = if (std.math.isSignalNan(f128_val))
-                        "nans"
-                    else if (std.math.isNan(f128_val))
+                    try writer.writeAll(", ");
+                    empty = false;
+                } else if (location != .StaticInitializer) {
+                    // isSignalNan is equivalent to isNan currently, and MSVC doens't have nans, so prefer nan
+                    const operation = if (std.math.isNan(f128_val))
                         "nan"
+                    else if (std.math.isSignalNan(f128_val))
+                        "nans"
                     else if (std.math.isInf(f128_val))
                         "inf"
                     else
@@ -973,8 +985,13 @@ pub const DeclGen = struct {
                         128 => try writer.print("\"0x{x}\"", .{@bitCast(u128, f128_val)}),
                         else => unreachable,
                     };
+                    try writer.writeAll(", ");
+                    empty = false;
+
                 }
-                return writer.print(", {x})", .{try dg.fmtIntLiteral(int_ty, int_val)});
+                try writer.print("{x}", .{try dg.fmtIntLiteralLoc(int_ty, int_val, location)});
+                if (!empty) try writer.writeByte(')');
+                return;
             },
             .Pointer => switch (val.tag()) {
                 .null_value, .zero => if (ty.isSlice()) {
@@ -995,7 +1012,7 @@ pub const DeclGen = struct {
                     return dg.renderDeclValue(writer, ty, val, decl);
                 },
                 .slice => {
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -1136,7 +1153,7 @@ pub const DeclGen = struct {
                     return dg.renderValue(writer, payload_ty, payload_val, location);
                 }
 
-                if (location != .Initializer) {
+                if (!location.isInitializer()) {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
                     try writer.writeByte(')');
@@ -1170,7 +1187,7 @@ pub const DeclGen = struct {
                     return dg.renderValue(writer, error_ty, val, location);
                 }
 
-                if (location != .Initializer) {
+                if (!location.isInitializer()) {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
                     try writer.writeByte(')');
@@ -1234,7 +1251,7 @@ pub const DeclGen = struct {
                 .Auto, .Extern => {
                     const field_vals = val.castTag(.aggregate).?.data;
 
-                    if (location != .Initializer) {
+                    if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderTypecast(writer, ty);
                         try writer.writeByte(')');
@@ -1247,7 +1264,10 @@ pub const DeclGen = struct {
                         if (!field_ty.hasRuntimeBits()) continue;
 
                         if (!empty) try writer.writeByte(',');
-                        try dg.renderValue(writer, field_ty, field_val, .Initializer);
+                        try dg.renderValue(writer, field_ty, field_val, switch (location) {
+                            .StaticInitializer => .StaticInitializer,
+                            else => .Initializer,
+                        });
 
                         empty = false;
                     }
@@ -1345,7 +1365,7 @@ pub const DeclGen = struct {
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
 
-                if (location != .Initializer) {
+                if (!location.isInitializer()) {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
                     try writer.writeByte(')');
@@ -2561,6 +2581,24 @@ pub const DeclGen = struct {
             .mod = dg.module,
         } };
     }
+
+    fn fmtIntLiteralLoc(
+        dg: *DeclGen,
+        ty: Type,
+        val: Value,
+        location: ValueRenderLocation, // TODO: Instead add this as optional arg to fmtIntLiteralLoc
+    ) !std.fmt.Formatter(formatIntLiteral) {
+        const int_info = ty.intInfo(dg.module.getTarget());
+        const c_bits = toCIntBits(int_info.bits);
+        if (c_bits == null or c_bits.? > 128)
+            return dg.fail("TODO implement integer constants larger than 128 bits", .{});
+        return std.fmt.Formatter(formatIntLiteral){ .data = .{
+            .ty = ty,
+            .val = val,
+            .mod = dg.module,
+            .location = location
+        } };
+    }
 };
 
 pub fn genGlobalAsm(mod: *Module, code: *std.ArrayList(u8)) !void {
@@ -2606,7 +2644,7 @@ pub fn genErrDecls(o: *Object) !void {
         try writer.writeAll("static ");
         try o.dg.renderTypeAndName(writer, name_ty, .{ .identifier = identifier }, .Const, 0, .Complete);
         try writer.writeAll(" = ");
-        try o.dg.renderValue(writer, name_ty, name_val, .Initializer);
+        try o.dg.renderValue(writer, name_ty, name_val, .StaticInitializer);
         try writer.writeAll(";\n");
     }
 
@@ -2777,7 +2815,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try w.writeAll(" = ");
-        try o.dg.renderValue(w, tv.ty, variable.init, .Initializer);
+        try o.dg.renderValue(w, tv.ty, variable.init, .StaticInitializer);
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
@@ -2794,7 +2832,7 @@ pub fn genDecl(o: *Object) !void {
         // https://github.com/ziglang/zig/issues/7582
         try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
         try writer.writeAll(" = ");
-        try o.dg.renderValue(writer, tv.ty, tv.val, .Initializer);
+        try o.dg.renderValue(writer, tv.ty, tv.val, .StaticInitializer);
         try writer.writeAll(";\n");
     }
 }
@@ -7027,7 +7065,7 @@ fn compilerRtAbbrev(ty: Type, target: std.Target) []const u8 {
 }
 
 fn StringLiteral(comptime WriterType: type) type {
-    // msvc has a length limit of 16380 per string literal (before concatenation)
+    // MSVC has a length limit of 16380 per string literal (before concatenation)
     const max_char_len = 4;
     const max_len = 16380 - max_char_len;
 
@@ -7117,6 +7155,7 @@ const FormatIntLiteralContext = struct {
     ty: Type,
     val: Value,
     mod: *Module,
+    location: ?ValueRenderLocation = null
 };
 fn formatIntLiteral(
     data: FormatIntLiteralContext,
@@ -7188,6 +7227,7 @@ fn formatIntLiteral(
     if (!int.positive) {
         if (c_bits > 64) {
             // TODO: Could use negate function instead?
+            // TODO: Use fmtIntLiteral for 0?
             try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
         } else {
             try writer.writeByte('-');
@@ -7196,7 +7236,14 @@ fn formatIntLiteral(
 
     switch (data.ty.tag()) {
         .c_short, .c_ushort, .c_int, .c_uint, .c_long, .c_ulong, .c_longlong, .c_ulonglong => {},
-        else => try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits }),
+        else => {
+            if (int_info.bits > 64 and data.location != null and data.location.? == .StaticInitializer) {
+                // MSVC treats casting the struct initializer as not constant (C2099), so an alternate form is used in global initializers
+                try writer.print("zig_as_init_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
+            } else {
+                try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
+            }
+        }
     }
 
     const limbs_count_64 = @divExact(64, @bitSizeOf(BigIntLimb));

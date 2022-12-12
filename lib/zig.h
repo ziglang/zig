@@ -1151,6 +1151,8 @@ typedef   signed __int128 zig_i128;
 
 #define zig_as_u128(hi, lo) ((zig_u128)(hi)<<64|(lo))
 #define zig_as_i128(hi, lo) ((zig_i128)zig_as_u128(hi, lo))
+#define zig_as_init_u128(hi, lo) zig_as_u128(hi, lo)
+#define zig_as_init_i128(hi, lo) zig_as_i128(hi, lo)
 #define zig_hi_u128(val) ((zig_u64)((val) >> 64))
 #define zig_lo_u128(val) ((zig_u64)((val) >>  0))
 #define zig_hi_i128(val) ((zig_i64)((val) >> 64))
@@ -1178,6 +1180,8 @@ typedef struct { zig_align(16) zig_i64 hi; zig_u64 lo; } zig_i128;
 
 #define zig_as_u128(hi, lo) ((zig_u128){ .h##i = (hi), .l##o = (lo) })
 #define zig_as_i128(hi, lo) ((zig_i128){ .h##i = (hi), .l##o = (lo) })
+#define zig_as_init_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#define zig_as_init_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #define zig_hi_u128(val) ((val).hi)
 #define zig_lo_u128(val) ((val).lo)
 #define zig_hi_i128(val) ((val).hi)
@@ -1630,6 +1634,12 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 }
 
 /* ========================= Floating Point Support ========================= */
+
+#if _MSC_VER
+#define __builtin_nan(str) nan(str)
+#define __builtin_nanf(str) nanf(str)
+#define __builtin_nanl(str) nanl(str)
+#endif
 
 #define zig_has_f16 1
 #define zig_bitSizeOf_f16 16
