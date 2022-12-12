@@ -1440,11 +1440,9 @@ test "signed zeros are represented properly" {
             try testOne(f16);
             try testOne(f32);
             try testOne(f64);
-            // TODO enable this
-            //try testOne(f80);
+            try testOne(f80);
             try testOne(f128);
-            // TODO enable this
-            //try testOne(c_longdouble);
+            try testOne(c_longdouble);
         }
 
         fn testOne(comptime T: type) !void {
