@@ -5241,11 +5241,15 @@ test "fn type inference" {
       {#header_close#}
       {#header_open|Function Reflection#}
       {#code_begin|test|test_fn_reflection#}
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const math = std.math;
+const testing = std.testing;
 
 test "fn reflection" {
-    try expect(@typeInfo(@TypeOf(expect)).Fn.args[0].arg_type.? == bool);
-    try expect(@typeInfo(@TypeOf(expect)).Fn.is_var_args == false);
+    try testing.expect(@typeInfo(@TypeOf(testing.expect)).Fn.args[0].arg_type.? == bool);
+    try testing.expect(@typeInfo(@TypeOf(testing.tmpDir)).Fn.return_type.? == testing.TmpDir);
+
+    try testing.expect(@typeInfo(@TypeOf(math.Log2Int)).Fn.is_generic);
 }
       {#code_end#}
       {#header_close#}
