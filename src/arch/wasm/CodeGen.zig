@@ -2003,7 +2003,7 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return func.finishAir(inst, .none, &.{un_op});
 }
 
-fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) InnerError!void {
+fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for wasm", .{});
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
     const extra = func.air.extraData(Air.Call, pl_op.payload);

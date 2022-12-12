@@ -8297,11 +8297,11 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .call_options_type } }, params[0]);
+            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
             const callee = try calleeExpr(gz, scope, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
-                .options = options,
+                .modifier = modifier,
                 .callee = callee,
                 .args = args,
                 .flags = .{
@@ -8674,7 +8674,7 @@ fn callExpr(
     const astgen = gz.astgen;
 
     const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
-    const modifier: std.builtin.CallOptions.Modifier = blk: {
+    const modifier: std.builtin.CallModifier = blk: {
         if (gz.force_comptime) {
             break :blk .compile_time;
         }
