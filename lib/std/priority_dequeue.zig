@@ -780,6 +780,15 @@ test "std.PriorityDequeue: update same max queue" {
     try expectEqual(@as(u32, 1), queue.removeMax());
 }
 
+test "std.PriorityDequeue: update after remove" {
+    var queue = PDQ.init(testing.allocator, {});
+    defer queue.deinit();
+
+    try queue.add(1);
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectError(error.ElementNotFound, queue.update(1, 1));
+}
+
 test "std.PriorityDequeue: iterator" {
     var queue = PDQ.init(testing.allocator, {});
     var map = std.AutoHashMap(u32, void).init(testing.allocator);

@@ -593,6 +593,15 @@ test "std.PriorityQueue: update same max heap" {
     try expectEqual(@as(u32, 1), queue.remove());
 }
 
+test "std.PriorityQueue: update after remove" {
+    var queue = PQlt.init(testing.allocator, {});
+    defer queue.deinit();
+
+    try queue.add(1);
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectError(error.ElementNotFound, queue.update(1, 1));
+}
+
 test "std.PriorityQueue: siftUp in remove" {
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
