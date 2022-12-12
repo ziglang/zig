@@ -390,8 +390,10 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
             const old_index = blk: {
-                for (self.items) |item, idx| {
-                    if (compareFn(self.context, item, elem).compare(.eq)) break :blk idx;
+                var idx: usize = 0;
+                while (idx < self.len) : (idx += 1) {
+                    const item = self.items[idx];
+                    if (compareFn(self.context, item, elem) == .eq) break :blk idx;
                 }
                 return error.ElementNotFound;
             };
