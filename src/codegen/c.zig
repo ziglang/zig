@@ -431,6 +431,10 @@ pub const Function = struct {
         return f.object.dg.renderTypecast(w, t);
     }
 
+    fn renderIntCast(f: *Function, w: anytype, dest_ty: Type, src: CValue, src_ty: Type, location: ValueRenderLocation) !void {
+        return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src } }, src_ty, location);
+    }
+
     fn fmtIntLiteral(f: *Function, ty: Type, val: Value) !std.fmt.Formatter(formatIntLiteral) {
         return f.object.dg.fmtIntLiteral(ty, val);
     }
@@ -1263,25 +1267,85 @@ pub const DeclGen = struct {
                     var bit_offset_val_pl: Value.Payload.U64 = .{ .base = .{ .tag = .int_u64 }, .data = 0 };
                     const bit_offset_val = Value.initPayload(&bit_offset_val_pl.base);
 
-                    try writer.writeByte('(');
-                    var empty = true;
-                    for (field_vals) |field_val, index| {
+                    var eff_num_fields: usize = 0;
+                    for (field_vals) |_, index| {
                         const field_ty = ty.structFieldType(index);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                        if (!empty) try writer.writeAll(" | ");
-                        try writer.writeByte('(');
-                        try dg.renderTypecast(writer, ty);
-                        try writer.writeByte(')');
-                        try dg.renderValue(writer, field_ty, field_val, .Other);
-                        try writer.writeAll(" << ");
-                        try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-
-                        bit_offset_val_pl.data += field_ty.bitSize(target);
-                        empty = false;
+                        eff_num_fields += 1;
                     }
-                    if (empty) try dg.renderValue(writer, ty, Value.undef, .Initializer);
-                    try writer.writeByte(')');
+
+                    if (eff_num_fields == 0) {
+                        try writer.writeByte('(');
+                        try dg.renderValue(writer, ty, Value.undef, .Initializer);
+                        try writer.writeByte(')');
+                    } else if (ty.bitSize(target) > 64) {
+                        // zig_or_u128(zig_or_u128(zig_shl_u128(a, a_off), zig_shl_u128(b, b_off)), zig_shl_u128(c, c_off))
+                        var num_or = eff_num_fields - 1;
+                        while (num_or > 0) : (num_or -= 1) {
+                            try writer.writeAll("zig_or_");
+                            try dg.renderTypeForBuiltinFnName(writer, ty);
+                            try writer.writeByte('(');
+                        }
+
+                        var eff_index: usize = 0;
+                        var needs_closing_paren = false;
+                        for (field_vals) |field_val, index| {
+                            const field_ty = ty.structFieldType(index);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                            //const cast_context = IntCastContext{ .value = .{ .value = field_val } };
+                            if (bit_offset_val_pl.data != 0) {
+                                try writer.writeAll("zig_shl_");
+                                try dg.renderTypeForBuiltinFnName(writer, ty);
+                                try writer.writeByte('(');
+
+                                //try dg.renderIntCast(writer, ty,_context, field_ty, .FunctionArgument);
+                                try dg.renderValue(writer, field_ty, field_val, .FunctionArgument);
+
+                                try writer.writeAll(", ");
+                                try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                                try writer.writeByte(')');
+                            } else {
+
+                                try dg.renderValue(writer, field_ty, field_val, .FunctionArgument);
+                                //try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
+
+                            }
+
+                            if (needs_closing_paren) try writer.writeByte(')');
+                            if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
+
+                            bit_offset_val_pl.data += field_ty.bitSize(target);
+                            needs_closing_paren = true;
+                            eff_index += 1;
+                        }
+                    } else {
+                        try writer.writeByte('(');
+                        // a << a_off | b << b_off | c << c_off
+                        var empty = true;
+                        for (field_vals) |field_val, index| {
+                            const field_ty = ty.structFieldType(index);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                            if (!empty) try writer.writeAll(" | ");
+                            try writer.writeByte('(');
+                            try dg.renderTypecast(writer, ty);
+                            try writer.writeByte(')');
+
+                            if (bit_offset_val_pl.data != 0) {
+                                try dg.renderValue(writer, field_ty, field_val, .Other);
+                                try writer.writeAll(" << ");
+                                try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                            } else {
+                                try dg.renderValue(writer, field_ty, field_val, .Other);
+                            }
+
+                            bit_offset_val_pl.data += field_ty.bitSize(target);
+                            empty = false;
+                        }
+                        try writer.writeByte(')');
+                    }
                 },
             },
             .Union => {
@@ -2101,6 +2165,101 @@ pub const DeclGen = struct {
         } else return dg.fail("C backend: Unable to lower unnamed integer type {}", .{
             t.fmt(dg.module),
         });
+    }
+
+    const IntCastContext = union(enum) {
+        c_value: struct {
+            f: *Function,
+            value: CValue,
+        },
+        value: struct {
+            value: Value,
+        },
+
+        pub fn writeValue(self: *const IntCastContext, dg: *DeclGen, w: anytype, value_ty: Type, location: ValueRenderLocation) !void {
+            switch (self.*) {
+                .c_value => |v| {
+                    try v.f.writeCValue(w, v.value, location);
+                },
+                .value => |v| {
+                    try dg.renderValue(w, value_ty, v.value, location);
+                },
+            }
+        }
+    };
+
+    /// Renders a cast to an int type, from either an int or a pointer.
+    ///
+    /// Some platforms don't have 128 bit integers, so we need to use
+    /// the zig_as_ and zig_lo_ macros in those cases.
+    ///
+    ///   | Dest type bits   | Src type         | Result
+    ///   |------------------|------------------|---------------------------|
+    ///   | < 64 bit integer | pointer          | (zig_<dest_ty>)(zig_<u|i>size)src
+    ///   | < 64 bit integer | < 64 bit integer | (zig_<dest_ty>)src
+    ///   | < 64 bit integer | > 64 bit integer | zig_lo(src)
+    ///   | > 64 bit integer | pointer          | zig_as_<dest_ty>(0, (zig_<u|i>size)src)
+    ///   | > 64 bit integer | < 64 bit integer | zig_as_<dest_ty>(0, src)
+    ///   | > 64 bit integer | > 64 bit integer | zig_as_<dest_ty>(zig_hi_<src_ty>(src), zig_lo_<src_ty>(src))
+    fn renderIntCast(dg: *DeclGen, w: anytype, dest_ty: Type, context: IntCastContext, src_ty: Type, location: ValueRenderLocation) !void {
+        const target = dg.module.getTarget();
+        const dest_bits = dest_ty.bitSize(target);
+        const dest_int_info = dest_ty.intInfo(target);
+
+        const src_is_ptr = src_ty.isPtrAtRuntime();
+        const src_eff_ty: Type = if (src_is_ptr) switch (dest_int_info.signedness) {
+            .unsigned => Type.usize,
+            .signed => Type.isize,
+        } else src_ty;
+
+        const src_bits = src_eff_ty.bitSize(target);
+        const src_int_info = src_eff_ty.intInfo(target);
+        if (dest_bits <= 64 and src_bits <= 64) {
+            const needs_cast = toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.bits) or
+                dest_int_info.signedness != src_int_info.signedness;
+            if (needs_cast) {
+                try w.writeByte('(');
+                try dg.renderTypecast(w, dest_ty);
+                try w.writeByte(')');
+            }
+            if (src_is_ptr) {
+                try w.writeByte('(');
+                try dg.renderTypecast(w, src_eff_ty);
+                try w.writeByte(')');
+            }
+            try context.writeValue(dg, w, src_ty, location);
+        } else if (dest_bits <= 64 and src_bits > 64) {
+            assert(!src_is_ptr);
+            try w.writeAll("zig_lo_");
+            try dg.renderTypeForBuiltinFnName(w, src_eff_ty);
+            try w.writeByte('(');
+            try context.writeValue(dg, w, src_ty, .FunctionArgument);
+            try w.writeByte(')');
+        } else if (dest_bits > 64 and src_bits <= 64) {
+            try w.writeAll("zig_as_");
+            try dg.renderTypeForBuiltinFnName(w, dest_ty);
+            try w.writeAll("(0, "); // TODO: Should the 0 go through fmtIntLiteral?
+            if (src_is_ptr) {
+                try w.writeByte('(');
+                try dg.renderTypecast(w, src_eff_ty);
+                try w.writeByte(')');
+            }
+            try context.writeValue(dg, w, src_ty, .FunctionArgument);
+            try w.writeByte(')');
+        } else {
+            assert(!src_is_ptr);
+            try w.writeAll("zig_as_");
+            try dg.renderTypeForBuiltinFnName(w, dest_ty);
+            try w.writeAll("(zig_hi_");
+            try dg.renderTypeForBuiltinFnName(w, src_eff_ty);
+            try w.writeByte('(');
+            try context.writeValue(dg, w, src_ty, .FunctionArgument);
+            try w.writeAll("), zig_lo_");
+            try dg.renderTypeForBuiltinFnName(w, src_eff_ty);
+            try w.writeByte('(');
+            try context.writeValue(dg, w, src_ty, .FunctionArgument);
+            try w.writeAll("))");
+        }
     }
 
     /// Renders a type in C typecast format.
@@ -3344,55 +3503,16 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
         return CValue.none;
     }
 
-    const target = f.object.dg.module.getTarget();
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
-    const inst_bits = inst_ty.bitSize(target);
-    const inst_int_info = inst_ty.intInfo(target);
     const operand_ty = f.air.typeOf(ty_op.operand);
-    const operand_bits = operand_ty.bitSize(target);
-    const operand_int_info = operand_ty.intInfo(target);
 
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
-
-    if (inst_bits <= 64 and operand_bits <= 64) {
-        if (toCIntBits(inst_int_info.bits) != toCIntBits(operand_int_info.bits) or inst_int_info.signedness != operand_int_info.signedness) {
-            try writer.writeByte('(');
-            try f.renderTypecast(writer, inst_ty);
-            try writer.writeByte(')');
-        }
-
-        try f.writeCValue(writer, operand, .Other);
-    } else if (inst_bits > 64 and operand_bits <= 64) {
-        try writer.writeAll("zig_as_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
-        try writer.writeAll("(0, "); // TODO: Should the 0 go through fmtIntLiteral?
-        try f.writeCValue(writer, operand, .FunctionArgument);
-        try writer.writeByte(')');
-    } else if (inst_bits <= 64 and operand_bits > 64) {
-        try writer.writeAll("zig_lo_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
-        try writer.writeByte('(');
-        try f.writeCValue(writer, operand, .FunctionArgument);
-        try writer.writeByte(')');
-    } else {
-        try writer.writeAll("zig_as_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
-        try writer.writeAll("(zig_hi_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
-        try writer.writeByte('(');
-        try f.writeCValue(writer, operand, .FunctionArgument);
-        try writer.writeAll("), zig_lo_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
-        try writer.writeByte('(');
-        try f.writeCValue(writer, operand, .FunctionArgument);
-        try writer.writeAll("))");
-    }
-
+    try f.renderIntCast(writer, inst_ty, operand, operand_ty, .Other);
     try writer.writeAll(";\n");
     return local;
 }
@@ -6509,9 +6629,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
             },
             .Packed => {
                 try f.writeCValue(writer, local, .Other);
-                try writer.writeAll(" = (");
-                try f.renderTypecast(writer, inst_ty);
-                try writer.writeAll(")");
+                try writer.writeAll(" = ");
                 const int_info = inst_ty.intInfo(target);
 
                 var bit_offset_ty_pl = Type.Payload.Bits{
@@ -6541,20 +6659,28 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     if (!empty) try writer.writeAll(", ");
+                    // TODO: Skip this entire shift if val is 0?
                     try writer.writeAll("zig_shlw_");
                     try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
-                    try writer.writeAll("((");
-                    try f.renderTypecast(writer, inst_ty);
-                    try writer.writeByte(')');
-                    if (field_ty.isPtrAtRuntime()) {
+                    try writer.writeByte('(');
+
+                    if (inst_ty.isAbiInt() and (field_ty.isAbiInt() or field_ty.isPtrAtRuntime())) {
+                        try f.renderIntCast(writer, inst_ty, element, field_ty, .FunctionArgument);
+                    } else {
                         try writer.writeByte('(');
-                        try f.renderTypecast(writer, switch (int_info.signedness) {
-                            .unsigned => Type.usize,
-                            .signed => Type.isize,
-                        });
+                        try f.renderTypecast(writer, inst_ty);
                         try writer.writeByte(')');
+                        if (field_ty.isPtrAtRuntime()) {
+                            try writer.writeByte('(');
+                            try f.renderTypecast(writer, switch (int_info.signedness) {
+                                .unsigned => Type.usize,
+                                .signed => Type.isize,
+                            });
+                            try writer.writeByte(')');
+                        }
+                        try f.writeCValue(writer, element, .Other);
                     }
-                    try f.writeCValue(writer, element, .Other);
+
                     try writer.writeAll(", ");
                     try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                     try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
@@ -6564,7 +6690,14 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     bit_offset_val_pl.data += field_ty.bitSize(target);
                     empty = false;
                 }
-                if (empty) try f.writeCValue(writer, .{ .undef = inst_ty }, .Initializer);
+
+                if (empty) {
+                    try writer.writeByte('(');
+                    try f.renderTypecast(writer, inst_ty);
+                    try writer.writeByte(')');
+                    try f.writeCValue(writer, .{ .undef = inst_ty }, .Initializer);
+                }
+
                 try writer.writeAll(";\n");
             },
         },
@@ -6937,7 +7070,7 @@ fn StringLiteral(comptime WriterType: type) type {
             }
         }
 
-        pub fn writeChar(self: *Self,  c: u8) Error!void {
+        pub fn writeChar(self: *Self, c: u8) Error!void {
             const writer = self.counting_writer.writer();
 
             if (self.cur_len == 0 and self.counting_writer.bytes_written > 1)
