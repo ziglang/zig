@@ -465,6 +465,7 @@ const Writer = struct {
             .frame,
             .frame_address,
             .breakpoint,
+            .c_va_start,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -504,6 +505,8 @@ const Writer = struct {
             .error_to_int,
             .int_to_error,
             .reify,
+            .c_va_copy,
+            .c_va_end,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
@@ -518,6 +521,7 @@ const Writer = struct {
             .wasm_memory_grow,
             .prefetch,
             .addrspace_cast,
+            .c_va_arg,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);

@@ -965,6 +965,9 @@ pub const Builder = opaque {
 
     pub const buildAllocaInAddressSpace = ZigLLVMBuildAllocaInAddressSpace;
     extern fn ZigLLVMBuildAllocaInAddressSpace(B: *Builder, Ty: *Type, AddressSpace: c_uint, Name: [*:0]const u8) *Value;
+
+    pub const buildVAArg = LLVMBuildVAArg;
+    extern fn LLVMBuildVAArg(*Builder, List: *Value, Ty: *Type, Name: [*:0]const u8) *Value;
 };
 
 pub const MDString = opaque {

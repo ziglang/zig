@@ -8088,6 +8088,35 @@ test "main" {
       {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
       {#header_close#}
 
+      {#header_open|@cVaArg#}
+      <pre>{#syntax#}@cVaArg(operand: *std.builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
+      <p>
+      Implements the C macro {#syntax#}va_arg{#endsyntax#}.
+      </p>
+      {#see_also|@cVaCopy|@cVaEnd|@cVaStart#}
+      {#header_close#}
+      {#header_open|@cVaCopy#}
+      <pre>{#syntax#}@cVaCopy(src: *std.builtin.VaList) std.builtin.VaList{#endsyntax#}</pre>
+      <p>
+      Implements the C macro {#syntax#}va_copy{#endsyntax#}.
+      </p>
+      {#see_also|@cVaArg|@cVaEnd|@cVaStart#}
+      {#header_close#}
+      {#header_open|@cVaEnd#}
+      <pre>{#syntax#}@cVaEnd(src: *std.builtin.VaList) void{#endsyntax#}</pre>
+      <p>
+      Implements the C macro {#syntax#}va_end{#endsyntax#}.
+      </p>
+      {#see_also|@cVaArg|@cVaCopy|@cVaStart#}
+      {#header_close#}
+      {#header_open|@cVaStart#}
+      <pre>{#syntax#}@cVaStart() std.builtin.VaList{#endsyntax#}</pre>
+      <p>
+      Implements the C macro {#syntax#}va_start{#endsyntax#}. Only valid inside a variadic function.
+      </p>
+      {#see_also|@cVaArg|@cVaCopy|@cVaEnd#}
+      {#header_close#}
+
       {#header_open|@divExact#}
       <pre>{#syntax#}@divExact(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -10802,14 +10831,32 @@ test "variadic function" {
 }
       {#code_end#}
       <p>
-        Non extern variadic functions are currently not implemented, but there
-        is an accepted proposal. See <a href="https://github.com/ziglang/zig/issues/515">#515</a>.
+        Variadic functions can be implemented using {#link|@cVaStart#}, {#link|@cVaEnd#}, {#link|@cVaArg#} and {#link|@cVaCopy#}
       </p>
-      {#code_begin|obj_err|non-extern function is variadic#}
-export fn printf(format: [*:0]const u8, ...) c_int {
-    _ = format;
+      {#code_begin|test|defining_variadic_function#}
+const std = @import("std");
+const testing = std.testing;
+const builtin = @import("builtin");
 
-    return 0;
+fn add(count: c_int, ...) callconv(.C) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    var i: usize = 0;
+    var sum: c_int = 0;
+    while (i < count) : (i += 1) {
+        sum += @cVaArg(&ap, c_int);
+    }
+    return sum;
+}
+
+test "defining a variadic function" {
+    // Variadic functions are currently disabled on some targets due to miscompilations.
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(c_int, 0), add(0));
+    try std.testing.expectEqual(@as(c_int, 1), add(1, @as(c_int, 1)));
+    try std.testing.expectEqual(@as(c_int, 3), add(2, @as(c_int, 1), @as(c_int, 2)));
 }
       {#code_end#}
       {#header_close#}

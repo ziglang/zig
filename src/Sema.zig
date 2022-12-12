@@ -1148,6 +1148,10 @@ fn analyzeBodyInner(
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
                     .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
+                    .c_va_arg              => try sema.zirCVaArg(            block, extended),
+                    .c_va_copy             => try sema.zirCVaCopy(           block, extended),
+                    .c_va_end              => try sema.zirCVaEnd(            block, extended),
+                    .c_va_start            => try sema.zirCVaStart(          block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -6427,6 +6431,11 @@ fn analyzeCall(
             else => unreachable,
         };
         if (!is_comptime_call and module_fn.state == .sema_failure) return error.AnalysisFail;
+        if (func_ty_info.is_var_args) {
+            return sema.fail(block, call_src, "{s} call of variadic function", .{
+                @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
+            });
+        }
 
         // Analyze the ZIR. The same ZIR gets analyzed into a runtime function
         // or an inlined call depending on what union tag the `label` field is
@@ -8404,12 +8413,22 @@ fn funcCommon(
 ) CompileError!Air.Inst.Ref {
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
+    const func_src = LazySrcLoc.nodeOffset(src_node_offset);
 
     var is_generic = bare_return_type.tag() == .generic_poison or
         alignment == null or
         address_space == null or
         section == .generic or
         cc == null;
+
+    if (var_args) {
+        if (is_generic) {
+            return sema.fail(block, func_src, "generic function cannot be variadic", .{});
+        }
+        if (cc.? != .C) {
+            return sema.fail(block, cc_src, "variadic function must have 'C' calling convention", .{});
+        }
+    }
 
     var destroy_fn_on_error = false;
     const new_func: *Module.Fn = new_func: {
@@ -19054,6 +19073,79 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     });
 }
 
+fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
+    const va_list_ty = try sema.getBuiltinType("VaList");
+    const va_list_ptr = try Type.ptr(sema.arena, sema.mod, .{
+        .pointee_type = va_list_ty,
+        .mutable = true,
+        .@"addrspace" = .generic,
+    });
+
+    const inst = try sema.resolveInst(zir_ref);
+    return sema.coerce(block, va_list_ptr, inst, src);
+}
+
+fn zirCVaArg(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const va_list_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    const va_list_ref = try sema.resolveVaListRef(block, va_list_src, extra.lhs);
+    const arg_ty = try sema.resolveType(block, ty_src, extra.rhs);
+
+    if (!try sema.validateExternType(arg_ty, .param_ty)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ty_src, "cannot get '{}' from variadic argument", .{arg_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), arg_ty, .param_ty);
+
+            try sema.addDeclaredHereNote(msg, arg_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addTyOp(.c_va_arg, arg_ty, va_list_ref);
+}
+
+fn zirCVaCopy(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const va_list_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+
+    const va_list_ref = try sema.resolveVaListRef(block, va_list_src, extra.operand);
+    const va_list_ty = try sema.getBuiltinType("VaList");
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addTyOp(.c_va_copy, va_list_ty, va_list_ref);
+}
+
+fn zirCVaEnd(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const va_list_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+
+    const va_list_ref = try sema.resolveVaListRef(block, va_list_src, extra.operand);
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addUnOp(.c_va_end, va_list_ref);
+}
+
+fn zirCVaStart(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
+
+    const va_list_ty = try sema.getBuiltinType("VaList");
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addInst(.{
+        .tag = .c_va_start,
+        .data = .{ .ty = va_list_ty },
+    });
+}
+
 fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
@@ -21558,7 +21650,10 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             else => |e| return e,
         };
         break :blk cc_tv.val.toEnum(std.builtin.CallingConvention);
-    } else std.builtin.CallingConvention.Unspecified;
+    } else if (sema.owner_decl.is_exported and has_body)
+        .C
+    else
+        .Unspecified;
 
     const ret_ty: Type = if (extra.data.bits.has_ret_ty_body) blk: {
         const body_len = sema.code.extra[extra_index];

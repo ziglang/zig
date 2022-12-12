@@ -4699,6 +4699,11 @@ pub const FuncGen = struct {
                 .dbg_block_end => try self.airDbgBlockEnd(),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
+
+                .c_va_arg => try self.airCVaArg(inst),
+                .c_va_copy => try self.airCVaCopy(inst),
+                .c_va_end => try self.airCVaEnd(inst),
+                .c_va_start => try self.airCVaStart(inst),
                 // zig fmt: on
             };
             if (opt_value) |val| {
@@ -5134,6 +5139,94 @@ pub const FuncGen = struct {
         loaded.setAlignment(ret_ty.abiAlignment(target));
         _ = self.builder.buildRet(loaded);
         return null;
+    }
+
+    fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const list = try self.resolveInst(ty_op.operand);
+        const arg_ty = self.air.getRefType(ty_op.ty);
+        const llvm_arg_ty = try self.dg.lowerType(arg_ty);
+
+        return self.builder.buildVAArg(list, llvm_arg_ty, "");
+    }
+
+    fn airCVaCopy(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const src_list = try self.resolveInst(ty_op.operand);
+        const va_list_ty = self.air.getRefType(ty_op.ty);
+        const llvm_va_list_ty = try self.dg.lowerType(va_list_ty);
+
+        const target = self.dg.module.getTarget();
+        const result_alignment = va_list_ty.abiAlignment(target);
+        const dest_list = self.buildAlloca(llvm_va_list_ty, result_alignment);
+
+        const llvm_fn_name = "llvm.va_copy";
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
+            const param_types = [_]*llvm.Type{
+                self.dg.context.intType(8).pointerType(0),
+                self.dg.context.intType(8).pointerType(0),
+            };
+            const fn_type = llvm.functionType(self.context.voidType(), &param_types, param_types.len, .False);
+            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        };
+
+        const args: [2]*llvm.Value = .{ dest_list, src_list };
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+
+        if (isByRef(va_list_ty)) {
+            return dest_list;
+        } else {
+            const loaded = self.builder.buildLoad(llvm_va_list_ty, dest_list, "");
+            loaded.setAlignment(result_alignment);
+            return loaded;
+        }
+    }
+
+    fn airCVaEnd(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const list = try self.resolveInst(un_op);
+
+        const llvm_fn_name = "llvm.va_end";
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
+            const param_types = [_]*llvm.Type{self.dg.context.intType(8).pointerType(0)};
+            const fn_type = llvm.functionType(self.context.voidType(), &param_types, param_types.len, .False);
+            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        };
+        const args: [1]*llvm.Value = .{list};
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        return null;
+    }
+
+    fn airCVaStart(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const va_list_ty = self.air.typeOfIndex(inst);
+        const llvm_va_list_ty = try self.dg.lowerType(va_list_ty);
+
+        const target = self.dg.module.getTarget();
+        const result_alignment = va_list_ty.abiAlignment(target);
+        const list = self.buildAlloca(llvm_va_list_ty, result_alignment);
+
+        const llvm_fn_name = "llvm.va_start";
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
+            const param_types = [_]*llvm.Type{self.dg.context.intType(8).pointerType(0)};
+            const fn_type = llvm.functionType(self.context.voidType(), &param_types, param_types.len, .False);
+            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        };
+        const args: [1]*llvm.Value = .{list};
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+
+        if (isByRef(va_list_ty)) {
+            return list;
+        } else {
+            const loaded = self.builder.buildLoad(llvm_va_list_ty, list, "");
+            loaded.setAlignment(result_alignment);
+            return loaded;
+        }
     }
 
     fn airCmp(self: *FuncGen, inst: Air.Inst.Index, op: math.CompareOperator, want_fast_math: bool) !?*llvm.Value {
