@@ -330,7 +330,7 @@ pub const Socket = struct {
     /// Enclose a socket abstraction over an existing socket file descriptor.
     pub fn from(fd: os.socket_t) Socket {
         var s = Socket{ .fd = fd };
-        s.setRaiseSIGPIPE(s.raise_sigpipe);
+        s.setRaiseSIGPIPE(s.raise_sigpipe) catch unreachable;
         return s;
     }
 
