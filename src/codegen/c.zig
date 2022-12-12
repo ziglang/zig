@@ -1294,26 +1294,20 @@ pub const DeclGen = struct {
                             const field_ty = ty.structFieldType(index);
                             if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                            //const cast_context = IntCastContext{ .value = .{ .value = field_val } };
+                            const cast_context = IntCastContext{ .value = .{ .value = field_val } };
                             if (bit_offset_val_pl.data != 0) {
                                 try writer.writeAll("zig_shl_");
                                 try dg.renderTypeForBuiltinFnName(writer, ty);
                                 try writer.writeByte('(');
-
-                                //try dg.renderIntCast(writer, ty,_context, field_ty, .FunctionArgument);
-                                try dg.renderValue(writer, field_ty, field_val, .FunctionArgument);
-
+                                try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
                                 try writer.writeAll(", ");
                                 try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                                 try writer.writeByte(')');
                             } else {
-
-                                try dg.renderValue(writer, field_ty, field_val, .FunctionArgument);
-                                //try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
-
+                                try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
                             }
 
-                            if (needs_closing_paren) try writer.writeByte(')');
+                            if (needs_closing_paren) try writer.writeByte(')') ;
                             if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
 
                             bit_offset_val_pl.data += field_ty.bitSize(target);
@@ -2213,10 +2207,12 @@ pub const DeclGen = struct {
         } else src_ty;
 
         const src_bits = src_eff_ty.bitSize(target);
-        const src_int_info = src_eff_ty.intInfo(target);
+        const src_int_info = if (src_eff_ty.isAbiInt()) src_eff_ty.intInfo(target) else null;
         if (dest_bits <= 64 and src_bits <= 64) {
-            const needs_cast = toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.bits) or
-                dest_int_info.signedness != src_int_info.signedness;
+            const needs_cast = src_int_info == null or
+                (toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.?.bits) or
+                     dest_int_info.signedness != src_int_info.?.signedness);
+
             if (needs_cast) {
                 try w.writeByte('(');
                 try dg.renderTypecast(w, dest_ty);
