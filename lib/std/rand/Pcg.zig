@@ -51,7 +51,7 @@ fn seedTwo(self: *Pcg, init_s: u64, init_i: u64) void {
 
 pub fn fill(self: *Pcg, buf: []u8) void {
     var i: usize = 0;
-    const aligned_len = buf.len - (buf.len & 7);
+    const aligned_len = buf.len - (buf.len & 3);
 
     // Complete 4 byte segments.
     while (i < aligned_len) : (i += 4) {
@@ -108,11 +108,15 @@ test "pcg fill" {
         3247963454,
     };
 
-    for (seq) |s| {
-        var buf0: [4]u8 = undefined;
-        var buf1: [3]u8 = undefined;
-        std.mem.writeIntLittle(u32, &buf0, s);
+    var i: u32 = 0;
+    while (i < seq.len) : (i += 2) {
+        var buf0: [8]u8 = undefined;
+        std.mem.writeIntLittle(u32, buf0[0..4], seq[i]);
+        std.mem.writeIntLittle(u32, buf0[4..8], seq[i + 1]);
+
+        var buf1: [7]u8 = undefined;
         r.fill(&buf1);
-        try std.testing.expect(std.mem.eql(u8, buf0[0..3], buf1[0..]));
+
+        try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }
 }
