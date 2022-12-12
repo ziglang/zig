@@ -26,7 +26,7 @@ const BinaryElfSegment = struct {
     virtualAddress: u64,
     elfOffset: u64,
     binaryOffset: u64,
-    fileSize: usize,
+    fileSize: u64,
     firstSection: ?*BinaryElfSection,
 };
 
@@ -69,7 +69,7 @@ const BinaryElfOutput = struct {
 
             const shstrtab_shdr = (try section_headers.next()).?;
 
-            const buffer = try allocator.alloc(u8, shstrtab_shdr.sh_size);
+            const buffer = try allocator.alloc(u8, @intCast(usize, shstrtab_shdr.sh_size));
             errdefer allocator.free(buffer);
 
             const num_read = try elf_file.preadAll(buffer, shstrtab_shdr.sh_offset);
@@ -301,7 +301,7 @@ const HexWriter = struct {
             const row_address = @intCast(u32, segment.physicalAddress + bytes_read);
 
             const remaining = segment.fileSize - bytes_read;
-            const to_read = @min(remaining, MAX_PAYLOAD_LEN);
+            const to_read = @intCast(usize, @min(remaining, MAX_PAYLOAD_LEN));
             const did_read = try elf_file.preadAll(buf[0..to_read], segment.elfOffset + bytes_read);
             if (did_read < to_read) return error.UnexpectedEOF;
 

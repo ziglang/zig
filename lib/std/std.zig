@@ -100,36 +100,5 @@ comptime {
 }
 
 test {
-    if (@import("builtin").os.tag == .windows) {
-        // We only test the Windows-relevant stuff to save memory because the CI
-        // server is hitting OOM. TODO revert this after stage2 arrives.
-        _ = ChildProcess;
-        _ = DynLib;
-        _ = Progress;
-        _ = Target;
-        _ = Thread;
-
-        _ = atomic;
-        _ = build;
-        _ = builtin;
-        _ = debug;
-        _ = event;
-        _ = fs;
-        _ = heap;
-        _ = io;
-        _ = log;
-        _ = macho;
-        _ = net;
-        _ = os;
-        _ = once;
-        _ = pdb;
-        _ = process;
-        _ = testing;
-        _ = time;
-        _ = unicode;
-        _ = zig;
-        _ = start;
-    } else {
-        testing.refAllDecls(@This());
-    }
+    testing.refAllDecls(@This());
 }
