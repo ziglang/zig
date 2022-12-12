@@ -10792,6 +10792,33 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
         <p>{#syntax#}ptr_to_struct_array[index].struct_member{#endsyntax#}</p>
       {#header_close#}
 
+      {#header_open|C Variadic Functions#}
+      <p>Zig supports extern variadic functions.</p>
+      {#code_begin|test|variadic_function#}
+      {#link_libc#}
+      {#code_verbose_cimport#}
+const std = @import("std");
+const testing = std.testing;
+
+pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+
+test "variadic function" {
+    try testing.expect(printf("Hello, world!\n") == 14);
+    try testing.expect(@typeInfo(@TypeOf(printf)).Fn.is_var_args);
+}
+      {#code_end#}
+      <p>
+        Non extern variadic functions are currently not implemented, but there
+        is an accepted proposal. See <a href="https://github.com/ziglang/zig/issues/515">#515</a>.
+      </p>
+      {#code_begin|obj_err|non-extern function is variadic#}
+export fn printf(format: [*:0]const u8, ...) c_int {
+    _ = format;
+
+    return 0;
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|Exporting a C Library#}
       <p>
       One of the primary use cases for Zig is exporting a library with the C ABI for other programming languages
