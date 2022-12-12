@@ -207,18 +207,9 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
     switch (node_tags[node]) {
-        // TODO remove this c_void -> anyopaque rewrite after the 0.10.0 release.
-        // Also get rid of renderSpace() as it will no longer be necessary.
         .identifier => {
             const token_index = main_tokens[node];
-
-            const lexeme = tokenSliceForRender(tree, token_index);
-            if (mem.eql(u8, lexeme, "c_void")) {
-                try ais.writer().writeAll("anyopaque");
-                return renderSpace(ais, tree, token_index, lexeme.len, space);
-            } else {
-                return renderIdentifier(ais, tree, token_index, space, .preserve_when_shadowing);
-            }
+            return renderIdentifier(ais, tree, token_index, space, .preserve_when_shadowing);
         },
 
         .number_literal,

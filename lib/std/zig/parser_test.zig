@@ -106,29 +106,6 @@ test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
     );
 }
 
-// TODO Remove this after zig 0.10.0 is released.
-test "zig fmt: rewrite c_void to anyopaque" {
-    try testTransform(
-        \\const Foo = struct {
-        \\    c_void: *c_void,
-        \\};
-        \\
-        \\fn foo(a: ?*c_void) !*c_void {
-        \\    return a orelse unreachable;
-        \\}
-        \\
-    ,
-        \\const Foo = struct {
-        \\    c_void: *anyopaque,
-        \\};
-        \\
-        \\fn foo(a: ?*anyopaque) !*anyopaque {
-        \\    return a orelse unreachable;
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment
