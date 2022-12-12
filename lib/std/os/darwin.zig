@@ -401,6 +401,43 @@ const mach_task = if (builtin.target.isDarwin()) struct {
                 },
             }
         }
+
+        pub fn basicTaskInfo(task: MachTask) MachError!std.c.mach_task_basic_info {
+            var info: std.c.mach_task_basic_info = undefined;
+            var count = std.c.MACH_TASK_BASIC_INFO_COUNT;
+            switch (std.c.getKernError(std.c.task_info(
+                task.port,
+                std.c.MACH_TASK_BASIC_INFO,
+                @ptrCast(std.c.task_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("task_info kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn @"resume"(task: MachTask) MachError!void {
+            switch (std.c.getKernError(std.c.task_resume(task.port))) {
+                .SUCCESS => {},
+                else => |err| {
+                    log.err("task_resume kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn @"suspend"(task: MachTask) MachError!void {
+            switch (std.c.getKernError(std.c.task_suspend(task.port))) {
+                .SUCCESS => {},
+                else => |err| {
+                    log.err("task_suspend kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
     };
 
     pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
