@@ -236,27 +236,27 @@ fn win_probe_stack_adjust_sp() void {
 
 pub fn _chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
+    @call(.always_inline, win_probe_stack_adjust_sp, .{});
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
     if (comptime arch.isAARCH64()) {
-        @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+        @call(.always_inline, win_probe_stack_only, .{});
     } else switch (arch) {
-        .x86 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
-        .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
+        .x86 => @call(.always_inline, win_probe_stack_adjust_sp, .{}),
+        .x86_64 => @call(.always_inline, win_probe_stack_only, .{}),
         else => unreachable,
     }
 }
 pub fn ___chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
+    @call(.always_inline, win_probe_stack_adjust_sp, .{});
 }
 pub fn __chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+    @call(.always_inline, win_probe_stack_only, .{});
 }
 pub fn ___chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+    @call(.always_inline, win_probe_stack_only, .{});
 }

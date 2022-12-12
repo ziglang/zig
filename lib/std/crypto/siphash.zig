@@ -78,12 +78,10 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         pub fn update(self: *Self, b: []const u8) void {
             std.debug.assert(b.len % 8 == 0);
 
-            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
-
             var off: usize = 0;
             while (off < b.len) : (off += 8) {
                 const blob = b[off..][0..8].*;
-                @call(inl, round, .{ self, blob });
+                @call(.always_inline, round, .{ self, blob });
             }
 
             self.msg_len +%= @truncate(u8, b.len);
@@ -105,12 +103,9 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
                 self.v2 ^= 0xff;
             }
 
-            // TODO this is a workaround, should be able to supply the value without a separate variable
-            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
-
             comptime var i: usize = 0;
             inline while (i < d_rounds) : (i += 1) {
-                @call(inl, sipRound, .{self});
+                @call(.always_inline, sipRound, .{self});
             }
 
             const b1 = self.v0 ^ self.v1 ^ self.v2 ^ self.v3;
@@ -122,7 +117,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             comptime var j: usize = 0;
             inline while (j < d_rounds) : (j += 1) {
-                @call(inl, sipRound, .{self});
+                @call(.always_inline, sipRound, .{self});
             }
 
             const b2 = self.v0 ^ self.v1 ^ self.v2 ^ self.v3;
@@ -133,11 +128,9 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             const m = mem.readIntLittle(u64, b[0..8]);
             self.v3 ^= m;
 
-            // TODO this is a workaround, should be able to supply the value without a separate variable
-            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
             comptime var i: usize = 0;
             inline while (i < c_rounds) : (i += 1) {
-                @call(inl, sipRound, .{self});
+                @call(.always_inline, sipRound, .{self});
             }
 
             self.v0 ^= m;
@@ -163,8 +156,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
             const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
-            @call(.{ .modifier = .always_inline }, c.update, .{msg[0..aligned_len]});
-            return @call(.{ .modifier = .always_inline }, c.final, .{msg[aligned_len..]});
+            @call(.always_inline, c.update, .{msg[0..aligned_len]});
+            return @call(.always_inline, c.final, .{msg[aligned_len..]});
         }
     };
 }

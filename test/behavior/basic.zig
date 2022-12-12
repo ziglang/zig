@@ -966,8 +966,8 @@ test "generic function uses return type of other generic function" {
         fn call(
             f: anytype,
             args: anytype,
-        ) @TypeOf(@call(.{}, f, @as(@TypeOf(args), undefined))) {
-            return @call(.{}, f, args);
+        ) @TypeOf(@call(.auto, f, @as(@TypeOf(args), undefined))) {
+            return @call(.auto, f, args);
         }
 
         fn func(arg: anytype) @TypeOf(arg) {

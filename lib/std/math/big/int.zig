@@ -3587,7 +3587,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
         const dst_i = src_i + limb_shift;
 
         const src_digit = a[src_i];
-        r[dst_i] = carry | @call(.{ .modifier = .always_inline }, math.shr, .{
+        r[dst_i] = carry | @call(.always_inline, math.shr, .{
             Limb,
             src_digit,
             limb_bits - @intCast(Limb, interior_limb_shift),
@@ -3615,7 +3615,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
 
         const src_digit = a[src_i];
         r[dst_i] = carry | (src_digit >> interior_limb_shift);
-        carry = @call(.{ .modifier = .always_inline }, math.shl, .{
+        carry = @call(.always_inline, math.shl, .{
             Limb,
             src_digit,
             limb_bits - @intCast(Limb, interior_limb_shift),
