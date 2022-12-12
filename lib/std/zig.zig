@@ -195,7 +195,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
             }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
-        .dxcontainer => @panic("TODO what's the file extension for these?"),
+        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 
