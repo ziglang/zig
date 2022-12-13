@@ -1469,13 +1469,13 @@ pub const Step = struct {
     }
 };
 
-const VcpkgRoot = union(VcpkgRootStatus) {
+pub const VcpkgRoot = union(VcpkgRootStatus) {
     unattempted: void,
     not_found: void,
     found: []const u8,
 };
 
-const VcpkgRootStatus = enum {
+pub const VcpkgRootStatus = enum {
     unattempted,
     not_found,
     found,
