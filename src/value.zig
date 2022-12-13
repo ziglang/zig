@@ -4194,8 +4194,12 @@ pub const Value = extern union {
         const result_limbs = lhs_bigint.limbs.len -| (shift / (@sizeOf(std.math.big.Limb) * 8));
         if (result_limbs == 0) {
             // The shift is enough to remove all the bits from the number, which means the
-            // result is zero.
-            return Value.zero;
+            // result is 0 or -1 depending on the sign.
+            if (lhs_bigint.positive) {
+                return Value.zero;
+            } else {
+                return Value.negative_one;
+            }
         }
 
         const limbs = try allocator.alloc(
