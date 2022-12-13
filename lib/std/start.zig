@@ -229,15 +229,15 @@ fn _DllMainCRTStartup(
 fn wasm_freestanding_start() callconv(.C) void {
     // This is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
-    _ = @call(.{ .modifier = .always_inline }, callMain, .{});
+    _ = @call(.always_inline, callMain, .{});
 }
 
 fn wasi_start() callconv(.C) void {
     // The function call is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
-        .reactor => _ = @call(.{ .modifier = .always_inline }, callMain, .{}),
-        .command => std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{})),
+        .reactor => _ = @call(.always_inline, callMain, .{}),
+        .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
     }
 }
 
@@ -373,7 +373,7 @@ fn _start() callconv(.Naked) noreturn {
     }
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
-    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
+    @call(.never_inline, posixCallMainAndExit, .{});
 }
 
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -459,7 +459,7 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
         expandStackSize(phdrs);
     }
 
-    std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
+    std.os.exit(@call(.always_inline, callMainWithArgs, .{ argc, argv, envp }));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -510,12 +510,12 @@ fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_in
         expandStackSize(phdrs);
     }
 
-    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
+    return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
     std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
-    return @call(.{ .modifier = .always_inline }, callMain, .{});
+    return @call(.always_inline, callMain, .{});
 }
 
 // General error message for a malformed return type
@@ -545,7 +545,7 @@ inline fn initEventLoopAndCallMain() u8 {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, callMain, .{});
+    return @call(.always_inline, callMain, .{});
 }
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
@@ -574,7 +574,7 @@ inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, call_wWinMain, .{});
+    return @call(.always_inline, call_wWinMain, .{});
 }
 
 fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {

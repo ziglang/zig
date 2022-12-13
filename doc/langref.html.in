@@ -4270,7 +4270,7 @@ test "using @typeInfo with runtime values" {
 }
 
 // Calls to `isFieldOptional` on `Struct1` get unrolled to an equivalent
-// of this function: 
+// of this function:
 fn isFieldOptionalUnrolled(field_index: usize) !bool {
     return switch (field_index) {
         0 => false,
@@ -7801,7 +7801,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@call#}
-      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@call(modifier: std.builtin.CallModifier, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
       <p>
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -7809,7 +7809,7 @@ comptime {
 const expect = @import("std").testing.expect;
 
 test "noinline function call" {
-    try expect(@call(.{}, add, .{3, 9}) == 12);
+    try expect(@call(.auto, add, .{3, 9}) == 12);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -7818,48 +7818,41 @@ fn add(a: i32, b: i32) i32 {
       {#code_end#}
       <p>
       {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
-      {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
+      {#syntax#}CallModifier{#endsyntax#} enum is reproduced here:
       </p>
-      {#syntax_block|zig|builtin.CallOptions struct#}
-pub const CallOptions = struct {
-    modifier: Modifier = .auto,
+      {#syntax_block|zig|builtin.CallModifier struct#}
+pub const CallModifier = enum {
+    /// Equivalent to function call syntax.
+    auto,
 
-    /// Only valid when `Modifier` is `Modifier.async_kw`.
-    stack: ?[]align(std.Target.stack_align) u8 = null,
+    /// Equivalent to async keyword used with function call syntax.
+    async_kw,
 
-    pub const Modifier = enum {
-        /// Equivalent to function call syntax.
-        auto,
+    /// Prevents tail call optimization. This guarantees that the return
+    /// address will point to the callsite, as opposed to the callsite's
+    /// callsite. If the call is otherwise required to be tail-called
+    /// or inlined, a compile error is emitted instead.
+    never_tail,
 
-        /// Equivalent to async keyword used with function call syntax.
-        async_kw,
+    /// Guarantees that the call will not be inlined. If the call is
+    /// otherwise required to be inlined, a compile error is emitted instead.
+    never_inline,
 
-        /// Prevents tail call optimization. This guarantees that the return
-        /// address will point to the callsite, as opposed to the callsite's
-        /// callsite. If the call is otherwise required to be tail-called
-        /// or inlined, a compile error is emitted instead.
-        never_tail,
+    /// Asserts that the function call will not suspend. This allows a
+    /// non-async function to call an async function.
+    no_async,
 
-        /// Guarantees that the call will not be inlined. If the call is
-        /// otherwise required to be inlined, a compile error is emitted instead.
-        never_inline,
+    /// Guarantees that the call will be generated with tail call optimization.
+    /// If this is not possible, a compile error is emitted instead.
+    always_tail,
 
-        /// Asserts that the function call will not suspend. This allows a
-        /// non-async function to call an async function.
-        no_async,
+    /// Guarantees that the call will inlined at the callsite.
+    /// If this is not possible, a compile error is emitted instead.
+    always_inline,
 
-        /// Guarantees that the call will be generated with tail call optimization.
-        /// If this is not possible, a compile error is emitted instead.
-        always_tail,
-
-        /// Guarantees that the call will inlined at the callsite.
-        /// If this is not possible, a compile error is emitted instead.
-        always_inline,
-
-        /// Evaluates the call at compile-time. If the call cannot be completed at
-        /// compile-time, a compile error is emitted instead.
-        compile_time,
-    };
+    /// Evaluates the call at compile-time. If the call cannot be completed at
+    /// compile-time, a compile error is emitted instead.
+    compile_time,
 };
       {#end_syntax_block#}
       {#header_close#}

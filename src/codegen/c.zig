@@ -3874,7 +3874,7 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airCall(
     f: *Function,
     inst: Air.Inst.Index,
-    modifier: std.builtin.CallOptions.Modifier,
+    modifier: std.builtin.CallModifier,
 ) !CValue {
     // Not even allowed to call panic in a naked function.
     if (f.object.dg.decl.ty.fnCallingConvention() == .Naked) return .none;

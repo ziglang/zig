@@ -9,11 +9,11 @@ test "super basic invocations" {
             return 1234;
         }
     }.foo;
-    try expect(@call(.{}, foo, .{}) == 1234);
-    comptime try expect(@call(.{ .modifier = .always_inline }, foo, .{}) == 1234);
+    try expect(@call(.auto, foo, .{}) == 1234);
+    comptime try expect(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
-        const result = @call(.{ .modifier = .compile_time }, foo, .{}) == 1234;
+        const result = @call(.compile_time, foo, .{}) == 1234;
         comptime try expect(result);
     }
 }
@@ -31,25 +31,25 @@ test "basic invocations" {
             return 1234;
         }
     }.foo;
-    try expect(@call(.{}, foo, .{}) == 1234);
+    try expect(@call(.auto, foo, .{}) == 1234);
     comptime {
         // modifiers that allow comptime calls
-        try expect(@call(.{}, foo, .{}) == 1234);
-        try expect(@call(.{ .modifier = .no_async }, foo, .{}) == 1234);
-        try expect(@call(.{ .modifier = .always_tail }, foo, .{}) == 1234);
-        try expect(@call(.{ .modifier = .always_inline }, foo, .{}) == 1234);
+        try expect(@call(.auto, foo, .{}) == 1234);
+        try expect(@call(.no_async, foo, .{}) == 1234);
+        try expect(@call(.always_tail, foo, .{}) == 1234);
+        try expect(@call(.always_inline, foo, .{}) == 1234);
     }
     {
         // comptime call without comptime keyword
-        const result = @call(.{ .modifier = .compile_time }, foo, .{}) == 1234;
+        const result = @call(.compile_time, foo, .{}) == 1234;
         comptime try expect(result);
     }
     {
         // call of non comptime-known function
         var alias_foo = &foo;
-        try expect(@call(.{ .modifier = .no_async }, alias_foo, .{}) == 1234);
-        try expect(@call(.{ .modifier = .never_tail }, alias_foo, .{}) == 1234);
-        try expect(@call(.{ .modifier = .never_inline }, alias_foo, .{}) == 1234);
+        try expect(@call(.no_async, alias_foo, .{}) == 1234);
+        try expect(@call(.never_tail, alias_foo, .{}) == 1234);
+        try expect(@call(.never_inline, alias_foo, .{}) == 1234);
     }
 }
 
@@ -66,23 +66,23 @@ test "tuple parameters" {
     }.add;
     var a: i32 = 12;
     var b: i32 = 34;
-    try expect(@call(.{}, add, .{ a, 34 }) == 46);
-    try expect(@call(.{}, add, .{ 12, b }) == 46);
-    try expect(@call(.{}, add, .{ a, b }) == 46);
-    try expect(@call(.{}, add, .{ 12, 34 }) == 46);
+    try expect(@call(.auto, add, .{ a, 34 }) == 46);
+    try expect(@call(.auto, add, .{ 12, b }) == 46);
+    try expect(@call(.auto, add, .{ a, b }) == 46);
+    try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        comptime try expect(@call(.{}, add, .{ 12, 34 }) == 46); // TODO
+        comptime try expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
-    try expect(comptime @call(.{}, add, .{ 12, 34 }) == 46);
+    try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
         const separate_args0 = .{ a, b };
         const separate_args1 = .{ a, 34 };
         const separate_args2 = .{ 12, 34 };
         const separate_args3 = .{ 12, b };
-        try expect(@call(.{ .modifier = .always_inline }, add, separate_args0) == 46);
-        try expect(@call(.{ .modifier = .always_inline }, add, separate_args1) == 46);
-        try expect(@call(.{ .modifier = .always_inline }, add, separate_args2) == 46);
-        try expect(@call(.{ .modifier = .always_inline }, add, separate_args3) == 46);
+        try expect(@call(.always_inline, add, separate_args0) == 46);
+        try expect(@call(.always_inline, add, separate_args1) == 46);
+        try expect(@call(.always_inline, add, separate_args2) == 46);
+        try expect(@call(.always_inline, add, separate_args3) == 46);
     }
 }
 
@@ -281,7 +281,7 @@ test "forced tail call" {
             if (n == 0) return a;
             if (n == 1) return b;
             return @call(
-                .{ .modifier = .always_tail },
+                .always_tail,
                 fibonacciTailInternal,
                 .{ n - 1, b, a + b },
             );
@@ -322,7 +322,7 @@ test "inline call preserves tail call" {
             var buf: [max]u16 = undefined;
             buf[a] = a;
             a += 1;
-            return @call(.{ .modifier = .always_tail }, foo, .{});
+            return @call(.always_tail, foo, .{});
         }
     };
     S.foo();
@@ -341,6 +341,6 @@ test "inline call doesn't re-evaluate non generic struct" {
         }
     };
     const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
-    try @call(.{ .modifier = .always_inline }, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
-    comptime try @call(.{ .modifier = .always_inline }, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }

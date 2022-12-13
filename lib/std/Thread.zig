@@ -387,10 +387,10 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
 
     switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
         .NoReturn => {
-            @call(.{}, f, args);
+            @call(.auto, f, args);
         },
         .Void => {
-            @call(.{}, f, args);
+            @call(.auto, f, args);
             return default_value;
         },
         .Int => |info| {
@@ -398,7 +398,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                 @compileError(bad_fn_ret);
             }
 
-            const status = @call(.{}, f, args);
+            const status = @call(.auto, f, args);
             if (Impl != PosixThreadImpl) {
                 return status;
             }
@@ -411,7 +411,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                 @compileError(bad_fn_ret);
             }
 
-            @call(.{}, f, args) catch |err| {
+            @call(.auto, f, args) catch |err| {
                 std.debug.print("error: {s}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);

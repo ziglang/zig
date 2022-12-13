@@ -66,7 +66,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const Key = @TypeOf(key);
 
     if (strat == .Shallow and comptime meta.trait.hasUniqueRepresentation(Key)) {
-        @call(.{ .modifier = .always_inline }, hasher.update, .{mem.asBytes(&key)});
+        @call(.always_inline, hasher.update, .{mem.asBytes(&key)});
         return;
     }
 
@@ -89,12 +89,12 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         // TODO Check if the situation is better after #561 is resolved.
         .Int => {
             if (comptime meta.trait.hasUniqueRepresentation(Key)) {
-                @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)});
+                @call(.always_inline, hasher.update, .{std.mem.asBytes(&key)});
             } else {
                 // Take only the part containing the key value, the remaining
                 // bytes are undefined and must not be hashed!
                 const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
-                @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)[0..byte_size]});
+                @call(.always_inline, hasher.update, .{std.mem.asBytes(&key)[0..byte_size]});
             }
         },
 
@@ -103,7 +103,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
         .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
 
-        .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
+        .Pointer => @call(.always_inline, hashPointer, .{ hasher, key, strat }),
 
         .Optional => if (key) |k| hash(hasher, k, strat),
 

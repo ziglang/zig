@@ -136,7 +136,7 @@ pub fn print(
         .address_space_type => return writer.writeAll("std.builtin.AddressSpace"),
         .float_mode_type => return writer.writeAll("std.builtin.FloatMode"),
         .reduce_op_type => return writer.writeAll("std.builtin.ReduceOp"),
-        .call_options_type => return writer.writeAll("std.builtin.CallOptions"),
+        .modifier_type => return writer.writeAll("std.builtin.CallModifier"),
         .prefetch_options_type => return writer.writeAll("std.builtin.PrefetchOptions"),
         .export_options_type => return writer.writeAll("std.builtin.ExportOptions"),
         .extern_options_type => return writer.writeAll("std.builtin.ExternOptions"),

@@ -5986,7 +5986,7 @@ fn zirCall(
     const extra = sema.code.extraData(Zir.Inst.Call, inst_data.payload_index);
     const args_len = extra.data.flags.args_len;
 
-    const modifier = @intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier);
+    const modifier = @intToEnum(std.builtin.CallModifier, extra.data.flags.packed_modifier);
     const ensure_result_used = extra.data.flags.ensure_result_used;
     const pop_error_return_trace = extra.data.flags.pop_error_return_trace;
 
@@ -6222,7 +6222,7 @@ fn analyzeCall(
     func: Air.Inst.Ref,
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
-    modifier: std.builtin.CallOptions.Modifier,
+    modifier: std.builtin.CallModifier,
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
     bound_arg_src: ?LazySrcLoc,
@@ -20751,118 +20751,66 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     });
 }
 
-fn resolveCallOptions(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
-    is_comptime: bool,
-    is_nosuspend: bool,
-    func: Air.Inst.Ref,
-    func_src: LazySrcLoc,
-) CompileError!std.builtin.CallOptions.Modifier {
-    const call_options_ty = try sema.getBuiltinType("CallOptions");
-    const air_ref = try sema.resolveInst(zir_ref);
-    const options = try sema.coerce(block, call_options_ty, air_ref, src);
-
-    const modifier_src = sema.maybeOptionsSrc(block, src, "modifier");
-    const stack_src = sema.maybeOptionsSrc(block, src, "stack");
-
-    const modifier = try sema.fieldVal(block, src, options, "modifier", modifier_src);
-    const modifier_val = try sema.resolveConstValue(block, modifier_src, modifier, "call modifier must be comptime-known");
-    const wanted_modifier = modifier_val.toEnum(std.builtin.CallOptions.Modifier);
-
-    const stack = try sema.fieldVal(block, src, options, "stack", stack_src);
-    const stack_val = try sema.resolveConstValue(block, stack_src, stack, "call stack value must be comptime-known");
-
-    if (!stack_val.isNull()) {
-        return sema.fail(block, stack_src, "TODO: implement @call with stack", .{});
-    }
-
-    switch (wanted_modifier) {
-        // These can be upgraded to comptime or nosuspend calls.
-        .auto, .never_tail, .no_async => {
-            if (is_comptime) {
-                if (wanted_modifier == .never_tail) {
-                    return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});
-                }
-                return .compile_time;
-            }
-            if (is_nosuspend) {
-                return .no_async;
-            }
-            return wanted_modifier;
-        },
-        // These can be upgraded to comptime. nosuspend bit can be safely ignored.
-        .always_inline, .compile_time => {
-            _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
-                return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(wanted_modifier)});
-            };
-
-            if (is_comptime) {
-                return .compile_time;
-            }
-            return wanted_modifier;
-        },
-        .always_tail => {
-            if (is_comptime) {
-                return .compile_time;
-            }
-            return wanted_modifier;
-        },
-        .async_kw => {
-            if (is_nosuspend) {
-                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
-            }
-            if (is_comptime) {
-                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
-            }
-            return wanted_modifier;
-        },
-        .never_inline => {
-            if (is_comptime) {
-                return sema.fail(block, modifier_src, "unable to perform 'never_inline' call at compile-time", .{});
-            }
-            return wanted_modifier;
-        },
-    }
-}
-
 fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const modifier_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const func_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const args_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     const call_src = inst_data.src();
 
     const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
     var func = try sema.resolveInst(extra.callee);
-    const modifier = sema.resolveCallOptions(
-        block,
-        .unneeded,
-        extra.options,
-        extra.flags.is_comptime,
-        extra.flags.is_nosuspend,
-        func,
-        func_src,
-    ) catch |err| switch (err) {
-        error.NeededSourceLocation => {
-            _ = try sema.resolveCallOptions(
-                block,
-                options_src,
-                extra.options,
-                extra.flags.is_comptime,
-                extra.flags.is_nosuspend,
-                func,
-                func_src,
-            );
-            return error.AnalysisFail;
+
+    const modifier_ty = try sema.getBuiltinType("CallModifier");
+    const air_ref = try sema.resolveInst(extra.modifier);
+    const modifier_ref = try sema.coerce(block, modifier_ty, air_ref, modifier_src);
+    const modifier_val = try sema.resolveConstValue(block, modifier_src, modifier_ref, "call modifier must be comptime-known");
+    var modifier = modifier_val.toEnum(std.builtin.CallModifier);
+    switch (modifier) {
+        // These can be upgraded to comptime or nosuspend calls.
+        .auto, .never_tail, .no_async => {
+            if (extra.flags.is_comptime) {
+                if (modifier == .never_tail) {
+                    return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});
+                }
+                modifier = .compile_time;
+            } else if (extra.flags.is_nosuspend) {
+                modifier = .no_async;
+            }
         },
-        else => |e| return e,
-    };
+        // These can be upgraded to comptime. nosuspend bit can be safely ignored.
+        .always_inline, .compile_time => {
+            _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
+                return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(modifier)});
+            };
+
+            if (extra.flags.is_comptime) {
+                modifier = .compile_time;
+            }
+        },
+        .always_tail => {
+            if (extra.flags.is_comptime) {
+                modifier = .compile_time;
+            }
+        },
+        .async_kw => {
+            if (extra.flags.is_nosuspend) {
+                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
+            }
+            if (extra.flags.is_comptime) {
+                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
+            }
+        },
+        .never_inline => {
+            if (extra.flags.is_comptime) {
+                return sema.fail(block, modifier_src, "unable to perform 'never_inline' call at compile-time", .{});
+            }
+        },
+    }
+
     const args = try sema.resolveInst(extra.args);
 
     const args_ty = sema.typeOf(args);
@@ -29558,7 +29506,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .address_space,
         .float_mode,
         .reduce_op,
-        .call_options,
+        .modifier,
         .prefetch_options,
         .export_options,
         .extern_options,
@@ -29823,7 +29771,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .address_space => return sema.getBuiltinType("AddressSpace"),
         .float_mode => return sema.getBuiltinType("FloatMode"),
         .reduce_op => return sema.getBuiltinType("ReduceOp"),
-        .call_options => return sema.getBuiltinType("CallOptions"),
+        .modifier => return sema.getBuiltinType("CallModifier"),
         .prefetch_options => return sema.getBuiltinType("PrefetchOptions"),
 
         else => return ty,
@@ -30841,7 +30789,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .address_space,
         .float_mode,
         .reduce_op,
-        .call_options,
+        .modifier,
         .prefetch_options,
         .export_options,
         .extern_options,
@@ -31164,7 +31112,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .address_space => return .address_space_type,
         .float_mode => return .float_mode_type,
         .reduce_op => return .reduce_op_type,
-        .call_options => return .call_options_type,
+        .modifier => return .modifier_type,
         .prefetch_options => return .prefetch_options_type,
         .export_options => return .export_options_type,
         .extern_options => return .extern_options_type,
@@ -31557,7 +31505,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .address_space,
         .float_mode,
         .reduce_op,
-        .call_options,
+        .modifier,
         .prefetch_options,
         .export_options,
         .extern_options,
@@ -32387,7 +32335,7 @@ fn enumHasInt(
         .address_space,
         .float_mode,
         .reduce_op,
-        .call_options,
+        .modifier,
         .prefetch_options,
         .export_options,
         .extern_options,

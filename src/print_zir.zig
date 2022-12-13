@@ -801,7 +801,7 @@ const Writer = struct {
         try self.writeFlag(stream, "nosuspend ", extra.flags.is_nosuspend);
         try self.writeFlag(stream, "comptime ", extra.flags.is_comptime);
 
-        try self.writeInstRef(stream, extra.options);
+        try self.writeInstRef(stream, extra.modifier);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.callee);
         try stream.writeAll(", ");
@@ -1170,7 +1170,7 @@ const Writer = struct {
         if (extra.data.flags.ensure_result_used) {
             try stream.writeAll("nodiscard ");
         }
-        try stream.print(".{s}, ", .{@tagName(@intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier))});
+        try stream.print(".{s}, ", .{@tagName(@intToEnum(std.builtin.CallModifier, extra.data.flags.packed_modifier))});
         try self.writeInstRef(stream, extra.data.callee);
         try stream.writeAll(", [");
 

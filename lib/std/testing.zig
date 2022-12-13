@@ -828,7 +828,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
         args.@"0" = failing_allocator_inst.allocator();
 
-        try @call(.{}, test_fn, args);
+        try @call(.auto, test_fn, args);
         break :x failing_allocator_inst.index;
     };
 
@@ -837,7 +837,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
         args.@"0" = failing_allocator_inst.allocator();
 
-        if (@call(.{}, test_fn, args)) |_| {
+        if (@call(.auto, test_fn, args)) |_| {
             if (failing_allocator_inst.has_induced_failure) {
                 return error.SwallowedOutOfMemoryError;
             } else {

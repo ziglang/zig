@@ -263,7 +263,7 @@ pub fn fork() usize {
 /// the compiler is not aware of how vfork affects control flow and you may
 /// see different results in optimized builds.
 pub inline fn vfork() usize {
-    return @call(.{ .modifier = .always_inline }, syscall0, .{.vfork});
+    return @call(.always_inline, syscall0, .{.vfork});
 }
 
 pub fn futimens(fd: i32, times: *const [2]timespec) usize {
