@@ -286,7 +286,7 @@ const Parser = struct {
                 .keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
                     .l_brace => {
                         if (doc_comment) |some| {
-                            try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
+                            try p.warnMsg(.{ .tag = .comptime_doc_comment, .token = some });
                         }
                         const comptime_token = p.nextToken();
                         const block = p.parseBlock() catch |err| switch (err) {
