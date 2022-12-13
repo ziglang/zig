@@ -9,11 +9,6 @@ fn testTypes(comptime types: []const type) !void {
     }
 }
 
-test "Type.Bool" {
-    try testing.expect(bool == @Type(.{ .Bool = {} }));
-    try testTypes(&[_]type{bool});
-}
-
 test "Type.NoReturn" {
     try testing.expect(noreturn == @Type(.{ .NoReturn = {} }));
     try testTypes(&[_]type{noreturn});
