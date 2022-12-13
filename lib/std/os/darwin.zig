@@ -24,6 +24,18 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             return self.port != std.c.TASK_NULL;
         }
 
+        pub fn pidForTask(self: MachTask) MachError!std.os.pid_t {
+            var pid: std.os.pid_t = undefined;
+            switch (std.c.getKernError(std.c.pid_for_task(self.port, &pid))) {
+                .SUCCESS => return pid,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("pid_for_task kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
         pub fn allocatePort(self: MachTask, right: std.c.MACH_PORT_RIGHT) MachError!MachTask {
             var out_port: std.c.mach_port_name_t = undefined;
             switch (std.c.getKernError(std.c.mach_port_allocate(
@@ -440,7 +452,7 @@ const mach_task = if (builtin.target.isDarwin()) struct {
         }
 
         const ThreadList = struct {
-            buf: []ThreadId,
+            buf: []MachThread,
 
             pub fn deinit(list: ThreadList) void {
                 const self_task = machTaskForSelf();
@@ -456,7 +468,7 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             var thread_list: std.c.mach_port_array_t = undefined;
             var thread_count: std.c.mach_msg_type_number_t = undefined;
             switch (std.c.getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
-                .SUCCESS => return ThreadList{ .buf = @ptrCast([*]ThreadId, thread_list)[0..thread_count] },
+                .SUCCESS => return ThreadList{ .buf = @ptrCast([*]MachThread, thread_list)[0..thread_count] },
                 else => |err| {
                     log.err("task_threads kernel call failed with error code: {s}", .{@tagName(err)});
                     return error.Unexpected;
@@ -465,14 +477,18 @@ const mach_task = if (builtin.target.isDarwin()) struct {
         }
     };
 
-    pub const ThreadId = extern struct {
-        id: std.c.thread_act_t,
+    pub const MachThread = extern struct {
+        port: std.c.mach_port_t,
 
-        pub fn getBasicInfo(thread_id: ThreadId) MachError!std.c.thread_basic_info {
+        pub fn isValid(thread: MachThread) bool {
+            return thread.port != std.c.THREAD_NULL;
+        }
+
+        pub fn getBasicInfo(thread: MachThread) MachError!std.c.thread_basic_info {
             var info: std.c.thread_basic_info = undefined;
             var count = std.c.THREAD_BASIC_INFO_COUNT;
             switch (std.c.getKernError(std.c.thread_info(
-                thread_id.id,
+                thread.port,
                 std.c.THREAD_BASIC_INFO,
                 @ptrCast(std.c.thread_info_t, &info),
                 &count,
@@ -485,11 +501,11 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             }
         }
 
-        pub fn getIdentifierInfo(thread_id: ThreadId) MachError!std.c.thread_identifier_info {
+        pub fn getIdentifierInfo(thread: MachThread) MachError!std.c.thread_identifier_info {
             var info: std.c.thread_identifier_info = undefined;
             var count = std.c.THREAD_IDENTIFIER_INFO_COUNT;
             switch (std.c.getKernError(std.c.thread_info(
-                thread_id.id,
+                thread.port,
                 std.c.THREAD_IDENTIFIER_INFO,
                 @ptrCast(std.c.thread_info_t, &info),
                 &count,

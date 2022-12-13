@@ -102,6 +102,8 @@ pub const MACH_EXCEPTION_MASK = MACH_EXCEPTION_CODES |
 
 pub const TASK_NULL: task_t = 0;
 pub const THREAD_NULL: thread_t = 0;
+pub const MACH_PORT_NULL: mach_port_t = 0;
+pub const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
 
 pub const MACH_MSG_OPTION_NONE = 0x00000000;
 
@@ -406,6 +408,7 @@ pub extern "c" fn task_resume(target_task: task_read_t) kern_return_t;
 pub extern "c" fn task_suspend(target_task: task_read_t) kern_return_t;
 
 pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn pid_for_task(target_tport: mach_port_name_t, pid: *pid_t) kern_return_t;
 pub extern "c" fn mach_vm_read(
     target_task: vm_map_read_t,
     address: mach_vm_address_t,
@@ -3054,11 +3057,20 @@ pub const _POSIX_SPAWN_RESLIDE = 0x0800;
 pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
 
 pub const PT_TRACE_ME = 0;
+pub const PT_READ_I = 1;
+pub const PT_READ_D = 2;
+pub const PT_READ_U = 3;
+pub const PT_WRITE_I = 4;
+pub const PT_WRITE_D = 5;
+pub const PT_WRITE_U = 6;
 pub const PT_CONTINUE = 7;
 pub const PT_KILL = 8;
 pub const PT_STEP = 9;
 pub const PT_DETACH = 11;
+pub const PT_SIGEXC = 12;
+pub const PT_THUPDATE = 13;
 pub const PT_ATTACHEXC = 14;
+pub const PT_FORCEQUOTA = 30;
 pub const PT_DENY_ATTACH = 31;
 
 pub const caddr_t = ?[*]u8;

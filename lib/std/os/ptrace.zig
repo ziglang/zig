@@ -16,8 +16,8 @@ const ptrace = if (builtin.target.isDarwin()) struct {
         PermissionDenied,
     } || UnexpectedError;
 
-    pub fn ptrace(request: i32, pid: pid_t) PtraceError!void {
-        switch (errno(system.ptrace(request, pid, null, 0))) {
+    pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, signal: i32) PtraceError!void {
+        switch (errno(system.ptrace(request, pid, addr, signal))) {
             .SUCCESS => return,
             .SRCH => return error.ProcessNotFound,
             .INVAL => unreachable,
