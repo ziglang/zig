@@ -17948,7 +17948,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         .Bool => return sema.fail(block, src, "@Type(.Bool) has been deprecated", .{}),
         .NoReturn => return sema.fail(block, src, "@Type(.NoReturn) has been deprecated", .{}),
         .ComptimeFloat => return sema.fail(block, src, "@Type(.ComptimeFloat) has been deprecated", .{}),
-        .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
+        .ComptimeInt => return sema.fail(block, src, "@Type(.ComptimeInt) has been deprecated", .{}),
         .Undefined => return Air.Inst.Ref.undefined_type,
         .Null => return Air.Inst.Ref.null_type,
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
