@@ -711,6 +711,10 @@ pub const DeclGen = struct {
             val = rt.data;
         }
         const target = dg.module.getTarget();
+        const initializer_type: ValueRenderLocation = switch (location) {
+            .StaticInitializer => .StaticInitializer,
+            else => .Initializer,
+        };
 
         const safety_on = switch (dg.module.optimizeMode()) {
             .Debug, .ReleaseSafe => true,
@@ -785,9 +789,9 @@ pub const DeclGen = struct {
                     }
 
                     try writer.writeAll("{ .payload = ");
-                    try dg.renderValue(writer, payload_ty, val, .Initializer);
+                    try dg.renderValue(writer, payload_ty, val, initializer_type);
                     try writer.writeAll(", .is_null = ");
-                    try dg.renderValue(writer, Type.bool, val, .Initializer);
+                    try dg.renderValue(writer, Type.bool, val, initializer_type);
                     return writer.writeAll(" }");
                 },
                 .Struct => switch (ty.containerLayout()) {
@@ -804,7 +808,7 @@ pub const DeclGen = struct {
                             if (!field.ty.hasRuntimeBits()) continue;
 
                             if (!empty) try writer.writeByte(',');
-                            try dg.renderValue(writer, field.ty, val, .Initializer);
+                            try dg.renderValue(writer, field.ty, val, initializer_type);
 
                             empty = false;
                         }
@@ -825,14 +829,14 @@ pub const DeclGen = struct {
                         const layout = ty.unionGetLayout(target);
                         if (layout.tag_size != 0) {
                             try writer.writeAll(" .tag = ");
-                            try dg.renderValue(writer, tag_ty, val, .Initializer);
+                            try dg.renderValue(writer, tag_ty, val, initializer_type);
                             try writer.writeByte(',');
                         }
                         try writer.writeAll(" .payload = {");
                     }
                     for (ty.unionFields().values()) |field| {
                         if (!field.ty.hasRuntimeBits()) continue;
-                        try dg.renderValue(writer, field.ty, val, .Initializer);
+                        try dg.renderValue(writer, field.ty, val, initializer_type);
                         break;
                     } else try writer.print("{x}", .{try dg.fmtIntLiteral(Type.u8, Value.undef)});
                     if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
@@ -846,7 +850,7 @@ pub const DeclGen = struct {
                     }
 
                     try writer.writeAll("{ .payload = ");
-                    try dg.renderValue(writer, ty.errorUnionPayload(), val, .Initializer);
+                    try dg.renderValue(writer, ty.errorUnionPayload(), val, initializer_type);
                     return writer.print(", .error = {x} }}", .{
                         try dg.fmtIntLiteral(ty.errorUnionSet(), val),
                     });
@@ -873,7 +877,7 @@ pub const DeclGen = struct {
                         var index: usize = 0;
                         while (index < c_len) : (index += 1) {
                             if (index > 0) try writer.writeAll(", ");
-                            try dg.renderValue(writer, ty.childType(), val, .Initializer);
+                            try dg.renderValue(writer, ty.childType(), val, initializer_type);
                         }
                         return writer.writeByte('}');
                     }
@@ -957,7 +961,7 @@ pub const DeclGen = struct {
                     }
                     try writer.writeAll(", ");
                     empty = false;
-                } else if (location != .StaticInitializer) {
+                } else {
                     // isSignalNan is equivalent to isNan currently, and MSVC doens't have nans, so prefer nan
                     const operation = if (std.math.isNan(f128_val))
                         "nan"
@@ -968,7 +972,19 @@ pub const DeclGen = struct {
                     else
                         unreachable;
 
+                    if (location == .StaticInitializer) {
+                        if (!std.math.isNan(f128_val) and std.math.isSignalNan(f128_val))
+                            return dg.fail("TODO: C backend: implement nans rendering in static initializers", .{});
+
+                        // MSVC doesn't have a way to define a custom or signaling NaN value in a constant expression
+
+                        // TODO: Re-enable this check, otherwise we're writing qnan bit patterns on msvc incorrectly
+                        // if (std.math.isNan(f128_val) and f128_val != std.math.qnan_f128)
+                        //     return dg.fail("Only quiet nans are supported in global variable initializers", .{});
+                    }
+
                     try writer.writeAll("zig_as_special_");
+                    if (location == .StaticInitializer) try writer.writeAll("constant_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     if (std.math.signbit(f128_val)) try writer.writeByte('-');
@@ -987,7 +1003,6 @@ pub const DeclGen = struct {
                     };
                     try writer.writeAll(", ");
                     empty = false;
-
                 }
                 try writer.print("{x}", .{try dg.fmtIntLiteralLoc(int_ty, int_val, location)});
                 if (!empty) try writer.writeByte(')');
@@ -1022,9 +1037,9 @@ pub const DeclGen = struct {
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
                     try writer.writeByte('{');
-                    try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, .Initializer);
+                    try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, initializer_type);
                     try writer.writeAll(", ");
-                    try dg.renderValue(writer, Type.usize, slice.len, .Initializer);
+                    try dg.renderValue(writer, Type.usize, slice.len, initializer_type);
                     try writer.writeByte('}');
                 },
                 .function => {
@@ -1062,7 +1077,7 @@ pub const DeclGen = struct {
                         try writer.writeByte('{');
                         const ai = ty.arrayInfo();
                         if (ai.sentinel) |s| {
-                            try dg.renderValue(writer, ai.elem_type, s, .Initializer);
+                            try dg.renderValue(writer, ai.elem_type, s, initializer_type);
                         } else {
                             try writer.writeByte('0');
                         }
@@ -1084,6 +1099,7 @@ pub const DeclGen = struct {
 
                         // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal
                         const max_string_initializer_len = 65535;
+
 
                         const ai = ty.arrayInfo();
                         if (ai.elem_type.eql(Type.u8, dg.module)) {
@@ -1112,7 +1128,7 @@ pub const DeclGen = struct {
                                 }
                                 if (ai.sentinel) |s| {
                                     if (index != 0) try writer.writeByte(',');
-                                    try dg.renderValue(writer, ai.elem_type, s, .Initializer);
+                                    try dg.renderValue(writer, ai.elem_type, s, initializer_type);
                                 }
                                 try writer.writeByte('}');
                             }
@@ -1122,11 +1138,11 @@ pub const DeclGen = struct {
                             while (index < ai.len) : (index += 1) {
                                 if (index != 0) try writer.writeByte(',');
                                 const elem_val = try val.elemValue(dg.module, arena_allocator, index);
-                                try dg.renderValue(writer, ai.elem_type, elem_val, .Initializer);
+                                try dg.renderValue(writer, ai.elem_type, elem_val, initializer_type);
                             }
                             if (ai.sentinel) |s| {
                                 if (index != 0) try writer.writeByte(',');
-                                try dg.renderValue(writer, ai.elem_type, s, .Initializer);
+                                try dg.renderValue(writer, ai.elem_type, s, initializer_type);
                             }
                             try writer.writeByte('}');
                         }
@@ -1162,9 +1178,9 @@ pub const DeclGen = struct {
                 const payload_val = if (val.castTag(.opt_payload)) |pl| pl.data else Value.undef;
 
                 try writer.writeAll("{ .payload = ");
-                try dg.renderValue(writer, payload_ty, payload_val, .Initializer);
+                try dg.renderValue(writer, payload_ty, payload_val, initializer_type);
                 try writer.writeAll(", .is_null = ");
-                try dg.renderValue(writer, Type.bool, is_null_val, .Initializer);
+                try dg.renderValue(writer, Type.bool, is_null_val, initializer_type);
                 try writer.writeAll(" }");
             },
             .ErrorSet => {
@@ -1197,9 +1213,9 @@ pub const DeclGen = struct {
                 const error_val = if (val.errorUnionIsPayload()) Value.zero else val;
 
                 try writer.writeAll("{ .payload = ");
-                try dg.renderValue(writer, payload_ty, payload_val, .Initializer);
+                try dg.renderValue(writer, payload_ty, payload_val, initializer_type);
                 try writer.writeAll(", .error = ");
-                try dg.renderValue(writer, error_ty, error_val, .Initializer);
+                try dg.renderValue(writer, error_ty, error_val, initializer_type);
                 try writer.writeAll(" }");
             },
             .Enum => {
@@ -1264,10 +1280,7 @@ pub const DeclGen = struct {
                         if (!field_ty.hasRuntimeBits()) continue;
 
                         if (!empty) try writer.writeByte(',');
-                        try dg.renderValue(writer, field_ty, field_val, switch (location) {
-                            .StaticInitializer => .StaticInitializer,
-                            else => .Initializer,
-                        });
+                        try dg.renderValue(writer, field_ty, field_val, initializer_type);
 
                         empty = false;
                     }
@@ -1297,7 +1310,7 @@ pub const DeclGen = struct {
 
                     if (eff_num_fields == 0) {
                         try writer.writeByte('(');
-                        try dg.renderValue(writer, ty, Value.undef, .Initializer);
+                        try dg.renderValue(writer, ty, Value.undef, initializer_type);
                         try writer.writeByte(')');
                     } else if (ty.bitSize(target) > 64) {
                         // zig_or_u128(zig_or_u128(zig_shl_u128(a, a_off), zig_shl_u128(b, b_off)), zig_shl_u128(c, c_off))
@@ -1385,7 +1398,7 @@ pub const DeclGen = struct {
                             try dg.renderTypecast(writer, ty);
                             try writer.writeByte(')');
                         }
-                        try dg.renderValue(writer, field_ty, union_obj.val, .Initializer);
+                        try dg.renderValue(writer, field_ty, union_obj.val, initializer_type);
                     } else {
                         try writer.writeAll("0");
                     }
@@ -1397,7 +1410,7 @@ pub const DeclGen = struct {
                     const layout = ty.unionGetLayout(target);
                     if (layout.tag_size != 0) {
                         try writer.writeAll(".tag = ");
-                        try dg.renderValue(writer, tag_ty, union_obj.tag, .Initializer);
+                        try dg.renderValue(writer, tag_ty, union_obj.tag, initializer_type);
                         try writer.writeAll(", ");
                     }
                     try writer.writeAll(".payload = {");
@@ -1406,11 +1419,11 @@ pub const DeclGen = struct {
                 var it = ty.unionFields().iterator();
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
-                    try dg.renderValue(writer, field_ty, union_obj.val, .Initializer);
+                    try dg.renderValue(writer, field_ty, union_obj.val, initializer_type);
                 } else while (it.next()) |field| {
                     if (!field.value_ptr.ty.hasRuntimeBits()) continue;
                     try writer.print(".{ } = ", .{fmtIdent(field.key_ptr.*)});
-                    try dg.renderValue(writer, field.value_ptr.ty, Value.undef, .Initializer);
+                    try dg.renderValue(writer, field.value_ptr.ty, Value.undef, initializer_type);
                     break;
                 } else try writer.writeAll(".empty_union = 0");
                 if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
@@ -7239,7 +7252,7 @@ fn formatIntLiteral(
         else => {
             if (int_info.bits > 64 and data.location != null and data.location.? == .StaticInitializer) {
                 // MSVC treats casting the struct initializer as not constant (C2099), so an alternate form is used in global initializers
-                try writer.print("zig_as_init_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
+                try writer.print("zig_as_constant_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
             } else {
                 try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
             }

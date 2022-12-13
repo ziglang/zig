@@ -1151,8 +1151,8 @@ typedef   signed __int128 zig_i128;
 
 #define zig_as_u128(hi, lo) ((zig_u128)(hi)<<64|(lo))
 #define zig_as_i128(hi, lo) ((zig_i128)zig_as_u128(hi, lo))
-#define zig_as_init_u128(hi, lo) zig_as_u128(hi, lo)
-#define zig_as_init_i128(hi, lo) zig_as_i128(hi, lo)
+#define zig_as_constant_u128(hi, lo) zig_as_u128(hi, lo)
+#define zig_as_constant_i128(hi, lo) zig_as_i128(hi, lo)
 #define zig_hi_u128(val) ((zig_u64)((val) >> 64))
 #define zig_lo_u128(val) ((zig_u64)((val) >>  0))
 #define zig_hi_i128(val) ((zig_i64)((val) >> 64))
@@ -1180,8 +1180,8 @@ typedef struct { zig_align(16) zig_i64 hi; zig_u64 lo; } zig_i128;
 
 #define zig_as_u128(hi, lo) ((zig_u128){ .h##i = (hi), .l##o = (lo) })
 #define zig_as_i128(hi, lo) ((zig_i128){ .h##i = (hi), .l##o = (lo) })
-#define zig_as_init_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
-#define zig_as_init_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#define zig_as_constant_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#define zig_as_constant_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #define zig_hi_u128(val) ((val).hi)
 #define zig_lo_u128(val) ((val).lo)
 #define zig_hi_i128(val) ((val).hi)
@@ -1342,13 +1342,28 @@ static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
 }
 
 // TODO: Implement
-static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs) {
+
+}
 
 // TODO: Implement
-static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs);
+zig_extern zig_u128 __udivmodti4(zig_u128 lhs, zig_u128 rhs, zig_u128* rem);
+static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs) {
+    zig_u128 rem;
+    return __udivmodti4(lhs, rhs, &rem);
+};
 
 // TODO: Implement
-static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs);
+zig_extern zig_i128 __modti3(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
+    return __modti3(lhs, rhs);
+}
+
+// TODO: Implement
+zig_extern zig_u128 __umodti3(zig_u128 lhs, zig_u128 rhs);
+static zig_u128 zig_rem_u128(zig_u128 lhs, zig_u128 rhs) {
+    return __umodti3(lhs, rhs);
+}
 
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 rem = zig_rem_i128(lhs, rhs);
@@ -1413,8 +1428,16 @@ static inline zig_i128 zig_subw_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
     return zig_wrap_i128(zig_bitcast_i128(zig_sub_u128(zig_bitcast_u128(lhs), zig_bitcast_u128(rhs))), bits);
 }
 
-// TODO: Implement
-static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs);
+#if _MSC_VER
+static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs) {
+    zig_u64 lo_carry;
+    zig_u64 lo = _umul128(lhs.lo, rhs.lo, &lo_carry);
+    zig_u64 hi = lhs.hi * rhs.lo + lhs.lo * rhs.hi + lo_carry;
+    return zig_as_u128(hi, lo);
+}
+#else
+static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs); // TODO
+#endif
 
 static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_mul_u128(lhs, rhs), bits);
@@ -1636,14 +1659,22 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 /* ========================= Floating Point Support ========================= */
 
 #if _MSC_VER
+#define zig_msvc_flt_inf ((double)(1e+300 * 1e+300))
+#define zig_msvc_flt_inff ((float)(1e+300 * 1e+300))
+#define zig_msvc_flt_infl ((long double)(1e+300 * 1e+300))
+#define zig_msvc_flt_nan ((double)(zig_msvc_flt_inf * 0.f))
+#define zig_msvc_flt_nanf ((float)(zig_msvc_flt_inf * 0.f))
+#define zig_msvc_flt_nanl ((long double)(zig_msvc_flt_inf * 0.f))
 #define __builtin_nan(str) nan(str)
 #define __builtin_nanf(str) nanf(str)
 #define __builtin_nanl(str) nanl(str)
+#define __builtin_inf() zig_msvc_flt_inf
 #endif
 
 #define zig_has_f16 1
 #define zig_bitSizeOf_f16 16
 #define zig_libc_name_f16(name) __##name##h
+#define zig_as_special_constant_f16(sign, name, arg, repr) zig_as_special_f16(sign, name, arg, repr)
 #define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 11
 typedef float zig_f16;
@@ -1669,11 +1700,18 @@ typedef zig_i16 zig_f16;
 #define zig_as_f16(fp, repr) repr
 #undef zig_as_special_f16
 #define zig_as_special_f16(sign, name, arg, repr) repr
+#undef zig_as_special_constant_f16
+#define zig_as_special_constant_f16(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f32 1
 #define zig_bitSizeOf_f32 32
 #define zig_libc_name_f32(name) name##f
+#if _MSC_VER
+#define zig_as_special_constant_f32(sign, name, arg, repr) sign zig_as_f32(zig_msvc_flt_##name, )
+#else
+#define zig_as_special_constant_f32(sign, name, arg, repr) zig_as_special_f32(sign, name, arg, repr)
+#endif
 #define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 24
 typedef float zig_f32;
@@ -1696,11 +1734,18 @@ typedef zig_i32 zig_f32;
 #define zig_as_f32(fp, repr) repr
 #undef zig_as_special_f32
 #define zig_as_special_f32(sign, name, arg, repr) repr
+#undef zig_as_special_constant_f32
+#define zig_as_special_constant_f32(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f64 1
 #define zig_bitSizeOf_f64 64
 #define zig_libc_name_f64(name) name
+#if _MSC_VER
+#define zig_as_special_constant_f64(sign, name, arg, repr) sign zig_as_f64(zig_msvc_flt_##name, )
+#else
+#define zig_as_special_constant_f64(sign, name, arg, repr) zig_as_special_f64(sign, name, arg, repr)
+#endif
 #define zig_as_special_f64(sign, name, arg, repr) sign zig_as_f64(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
@@ -1726,11 +1771,14 @@ typedef zig_i64 zig_f64;
 #define zig_as_f64(fp, repr) repr
 #undef zig_as_special_f64
 #define zig_as_special_f64(sign, name, arg, repr) repr
+#undef zig_as_special_constant_f64
+#define zig_as_special_constant_f64(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f80 1
 #define zig_bitSizeOf_f80 80
 #define zig_libc_name_f80(name) __##name##x
+#define zig_as_special_constant_f80(sign, name, arg, repr) zig_as_special_f80(sign, name, arg, repr)
 #define zig_as_special_f80(sign, name, arg, repr) sign zig_as_f80(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 64
 typedef float zig_f80;
@@ -1759,11 +1807,14 @@ typedef zig_i128 zig_f80;
 #define zig_as_f80(fp, repr) repr
 #undef zig_as_special_f80
 #define zig_as_special_f80(sign, name, arg, repr) repr
+#undef zig_as_special_constant_f80
+#define zig_as_special_constant_f80(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f128 1
 #define zig_bitSizeOf_f128 128
 #define zig_libc_name_f128(name) name##q
+#define zig_as_special_constant_f128(sign, name, arg, repr) zig_as_special_f128(sign, name, arg, repr)
 #define zig_as_special_f128(sign, name, arg, repr) sign zig_as_f128(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 113
 typedef float zig_f128;
@@ -1794,10 +1845,13 @@ typedef zig_i128 zig_f128;
 #define zig_as_f128(fp, repr) repr
 #undef zig_as_special_f128
 #define zig_as_special_f128(sign, name, arg, repr) repr
+#undef zig_as_special_constant_f128
+#define zig_as_special_constant_f128(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_c_longdouble 1
 #define zig_libc_name_c_longdouble(name) name##l
+#define zig_as_special_constant_c_longdouble(sign, name, arg, repr) zig_as_special_c_longdouble(sign, name, arg, repr)
 #define zig_as_special_c_longdouble(sign, name, arg, repr) sign __builtin_##name##l(arg)
 #if !_MSC_VER // TODO: Is there a better way to detect this is just double?
 typedef long double zig_c_longdouble;
@@ -1811,6 +1865,8 @@ typedef zig_i128 zig_c_longdouble;
 #define zig_as_c_longdouble(fp, repr) repr
 #undef zig_as_special_c_longdouble
 #define zig_as_special_c_longdouble(sign, name, arg, repr) repr
+#undef zig_as_special_constant_c_longdouble
+#define zig_as_special_constant_c_longdouble(sign, name, arg, repr) repr
 #endif
 
 #define zig_cast_f16 (zig_f16)

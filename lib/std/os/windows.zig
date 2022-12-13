@@ -1782,10 +1782,30 @@ pub fn teb() *TEB {
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB),
         ),
-        .x86_64 => asm volatile (
-            \\ movq %%gs:0x30, %[ptr]
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .x86_64 => blk: {
+            if (builtin.zig_backend == .stage2_c) {
+                // TODO: __asm is not available on x64 MSVC. This is a workaround
+                // until an intrinsic to read the gs register is available
+                var thread_information: THREAD_BASIC_INFORMATION = undefined;
+                const result = ntdll.NtQueryInformationThread(
+                    kernel32.GetCurrentThread(),
+                    .ThreadBasicInformation,
+                    &thread_information,
+                    @sizeOf(THREAD_BASIC_INFORMATION),
+                    null);
+
+                if (result == .SUCCESS) {
+                    break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), thread_information.TebBaseAddress));
+                } else {
+                    unexpectedStatus(result) catch unreachable;
+                }
+            } else {
+                break :blk asm volatile (
+                    \\ movq %%gs:0x30, %[ptr]
+                    : [ptr] "=r" (-> *TEB),
+                );
+            }
+        },
         .aarch64 => asm volatile (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
@@ -3455,6 +3475,21 @@ pub const ASSEMBLY_STORAGE_MAP = opaque {};
 pub const FLS_CALLBACK_INFO = opaque {};
 pub const RTL_BITMAP = opaque {};
 pub const KAFFINITY = usize;
+pub const KPRIORITY = i32;
+
+pub const CLIENT_ID = extern struct {
+    UniqueProcess: HANDLE,
+    UniqueThread: HANDLE,
+};
+
+pub const THREAD_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    TebBaseAddress: PVOID,
+    ClientId: CLIENT_ID,
+    AffinityMask: KAFFINITY,
+    Priority: KPRIORITY,
+    BasePriority: KPRIORITY,
+};
 
 pub const TEB = extern struct {
     Reserved1: [12]PVOID,
