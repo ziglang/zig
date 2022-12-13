@@ -43,6 +43,10 @@ const WValue = union(enum) {
     imm32: u32,
     /// An immediate 64bit value
     imm64: u64,
+    /// Index into the list of simd128 immediates. This `WValue` is
+    /// only possible in very rare cases, therefore it would be
+    /// a waste of memory to store the value in a 128 bit integer.
+    imm128: u32,
     /// A constant 32bit float value
     float32: f32,
     /// A constant 64bit float value
@@ -116,6 +120,7 @@ const WValue = union(enum) {
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
             .f32 => gen.free_locals_f32.append(gen.gpa, local_value) catch return,
             .f64 => gen.free_locals_f64.append(gen.gpa, local_value) catch return,
+            .v128 => gen.free_locals_v128.append(gen.gpa, local_value) catch return,
         }
         value.* = undefined;
     }
@@ -258,18 +263,18 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             8 => switch (args.valtype1.?) {
                 .i32 => if (args.signedness.? == .signed) return .i32_load8_s else return .i32_load8_u,
                 .i64 => if (args.signedness.? == .signed) return .i64_load8_s else return .i64_load8_u,
-                .f32, .f64 => unreachable,
+                .f32, .f64, .v128 => unreachable,
             },
             16 => switch (args.valtype1.?) {
                 .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
                 .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
-                .f32, .f64 => unreachable,
+                .f32, .f64, .v128 => unreachable,
             },
             32 => switch (args.valtype1.?) {
                 .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
                 .i32 => return .i32_load,
                 .f32 => return .f32_load,
-                .f64 => unreachable,
+                .f64, .v128 => unreachable,
             },
             64 => switch (args.valtype1.?) {
                 .i64 => return .i64_load,
@@ -282,24 +287,25 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => return .i64_load,
             .f32 => return .f32_load,
             .f64 => return .f64_load,
+            .v128 => unreachable, // handled independently
         },
         .store => if (args.width) |width| {
             switch (width) {
                 8 => switch (args.valtype1.?) {
                     .i32 => return .i32_store8,
                     .i64 => return .i64_store8,
-                    .f32, .f64 => unreachable,
+                    .f32, .f64, .v128 => unreachable,
                 },
                 16 => switch (args.valtype1.?) {
                     .i32 => return .i32_store16,
                     .i64 => return .i64_store16,
-                    .f32, .f64 => unreachable,
+                    .f32, .f64, .v128 => unreachable,
                 },
                 32 => switch (args.valtype1.?) {
                     .i64 => return .i64_store32,
                     .i32 => return .i32_store,
                     .f32 => return .f32_store,
-                    .f64 => unreachable,
+                    .f64, .v128 => unreachable,
                 },
                 64 => switch (args.valtype1.?) {
                     .i64 => return .i64_store,
@@ -314,6 +320,7 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 .i64 => return .i64_store,
                 .f32 => return .f32_store,
                 .f64 => return .f64_store,
+                .v128 => unreachable, // handled independently
             }
         },
 
@@ -325,24 +332,27 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => return .i64_const,
             .f32 => return .f32_const,
             .f64 => return .f64_const,
+            .v128 => unreachable, // handled independently
         },
 
         .eqz => switch (args.valtype1.?) {
             .i32 => return .i32_eqz,
             .i64 => return .i64_eqz,
-            .f32, .f64 => unreachable,
+            .f32, .f64, .v128 => unreachable,
         },
         .eq => switch (args.valtype1.?) {
             .i32 => return .i32_eq,
             .i64 => return .i64_eq,
             .f32 => return .f32_eq,
             .f64 => return .f64_eq,
+            .v128 => unreachable, // handled independently
         },
         .ne => switch (args.valtype1.?) {
             .i32 => return .i32_ne,
             .i64 => return .i64_ne,
             .f32 => return .f32_ne,
             .f64 => return .f64_ne,
+            .v128 => unreachable, // handled independently
         },
 
         .lt => switch (args.valtype1.?) {
@@ -350,40 +360,47 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => if (args.signedness.? == .signed) return .i64_lt_s else return .i64_lt_u,
             .f32 => return .f32_lt,
             .f64 => return .f64_lt,
+            .v128 => unreachable, // handled independently
         },
         .gt => switch (args.valtype1.?) {
             .i32 => if (args.signedness.? == .signed) return .i32_gt_s else return .i32_gt_u,
             .i64 => if (args.signedness.? == .signed) return .i64_gt_s else return .i64_gt_u,
             .f32 => return .f32_gt,
             .f64 => return .f64_gt,
+            .v128 => unreachable, // handled independently
         },
         .le => switch (args.valtype1.?) {
             .i32 => if (args.signedness.? == .signed) return .i32_le_s else return .i32_le_u,
             .i64 => if (args.signedness.? == .signed) return .i64_le_s else return .i64_le_u,
             .f32 => return .f32_le,
             .f64 => return .f64_le,
+            .v128 => unreachable, // handled independently
         },
         .ge => switch (args.valtype1.?) {
             .i32 => if (args.signedness.? == .signed) return .i32_ge_s else return .i32_ge_u,
             .i64 => if (args.signedness.? == .signed) return .i64_ge_s else return .i64_ge_u,
             .f32 => return .f32_ge,
             .f64 => return .f64_ge,
+            .v128 => unreachable, // handled independently
         },
 
         .clz => switch (args.valtype1.?) {
             .i32 => return .i32_clz,
             .i64 => return .i64_clz,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .ctz => switch (args.valtype1.?) {
             .i32 => return .i32_ctz,
             .i64 => return .i64_ctz,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .popcnt => switch (args.valtype1.?) {
             .i32 => return .i32_popcnt,
             .i64 => return .i64_popcnt,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
 
         .add => switch (args.valtype1.?) {
@@ -391,18 +408,21 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => return .i64_add,
             .f32 => return .f32_add,
             .f64 => return .f64_add,
+            .v128 => unreachable, // handled independently
         },
         .sub => switch (args.valtype1.?) {
             .i32 => return .i32_sub,
             .i64 => return .i64_sub,
             .f32 => return .f32_sub,
             .f64 => return .f64_sub,
+            .v128 => unreachable, // handled independently
         },
         .mul => switch (args.valtype1.?) {
             .i32 => return .i32_mul,
             .i64 => return .i64_mul,
             .f32 => return .f32_mul,
             .f64 => return .f64_mul,
+            .v128 => unreachable, // handled independently
         },
 
         .div => switch (args.valtype1.?) {
@@ -410,71 +430,84 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => if (args.signedness.? == .signed) return .i64_div_s else return .i64_div_u,
             .f32 => return .f32_div,
             .f64 => return .f64_div,
+            .v128 => unreachable, // handled independently
         },
         .rem => switch (args.valtype1.?) {
             .i32 => if (args.signedness.? == .signed) return .i32_rem_s else return .i32_rem_u,
             .i64 => if (args.signedness.? == .signed) return .i64_rem_s else return .i64_rem_u,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
 
         .@"and" => switch (args.valtype1.?) {
             .i32 => return .i32_and,
             .i64 => return .i64_and,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .@"or" => switch (args.valtype1.?) {
             .i32 => return .i32_or,
             .i64 => return .i64_or,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .xor => switch (args.valtype1.?) {
             .i32 => return .i32_xor,
             .i64 => return .i64_xor,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
 
         .shl => switch (args.valtype1.?) {
             .i32 => return .i32_shl,
             .i64 => return .i64_shl,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .shr => switch (args.valtype1.?) {
             .i32 => if (args.signedness.? == .signed) return .i32_shr_s else return .i32_shr_u,
             .i64 => if (args.signedness.? == .signed) return .i64_shr_s else return .i64_shr_u,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .rotl => switch (args.valtype1.?) {
             .i32 => return .i32_rotl,
             .i64 => return .i64_rotl,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .rotr => switch (args.valtype1.?) {
             .i32 => return .i32_rotr,
             .i64 => return .i64_rotr,
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
 
         .abs => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_abs,
             .f64 => return .f64_abs,
+            .v128 => unreachable, // handled independently
         },
         .neg => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_neg,
             .f64 => return .f64_neg,
+            .v128 => unreachable, // handled independently
         },
         .ceil => switch (args.valtype1.?) {
             .i64 => unreachable,
             .i32 => return .f32_ceil, // when valtype is f16, we store it in i32.
             .f32 => return .f32_ceil,
             .f64 => return .f64_ceil,
+            .v128 => unreachable, // handled independently
         },
         .floor => switch (args.valtype1.?) {
             .i64 => unreachable,
             .i32 => return .f32_floor, // when valtype is f16, we store it in i32.
             .f32 => return .f32_floor,
             .f64 => return .f64_floor,
+            .v128 => unreachable, // handled independently
         },
         .trunc => switch (args.valtype1.?) {
             .i32 => if (args.valtype2) |valty| switch (valty) {
@@ -482,40 +515,48 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 .i64 => unreachable,
                 .f32 => if (args.signedness.? == .signed) return .i32_trunc_f32_s else return .i32_trunc_f32_u,
                 .f64 => if (args.signedness.? == .signed) return .i32_trunc_f64_s else return .i32_trunc_f64_u,
+                .v128 => unreachable, // handled independently
             } else return .f32_trunc, // when no valtype2, it's an f16 instead which is stored in an i32.
             .i64 => switch (args.valtype2.?) {
                 .i32 => unreachable,
                 .i64 => unreachable,
                 .f32 => if (args.signedness.? == .signed) return .i64_trunc_f32_s else return .i64_trunc_f32_u,
                 .f64 => if (args.signedness.? == .signed) return .i64_trunc_f64_s else return .i64_trunc_f64_u,
+                .v128 => unreachable, // handled independently
             },
             .f32 => return .f32_trunc,
             .f64 => return .f64_trunc,
+            .v128 => unreachable, // handled independently
         },
         .nearest => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_nearest,
             .f64 => return .f64_nearest,
+            .v128 => unreachable, // handled independently
         },
         .sqrt => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_sqrt,
             .f64 => return .f64_sqrt,
+            .v128 => unreachable, // handled independently
         },
         .min => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_min,
             .f64 => return .f64_min,
+            .v128 => unreachable, // handled independently
         },
         .max => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_max,
             .f64 => return .f64_max,
+            .v128 => unreachable, // handled independently
         },
         .copysign => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
             .f32 => return .f32_copysign,
             .f64 => return .f64_copysign,
+            .v128 => unreachable, // handled independently
         },
 
         .wrap => switch (args.valtype1.?) {
@@ -523,8 +564,10 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 .i32 => unreachable,
                 .i64 => return .i32_wrap_i64,
                 .f32, .f64 => unreachable,
+                .v128 => unreachable, // handled independently
             },
             .i64, .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
         .convert => switch (args.valtype1.?) {
             .i32, .i64 => unreachable,
@@ -532,12 +575,15 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 .i32 => if (args.signedness.? == .signed) return .f32_convert_i32_s else return .f32_convert_i32_u,
                 .i64 => if (args.signedness.? == .signed) return .f32_convert_i64_s else return .f32_convert_i64_u,
                 .f32, .f64 => unreachable,
+                .v128 => unreachable, // handled independently
             },
             .f64 => switch (args.valtype2.?) {
                 .i32 => if (args.signedness.? == .signed) return .f64_convert_i32_s else return .f64_convert_i32_u,
                 .i64 => if (args.signedness.? == .signed) return .f64_convert_i64_s else return .f64_convert_i64_u,
                 .f32, .f64 => unreachable,
+                .v128 => unreachable, // handled independently
             },
+            .v128 => unreachable, // handled independently
         },
         .demote => if (args.valtype1.? == .f32 and args.valtype2.? == .f64) return .f32_demote_f64 else unreachable,
         .promote => if (args.valtype1.? == .f64 and args.valtype2.? == .f32) return .f64_promote_f32 else unreachable,
@@ -546,6 +592,7 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .i64 => if (args.valtype2.? == .f64) return .i64_reinterpret_f64 else unreachable,
             .f32 => if (args.valtype2.? == .i32) return .f32_reinterpret_i32 else unreachable,
             .f64 => if (args.valtype2.? == .i64) return .f64_reinterpret_i64 else unreachable,
+            .v128 => unreachable, // handled independently
         },
         .extend => switch (args.valtype1.?) {
             .i32 => switch (args.width.?) {
@@ -560,6 +607,7 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 else => unreachable,
             },
             .f32, .f64 => unreachable,
+            .v128 => unreachable, // handled independently
         },
     }
 }
@@ -629,6 +677,10 @@ err_msg: *Module.ErrorMsg,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: std.ArrayListUnmanaged(u8),
+/// List of simd128 immediates. Each value is stored as an array of bytes.
+/// This list will only be populated for 128bit-simd values when the target features
+/// are enabled also.
+simd_immediates: std.ArrayListUnmanaged([16]u8) = .{},
 /// The Target we're emitting (used to call intInfo)
 target: std.Target,
 /// Represents the wasm binary file that is being linked.
@@ -665,14 +717,17 @@ stack_alignment: u32 = 16,
 /// It is illegal to store a non-i32 valtype in this list.
 free_locals_i32: std.ArrayListUnmanaged(u32) = .{},
 /// A list of indexes which represents a local of valtype `i64`.
-/// It is illegal to store a non-i32 valtype in this list.
+/// It is illegal to store a non-i64 valtype in this list.
 free_locals_i64: std.ArrayListUnmanaged(u32) = .{},
 /// A list of indexes which represents a local of valtype `f32`.
-/// It is illegal to store a non-i32 valtype in this list.
+/// It is illegal to store a non-f32 valtype in this list.
 free_locals_f32: std.ArrayListUnmanaged(u32) = .{},
 /// A list of indexes which represents a local of valtype `f64`.
-/// It is illegal to store a non-i32 valtype in this list.
+/// It is illegal to store a non-f64 valtype in this list.
 free_locals_f64: std.ArrayListUnmanaged(u32) = .{},
+/// A list of indexes which represents a local of valtype `v127`.
+/// It is illegal to store a non-v128 valtype in this list.
+free_locals_v128: std.ArrayListUnmanaged(u32) = .{},
 
 /// When in debug mode, this tracks if no `finishAir` was missed.
 /// Forgetting to call `finishAir` will cause the result to not be
@@ -699,12 +754,14 @@ pub fn deinit(func: *CodeGen) void {
     func.branches.deinit(func.gpa);
     func.blocks.deinit(func.gpa);
     func.locals.deinit(func.gpa);
+    func.simd_immediates.deinit(func.gpa);
     func.mir_instructions.deinit(func.gpa);
     func.mir_extra.deinit(func.gpa);
     func.free_locals_i32.deinit(func.gpa);
     func.free_locals_i64.deinit(func.gpa);
     func.free_locals_f32.deinit(func.gpa);
     func.free_locals_f64.deinit(func.gpa);
+    func.free_locals_v128.deinit(func.gpa);
     func.* = undefined;
 }
 
@@ -867,6 +924,17 @@ fn addImm64(func: *CodeGen, imm: u64) error{OutOfMemory}!void {
     try func.addInst(.{ .tag = .i64_const, .data = .{ .payload = extra_index } });
 }
 
+/// Accepts the index into the list of 128bit-immediates
+fn addImm128(func: *CodeGen, index: u32) error{OutOfMemory}!void {
+    const simd_values = func.simd_immediates.items[index];
+    const extra_index = @intCast(u32, func.mir_extra.items.len);
+    // tag + 128bit value
+    try func.mir_extra.ensureUnusedCapacity(func.gpa, 5);
+    func.mir_extra.appendAssumeCapacity(std.wasm.simdOpcode(.v128_const));
+    func.mir_extra.appendSliceAssumeCapacity(@alignCast(4, mem.bytesAsSlice(u32, &simd_values)));
+    try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+}
+
 fn addFloat64(func: *CodeGen, float: f64) error{OutOfMemory}!void {
     const extra_index = try func.addExtra(Mir.Float64.fromFloat64(float));
     try func.addInst(.{ .tag = .f64_const, .data = .{ .payload = extra_index } });
@@ -924,6 +992,10 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
             },
             else => wasm.Valtype.i32,
         },
+        .Vector => switch (determineSimdStoreStrategy(ty, target)) {
+            .direct => wasm.Valtype.v128,
+            .unrolled => wasm.Valtype.i32,
+        },
         else => wasm.Valtype.i32, // all represented as reference/immediate
     };
 }
@@ -950,6 +1022,7 @@ fn emitWValue(func: *CodeGen, value: WValue) InnerError!void {
         .local => |idx| try func.addLabel(.local_get, idx.value),
         .imm32 => |val| try func.addImm32(@bitCast(i32, val)),
         .imm64 => |val| try func.addImm64(val),
+        .imm128 => |val| try func.addImm128(val),
         .float32 => |val| try func.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try func.addFloat64(val),
         .memory => |ptr| {
@@ -1013,6 +1086,10 @@ fn allocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f64 => if (func.free_locals_f64.popOrNull()) |index| {
+            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            return WValue{ .local = .{ .value = index, .references = 1 } };
+        },
+        .v128 => if (func.free_locals_v128.popOrNull()) |index| {
             log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
@@ -1098,7 +1175,6 @@ pub fn generate(
         .gpa = bin_file.allocator,
         .air = air,
         .liveness = liveness,
-        // .values = .{},
         .code = code,
         .decl_index = func.owner_decl,
         .decl = bin_file.options.module.?.declPtr(func.owner_decl),
@@ -1481,9 +1557,9 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                 .imm64 => |val| val,
                 else => unreachable,
             };
-            // if the size (length) is more than 1024 bytes, we use a runtime loop instead to prevent
+            // if the size (length) is more than 32 bytes, we use a runtime loop instead to prevent
             // binary size bloat.
-            if (length > 1024) break :blk;
+            if (length > 32) break :blk;
             var offset: u32 = 0;
             const lhs_base = dst.offset();
             const rhs_base = src.offset();
@@ -1612,7 +1688,6 @@ fn isByRef(ty: Type, target: std.Target) bool {
         => return false,
 
         .Array,
-        .Vector,
         .Frame,
         .Union,
         => return ty.hasRuntimeBitsIgnoreComptime(),
@@ -1625,6 +1700,7 @@ fn isByRef(ty: Type, target: std.Target) bool {
             }
             return ty.hasRuntimeBitsIgnoreComptime();
         },
+        .Vector => return determineSimdStoreStrategy(ty, target) == .unrolled,
         .Int => return ty.intInfo(target).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
@@ -1645,6 +1721,26 @@ fn isByRef(ty: Type, target: std.Target) bool {
             return false;
         },
     }
+}
+
+const SimdStoreStrategy = enum {
+    direct,
+    unrolled,
+};
+
+/// For a given vector type, returns the `SimdStoreStrategy`.
+/// This means when a given type is 128 bits and either the simd128 or relaxed-simd
+/// features are enabled, the function will return `.direct`. This would allow to store
+/// it using a instruction, rather than an unrolled version.
+fn determineSimdStoreStrategy(ty: Type, target: std.Target) SimdStoreStrategy {
+    std.debug.assert(ty.zigTypeTag() == .Vector);
+    if (ty.bitSize(target) != 128) return .unrolled;
+    const hasFeature = std.Target.wasm.featureSetHas;
+    const features = target.cpu.features;
+    if (hasFeature(features, .relaxed_simd) or hasFeature(features, .simd128)) {
+        return .direct;
+    }
+    return .unrolled;
 }
 
 /// Creates a new local for a pointer that points to memory with given offset.
@@ -2187,9 +2283,28 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const len = @intCast(u32, ty.abiSize(func.target));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Struct, .Array, .Union, .Vector => if (isByRef(ty, func.target)) {
+        .Struct, .Array, .Union => if (isByRef(ty, func.target)) {
             const len = @intCast(u32, ty.abiSize(func.target));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
+        },
+        .Vector => switch (determineSimdStoreStrategy(ty, func.target)) {
+            .unrolled => {
+                const len = @intCast(u32, ty.abiSize(func.target));
+                return func.memcpy(lhs, rhs, .{ .imm32 = len });
+            },
+            .direct => {
+                try func.emitWValue(lhs);
+                try func.lowerToStack(rhs);
+                // TODO: Add helper functions for simd opcodes
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                // stores as := opcode, offset, alignment (opcode::memarg)
+                try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                    std.wasm.simdOpcode(.v128_store),
+                    offset + lhs.offset(),
+                    ty.abiAlignment(func.target),
+                });
+                return func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+            },
         },
         .Pointer => {
             if (ty.isSlice()) {
@@ -2288,6 +2403,19 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
     try func.emitWValue(operand);
+
+    if (ty.zigTypeTag() == .Vector) {
+        // TODO: Add helper functions for simd opcodes
+        const extra_index = @intCast(u32, func.mir_extra.items.len);
+        // stores as := opcode, offset, alignment (opcode::memarg)
+        try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+            std.wasm.simdOpcode(.v128_load),
+            offset + operand.offset(),
+            ty.abiAlignment(func.target),
+        });
+        try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+        return WValue{ .stack = {} };
+    }
 
     const abi_size = @intCast(u8, ty.abiSize(func.target));
     const opcode = buildOpcode(.{
@@ -2766,8 +2894,22 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             const int_val = Value.initPayload(&payload.base);
             return func.lowerConstant(int_val, struct_obj.backing_int_ty);
         },
+        .Vector => {
+            assert(determineSimdStoreStrategy(ty, target) == .direct);
+            var buf: [16]u8 = undefined;
+            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf);
+            return func.storeSimdImmd(buf);
+        },
         else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
     }
+}
+
+/// Stores the value as a 128bit-immediate value by storing it inside
+/// the list and returning the index into this list as `WValue`.
+fn storeSimdImmd(func: *CodeGen, value: [16]u8) !WValue {
+    const index = @intCast(u32, func.simd_immediates.items.len);
+    try func.simd_immediates.append(func.gpa, value);
+    return WValue{ .imm128 = index };
 }
 
 fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
@@ -4288,9 +4430,71 @@ fn airIntToFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
+    const ty = func.air.typeOfIndex(inst);
+    const elem_ty = ty.childType();
 
-    _ = operand;
-    return func.fail("TODO: Implement wasm airSplat", .{});
+    if (determineSimdStoreStrategy(ty, func.target) == .direct) blk: {
+        switch (operand) {
+            // when the operand lives in the linear memory section, we can directly
+            // load and splat the value at once. Meaning we do not first have to load
+            // the scalar value onto the stack.
+            .stack_offset, .memory, .memory_offset => {
+                const opcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => std.wasm.simdOpcode(.v128_load8_splat),
+                    16 => std.wasm.simdOpcode(.v128_load16_splat),
+                    32 => std.wasm.simdOpcode(.v128_load32_splat),
+                    64 => std.wasm.simdOpcode(.v128_load64_splat),
+                    else => break :blk, // Cannot make use of simd-instructions
+                };
+                const result = try func.allocLocal(ty);
+                try func.emitWValue(operand);
+                // TODO: Add helper functions for simd opcodes
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                // stores as := opcode, offset, alignment (opcode::memarg)
+                try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                    opcode,
+                    operand.offset(),
+                    elem_ty.abiAlignment(func.target),
+                });
+                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addLabel(.local_set, result.local.value);
+                return func.finishAir(inst, result, &.{ty_op.operand});
+            },
+            .local => {
+                const opcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => std.wasm.simdOpcode(.i8x16_splat),
+                    16 => std.wasm.simdOpcode(.i16x8_splat),
+                    32 => if (elem_ty.isInt()) std.wasm.simdOpcode(.i32x4_splat) else std.wasm.simdOpcode(.f32x4_splat),
+                    64 => if (elem_ty.isInt()) std.wasm.simdOpcode(.i64x2_splat) else std.wasm.simdOpcode(.f64x2_splat),
+                    else => break :blk, // Cannot make use of simd-instructions
+                };
+                const result = try func.allocLocal(ty);
+                try func.emitWValue(operand);
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                try func.mir_extra.append(func.gpa, opcode);
+                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addLabel(.local_set, result.local.value);
+                return func.finishAir(inst, result, &.{ty_op.operand});
+            },
+            else => unreachable,
+        }
+    }
+    const elem_size = elem_ty.bitSize(func.target);
+    const vector_len = @intCast(usize, ty.vectorLen());
+    if ((!std.math.isPowerOfTwo(elem_size) or elem_size % 8 != 0) and vector_len > 1) {
+        return func.fail("TODO: WebAssembly `@splat` for arbitrary element bitsize {d}", .{elem_size});
+    }
+
+    const result = try func.allocStack(ty);
+    const elem_byte_size = @intCast(u32, elem_ty.abiSize(func.target));
+    var index: usize = 0;
+    var offset: u32 = 0;
+    while (index < vector_len) : (index += 1) {
+        try func.store(result, operand, elem_ty, offset);
+        offset += elem_byte_size;
+    }
+
+    return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {

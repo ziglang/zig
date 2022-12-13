@@ -518,6 +518,12 @@ pub const Inst = struct {
         ///
         /// The `data` field depends on the extension instruction
         extended = 0xFC,
+        /// The instruction consists of a simd opcode.
+        /// The actual simd-opcode is found at payload's index.
+        ///
+        /// The `data` field depends on the simd instruction and
+        /// may contain additional data.
+        simd = 0xFD,
         /// Contains a symbol to a function pointer
         /// uses `label`
         ///
@@ -578,7 +584,7 @@ pub fn deinit(self: *Mir, gpa: std.mem.Allocator) void {
     self.* = undefined;
 }
 
-pub fn extraData(self: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
     const fields = std.meta.fields(T);
     var i: usize = index;
     var result: T = undefined;
