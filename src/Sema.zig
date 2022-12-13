@@ -18096,18 +18096,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             const ty = try Type.array(sema.arena, len, sentinel, child_ty, sema.mod);
             return sema.addType(ty);
         },
-        .Optional => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            // child: type,
-            const child_val = struct_val[0];
-
-            var buffer: Value.ToTypeBuffer = undefined;
-            const child_ty = try child_val.toType(&buffer).copy(sema.arena);
-
-            const ty = try Type.optional(sema.arena, child_ty);
-            return sema.addType(ty);
-        },
+        .Optional => return sema.fail(block, src, "@Type(.Optional) has been deprecated", .{}),
         .ErrorUnion => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here

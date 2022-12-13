@@ -148,16 +148,6 @@ test "@Type picks up the sentinel value from Type" {
     });
 }
 
-test "Type.Optional" {
-    try testTypes(&[_]type{
-        ?u8,
-        ?*u8,
-        ?[]u8,
-        ?[*]u8,
-        ?[*c]u8,
-    });
-}
-
 test "Type.ErrorUnion" {
     try testTypes(&[_]type{
         error{}!void,

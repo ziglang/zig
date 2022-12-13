@@ -323,20 +323,16 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
         },
         .Optional => |info| switch (@typeInfo(info.child)) {
             .Pointer => |ptr_info| switch (ptr_info.size) {
-                .Many => return @Type(.{
-                    .Optional = .{
-                        .child = @Type(.{
-                            .Pointer = .{
-                                .size = ptr_info.size,
-                                .is_const = ptr_info.is_const,
-                                .is_volatile = ptr_info.is_volatile,
-                                .alignment = ptr_info.alignment,
-                                .address_space = ptr_info.address_space,
-                                .child = ptr_info.child,
-                                .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
-                            },
-                        }),
+                .Many => return ?@Type(.{
+                    .Pointer = .{
+                        .size = ptr_info.size,
+                        .is_const = ptr_info.is_const,
+                        .is_volatile = ptr_info.is_volatile,
+                        .alignment = ptr_info.alignment,
+                        .address_space = ptr_info.address_space,
+                        .child = ptr_info.child,
+                        .is_allowzero = ptr_info.is_allowzero,
+                        .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
                     },
                 }),
                 else => {},
