@@ -909,11 +909,7 @@ test "POSIX file locking with fcntl" {
     // to do the test.
     // The fourth byte (3) will be released by the parent to signal the
     // child the tests are done.
-    var struct_flock = std.mem.zeroInit(std.os.Flock, .{
-        .start = 3,
-        .len = 1,
-        .type = std.os.F.WRLCK,
-        .whence = std.os.SEEK.SET});
+    var struct_flock = std.mem.zeroInit(std.os.Flock, .{ .start = 3, .len = 1, .type = std.os.F.WRLCK, .whence = std.os.SEEK.SET });
     _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
 
     const pid = try std.os.fork();
@@ -938,16 +934,15 @@ test "POSIX file locking with fcntl" {
         std.os.exit(0);
     } else {
         // parent waits for the child to prepare the locks:
-        while(true) {
+        while (true) {
             struct_flock.start = 2;
             struct_flock.len = 1;
             struct_flock.whence = std.os.SEEK.SET;
             struct_flock.type = std.os.F.WRLCK;
             _ = try std.os.fcntl(fd, std.os.F.GETLK, @ptrToInt(&struct_flock));
-            if (struct_flock.type == std.os.F.UNLCK)
-                { std.time.sleep(1 * std.time.ns_per_ms); }
-            else
-                break;
+            if (struct_flock.type == std.os.F.UNLCK) {
+                std.time.sleep(1 * std.time.ns_per_ms);
+            } else break;
         }
         // parent expects be denied the exclusive lock:
         struct_flock.start = 0;
