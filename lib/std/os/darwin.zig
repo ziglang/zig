@@ -17,11 +17,11 @@ const mach_task = if (builtin.target.isDarwin()) struct {
         Unexpected,
     };
 
-    pub const MachTask = struct {
+    pub const MachTask = extern struct {
         port: std.c.mach_port_name_t,
 
         pub fn isValid(self: MachTask) bool {
-            return self.port != 0;
+            return self.port != std.c.TASK_NULL;
         }
 
         pub fn allocatePort(self: MachTask, right: std.c.MACH_PORT_RIGHT) MachError!MachTask {
@@ -439,13 +439,51 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             }
         }
 
-        pub fn getThreads(task: MachTask) MachError![]std.c.mach_port_t {
+        pub fn getThreads(task: MachTask) MachError![]ThreadId {
             var thread_list: std.c.mach_port_array_t = undefined;
             var thread_count: std.c.mach_msg_type_number_t = undefined;
             switch (std.c.getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
-                .SUCCESS => return thread_list[0..thread_count],
+                .SUCCESS => return @ptrCast([*]ThreadId, thread_list)[0..thread_count],
                 else => |err| {
                     log.err("task_threads kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+    };
+
+    pub const ThreadId = extern struct {
+        id: std.c.thread_act_t,
+
+        pub fn getBasicInfo(thread_id: ThreadId) MachError!std.c.thread_basic_info {
+            var info: std.c.thread_basic_info = undefined;
+            var count = std.c.THREAD_BASIC_INFO_COUNT;
+            switch (std.c.getKernError(std.c.thread_info(
+                thread_id.id,
+                std.c.THREAD_BASIC_INFO,
+                @ptrCast(std.c.thread_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("thread_info kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn getIdentifierInfo(thread_id: ThreadId) MachError!std.c.thread_identifier_info {
+            var info: std.c.thread_identifier_info = undefined;
+            var count = std.c.THREAD_IDENTIFIER_INFO_COUNT;
+            switch (std.c.getKernError(std.c.thread_info(
+                thread_id.id,
+                std.c.THREAD_IDENTIFIER_INFO,
+                @ptrCast(std.c.thread_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("thread_info kernel call failed with error code: {s}", .{@tagName(err)});
                     return error.Unexpected;
                 },
             }

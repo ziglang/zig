@@ -603,6 +603,9 @@ pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
 pub const THREAD_BASIC_INFO = 3;
 pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
 
+pub const THREAD_IDENTIFIER_INFO = 4;
+pub const THREAD_IDENTIFIER_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_identifier_info) / @sizeOf(natural_t);
+
 pub const thread_flavor_t = natural_t;
 pub const thread_info_t = *integer_t;
 pub const time_value_t = time_value;
@@ -632,6 +635,17 @@ pub const thread_basic_info = extern struct {
     suspend_count: integer_t,
     // number of seconds that thread has been sleeping
     sleep_time: integer_t,
+};
+
+pub const thread_identifier_info = extern struct {
+    /// System-wide unique 64-bit thread id
+    thread_id: u64,
+
+    /// Handle to be used by libproc
+    thread_handle: u64,
+
+    /// libdispatch queue address
+    dispatch_qaddr: u64,
 };
 
 /// Cachability
