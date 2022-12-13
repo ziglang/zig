@@ -379,29 +379,29 @@ test "type info: generic function types" {
     const G1 = @typeInfo(@TypeOf(generic1));
     try expect(G1.Fn.args.len == 1);
     try expect(G1.Fn.args[0].is_generic == true);
-    try expect(G1.Fn.args[0].arg_type == null);
+    try expect(G1.Fn.args[0].type == null);
     try expect(G1.Fn.return_type == void);
 
     const G2 = @typeInfo(@TypeOf(generic2));
     try expect(G2.Fn.args.len == 3);
     try expect(G2.Fn.args[0].is_generic == false);
-    try expect(G2.Fn.args[0].arg_type == type);
+    try expect(G2.Fn.args[0].type == type);
     try expect(G2.Fn.args[1].is_generic == true);
-    try expect(G2.Fn.args[1].arg_type == null);
+    try expect(G2.Fn.args[1].type == null);
     try expect(G2.Fn.args[2].is_generic == false);
-    try expect(G2.Fn.args[2].arg_type == u8);
+    try expect(G2.Fn.args[2].type == u8);
     try expect(G2.Fn.return_type == void);
 
     const G3 = @typeInfo(@TypeOf(generic3));
     try expect(G3.Fn.args.len == 1);
     try expect(G3.Fn.args[0].is_generic == true);
-    try expect(G3.Fn.args[0].arg_type == null);
+    try expect(G3.Fn.args[0].type == null);
     try expect(G3.Fn.return_type == null);
 
     const G4 = @typeInfo(@TypeOf(generic4));
     try expect(G4.Fn.args.len == 1);
     try expect(G4.Fn.args[0].is_generic == true);
-    try expect(G4.Fn.args[0].arg_type == null);
+    try expect(G4.Fn.args[0].type == null);
     try expect(G4.Fn.return_type == null);
 }
 

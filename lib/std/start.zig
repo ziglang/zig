@@ -634,7 +634,7 @@ pub fn callMain() u8 {
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.args[0].arg_type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.args[0].type.?;
     const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 

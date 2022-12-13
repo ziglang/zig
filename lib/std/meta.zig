@@ -1086,7 +1086,7 @@ pub fn ArgsTuple(comptime Function: type) type {
 
     var argument_field_list: [function_info.args.len]type = undefined;
     inline for (function_info.args) |arg, i| {
-        const T = arg.arg_type.?;
+        const T = arg.type.?;
         argument_field_list[i] = T;
     }
 

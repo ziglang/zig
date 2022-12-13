@@ -15316,7 +15316,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     Value.makeBool(is_generic),
                     // is_noalias: bool,
                     Value.makeBool(is_noalias),
-                    // arg_type: ?type,
+                    // type: ?type,
                     param_ty_val,
                 };
                 param_val.* = try Value.Tag.aggregate.create(params_anon_decl.arena(), param_fields);
@@ -18730,7 +18730,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 const arg_is_generic = arg_val[0].toBool();
                 // is_noalias: bool,
                 const arg_is_noalias = arg_val[1].toBool();
-                // arg_type: ?type,
+                // type: ?type,
                 const param_type_opt_val = arg_val[2];
 
                 if (arg_is_generic) {

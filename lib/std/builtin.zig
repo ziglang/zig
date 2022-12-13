@@ -374,7 +374,7 @@ pub const Type = union(enum) {
         pub const Param = struct {
             is_generic: bool,
             is_noalias: bool,
-            arg_type: ?type,
+            type: ?type,
         };
     };
 

@@ -10,9 +10,9 @@ test "reflection: function return type, var args, and param types" {
         try expect(info.return_type.? == i32);
         try expect(!info.is_var_args);
         try expect(info.args.len == 3);
-        try expect(info.args[0].arg_type.? == bool);
-        try expect(info.args[1].arg_type.? == i32);
-        try expect(info.args[2].arg_type.? == f32);
+        try expect(info.args[0].type.? == bool);
+        try expect(info.args[1].type.? == i32);
+        try expect(info.args[2].type.? == f32);
     }
 }
 
