@@ -17950,7 +17950,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         .ComptimeFloat => return sema.fail(block, src, "@Type(.ComptimeFloat) has been deprecated", .{}),
         .ComptimeInt => return sema.fail(block, src, "@Type(.ComptimeInt) has been deprecated", .{}),
         .Undefined => return sema.fail(block, src, "@Type(.Undefined) has been deprecated", .{}),
-        .Null => return Air.Inst.Ref.null_type,
+        .Null => return sema.fail(block, src, "@Type(.Null) has been deprecated", .{}),
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
         .Int => {

@@ -19,10 +19,6 @@ test "Type.Int" {
     try testTypes(&[_]type{ u8, u32, i64 });
 }
 
-test "Type.Null" {
-    try testTypes(&[_]type{@TypeOf(null)});
-}
-
 test "Type.EnumLiteral" {
     try testTypes(&[_]type{
         @TypeOf(.Dummy),
