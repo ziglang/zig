@@ -3872,12 +3872,12 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
     try writer.writeByte('!');
     try f.writeCValue(writer, op, .Other);
     try writer.writeAll(";\n");
-
     return local;
 }
 
