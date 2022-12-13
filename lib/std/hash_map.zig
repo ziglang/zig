@@ -186,11 +186,11 @@ pub fn verifyContext(
             const info = @typeInfo(@TypeOf(hash));
             if (info == .Fn) {
                 const func = info.Fn;
-                if (func.args.len != 2) {
+                if (func.params.len != 2) {
                     errors = errors ++ lazy.err_invalid_hash_signature;
                 } else {
                     var emitted_signature = false;
-                    if (func.args[0].type) |Self| {
+                    if (func.params[0].type) |Self| {
                         if (Self == Context) {
                             // pass, this is always fine.
                         } else if (Self == *const Context) {
@@ -231,12 +231,12 @@ pub fn verifyContext(
                             errors = errors ++ ", but is " ++ @typeName(Self);
                         }
                     }
-                    if (func.args[1].type != null and func.args[1].type.? != PseudoKey) {
+                    if (func.params[1].type != null and func.params[1].type.? != PseudoKey) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_hash_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.args[1].type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
                     }
                     if (func.return_type != null and func.return_type.? != Hash) {
                         if (!emitted_signature) {
@@ -263,11 +263,11 @@ pub fn verifyContext(
             if (info == .Fn) {
                 const func = info.Fn;
                 const args_len = if (is_array) 4 else 3;
-                if (func.args.len != args_len) {
+                if (func.params.len != args_len) {
                     errors = errors ++ lazy.err_invalid_eql_signature;
                 } else {
                     var emitted_signature = false;
-                    if (func.args[0].type) |Self| {
+                    if (func.params[0].type) |Self| {
                         if (Self == Context) {
                             // pass, this is always fine.
                         } else if (Self == *const Context) {
@@ -308,19 +308,19 @@ pub fn verifyContext(
                             errors = errors ++ ", but is " ++ @typeName(Self);
                         }
                     }
-                    if (func.args[1].type.? != PseudoKey) {
+                    if (func.params[1].type.? != PseudoKey) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_eql_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.args[1].type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
                     }
-                    if (func.args[2].type.? != Key) {
+                    if (func.params[2].type.? != Key) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_eql_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(func.args[2].type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(func.params[2].type.?);
                     }
                     if (func.return_type.? != bool) {
                         if (!emitted_signature) {

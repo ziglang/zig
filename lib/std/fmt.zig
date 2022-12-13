@@ -1724,7 +1724,7 @@ pub const ParseIntError = error{
 ///     ) !void;
 ///
 pub fn Formatter(comptime format_fn: anytype) type {
-    const Data = @typeInfo(@TypeOf(format_fn)).Fn.args[0].type.?;
+    const Data = @typeInfo(@TypeOf(format_fn)).Fn.params[0].type.?;
     return struct {
         data: Data,
         pub fn format(

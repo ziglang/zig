@@ -365,7 +365,7 @@ fn testFunction() !void {
     try expect(fn_info.Fn.alignment > 0);
     try expect(fn_info.Fn.calling_convention == .C);
     try expect(!fn_info.Fn.is_generic);
-    try expect(fn_info.Fn.args.len == 2);
+    try expect(fn_info.Fn.params.len == 2);
     try expect(fn_info.Fn.is_var_args);
     try expect(fn_info.Fn.return_type.? == usize);
     const fn_aligned_info = @typeInfo(@TypeOf(typeInfoFooAligned));
@@ -377,31 +377,31 @@ extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize
 
 test "type info: generic function types" {
     const G1 = @typeInfo(@TypeOf(generic1));
-    try expect(G1.Fn.args.len == 1);
-    try expect(G1.Fn.args[0].is_generic == true);
-    try expect(G1.Fn.args[0].type == null);
+    try expect(G1.Fn.params.len == 1);
+    try expect(G1.Fn.params[0].is_generic == true);
+    try expect(G1.Fn.params[0].type == null);
     try expect(G1.Fn.return_type == void);
 
     const G2 = @typeInfo(@TypeOf(generic2));
-    try expect(G2.Fn.args.len == 3);
-    try expect(G2.Fn.args[0].is_generic == false);
-    try expect(G2.Fn.args[0].type == type);
-    try expect(G2.Fn.args[1].is_generic == true);
-    try expect(G2.Fn.args[1].type == null);
-    try expect(G2.Fn.args[2].is_generic == false);
-    try expect(G2.Fn.args[2].type == u8);
+    try expect(G2.Fn.params.len == 3);
+    try expect(G2.Fn.params[0].is_generic == false);
+    try expect(G2.Fn.params[0].type == type);
+    try expect(G2.Fn.params[1].is_generic == true);
+    try expect(G2.Fn.params[1].type == null);
+    try expect(G2.Fn.params[2].is_generic == false);
+    try expect(G2.Fn.params[2].type == u8);
     try expect(G2.Fn.return_type == void);
 
     const G3 = @typeInfo(@TypeOf(generic3));
-    try expect(G3.Fn.args.len == 1);
-    try expect(G3.Fn.args[0].is_generic == true);
-    try expect(G3.Fn.args[0].type == null);
+    try expect(G3.Fn.params.len == 1);
+    try expect(G3.Fn.params[0].is_generic == true);
+    try expect(G3.Fn.params[0].type == null);
     try expect(G3.Fn.return_type == null);
 
     const G4 = @typeInfo(@TypeOf(generic4));
-    try expect(G4.Fn.args.len == 1);
-    try expect(G4.Fn.args[0].is_generic == true);
-    try expect(G4.Fn.args[0].type == null);
+    try expect(G4.Fn.params.len == 1);
+    try expect(G4.Fn.params[0].is_generic == true);
+    try expect(G4.Fn.params[0].type == null);
     try expect(G4.Fn.return_type == null);
 }
 

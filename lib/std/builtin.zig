@@ -367,7 +367,7 @@ pub const Type = union(enum) {
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.
         return_type: ?type,
-        args: []const Param,
+        params: []const Param,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.

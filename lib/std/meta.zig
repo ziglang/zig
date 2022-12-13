@@ -1084,8 +1084,8 @@ pub fn ArgsTuple(comptime Function: type) type {
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]type = undefined;
-    inline for (function_info.args) |arg, i| {
+    var argument_field_list: [function_info.params.len]type = undefined;
+    inline for (function_info.params) |arg, i| {
         const T = arg.type.?;
         argument_field_list[i] = T;
     }

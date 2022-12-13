@@ -512,7 +512,7 @@ test "Type.Fn" {
             .is_generic = false,
             .is_var_args = false,
             .return_type = void,
-            .args = &.{
+            .params = &.{
                 .{ .is_generic = false, .is_noalias = false, .type = c_int },
                 .{ .is_generic = false, .is_noalias = false, .type = some_ptr },
             },
