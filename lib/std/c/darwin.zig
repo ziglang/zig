@@ -573,7 +573,7 @@ pub const vm_region_submap_short_info_64 = extern struct {
 
 pub const thread_act_t = mach_port_t;
 pub const thread_state_t = *natural_t;
-pub const mach_port_array_t = *mach_port_t;
+pub const mach_port_array_t = [*]mach_port_t;
 
 pub extern "c" fn task_threads(
     target_task: mach_port_t,

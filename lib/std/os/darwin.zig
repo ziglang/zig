@@ -438,6 +438,18 @@ const mach_task = if (builtin.target.isDarwin()) struct {
                 },
             }
         }
+
+        pub fn getThreads(task: MachTask) MachError![]std.c.mach_port_t {
+            var thread_list: std.c.mach_port_array_t = undefined;
+            var thread_count: std.c.mach_msg_type_number_t = undefined;
+            switch (std.c.getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
+                .SUCCESS => return thread_list[0..thread_count],
+                else => |err| {
+                    log.err("task_threads kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
     };
 
     pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
