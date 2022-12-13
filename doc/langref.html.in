@@ -3004,7 +3004,7 @@ test "slice pointer" {
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
 
-    // Again, slicing with comptime-know indexes will produce another pointer
+    // Again, slicing with comptime-known indexes will produce another pointer
     // to an array:
     const ptr2 = slice[2..3];
     try expect(ptr2.len == 1);
