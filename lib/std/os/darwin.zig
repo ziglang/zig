@@ -439,11 +439,24 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             }
         }
 
-        pub fn getThreads(task: MachTask) MachError![]ThreadId {
+        const ThreadList = struct {
+            buf: []ThreadId,
+
+            pub fn deinit(list: ThreadList) void {
+                const self_task = machTaskForSelf();
+                _ = std.c.vm_deallocate(
+                    self_task.port,
+                    @ptrToInt(list.buf.ptr),
+                    @intCast(std.c.vm_size_t, list.buf.len * @sizeOf(std.c.mach_port_t)),
+                );
+            }
+        };
+
+        pub fn getThreads(task: MachTask) MachError!ThreadList {
             var thread_list: std.c.mach_port_array_t = undefined;
             var thread_count: std.c.mach_msg_type_number_t = undefined;
             switch (std.c.getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
-                .SUCCESS => return @ptrCast([*]ThreadId, thread_list)[0..thread_count],
+                .SUCCESS => return ThreadList{ .buf = @ptrCast([*]ThreadId, thread_list)[0..thread_count] },
                 else => |err| {
                     log.err("task_threads kernel call failed with error code: {s}", .{@tagName(err)});
                     return error.Unexpected;
