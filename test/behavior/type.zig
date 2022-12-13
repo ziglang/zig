@@ -148,13 +148,6 @@ test "@Type picks up the sentinel value from Type" {
     });
 }
 
-test "Type.ErrorUnion" {
-    try testTypes(&[_]type{
-        error{}!void,
-        error{Error}!void,
-    });
-}
-
 test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

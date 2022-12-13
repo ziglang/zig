@@ -18097,28 +18097,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             return sema.addType(ty);
         },
         .Optional => return sema.fail(block, src, "@Type(.Optional) has been deprecated", .{}),
-        .ErrorUnion => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            // error_set: type,
-            const error_set_val = struct_val[0];
-            // payload: type,
-            const payload_val = struct_val[1];
-
-            var buffer: Value.ToTypeBuffer = undefined;
-            const error_set_ty = try error_set_val.toType(&buffer).copy(sema.arena);
-            const payload_ty = try payload_val.toType(&buffer).copy(sema.arena);
-
-            if (error_set_ty.zigTypeTag() != .ErrorSet) {
-                return sema.fail(block, src, "Type.ErrorUnion.error_set must be an error set type", .{});
-            }
-
-            const ty = try Type.Tag.error_union.create(sema.arena, .{
-                .error_set = error_set_ty,
-                .payload = payload_ty,
-            });
-            return sema.addType(ty);
-        },
+        .ErrorUnion => return sema.fail(block, src, "@Type(.ErrorUnion) has been deprecated", .{}),
         .ErrorSet => {
             const payload_val = union_val.val.optionalValue() orelse
                 return sema.addType(Type.initTag(.anyerror));
