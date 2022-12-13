@@ -17943,7 +17943,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
     const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
     if (union_val.val.anyUndef()) return sema.failWithUseOfUndef(block, src);
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
-        .Type => return Air.Inst.Ref.type_type,
+        .Type => return sema.fail(block, src, "@Type(.Type) has been deprecated", .{}),
         .Void => return Air.Inst.Ref.void_type,
         .Bool => return Air.Inst.Ref.bool_type,
         .NoReturn => return Air.Inst.Ref.noreturn_type,
