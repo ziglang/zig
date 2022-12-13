@@ -390,8 +390,10 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
             const old_index = blk: {
-                for (self.items) |item, idx| {
-                    if (compareFn(self.context, item, elem).compare(.eq)) break :blk idx;
+                var idx: usize = 0;
+                while (idx < self.len) : (idx += 1) {
+                    const item = self.items[idx];
+                    if (compareFn(self.context, item, elem) == .eq) break :blk idx;
                 }
                 return error.ElementNotFound;
             };
@@ -776,6 +778,15 @@ test "std.PriorityDequeue: update same max queue" {
     try expectEqual(@as(u32, 4), queue.removeMax());
     try expectEqual(@as(u32, 2), queue.removeMax());
     try expectEqual(@as(u32, 1), queue.removeMax());
+}
+
+test "std.PriorityDequeue: update after remove" {
+    var queue = PDQ.init(testing.allocator, {});
+    defer queue.deinit();
+
+    try queue.add(1);
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectError(error.ElementNotFound, queue.update(1, 1));
 }
 
 test "std.PriorityDequeue: iterator" {
