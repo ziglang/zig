@@ -19,9 +19,6 @@ test "Type.Int" {
     try testTypes(&[_]type{ u8, u32, i64 });
 }
 
-test "Type.ComptimeFloat" {
-    try testTypes(&[_]type{comptime_float});
-}
 test "Type.ComptimeInt" {
     try testTypes(&[_]type{comptime_int});
 }
