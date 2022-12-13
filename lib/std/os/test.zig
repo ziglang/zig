@@ -894,53 +894,77 @@ test "POSIX file locking with fcntl" {
         return error.SkipZigTest;
     }
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/11074
-        return error.SkipZigTest;
-    }
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
     // Create a temporary lock file
     var file = try tmp.dir.createFile("lock", .{ .read = true });
     defer file.close();
-    try file.setEndPos(2);
+    try file.setEndPos(4);
     const fd = file.handle;
 
-    // Place an exclusive lock on the first byte, and a shared lock on the second byte:
-    var struct_flock = std.mem.zeroInit(std.os.Flock, .{ .type = std.os.F.WRLCK });
-    _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
-    struct_flock.start = 1;
-    struct_flock.type = std.os.F.RDLCK;
+    // The first byte (0) will be used to test an exclusive lock.
+    // The second byte (1) will be used to test a shared lock.
+    // The third byte (2) will be locked by the child to signal the parent
+    // to do the test.
+    // The fourth byte (3) will be released by the parent to signal the
+    // child the tests are done.
+    var struct_flock = std.mem.zeroInit(std.os.Flock, .{
+        .start = 3,
+        .len = 1,
+        .type = std.os.F.WRLCK,
+        .whence = std.os.SEEK.SET});
     _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
 
-    // Check the locks in a child process:
     const pid = try std.os.fork();
     if (pid == 0) {
-        // child expects be denied the exclusive lock:
+        // The child prepares the exclusive lock:
         struct_flock.start = 0;
         struct_flock.type = std.os.F.WRLCK;
-        try expectError(error.Locked, std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock)));
-        // child expects to get the shared lock:
+        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+        // child prepares the shared lock:
         struct_flock.start = 1;
         struct_flock.type = std.os.F.RDLCK;
         _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
-        // child waits for the exclusive lock in order to test deadlock:
-        struct_flock.start = 0;
+        // child signals the parent to proceed:
+        struct_flock.start = 2;
+        struct_flock.type = std.os.F.WRLCK;
+        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+        // child waits for the parent to finish:
+        struct_flock.start = 3;
         struct_flock.type = std.os.F.WRLCK;
         _ = try std.os.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock));
         // child exits without continuing:
         std.os.exit(0);
     } else {
-        // parent waits for child to get shared lock:
-        std.time.sleep(1 * std.time.ns_per_ms);
+        // parent waits for the child to prepare the locks:
+        while(true) {
+            struct_flock.start = 2;
+            struct_flock.len = 1;
+            struct_flock.whence = std.os.SEEK.SET;
+            struct_flock.type = std.os.F.WRLCK;
+            _ = try std.os.fcntl(fd, std.os.F.GETLK, @ptrToInt(&struct_flock));
+            if (struct_flock.type == std.os.F.UNLCK)
+                { std.time.sleep(1 * std.time.ns_per_ms); }
+            else
+                break;
+        }
+        // parent expects be denied the exclusive lock:
+        struct_flock.start = 0;
+        struct_flock.len = 1;
+        struct_flock.whence = std.os.SEEK.SET;
+        struct_flock.type = std.os.F.WRLCK;
+        try expectError(error.Locked, std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock)));
+        // parent expects to get the shared lock:
+        struct_flock.start = 1;
+        struct_flock.type = std.os.F.RDLCK;
+        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = std.os.F.WRLCK;
         try expectError(error.DeadLock, std.os.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock)));
-        // parent releases exclusive lock:
-        struct_flock.start = 0;
+        // parent signals child to finish:
+        struct_flock.start = 3;
         struct_flock.type = std.os.F.UNLCK;
         _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
         // parent releases shared lock:
