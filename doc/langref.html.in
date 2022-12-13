@@ -5472,7 +5472,8 @@ fn doAThing(str: []u8) !void {
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
       {#syntax#}unreachable{#endsyntax#} value on the right hand side. {#syntax#}unreachable{#endsyntax#} generates
-      a panic in Debug and ReleaseSafe modes and undefined behavior in ReleaseFast mode. So, while we're debugging the
+      a panic in {#link|Debug#} and {#link|ReleaseSafe#} modes and undefined behavior in
+      {#link|ReleaseFast#} and {#link|ReleaseSmall#} modes. So, while we're debugging the
       application, if there <em>was</em> a surprise error here, the application would crash
       appropriately.
       </p>
@@ -11891,7 +11892,7 @@ fn readU32Be() u32 {}
             Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
             <ul>
               <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <kbd>zig test</kbd>.</li>
-              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} mode, unless <kbd>zig test</kbd> is being used.</li>
+              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} and {#syntax#}ReleaseSmall{#endsyntax#} mode.</li>
               <li>See also {#link|unreachable#}</li>
             </ul>
           </td>
