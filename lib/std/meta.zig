@@ -522,8 +522,8 @@ test "std.meta.fields" {
     try testing.expect(mem.eql(u8, e2f[0].name, "A"));
     try testing.expect(mem.eql(u8, sf[0].name, "a"));
     try testing.expect(mem.eql(u8, uf[0].name, "a"));
-    try testing.expect(comptime sf[0].field_type == u8);
-    try testing.expect(comptime uf[0].field_type == u8);
+    try testing.expect(comptime sf[0].type == u8);
+    try testing.expect(comptime uf[0].type == u8);
 }
 
 pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
@@ -557,8 +557,8 @@ test "std.meta.fieldInfo" {
     try testing.expect(mem.eql(u8, e2f.name, "A"));
     try testing.expect(mem.eql(u8, sf.name, "a"));
     try testing.expect(mem.eql(u8, uf.name, "a"));
-    try testing.expect(comptime sf.field_type == u8);
-    try testing.expect(comptime uf.field_type == u8);
+    try testing.expect(comptime sf.type == u8);
+    try testing.expect(comptime uf.type == u8);
 }
 
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
@@ -831,7 +831,7 @@ pub fn TagPayload(comptime U: type, comptime tag: Tag(U)) type {
 
     inline for (info.fields) |field_info| {
         if (comptime mem.eql(u8, field_info.name, @tagName(tag)))
-            return field_info.field_type;
+            return field_info.type;
     }
 
     unreachable;
@@ -1111,7 +1111,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
-            .field_type = T,
+            .type = T,
             .default_value = null,
             .is_comptime = false,
             .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
@@ -1146,8 +1146,8 @@ const TupleTester = struct {
             @compileError("Argument count mismatch");
 
         inline for (fields_list) |fld, i| {
-            if (expected[i] != fld.field_type) {
-                @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.field_type));
+            if (expected[i] != fld.type) {
+                @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.type));
             }
         }
     }

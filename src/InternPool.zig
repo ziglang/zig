@@ -259,7 +259,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, ip.extra.items.len);
     inline for (fields) |field| {
-        ip.extra.appendAssumeCapacity(switch (field.field_type) {
+        ip.extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             Index => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
@@ -274,7 +274,7 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
-        @field(result, field.name) = switch (field.field_type) {
+        @field(result, field.name) = switch (field.type) {
             u32 => ip.extra.items[i],
             Index => @intToEnum(Index, ip.extra.items[i]),
             i32 => @bitCast(i32, ip.extra.items[i]),

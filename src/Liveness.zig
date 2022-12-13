@@ -718,7 +718,7 @@ const Analysis = struct {
         const fields = std.meta.fields(@TypeOf(extra));
         const result = @intCast(u32, a.extra.items.len);
         inline for (fields) |field| {
-            a.extra.appendAssumeCapacity(switch (field.field_type) {
+            a.extra.appendAssumeCapacity(switch (field.type) {
                 u32 => @field(extra, field.name),
                 else => @compileError("bad field type"),
             });

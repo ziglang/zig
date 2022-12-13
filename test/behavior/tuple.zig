@@ -136,14 +136,14 @@ test "array-like initializer for tuple types" {
             .fields = &.{
                 .{
                     .name = "0",
-                    .field_type = i32,
+                    .type = i32,
                     .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },
                 .{
                     .name = "1",
-                    .field_type = u8,
+                    .type = u8,
                     .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
@@ -314,7 +314,7 @@ test "zero sized struct in tuple handled correctly" {
                 .decls = &.{},
                 .fields = &.{.{
                     .name = "0",
-                    .field_type = struct {},
+                    .type = struct {},
                     .default_value = null,
                     .is_comptime = false,
                     .alignment = 0,

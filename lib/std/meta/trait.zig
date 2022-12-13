@@ -566,7 +566,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
-                const FieldType = field.field_type;
+                const FieldType = field.type;
                 if (comptime !hasUniqueRepresentation(FieldType)) return false;
                 sum_size += @sizeOf(FieldType);
             }

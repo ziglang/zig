@@ -257,7 +257,7 @@ fn testUnion() !void {
     try expect(typeinfo_info.Union.layout == .Auto);
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
     try expect(typeinfo_info.Union.fields.len == 24);
-    try expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
+    try expect(typeinfo_info.Union.fields[4].type == @TypeOf(@typeInfo(u8).Int));
     try expect(typeinfo_info.Union.decls.len == 22);
 
     const TestNoTagUnion = union {
@@ -271,7 +271,7 @@ fn testUnion() !void {
     try expect(notag_union_info.Union.layout == .Auto);
     try expect(notag_union_info.Union.fields.len == 2);
     try expect(notag_union_info.Union.fields[0].alignment == @alignOf(void));
-    try expect(notag_union_info.Union.fields[1].field_type == u32);
+    try expect(notag_union_info.Union.fields[1].type == u32);
     try expect(notag_union_info.Union.fields[1].alignment == @alignOf(u32));
 
     const TestExternUnion = extern union {
@@ -281,7 +281,7 @@ fn testUnion() !void {
     const extern_union_info = @typeInfo(TestExternUnion);
     try expect(extern_union_info.Union.layout == .Extern);
     try expect(extern_union_info.Union.tag_type == null);
-    try expect(extern_union_info.Union.fields[0].field_type == *anyopaque);
+    try expect(extern_union_info.Union.fields[0].type == *anyopaque);
 }
 
 test "type info: struct info" {
@@ -319,7 +319,7 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.backing_integer == u128);
     try expect(struct_info.Struct.fields.len == 4);
     try expect(struct_info.Struct.fields[0].alignment == 0);
-    try expect(struct_info.Struct.fields[2].field_type == f32);
+    try expect(struct_info.Struct.fields[2].type == f32);
     try expect(struct_info.Struct.fields[2].default_value == null);
     try expect(@ptrCast(*align(1) const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);

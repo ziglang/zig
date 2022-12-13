@@ -230,12 +230,12 @@ pub const Socket = struct {
 
             pub fn setName(self: *Self, name: []const u8) void {
                 self.name = @ptrToInt(name.ptr);
-                self.name_len = @intCast(meta.fieldInfo(Self, .name_len).field_type, name.len);
+                self.name_len = @intCast(meta.fieldInfo(Self, .name_len).type, name.len);
             }
 
             pub fn setBuffers(self: *Self, buffers: []const Buffer) void {
                 self.buffers = @ptrToInt(buffers.ptr);
-                self.buffers_len = @intCast(meta.fieldInfo(Self, .buffers_len).field_type, buffers.len);
+                self.buffers_len = @intCast(meta.fieldInfo(Self, .buffers_len).type, buffers.len);
             }
 
             pub fn setControl(self: *Self, control: []const u8) void {
@@ -243,12 +243,12 @@ pub const Socket = struct {
                     self.control = Buffer.from(control);
                 } else {
                     self.control = @ptrToInt(control.ptr);
-                    self.control_len = @intCast(meta.fieldInfo(Self, .control_len).field_type, control.len);
+                    self.control_len = @intCast(meta.fieldInfo(Self, .control_len).type, control.len);
                 }
             }
 
             pub fn setFlags(self: *Self, flags: u32) void {
-                self.flags = @intCast(meta.fieldInfo(Self, .flags).field_type, flags);
+                self.flags = @intCast(meta.fieldInfo(Self, .flags).type, flags);
             }
 
             pub fn getName(self: Self) []const u8 {

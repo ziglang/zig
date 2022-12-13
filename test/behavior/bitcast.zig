@@ -358,7 +358,7 @@ test "comptime @bitCast packed struct to int and back" {
     const rt_cast = @bitCast(S, i);
     const ct_cast = comptime @bitCast(S, @as(Int, 0));
     inline for (@typeInfo(S).Struct.fields) |field| {
-        if (@typeInfo(field.field_type) == .Vector)
+        if (@typeInfo(field.type) == .Vector)
             continue; //TODO: https://github.com/ziglang/zig/issues/13201
 
         try expectEqual(@field(rt_cast, field.name), @field(ct_cast, field.name));

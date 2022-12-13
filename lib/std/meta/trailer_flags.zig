@@ -24,10 +24,10 @@ pub fn TrailerFlags(comptime Fields: type) type {
             inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
-                    .field_type = ?struct_field.field_type,
-                    .default_value = &@as(?struct_field.field_type, null),
+                    .type = ?struct_field.type,
+                    .default_value = &@as(?struct_field.type, null),
                     .is_comptime = false,
-                    .alignment = @alignOf(?struct_field.field_type),
+                    .alignment = @alignOf(?struct_field.type),
                 };
             }
             break :blk @Type(.{
@@ -105,26 +105,26 @@ pub fn TrailerFlags(comptime Fields: type) type {
                 const active = (self.bits & (1 << i)) != 0;
                 if (i == @enumToInt(field)) {
                     assert(active);
-                    return mem.alignForwardGeneric(usize, off, @alignOf(field_info.field_type));
+                    return mem.alignForwardGeneric(usize, off, @alignOf(field_info.type));
                 } else if (active) {
-                    off = mem.alignForwardGeneric(usize, off, @alignOf(field_info.field_type));
-                    off += @sizeOf(field_info.field_type);
+                    off = mem.alignForwardGeneric(usize, off, @alignOf(field_info.type));
+                    off += @sizeOf(field_info.type);
                 }
             }
         }
 
         pub fn Field(comptime field: FieldEnum) type {
-            return @typeInfo(Fields).Struct.fields[@enumToInt(field)].field_type;
+            return @typeInfo(Fields).Struct.fields[@enumToInt(field)].type;
         }
 
         pub fn sizeInBytes(self: Self) usize {
             var off: usize = 0;
             inline for (@typeInfo(Fields).Struct.fields) |field, i| {
-                if (@sizeOf(field.field_type) == 0)
+                if (@sizeOf(field.type) == 0)
                     continue;
                 if ((self.bits & (1 << i)) != 0) {
-                    off = mem.alignForwardGeneric(usize, off, @alignOf(field.field_type));
-                    off += @sizeOf(field.field_type);
+                    off = mem.alignForwardGeneric(usize, off, @alignOf(field.type));
+                    off += @sizeOf(field.type);
                 }
             }
             return off;

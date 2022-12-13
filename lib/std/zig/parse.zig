@@ -153,7 +153,7 @@ const Parser = struct {
         try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
         const result = @intCast(u32, p.extra_data.items.len);
         inline for (fields) |field| {
-            comptime assert(field.field_type == Node.Index);
+            comptime assert(field.type == Node.Index);
             p.extra_data.appendAssumeCapacity(@field(extra, field.name));
         }
         return result;

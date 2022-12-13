@@ -81,7 +81,7 @@ pub const DevicePathProtocol = extern struct {
             // Got the associated union type for self.type, now
             // we need to initialize it and its subtype
             if (self.type == enum_value) {
-                var subtype = self.initSubtype(ufield.field_type);
+                var subtype = self.initSubtype(ufield.type);
 
                 if (subtype) |sb| {
                     // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
@@ -103,7 +103,7 @@ pub const DevicePathProtocol = extern struct {
 
             if (self.subtype == tag_val) {
                 // e.g. expr = .{ .Pci = @ptrCast(...) }
-                return @unionInit(TUnion, subtype.name, @ptrCast(subtype.field_type, self));
+                return @unionInit(TUnion, subtype.name, @ptrCast(subtype.type, self));
             }
         }
 

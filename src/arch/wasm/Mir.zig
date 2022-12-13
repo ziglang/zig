@@ -589,7 +589,7 @@ pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
-        @field(result, field.name) = switch (field.field_type) {
+        @field(result, field.name) = switch (field.type) {
             u32 => self.extra[i],
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         };

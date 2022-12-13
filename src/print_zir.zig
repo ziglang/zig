@@ -1312,7 +1312,7 @@ const Writer = struct {
                 type_len: u32 = 0,
                 align_len: u32 = 0,
                 init_len: u32 = 0,
-                field_type: Zir.Inst.Ref = .none,
+                type: Zir.Inst.Ref = .none,
                 name: u32,
                 is_comptime: bool,
             };
@@ -1353,7 +1353,7 @@ const Writer = struct {
                     if (has_type_body) {
                         fields[field_i].type_len = self.code.extra[extra_index];
                     } else {
-                        fields[field_i].field_type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+                        fields[field_i].type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                     }
                     extra_index += 1;
 
@@ -1384,8 +1384,8 @@ const Writer = struct {
                 } else {
                     try stream.print("@\"{d}\": ", .{i});
                 }
-                if (field.field_type != .none) {
-                    try self.writeInstRef(stream, field.field_type);
+                if (field.type != .none) {
+                    try self.writeInstRef(stream, field.type);
                 }
 
                 if (field.type_len > 0) {

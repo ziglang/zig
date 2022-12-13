@@ -339,7 +339,7 @@ pub const Yaml = struct {
 
         if (union_info.tag_type) |_| {
             inline for (union_info.fields) |field| {
-                if (self.parseValue(field.field_type, value)) |u_value| {
+                if (self.parseValue(field.type, value)) |u_value| {
                     return @unionInit(T, field.name, u_value);
                 } else |err| {
                     if (@as(@TypeOf(err) || error{TypeMismatch}, err) != error.TypeMismatch) return err;
@@ -366,16 +366,16 @@ pub const Yaml = struct {
                 break :blk map.get(field_name);
             };
 
-            if (@typeInfo(field.field_type) == .Optional) {
-                @field(parsed, field.name) = try self.parseOptional(field.field_type, value);
+            if (@typeInfo(field.type) == .Optional) {
+                @field(parsed, field.name) = try self.parseOptional(field.type, value);
                 continue;
             }
 
             const unwrapped = value orelse {
-                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.field_type) });
+                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
                 return error.StructFieldMissing;
             };
-            @field(parsed, field.name) = try self.parseValue(field.field_type, unwrapped);
+            @field(parsed, field.name) = try self.parseValue(field.type, unwrapped);
         }
 
         return parsed;

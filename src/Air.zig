@@ -1260,7 +1260,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
-        @field(result, field.name) = switch (field.field_type) {
+        @field(result, field.name) = switch (field.type) {
             u32 => air.extra[i],
             Inst.Ref => @intToEnum(Inst.Ref, air.extra[i]),
             i32 => @bitCast(i32, air.extra[i]),

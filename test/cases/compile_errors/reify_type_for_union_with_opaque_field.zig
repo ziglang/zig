@@ -3,7 +3,7 @@ const Untagged = @Type(.{
         .layout = .Auto,
         .tag_type = null,
         .fields = &.{
-            .{ .name = "foo", .field_type = opaque {}, .alignment = 1 },
+            .{ .name = "foo", .type = opaque {}, .alignment = 1 },
         },
         .decls = &.{},
     },
@@ -17,4 +17,4 @@ export fn entry() usize {
 // target=native
 //
 // :1:18: error: opaque types have unknown size and therefore cannot be directly embedded in unions
-// :6:45: note: opaque declared here
+// :6:39: note: opaque declared here

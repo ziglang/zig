@@ -280,8 +280,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
-        /// TODO rename to `type`
-        field_type: type,
+        type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
@@ -343,7 +342,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        field_type: type,
+        type: type,
         alignment: comptime_int,
     };
 

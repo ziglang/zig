@@ -50,7 +50,7 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         },
         .Union => |info| {
             inline for (info.fields) |field| {
-                if (field.field_type == SourceType) return @unionInit(DestType, field.name, target);
+                if (field.type == SourceType) return @unionInit(DestType, field.name, target);
             }
             @compileError("cast to union type '" ++ @typeName(DestType) ++ "' from type '" ++ @typeName(SourceType) ++ "' which is not present in union");
         },

@@ -4253,7 +4253,7 @@ fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     return switch (field_index) {
         // This prong is analyzed `fields.len - 1` times with `idx` being an
         // unique comptime-known value each time.
-        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].field_type) == .Optional,
+        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }

@@ -300,7 +300,7 @@ pub fn zeroes(comptime T: type) T {
             if (comptime meta.containerLayout(T) == .Extern) {
                 // The C language specification states that (global) unions
                 // should be zero initialized to the first named member.
-                return @unionInit(T, info.fields[0].name, zeroes(info.fields[0].field_type));
+                return @unionInit(T, info.fields[0].name, zeroes(info.fields[0].type));
             }
 
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
@@ -435,7 +435,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
 
                     inline for (struct_info.fields) |field| {
                         if (field.default_value) |default_value_ptr| {
-                            const default_value = @ptrCast(*align(1) const field.field_type, default_value_ptr).*;
+                            const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
                             @field(value, field.name) = default_value;
                         }
                     }
@@ -452,9 +452,9 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                             @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
                         }
 
-                        switch (@typeInfo(field.field_type)) {
+                        switch (@typeInfo(field.type)) {
                             .Struct => {
-                                @field(value, field.name) = zeroInit(field.field_type, @field(init, field.name));
+                                @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
                             },
                             else => {
                                 @field(value, field.name) = @field(init, field.name);

@@ -9,7 +9,7 @@ pub export fn entry() void {
     const info = @typeInfo(Widget).Union;
     inline for (info.fields) |field| {
         if (foo()) {
-            switch (field.field_type) {
+            switch (field.type) {
                 u0 => a = 2,
                 else => unreachable,
             }

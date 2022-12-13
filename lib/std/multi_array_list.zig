@@ -84,9 +84,9 @@ pub fn MultiArrayList(comptime S: type) type {
             var data: [fields.len]Data = undefined;
             for (fields) |field_info, i| {
                 data[i] = .{
-                    .size = @sizeOf(field_info.field_type),
+                    .size = @sizeOf(field_info.type),
                     .size_index = i,
-                    .alignment = if (@sizeOf(field_info.field_type) == 0) 1 else field_info.alignment,
+                    .alignment = if (@sizeOf(field_info.type) == 0) 1 else field_info.alignment,
                 };
             }
             const Sort = struct {
@@ -294,10 +294,10 @@ pub fn MultiArrayList(comptime S: type) type {
             ) catch {
                 const self_slice = self.slice();
                 inline for (fields) |field_info, i| {
-                    if (@sizeOf(field_info.field_type) != 0) {
+                    if (@sizeOf(field_info.type) != 0) {
                         const field = @intToEnum(Field, i);
                         const dest_slice = self_slice.items(field)[new_len..];
-                        const byte_count = dest_slice.len * @sizeOf(field_info.field_type);
+                        const byte_count = dest_slice.len * @sizeOf(field_info.type);
                         // We use memset here for more efficient codegen in safety-checked,
                         // valgrind-enabled builds. Otherwise the valgrind client request
                         // will be repeated for every element.
@@ -316,9 +316,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
+                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -377,9 +377,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
+                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -396,9 +396,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const result_slice = result.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.field_type, result_slice.items(field), self_slice.items(field));
+                    mem.copy(field_info.type, result_slice.items(field), self_slice.items(field));
                 }
             }
             return result;
@@ -413,10 +413,10 @@ pub fn MultiArrayList(comptime S: type) type {
 
                 pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
                     inline for (fields) |field_info, i| {
-                        if (@sizeOf(field_info.field_type) != 0) {
+                        if (@sizeOf(field_info.type) != 0) {
                             const field = @intToEnum(Field, i);
                             const ptr = sc.slice.items(field);
-                            mem.swap(field_info.field_type, &ptr[a_index], &ptr[b_index]);
+                            mem.swap(field_info.type, &ptr[a_index], &ptr[b_index]);
                         }
                     }
                 }
@@ -449,7 +449,7 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn FieldType(comptime field: Field) type {
-            return meta.fieldInfo(S, field).field_type;
+            return meta.fieldInfo(S, field).type;
         }
 
         /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate

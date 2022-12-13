@@ -960,7 +960,7 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
     const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, func.mir_extra.items.len);
     inline for (fields) |field| {
-        func.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+        func.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
