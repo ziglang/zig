@@ -1,5 +1,5 @@
 export fn entry() void {
-    const x = @import("std").meta.Vector(3, f32){ 25, 75, 5, 0 };
+    const x = @Vector(3, f32){ 25, 75, 5, 0 };
     _ = x;
 }
 

@@ -185,17 +185,6 @@ test "Type.Opaque" {
     );
 }
 
-test "Type.Vector" {
-    try testTypes(&[_]type{
-        @Vector(0, u8),
-        @Vector(4, u8),
-        @Vector(8, *u8),
-        @Vector(0, u8),
-        @Vector(4, u8),
-        @Vector(8, *u8),
-    });
-}
-
 test "Type.AnyFrame" {
     if (true) {
         // https://github.com/ziglang/zig/issues/6025

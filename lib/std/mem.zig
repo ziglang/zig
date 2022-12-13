@@ -937,7 +937,7 @@ test "len" {
         try testing.expect(len(&array) == 5);
     }
     {
-        const vector: meta.Vector(2, u32) = [2]u32{ 1, 2 };
+        const vector: @Vector(2, u32) = [2]u32{ 1, 2 };
         try testing.expect(len(vector) == 2);
     }
     {

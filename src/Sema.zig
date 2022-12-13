@@ -17967,21 +17967,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             };
             return sema.addType(ty);
         },
-        .Vector => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            const len_val = struct_val[0];
-            const child_val = struct_val[1];
-
-            const len = len_val.toUnsignedInt(target);
-            var buffer: Value.ToTypeBuffer = undefined;
-            const child_ty = child_val.toType(&buffer);
-
-            try sema.checkVectorElemType(block, src, child_ty);
-
-            const ty = try Type.vector(sema.arena, len, try child_ty.copy(sema.arena));
-            return sema.addType(ty);
-        },
+        .Vector => return sema.fail(block, src, "@Type(.Vector) has been deprecated", .{}),
         .Float => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
