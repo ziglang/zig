@@ -3585,7 +3585,7 @@ const Type = enum {
     not_ok,
 };
 
-// Declare a specific instance of the enum variant.
+// Declare a specific enum field.
 const c = Type.ok;
 
 // If you want access to the ordinal value of an enum, you
@@ -3634,13 +3634,13 @@ test "enum method" {
     try expect(!p.isClubs());
 }
 
-// An enum variant of different types can be switched upon.
+// An enum can be switched upon.
 const Foo = enum {
     string,
     number,
     none,
 };
-test "enum variant switch" {
+test "enum switch" {
     const p = Foo.number;
     const what_is_it = switch (p) {
         Foo.string => "this is a string",
