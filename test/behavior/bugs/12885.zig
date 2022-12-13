@@ -13,22 +13,3 @@ const Foo = @Type(.{
 test "ErrorSet comptime_field_ptr" {
     try expect(Foo == error{bar});
 }
-
-const fn_info = .{
-    .args = [_]builtin.Type.Fn.Param{
-        .{ .is_generic = false, .is_noalias = false, .arg_type = u8 },
-    },
-};
-const Bar = @Type(.{
-    .Fn = .{
-        .calling_convention = .Unspecified,
-        .alignment = 0,
-        .is_generic = false,
-        .is_var_args = false,
-        .return_type = void,
-        .args = &fn_info.args,
-    },
-});
-test "fn comptime_field_ptr" {
-    try expect(@typeInfo(Bar) == .Fn);
-}
