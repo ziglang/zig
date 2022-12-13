@@ -85,6 +85,7 @@ const normal_usage =
     \\  dlltool          Use Zig as a drop-in dlltool.exe
     \\  lib              Use Zig as a drop-in lib.exe
     \\  ranlib           Use Zig as a drop-in ranlib
+    \\  objcopy          Use Zig as a drop-in objcopy
     \\
     \\  env              Print lib path, std path, cache directory, and version
     \\  help             Print this help and exit
@@ -286,6 +287,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, arena, cmd_args);
+    } else if (mem.eql(u8, cmd, "objcopy")) {
+        return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "init-exe")) {
