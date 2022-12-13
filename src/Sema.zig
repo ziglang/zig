@@ -18293,48 +18293,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             try new_decl.finalizeNewArena(&new_decl_arena);
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
-        .Opaque => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // decls: []const Declaration,
-            const decls_val = struct_val[0];
-
-            // Decls
-            if (decls_val.sliceLen(mod) > 0) {
-                return sema.fail(block, src, "reified opaque must have no decls", .{});
-            }
-
-            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-            errdefer new_decl_arena.deinit();
-            const new_decl_arena_allocator = new_decl_arena.allocator();
-
-            const opaque_obj = try new_decl_arena_allocator.create(Module.Opaque);
-            const opaque_ty_payload = try new_decl_arena_allocator.create(Type.Payload.Opaque);
-            opaque_ty_payload.* = .{
-                .base = .{ .tag = .@"opaque" },
-                .data = opaque_obj,
-            };
-            const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
-            const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
-            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-                .ty = Type.type,
-                .val = opaque_val,
-            }, name_strategy, "opaque", inst);
-            const new_decl = mod.declPtr(new_decl_index);
-            new_decl.owns_tv = true;
-            errdefer mod.abortAnonDecl(new_decl_index);
-
-            opaque_obj.* = .{
-                .owner_decl = new_decl_index,
-                .namespace = .{
-                    .parent = block.namespace,
-                    .ty = opaque_ty,
-                    .file_scope = block.getFileScope(),
-                },
-            };
-
-            try new_decl.finalizeNewArena(&new_decl_arena);
-            return sema.analyzeDeclVal(block, src, new_decl_index);
-        },
+        .Opaque => return sema.fail(block, src, "@Type(.Opaque) has been deprecated", .{}),
         .Union => {
             // TODO use reflection instead of magic numbers here
             const struct_val = union_val.val.castTag(.aggregate).?.data;

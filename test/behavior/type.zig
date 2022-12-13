@@ -148,26 +148,6 @@ test "@Type picks up the sentinel value from Type" {
     });
 }
 
-test "Type.Opaque" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const Opaque = @Type(.{
-        .Opaque = .{
-            .decls = &.{},
-        },
-    });
-    try testing.expect(Opaque != opaque {});
-    try testing.expectEqualSlices(
-        Type.Declaration,
-        &.{},
-        @typeInfo(Opaque).Opaque.decls,
-    );
-}
-
 test "Type.AnyFrame" {
     if (true) {
         // https://github.com/ziglang/zig/issues/6025
