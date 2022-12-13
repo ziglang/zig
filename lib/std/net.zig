@@ -1687,6 +1687,13 @@ pub const Stream = struct {
         }
     }
 
+    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try self.write(bytes[index..]);
+        }
+    }
+
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writev`.
     pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {

@@ -176,6 +176,8 @@ const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
+pub const Tls = @import("crypto/Tls.zig");
+
 test {
     _ = aead.aegis.Aegis128L;
     _ = aead.aegis.Aegis256;
