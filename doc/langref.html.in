@@ -11883,7 +11883,7 @@ fn readU32Be() u32 {}
             Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
             <ul>
               <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <kbd>zig test</kbd>.</li>
-              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} and {#syntax#}ReleaseSmall{#endsyntax#} mode, unless <kbd>zig test</kbd> is being used.</li>
+              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} and {#syntax#}ReleaseSmall{#endsyntax#} mode.</li>
               <li>See also {#link|unreachable#}</li>
             </ul>
           </td>
