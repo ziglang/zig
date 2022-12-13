@@ -3882,6 +3882,32 @@ pub const DeclGen = struct {
                         @intCast(c_uint, llvm_elems.len),
                     );
                 },
+                .str_lit => {
+                    // Note, sentinel is not stored
+                    const str_lit = tv.val.castTag(.str_lit).?.data;
+                    const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    const vector_len = @intCast(usize, tv.ty.arrayLen());
+                    assert(vector_len == bytes.len);
+
+                    const elem_ty = tv.ty.elemType();
+                    const llvm_elems = try dg.gpa.alloc(*llvm.Value, vector_len);
+                    defer dg.gpa.free(llvm_elems);
+                    for (llvm_elems) |*elem, i| {
+                        var byte_payload: Value.Payload.U64 = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = bytes[i],
+                        };
+
+                        elem.* = try dg.lowerValue(.{
+                            .ty = elem_ty,
+                            .val = Value.initPayload(&byte_payload.base),
+                        });
+                    }
+                    return llvm.constVector(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                },
                 else => unreachable,
             },
 

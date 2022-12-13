@@ -854,6 +854,14 @@ pub fn generateSymbol(
                 }
                 return Result{ .appended = {} };
             },
+            .str_lit => {
+                const str_lit = typed_value.val.castTag(.str_lit).?.data;
+                const mod = bin_file.options.module.?;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                try code.ensureUnusedCapacity(str_lit.len);
+                code.appendSliceAssumeCapacity(bytes);
+                return Result{ .appended = {} };
+            },
             else => unreachable,
         },
         else => |t| {
