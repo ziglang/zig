@@ -7083,7 +7083,7 @@ fn StringLiteral(comptime WriterType: type) type {
     const max_len = 16380 - max_char_len;
 
     return struct {
-        cur_len: usize = 0,
+        cur_len: u64 = 0,
         counting_writer: std.io.CountingWriter(WriterType),
 
         pub const Error = WriterType.Error;
