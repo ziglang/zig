@@ -1897,7 +1897,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_undefined_symbols = .{},
-            .pdb_source_path = pdb_source_path,
+            .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
         });
         errdefer bin_file.destroy();
