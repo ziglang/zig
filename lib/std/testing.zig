@@ -387,9 +387,9 @@ fn SliceDiffer(comptime T: type) type {
             for (self.expected) |value, i| {
                 var full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
-                if (diff) self.ttyconf.setColor(writer, .Red);
+                if (diff) try self.ttyconf.setColor(writer, .Red);
                 try writer.print("[{}]: {any}\n", .{ full_index, value });
-                if (diff) self.ttyconf.setColor(writer, .Reset);
+                if (diff) try self.ttyconf.setColor(writer, .Reset);
             }
         }
     };
@@ -427,9 +427,9 @@ const BytesDiffer = struct {
     }
 
     fn writeByteDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, byte: u8, diff: bool) !void {
-        if (diff) self.ttyconf.setColor(writer, .Red);
+        if (diff) try self.ttyconf.setColor(writer, .Red);
         try writer.print(fmt, .{byte});
-        if (diff) self.ttyconf.setColor(writer, .Reset);
+        if (diff) try self.ttyconf.setColor(writer, .Reset);
     }
 
     const ChunkIterator = struct {

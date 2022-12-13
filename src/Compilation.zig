@@ -428,29 +428,29 @@ pub const AllErrors = struct {
             switch (msg) {
                 .src => |src| {
                     try counting_stderr.writeByteNTimes(' ', indent);
-                    ttyconf.setColor(stderr, .Bold);
+                    try ttyconf.setColor(stderr, .Bold);
                     try counting_stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
                     });
-                    ttyconf.setColor(stderr, color);
+                    try ttyconf.setColor(stderr, color);
                     try counting_stderr.writeAll(kind);
                     try counting_stderr.writeAll(": ");
                     // This is the length of the part before the error message:
                     // e.g. "file.zig:4:5: error: "
                     const prefix_len = @intCast(usize, counting_stderr.context.bytes_written);
-                    ttyconf.setColor(stderr, .Reset);
-                    ttyconf.setColor(stderr, .Bold);
+                    try ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
                         try src.writeMsg(stderr, prefix_len);
                         try stderr.writeByte('\n');
                     } else {
                         try src.writeMsg(stderr, prefix_len);
-                        ttyconf.setColor(stderr, .Dim);
+                        try ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{src.count});
                     }
-                    ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .Reset);
                     if (src.source_line) |line| {
                         for (line) |b| switch (b) {
                             '\t' => try stderr.writeByte(' '),
@@ -462,19 +462,19 @@ pub const AllErrors = struct {
                         // -1 since span.main includes the caret
                         const after_caret = src.span.end - src.span.main -| 1;
                         try stderr.writeByteNTimes(' ', src.column - before_caret);
-                        ttyconf.setColor(stderr, .Green);
+                        try ttyconf.setColor(stderr, .Green);
                         try stderr.writeByteNTimes('~', before_caret);
                         try stderr.writeByte('^');
                         try stderr.writeByteNTimes('~', after_caret);
                         try stderr.writeByte('\n');
-                        ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .Reset);
                     }
                     for (src.notes) |note| {
                         try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
                     }
                     if (src.reference_trace.len != 0) {
-                        ttyconf.setColor(stderr, .Reset);
-                        ttyconf.setColor(stderr, .Dim);
+                        try ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .Dim);
                         try stderr.print("referenced by:\n", .{});
                         for (src.reference_trace) |reference| {
                             switch (reference) {
@@ -498,23 +498,23 @@ pub const AllErrors = struct {
                             }
                         }
                         try stderr.writeByte('\n');
-                        ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .Reset);
                     }
                 },
                 .plain => |plain| {
-                    ttyconf.setColor(stderr, color);
+                    try ttyconf.setColor(stderr, color);
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
                     try stderr.writeAll(": ");
-                    ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .Reset);
                     if (plain.count == 1) {
                         try stderr.print("{s}\n", .{plain.msg});
                     } else {
                         try stderr.print("{s}", .{plain.msg});
-                        ttyconf.setColor(stderr, .Dim);
+                        try ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{plain.count});
                     }
-                    ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
                         try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent + 4);
                     }
