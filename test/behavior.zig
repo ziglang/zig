@@ -100,6 +100,7 @@ test {
     _ = @import("behavior/bugs/12488.zig");
     _ = @import("behavior/bugs/12498.zig");
     _ = @import("behavior/bugs/12551.zig");
+    _ = @import("behavior/bugs/12571.zig");
     _ = @import("behavior/bugs/12644.zig");
     _ = @import("behavior/bugs/12680.zig");
     _ = @import("behavior/bugs/12723.zig");
