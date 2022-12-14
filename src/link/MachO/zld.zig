@@ -4037,8 +4037,15 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const uuid_offset_backpatch: ?usize = blk: {
             const index = lc_buffer.items.len;
             var uuid_buf: [16]u8 = [_]u8{0} ** 16;
+
+            if (zld.options.optimize_mode == .Debug) {
+                // In Debug we don't really care about reproducibility, so put in a random value
+                // and be done with it.
+                std.crypto.random.bytes(&uuid_buf);
+            }
+
             try load_commands.writeUuidLC(&uuid_buf, &ncmds, lc_writer);
-            break :blk index;
+            break :blk if (zld.options.optimize_mode == .Debug) null else index;
         };
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), &ncmds, lc_writer);
@@ -4076,7 +4083,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             const seg = zld.getLinkeditSegmentPtr();
             const file_size = seg.fileoff + seg.filesize;
             var uuid_buf: [16]u8 = undefined;
-            try uuid.calcMd5Hash(zld.gpa, zld.file, file_size, &uuid_buf);
+            try uuid.calcUuidParallel(comp, zld.file, file_size, &uuid_buf);
             const offset = @sizeOf(macho.mach_header_64) + headers_buf.items.len + backpatch + @sizeOf(macho.load_command);
             try zld.file.pwriteAll(&uuid_buf, offset);
         }

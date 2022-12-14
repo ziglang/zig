@@ -5,6 +5,7 @@ const build_options = @import("build_options");
 const assert = std.debug.assert;
 const fs = std.fs;
 const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
 const log = std.log.scoped(.dsym);
 const macho = std.macho;
 const makeStaticString = MachO.makeStaticString;
@@ -303,10 +304,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     self.finalizeDwarfSegment(macho_file);
     try self.writeLinkeditSegmentData(macho_file, &ncmds, lc_writer);
 
-    {
-        try lc_writer.writeStruct(macho_file.uuid);
-        ncmds += 1;
-    }
+    try load_commands.writeUuidLC(&macho_file.uuid.buf, &ncmds, lc_writer);
 
     var headers_buf = std.ArrayList(u8).init(self.allocator);
     defer headers_buf.deinit();

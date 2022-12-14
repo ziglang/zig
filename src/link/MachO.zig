@@ -99,10 +99,10 @@ page_size: u16,
 /// fashion (default for LLVM backend).
 mode: enum { incremental, one_shot },
 
-uuid: macho.uuid_command = .{
-    .cmdsize = @sizeOf(macho.uuid_command),
-    .uuid = undefined,
-},
+uuid: struct {
+    buf: [16]u8 = undefined,
+    final: bool = false,
+} = .{},
 
 dylibs: std.ArrayListUnmanaged(Dylib) = .{},
 dylibs_map: std.StringHashMapUnmanaged(u16) = .{},
@@ -588,11 +588,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try load_commands.writeBuildVersionLC(&self.base.options, &ncmds, lc_writer);
 
-    {
-        std.crypto.random.bytes(&self.uuid.uuid);
-        try lc_writer.writeStruct(self.uuid);
-        ncmds += 1;
+    if (!self.uuid.final) {
+        std.crypto.random.bytes(&self.uuid.buf);
+        self.uuid.final = true;
     }
+    try load_commands.writeUuidLC(&self.uuid.buf, &ncmds, lc_writer);
 
     try load_commands.writeLoadDylibLCs(self.dylibs.items, self.referenced_dylibs.keys(), &ncmds, lc_writer);
 
