@@ -1680,9 +1680,9 @@ pub const Stream = struct {
     }
 
     /// Returns the number of bytes read, calling the underlying read function
-    /// multiple times until at least the buffer has at least `len` bytes
-    /// filled. If the number read is less than `len` it means the stream
-    /// reached the end. Reaching the end of the stream is not an error
+    /// the minimal number of times until at least the buffer has at least
+    /// `len` bytes filled. If the number read is less than `len` it means the
+    /// stream reached the end. Reaching the end of the stream is not an error
     /// condition.
     pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
         var index: usize = 0;
