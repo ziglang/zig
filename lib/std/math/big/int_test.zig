@@ -516,8 +516,8 @@ test "big.int add multi-single" {
 }
 
 test "big.int add multi-multi" {
-    const op1 = 0xefefefef7f7f7f7f;
-    const op2 = 0xfefefefe9f9f9f9f;
+    var op1: u128 = 0xefefefef7f7f7f7f;
+    var op2: u128 = 0xfefefefe9f9f9f9f;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -830,8 +830,8 @@ test "big.int sub multi-single" {
 }
 
 test "big.int sub multi-multi" {
-    const op1 = 0xefefefefefefefefefefefef;
-    const op2 = 0xabababababababababababab;
+    var op1: u128 = 0xefefefefefefefefefefefef;
+    var op2: u128 = 0xabababababababababababab;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -914,8 +914,8 @@ test "big.int mul multi-single" {
 }
 
 test "big.int mul multi-multi" {
-    const op1 = 0x998888efefefefefefefef;
-    const op2 = 0x333000abababababababab;
+    var op1: u256 = 0x998888efefefefefefefef;
+    var op2: u256 = 0x333000abababababababab;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1033,8 +1033,8 @@ test "big.int mulWrap single-single signed" {
 }
 
 test "big.int mulWrap multi-multi unsigned" {
-    const op1 = 0x998888efefefefefefefef;
-    const op2 = 0x333000abababababababab;
+    var op1: u256 = 0x998888efefefefefefefef;
+    var op2: u256 = 0x333000abababababababab;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1044,7 +1044,7 @@ test "big.int mulWrap multi-multi unsigned" {
     defer c.deinit();
     try c.mulWrap(&a, &b, .unsigned, 65);
 
-    try testing.expect((try c.to(u128)) == (op1 * op2) & ((1 << 65) - 1));
+    try testing.expect((try c.to(u256)) == (op1 * op2) & ((1 << 65) - 1));
 }
 
 test "big.int mulWrap multi-multi signed" {
@@ -1150,8 +1150,8 @@ test "big.int div single-single with rem" {
 }
 
 test "big.int div multi-single no rem" {
-    const op1 = 0xffffeeeeddddcccc;
-    const op2 = 34;
+    var op1: u128 = 0xffffeeeeddddcccc;
+    var op2: u128 = 34;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1169,8 +1169,8 @@ test "big.int div multi-single no rem" {
 }
 
 test "big.int div multi-single with rem" {
-    const op1 = 0xffffeeeeddddcccf;
-    const op2 = 34;
+    var op1: u128 = 0xffffeeeeddddcccf;
+    var op2: u128 = 34;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1188,8 +1188,8 @@ test "big.int div multi-single with rem" {
 }
 
 test "big.int div multi>2-single" {
-    const op1 = 0xfefefefefefefefefefefefefefefefe;
-    const op2 = 0xefab8;
+    var op1: u128 = 0xfefefefefefefefefefefefefefefefe;
+    var op2: u128 = 0xefab8;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1981,22 +1981,22 @@ test "big.int shift-right negative" {
     var arg = try Managed.initSet(testing.allocator, -20);
     defer arg.deinit();
     try a.shiftRight(&arg, 2);
-    try testing.expect((try a.to(i32)) == -20 >> 2);
+    try testing.expect((try a.to(i32)) == -5); // -20 >> 2 == -5
 
     var arg2 = try Managed.initSet(testing.allocator, -5);
     defer arg2.deinit();
     try a.shiftRight(&arg2, 10);
-    try testing.expect((try a.to(i32)) == -5 >> 10);
+    try testing.expect((try a.to(i32)) == -1); // -5 >> 10 == -1
 }
 
-test "big.int shift-left negative" {
+test "big.int shift-right negative" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
     var arg = try Managed.initSet(testing.allocator, -10);
     defer arg.deinit();
     try a.shiftRight(&arg, 1232);
-    try testing.expect((try a.to(i32)) == -10 >> 1232);
+    try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
 }
 
 test "big.int sat shift-left simple unsigned" {
@@ -2064,34 +2064,35 @@ test "big.int sat shift-left signed simple positive" {
 }
 
 test "big.int sat shift-left signed multi positive" {
-    const x = 1;
+    var x: SignedDoubleLimb = 1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
     try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
-    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+    try testing.expect((try a.to(SignedDoubleLimb)) == x <<| shift);
 }
 
 test "big.int sat shift-left signed multi negative" {
-    const x = -1;
+    var x: SignedDoubleLimb = -1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
     try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
-    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+    try testing.expect((try a.to(SignedDoubleLimb)) == x <<| shift);
 }
 
 test "big.int bitNotWrap unsigned simple" {
-    var a = try Managed.initSet(testing.allocator, 123);
+    var x: u10 = 123;
+    var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
 
     try a.bitNotWrap(&a, .unsigned, 10);
 
-    try testing.expect((try a.to(u10)) == ~@as(u10, 123));
+    try testing.expect((try a.to(u10)) == ~x);
 }
 
 test "big.int bitNotWrap unsigned multi" {
@@ -2104,12 +2105,13 @@ test "big.int bitNotWrap unsigned multi" {
 }
 
 test "big.int bitNotWrap signed simple" {
+    var x: i11 = -456;
     var a = try Managed.initSet(testing.allocator, -456);
     defer a.deinit();
 
     try a.bitNotWrap(&a, .signed, 11);
 
-    try testing.expect((try a.to(i11)) == ~@as(i11, -456));
+    try testing.expect((try a.to(i11)) == ~x);
 }
 
 test "big.int bitNotWrap signed multi" {
@@ -2232,14 +2234,16 @@ test "big.int bitwise xor simple" {
 }
 
 test "big.int bitwise xor multi-limb" {
-    var a = try Managed.initSet(testing.allocator, maxInt(Limb) + 1);
+    var x: DoubleLimb = maxInt(Limb) + 1;
+    var y: DoubleLimb = maxInt(Limb);
+    var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, maxInt(Limb));
+    var b = try Managed.initSet(testing.allocator, y);
     defer b.deinit();
 
     try a.bitXor(&a, &b);
 
-    try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
+    try testing.expect((try a.to(DoubleLimb)) == x ^ y);
 }
 
 test "big.int bitwise xor single negative simple" {
@@ -2327,7 +2331,6 @@ test "big.int bitwise or multi-limb" {
 
     try a.bitOr(&a, &b);
 
-    // TODO: big.int.cpp or is wrong on multi-limb.
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
 }
 
