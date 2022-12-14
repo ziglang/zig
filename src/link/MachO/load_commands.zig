@@ -323,3 +323,12 @@ pub fn writeSourceVersionLC(ncmds: *u32, lc_writer: anytype) !void {
     });
     ncmds.* += 1;
 }
+
+pub fn writeUuidLC(uuid: *const [16]u8, ncmds: *u32, lc_writer: anytype) !void {
+    var uuid_lc = macho.uuid_command{
+        .cmdsize = @sizeOf(macho.uuid_command),
+        .uuid = uuid.*,
+    };
+    try lc_writer.writeStruct(uuid_lc);
+    ncmds.* += 1;
+}

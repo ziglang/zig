@@ -593,6 +593,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/fat.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/load_commands.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/thunks.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/uuid.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/zld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"

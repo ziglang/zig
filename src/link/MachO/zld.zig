@@ -16,6 +16,7 @@ const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
+const uuid = @import("uuid.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -3986,6 +3987,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         var lc_buffer = std.ArrayList(u8).init(arena);
         const lc_writer = lc_buffer.writer();
+
         var ncmds: u32 = 0;
 
         try zld.writeLinkeditSegmentData(&ncmds, lc_writer, reverse_lookups);
@@ -4030,15 +4032,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try load_commands.writeSourceVersionLC(&ncmds, lc_writer);
         try load_commands.writeBuildVersionLC(zld.options, &ncmds, lc_writer);
 
-        {
-            var uuid_lc = macho.uuid_command{
-                .cmdsize = @sizeOf(macho.uuid_command),
-                .uuid = undefined,
-            };
-            std.crypto.random.bytes(&uuid_lc.uuid);
-            try lc_writer.writeStruct(uuid_lc);
-            ncmds += 1;
-        }
+        // Looking forward into the future, we will want to offer `-no_uuid` support in which case
+        // there will be nothing to backpatch.
+        const uuid_offset_backpatch: ?usize = blk: {
+            const index = lc_buffer.items.len;
+            var uuid_buf: [16]u8 = [_]u8{0} ** 16;
+            try load_commands.writeUuidLC(&uuid_buf, &ncmds, lc_writer);
+            break :blk index;
+        };
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), &ncmds, lc_writer);
 
@@ -4070,6 +4071,15 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.file.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
         try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
+
+        if (uuid_offset_backpatch) |backpatch| {
+            const seg = zld.getLinkeditSegmentPtr();
+            const file_size = seg.fileoff + seg.filesize;
+            var uuid_buf: [16]u8 = undefined;
+            try uuid.calcMd5Hash(zld.gpa, zld.file, file_size, &uuid_buf);
+            const offset = @sizeOf(macho.mach_header_64) + headers_buf.items.len + backpatch + @sizeOf(macho.load_command);
+            try zld.file.pwriteAll(&uuid_buf, offset);
+        }
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig, codesig_offset.?); // code signing always comes last
