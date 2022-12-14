@@ -28462,10 +28462,12 @@ fn cmpNumeric(
             if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
                 // Compare ints: const vs. undefined (or vice versa)
                 if (!lhs_val.isUndef() and (lhs_ty.isInt() or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt() and rhs_val.isUndef()) {
+                    try sema.resolveLazyValue(lhs_val);
                     if (sema.compareIntsOnlyPossibleResult(target, lhs_val, op, rhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
                 } else if (!rhs_val.isUndef() and (rhs_ty.isInt() or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt() and lhs_val.isUndef()) {
+                    try sema.resolveLazyValue(rhs_val);
                     if (sema.compareIntsOnlyPossibleResult(target, rhs_val, op.reverse(), lhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
@@ -28489,6 +28491,7 @@ fn cmpNumeric(
             } else {
                 if (!lhs_val.isUndef() and (lhs_ty.isInt() or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt()) {
                     // Compare ints: const vs. var
+                    try sema.resolveLazyValue(lhs_val);
                     if (sema.compareIntsOnlyPossibleResult(target, lhs_val, op, rhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
@@ -28499,6 +28502,7 @@ fn cmpNumeric(
             if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
                 if (!rhs_val.isUndef() and (rhs_ty.isInt() or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt()) {
                     // Compare ints: var vs. const
+                    try sema.resolveLazyValue(rhs_val);
                     if (sema.compareIntsOnlyPossibleResult(target, rhs_val, op.reverse(), lhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
