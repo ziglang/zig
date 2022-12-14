@@ -1897,13 +1897,13 @@ pub const OffsetOfNode_Kind = enum(c_int) {
     Base,
 };
 
-pub const Stage2ErrorMsg = extern struct {
+pub const ErrorMsg = extern struct {
     filename_ptr: ?[*]const u8,
     filename_len: usize,
     msg_ptr: [*]const u8,
     msg_len: usize,
     // valid until the ASTUnit is freed
-    source: ?[*]const u8,
+    source: ?[*:0]const u8,
     // 0 based
     line: c_uint,
     // 0 based
@@ -1912,14 +1912,14 @@ pub const Stage2ErrorMsg = extern struct {
     offset: c_uint,
 
     pub const delete = ZigClangErrorMsg_delete;
-    extern fn ZigClangErrorMsg_delete(ptr: [*]Stage2ErrorMsg, len: usize) void;
+    extern fn ZigClangErrorMsg_delete(ptr: [*]ErrorMsg, len: usize) void;
 };
 
 pub const LoadFromCommandLine = ZigClangLoadFromCommandLine;
 extern fn ZigClangLoadFromCommandLine(
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    errors_ptr: *[*]Stage2ErrorMsg,
+    errors_ptr: *[*]ErrorMsg,
     errors_len: *usize,
     resources_path: [*:0]const u8,
 ) ?*ASTUnit;

@@ -1465,3 +1465,12 @@ test "Namespace-like union" {
     var a: DepType.Version.Git = .tag;
     try expect(a.frozen());
 }
+
+test "union int tag type is properly managed" {
+    const Bar = union(enum(u2)) {
+        x: bool,
+        y: u8,
+        z: u8,
+    };
+    try expect(@sizeOf(Bar) + 1 == 3);
+}

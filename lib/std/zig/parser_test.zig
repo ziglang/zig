@@ -4212,6 +4212,18 @@ test "zig fmt: remove newlines surrounding doc comment within container decl" {
 
 test "zig fmt: invalid else branch statement" {
     try testError(
+        \\/// This is a doc comment for a comptime block.
+        \\comptime {}
+        \\/// This is a doc comment for a test
+        \\test "This is my test" {}
+    , &[_]Error{
+        .comptime_doc_comment,
+        .test_doc_comment,
+    });
+}
+
+test "zig fmt: invalid else branch statement" {
+    try testError(
         \\comptime {
         \\    if (true) {} else var a = 0;
         \\    if (true) {} else defer {}

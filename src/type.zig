@@ -177,8 +177,9 @@ pub const Type = extern union {
             .Float,
             .ComptimeFloat,
             .ComptimeInt,
-            .Vector, // TODO some vectors require is_equality_cmp==true
             => true,
+
+            .Vector => ty.elemType2().isSelfComparable(is_equality_cmp),
 
             .Bool,
             .Type,
