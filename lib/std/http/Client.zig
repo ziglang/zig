@@ -59,7 +59,7 @@ pub const Request = struct {
 
 pub fn deinit(client: *Client) void {
     assert(client.active_requests == 0);
-    client.headers.denit(client.allocator);
+    client.headers.deinit(client.allocator);
     client.* = undefined;
 }
 
@@ -69,6 +69,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
         .stream = try net.tcpConnectToHost(client.allocator, options.host, options.port),
         .protocol = options.protocol,
     };
+    client.active_requests += 1;
     errdefer req.deinit();
 
     switch (options.protocol) {
@@ -100,7 +101,6 @@ pub fn request(client: *Client, options: Request.Options) !Request {
     }
     req.headers.appendSliceAssumeCapacity(client.headers.items);
 
-    client.active_requests += 1;
     return req;
 }
 
