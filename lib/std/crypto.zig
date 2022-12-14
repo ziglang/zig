@@ -177,9 +177,6 @@ const std = @import("std.zig");
 pub const errors = @import("crypto/errors.zig");
 
 test {
-    const please_windows_dont_oom = @import("builtin").os.tag == .windows;
-    if (please_windows_dont_oom) return error.SkipZigTest;
-
     _ = aead.aegis.Aegis128L;
     _ = aead.aegis.Aegis256;
 
