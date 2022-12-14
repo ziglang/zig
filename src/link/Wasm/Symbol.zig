@@ -38,7 +38,7 @@ pub const Tag = enum {
         return switch (tag) {
             .function => .function,
             .global => .global,
-            .data => .memory,
+            .data => unreachable, // Data symbols will generate a global
             .section => unreachable, // Not an external type
             .event => unreachable, // Not an external type
             .dead => unreachable, // Dead symbols should not be referenced

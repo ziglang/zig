@@ -112,6 +112,8 @@ func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
 functions: std.AutoArrayHashMapUnmanaged(struct { file: ?u16, index: u32 }, std.wasm.Func) = .{},
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(std.wasm.Global) = .{},
+/// Global symbols for exported data symbols
+address_globals: std.ArrayListUnmanaged(SymbolLoc) = .{},
 /// Memory section
 memories: std.wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
 /// Output table section
@@ -839,6 +841,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.func_types.deinit(gpa);
     wasm.functions.deinit(gpa);
     wasm.wasm_globals.deinit(gpa);
+    wasm.address_globals.deinit(gpa);
     wasm.function_table.deinit(gpa);
     wasm.tables.deinit(gpa);
     wasm.exports.deinit(gpa);
@@ -1804,7 +1807,15 @@ fn setupExports(wasm: *Wasm) !void {
             if (sym_loc.file == null) break :blk symbol.name;
             break :blk try wasm.string_table.put(wasm.base.allocator, sym_name);
         };
-        const exp: types.Export = .{
+        const exp: types.Export = if (symbol.tag == .data) exp: {
+            const global_index = @intCast(u32, wasm.wasm_globals.items.len + wasm.address_globals.items.len);
+            try wasm.address_globals.append(wasm.base.allocator, sym_loc);
+            break :exp .{
+                .name = export_name,
+                .kind = .global,
+                .index = global_index,
+            };
+        } else .{
             .name = export_name,
             .kind = symbol.tag.externalType(),
             .index = symbol.index,
@@ -2473,10 +2484,22 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     if (wasm.wasm_globals.items.len > 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
+        var global_count: u32 = 0;
         for (wasm.wasm_globals.items) |global| {
             try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
             try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
             try emitInit(binary_writer, global.init);
+            global_count += 1;
+        }
+
+        for (wasm.address_globals.items) |sym_loc| {
+            const atom = wasm.symbol_atom.get(sym_loc).?;
+            try binary_writer.writeByte(std.wasm.valtype(.i32));
+            try binary_writer.writeByte(0); // immutable
+            try emitInit(binary_writer, .{
+                .i32_const = @bitCast(i32, atom.offset),
+            });
+            global_count += 1;
         }
 
         try writeVecSectionHeader(
@@ -2484,7 +2507,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
             header_offset,
             .global,
             @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.wasm_globals.items.len),
+            @intCast(u32, global_count),
         );
         section_count += 1;
     }
@@ -2990,10 +3013,22 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     if (wasm.wasm_globals.items.len > 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
+        var global_count: u32 = 0;
         for (wasm.wasm_globals.items) |global| {
             try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
             try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
             try emitInit(binary_writer, global.init);
+            global_count += 1;
+        }
+
+        for (wasm.address_globals.items) |sym_loc| {
+            const atom = wasm.symbol_atom.get(sym_loc).?;
+            try binary_writer.writeByte(std.wasm.valtype(.i32));
+            try binary_writer.writeByte(0); // immutable
+            try emitInit(binary_writer, .{
+                .i32_const = @bitCast(i32, atom.offset),
+            });
+            global_count += 1;
         }
 
         try writeVecSectionHeader(
@@ -3001,7 +3036,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             header_offset,
             .global,
             @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.wasm_globals.items.len),
+            @intCast(u32, global_count),
         );
         section_count += 1;
     }
