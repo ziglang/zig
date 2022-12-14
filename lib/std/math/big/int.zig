@@ -1176,15 +1176,26 @@ pub const Mutable = struct {
     /// `a.limbs.len - (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftRight(r: *Mutable, a: Const, shift: usize) void {
         if (a.limbs.len <= shift / limb_bits) {
-            r.len = 1;
-            r.positive = true;
-            r.limbs[0] = 0;
+            // Shifting negative numbers converges to -1 instead of 0
+            if (a.positive) {
+                r.len = 1;
+                r.positive = true;
+                r.limbs[0] = 0;
+            } else {
+                r.len = 1;
+                r.positive = false;
+                r.limbs[0] = 1;
+            }
             return;
         }
 
         llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
         r.normalize(a.limbs.len - (shift / limb_bits));
         r.positive = a.positive;
+        // Shifting negative numbers converges to -1 instead of 0
+        if (!r.positive and r.len == 1 and r.limbs[0] == 0) {
+            r.limbs[0] = 1;
+        }
     }
 
     /// r = ~a under 2s complement wrapping semantics.
@@ -2974,8 +2985,15 @@ pub const Managed = struct {
     /// r and a may alias.
     pub fn shiftRight(r: *Managed, a: *const Managed, shift: usize) !void {
         if (a.len() <= shift / limb_bits) {
-            r.metadata = 1;
-            r.limbs[0] = 0;
+            // Shifting negative numbers converges to -1 instead of 0
+            if (a.isPositive()) {
+                r.metadata = 1;
+                r.limbs[0] = 0;
+            } else {
+                r.metadata = 1;
+                r.setSign(false);
+                r.limbs[0] = 1;
+            }
             return;
         }
 
