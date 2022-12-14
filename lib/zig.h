@@ -1341,28 +1341,24 @@ static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
     return res;
 }
 
-// TODO: Implement
-static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs) {
-
-}
-
-// TODO: Implement
-zig_extern zig_u128 __udivmodti4(zig_u128 lhs, zig_u128 rhs, zig_u128* rem);
+zig_extern zig_u128 __udivti3(zig_u128 lhs, zig_u128 rhs);
 static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs) {
-    zig_u128 rem;
-    return __udivmodti4(lhs, rhs, &rem);
+    return __udivti3(lhs, rhs);
 };
 
-// TODO: Implement
-zig_extern zig_i128 __modti3(zig_i128 lhs, zig_i128 rhs);
-static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
-    return __modti3(lhs, rhs);
-}
+zig_extern zig_i128 __divti3(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_div_trunc_i128(zig_i128 lhs, zig_i128 rhs) {
+    return __divti3(lhs, rhs);
+};
 
-// TODO: Implement
 zig_extern zig_u128 __umodti3(zig_u128 lhs, zig_u128 rhs);
 static zig_u128 zig_rem_u128(zig_u128 lhs, zig_u128 rhs) {
     return __umodti3(lhs, rhs);
+}
+
+zig_extern zig_i128 __modti3(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
+    return __modti3(lhs, rhs);
 }
 
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
@@ -1669,6 +1665,8 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define __builtin_nanf(str) nanf(str)
 #define __builtin_nanl(str) nanl(str)
 #define __builtin_inf() zig_msvc_flt_inf
+#define __builtin_inff() zig_msvc_flt_inff
+#define __builtin_infl() zig_msvc_flt_infl
 #endif
 
 #define zig_has_f16 1
