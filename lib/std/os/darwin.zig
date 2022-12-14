@@ -17,11 +17,120 @@ const mach_task = if (builtin.target.isDarwin()) struct {
         Unexpected,
     };
 
-    pub const MachTask = struct {
+    pub const MachTask = extern struct {
         port: std.c.mach_port_name_t,
 
         pub fn isValid(self: MachTask) bool {
-            return self.port != 0;
+            return self.port != std.c.TASK_NULL;
+        }
+
+        pub fn pidForTask(self: MachTask) MachError!std.os.pid_t {
+            var pid: std.os.pid_t = undefined;
+            switch (std.c.getKernError(std.c.pid_for_task(self.port, &pid))) {
+                .SUCCESS => return pid,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("pid_for_task kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn allocatePort(self: MachTask, right: std.c.MACH_PORT_RIGHT) MachError!MachTask {
+            var out_port: std.c.mach_port_name_t = undefined;
+            switch (std.c.getKernError(std.c.mach_port_allocate(
+                self.port,
+                @enumToInt(right),
+                &out_port,
+            ))) {
+                .SUCCESS => return .{ .port = out_port },
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("mach_task_allocate kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn deallocatePort(self: MachTask, port: MachTask) void {
+            _ = std.c.getKernError(std.c.mach_port_deallocate(self.port, port.port));
+        }
+
+        pub fn insertRight(self: MachTask, port: MachTask, msg: std.c.MACH_MSG_TYPE) !void {
+            switch (std.c.getKernError(std.c.mach_port_insert_right(
+                self.port,
+                port.port,
+                port.port,
+                @enumToInt(msg),
+            ))) {
+                .SUCCESS => return,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("mach_port_insert_right kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub const PortInfo = struct {
+            mask: std.c.exception_mask_t,
+            masks: [std.c.EXC_TYPES_COUNT]std.c.exception_mask_t,
+            ports: [std.c.EXC_TYPES_COUNT]std.c.mach_port_t,
+            behaviors: [std.c.EXC_TYPES_COUNT]std.c.exception_behavior_t,
+            flavors: [std.c.EXC_TYPES_COUNT]std.c.thread_state_flavor_t,
+            count: std.c.mach_msg_type_number_t,
+        };
+
+        pub fn getExceptionPorts(self: MachTask, mask: std.c.exception_mask_t) !PortInfo {
+            var info = PortInfo{
+                .mask = mask,
+                .masks = undefined,
+                .ports = undefined,
+                .behaviors = undefined,
+                .flavors = undefined,
+                .count = 0,
+            };
+            info.count = info.ports.len / @sizeOf(std.c.mach_port_t);
+
+            switch (std.c.getKernError(std.c.task_get_exception_ports(
+                self.port,
+                info.mask,
+                &info.masks,
+                &info.count,
+                &info.ports,
+                &info.behaviors,
+                &info.flavors,
+            ))) {
+                .SUCCESS => return info,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("task_get_exception_ports kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn setExceptionPorts(
+            self: MachTask,
+            mask: std.c.exception_mask_t,
+            new_port: MachTask,
+            behavior: std.c.exception_behavior_t,
+            new_flavor: std.c.thread_state_flavor_t,
+        ) !void {
+            switch (std.c.getKernError(std.c.task_set_exception_ports(
+                self.port,
+                mask,
+                new_port.port,
+                behavior,
+                new_flavor,
+            ))) {
+                .SUCCESS => return,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("task_set_exception_ports kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
         }
 
         pub const RegionInfo = struct {
@@ -300,6 +409,110 @@ const mach_task = if (builtin.target.isDarwin()) struct {
                 .SUCCESS => return page_size,
                 else => |err| {
                     log.err("_host_page_size kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn basicTaskInfo(task: MachTask) MachError!std.c.mach_task_basic_info {
+            var info: std.c.mach_task_basic_info = undefined;
+            var count = std.c.MACH_TASK_BASIC_INFO_COUNT;
+            switch (std.c.getKernError(std.c.task_info(
+                task.port,
+                std.c.MACH_TASK_BASIC_INFO,
+                @ptrCast(std.c.task_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("task_info kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn @"resume"(task: MachTask) MachError!void {
+            switch (std.c.getKernError(std.c.task_resume(task.port))) {
+                .SUCCESS => {},
+                else => |err| {
+                    log.err("task_resume kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn @"suspend"(task: MachTask) MachError!void {
+            switch (std.c.getKernError(std.c.task_suspend(task.port))) {
+                .SUCCESS => {},
+                else => |err| {
+                    log.err("task_suspend kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        const ThreadList = struct {
+            buf: []MachThread,
+
+            pub fn deinit(list: ThreadList) void {
+                const self_task = machTaskForSelf();
+                _ = std.c.vm_deallocate(
+                    self_task.port,
+                    @ptrToInt(list.buf.ptr),
+                    @intCast(std.c.vm_size_t, list.buf.len * @sizeOf(std.c.mach_port_t)),
+                );
+            }
+        };
+
+        pub fn getThreads(task: MachTask) MachError!ThreadList {
+            var thread_list: std.c.mach_port_array_t = undefined;
+            var thread_count: std.c.mach_msg_type_number_t = undefined;
+            switch (std.c.getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
+                .SUCCESS => return ThreadList{ .buf = @ptrCast([*]MachThread, thread_list)[0..thread_count] },
+                else => |err| {
+                    log.err("task_threads kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+    };
+
+    pub const MachThread = extern struct {
+        port: std.c.mach_port_t,
+
+        pub fn isValid(thread: MachThread) bool {
+            return thread.port != std.c.THREAD_NULL;
+        }
+
+        pub fn getBasicInfo(thread: MachThread) MachError!std.c.thread_basic_info {
+            var info: std.c.thread_basic_info = undefined;
+            var count = std.c.THREAD_BASIC_INFO_COUNT;
+            switch (std.c.getKernError(std.c.thread_info(
+                thread.port,
+                std.c.THREAD_BASIC_INFO,
+                @ptrCast(std.c.thread_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("thread_info kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn getIdentifierInfo(thread: MachThread) MachError!std.c.thread_identifier_info {
+            var info: std.c.thread_identifier_info = undefined;
+            var count = std.c.THREAD_IDENTIFIER_INFO_COUNT;
+            switch (std.c.getKernError(std.c.thread_info(
+                thread.port,
+                std.c.THREAD_IDENTIFIER_INFO,
+                @ptrCast(std.c.thread_info_t, &info),
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                else => |err| {
+                    log.err("thread_info kernel call failed with error code: {s}", .{@tagName(err)});
                     return error.Unexpected;
                 },
             }

@@ -15,6 +15,131 @@ const arch_bits = switch (native_arch) {
     else => struct {},
 };
 
+pub const EXC_TYPES_COUNT = arch_bits.EXC_TYPES_COUNT;
+pub const THREAD_STATE_NONE = arch_bits.THREAD_STATE_NONE;
+
+pub const EXC = enum(exception_type_t) {
+    NULL = 0,
+    /// Could not access memory
+    BAD_ACCESS = 1,
+    /// Instruction failed
+    BAD_INSTRUCTION = 2,
+    /// Arithmetic exception
+    ARITHMETIC = 3,
+    /// Emulation instruction
+    EMULATION = 4,
+    /// Software generated exception
+    SOFTWARE = 5,
+    /// Trace, breakpoint, etc.
+    BREAKPOINT = 6,
+    /// System calls.
+    SYSCALL = 7,
+    /// Mach system calls.
+    MACH_SYSCALL = 8,
+    /// RPC alert
+    RPC_ALERT = 9,
+    /// Abnormal process exit
+    CRASH = 10,
+    /// Hit resource consumption limit
+    RESOURCE = 11,
+    /// Violated guarded resource protections
+    GUARD = 12,
+    /// Abnormal process exited to corpse state
+    CORPSE_NOTIFY = 13,
+};
+
+pub const EXC_SOFT_SIGNAL = 0x10003;
+
+pub const EXC_MASK_BAD_ACCESS = 1 << @enumToInt(EXC.BAD_ACCESS);
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << @enumToInt(EXC.BAD_INSTRUCTION);
+pub const EXC_MASK_ARITHMETIC = 1 << @enumToInt(EXC.ARITHMETIC);
+pub const EXC_MASK_EMULATION = 1 << @enumToInt(EXC.EMULATION);
+pub const EXC_MASK_SOFTWARE = 1 << @enumToInt(EXC.SOFTWARE);
+pub const EXC_MASK_BREAKPOINT = 1 << @enumToInt(EXC.BREAKPOINT);
+pub const EXC_MASK_SYSCALL = 1 << @enumToInt(EXC.SYSCALL);
+pub const EXC_MASK_MACH_SYSCALL = 1 << @enumToInt(EXC.MACH_SYSCALL);
+pub const EXC_MASK_RPC_ALERT = 1 << @enumToInt(EXC.RPC_ALERT);
+pub const EXC_MASK_CRASH = 1 << @enumToInt(EXC.CRASH);
+pub const EXC_MASK_RESOURCE = 1 << @enumToInt(EXC.RESOURCE);
+pub const EXC_MASK_GUARD = 1 << @enumToInt(EXC.GUARD);
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << @enumToInt(EXC.CORPSE_NOTIFY);
+pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
+
+pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
+    EXC_MASK_BAD_INSTRUCTION |
+    EXC_MASK_ARITHMETIC |
+    EXC_MASK_EMULATION |
+    EXC_MASK_SOFTWARE |
+    EXC_MASK_BREAKPOINT |
+    EXC_MASK_SYSCALL |
+    EXC_MASK_MACH_SYSCALL |
+    EXC_MASK_RPC_ALERT |
+    EXC_MASK_RESOURCE |
+    EXC_MASK_GUARD |
+    EXC_MASK_MACHINE;
+
+/// Send a catch_exception_raise message including the identity.
+pub const EXCEPTION_DEFAULT = 1;
+/// Send a catch_exception_raise_state message including the
+/// thread state.
+pub const EXCEPTION_STATE = 2;
+/// Send a catch_exception_raise_state_identity message including
+/// the thread identity and state.
+pub const EXCEPTION_STATE_IDENTITY = 3;
+/// Send a catch_exception_raise_identity_protected message including protected task
+/// and thread identity.
+pub const EXCEPTION_IDENTITY_PROTECTED = 4;
+/// Prefer sending a catch_exception_raice_backtrace message, if applicable.
+pub const MACH_EXCEPTION_BACKTRACE_PREFERRED = 0x20000000;
+/// include additional exception specific errors, not used yet.
+pub const MACH_EXCEPTION_ERRORS = 0x40000000;
+/// Send 64-bit code and subcode in the exception header */
+pub const MACH_EXCEPTION_CODES = 0x80000000;
+
+pub const MACH_EXCEPTION_MASK = MACH_EXCEPTION_CODES |
+    MACH_EXCEPTION_ERRORS |
+    MACH_EXCEPTION_BACKTRACE_PREFERRED;
+
+pub const TASK_NULL: task_t = 0;
+pub const THREAD_NULL: thread_t = 0;
+pub const MACH_PORT_NULL: mach_port_t = 0;
+pub const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
+
+pub const MACH_MSG_OPTION_NONE = 0x00000000;
+
+pub const MACH_SEND_MSG = 0x00000001;
+pub const MACH_RCV_MSG = 0x00000002;
+
+pub const MACH_RCV_LARGE = 0x00000004;
+pub const MACH_RCV_LARGE_IDENTITY = 0x00000008;
+
+pub const MACH_SEND_TIMEOUT = 0x00000010;
+pub const MACH_SEND_OVERRIDE = 0x00000020;
+pub const MACH_SEND_INTERRUPT = 0x00000040;
+pub const MACH_SEND_NOTIFY = 0x00000080;
+pub const MACH_SEND_ALWAYS = 0x00010000;
+pub const MACH_SEND_FILTER_NONFATAL = 0x00010000;
+pub const MACH_SEND_TRAILER = 0x00020000;
+pub const MACH_SEND_NOIMPORTANCE = 0x00040000;
+pub const MACH_SEND_NODENAP = MACH_SEND_NOIMPORTANCE;
+pub const MACH_SEND_IMPORTANCE = 0x00080000;
+pub const MACH_SEND_SYNC_OVERRIDE = 0x00100000;
+pub const MACH_SEND_PROPAGATE_QOS = 0x00200000;
+pub const MACH_SEND_SYNC_USE_THRPRI = MACH_SEND_PROPAGATE_QOS;
+pub const MACH_SEND_KERNEL = 0x00400000;
+pub const MACH_SEND_SYNC_BOOTSTRAP_CHECKIN = 0x00800000;
+
+pub const MACH_RCV_TIMEOUT = 0x00000100;
+pub const MACH_RCV_NOTIFY = 0x00000000;
+pub const MACH_RCV_INTERRUPT = 0x00000400;
+pub const MACH_RCV_VOUCHER = 0x00000800;
+pub const MACH_RCV_OVERWRITE = 0x00000000;
+pub const MACH_RCV_GUARDED_DESC = 0x00001000;
+pub const MACH_RCV_SYNC_WAIT = 0x00004000;
+pub const MACH_RCV_SYNC_PEEK = 0x00008000;
+
+pub const MACH_MSG_STRICT_REPLY = 0x00000200;
+
 pub const ucontext_t = extern struct {
     onstack: c_int,
     sigmask: sigset_t,
@@ -155,6 +280,11 @@ pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
 
+pub const exception_type_t = c_int;
+pub const exception_data_type_t = integer_t;
+pub const exception_data_t = ?*mach_exception_data_type_t;
+pub const mach_exception_data_type_t = i64;
+pub const mach_exception_data_t = ?*mach_exception_data_type_t;
 pub const vm_map_t = mach_port_t;
 pub const vm_map_read_t = mach_port_t;
 pub const vm_region_flavor_t = c_int;
@@ -163,12 +293,114 @@ pub const vm_region_recurse_info_t = *c_int;
 pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
 pub const mach_vm_size_t = u64;
+pub const mach_msg_bits_t = c_uint;
+pub const mach_msg_id_t = integer_t;
 pub const mach_msg_type_number_t = natural_t;
+pub const mach_msg_type_name_t = c_uint;
+pub const mach_msg_option_t = integer_t;
+pub const mach_msg_size_t = natural_t;
+pub const mach_msg_timeout_t = natural_t;
+pub const mach_port_right_t = natural_t;
+pub const task_t = mach_port_t;
+pub const thread_port_t = task_t;
+pub const thread_t = thread_port_t;
+pub const exception_mask_t = c_uint;
+pub const exception_mask_array_t = [*]exception_mask_t;
+pub const exception_handler_t = mach_port_t;
+pub const exception_handler_array_t = [*]exception_handler_t;
+pub const exception_port_t = exception_handler_t;
+pub const exception_port_array_t = exception_handler_array_t;
+pub const exception_flavor_array_t = [*]thread_state_flavor_t;
+pub const exception_behavior_t = c_uint;
+pub const exception_behavior_array_t = [*]exception_behavior_t;
+pub const thread_state_flavor_t = c_int;
+pub const ipc_space_t = mach_port_t;
+pub const ipc_space_port_t = ipc_space_t;
+
+pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
+    SEND = 0,
+    RECEIVE = 1,
+    SEND_ONCE = 2,
+    PORT_SET = 3,
+    DEAD_NAME = 4,
+    /// Obsolete right
+    LABELH = 5,
+    /// Right not implemented
+    NUMBER = 6,
+};
+
+pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
+    /// Must hold receive right
+    MOVE_RECEIVE = 16,
+
+    /// Must hold send right(s)
+    MOVE_SEND = 17,
+
+    /// Must hold sendonce right
+    MOVE_SEND_ONCE = 18,
+
+    /// Must hold send right(s)
+    COPY_SEND = 19,
+
+    /// Must hold receive right
+    MAKE_SEND = 20,
+
+    /// Must hold receive right
+    MAKE_SEND_ONCE = 21,
+
+    /// NOT VALID
+    COPY_RECEIVE = 22,
+
+    /// Must hold receive right
+    DISPOSE_RECEIVE = 24,
+
+    /// Must hold send right(s)
+    DISPOSE_SEND = 25,
+
+    /// Must hold sendonce right
+    DISPOSE_SEND_ONCE = 26,
+};
 
 extern "c" var mach_task_self_: mach_port_t;
 pub fn mach_task_self() callconv(.C) mach_port_t {
     return mach_task_self_;
 }
+
+pub extern "c" fn mach_msg(
+    msg: ?*mach_msg_header_t,
+    option: mach_msg_option_t,
+    send_size: mach_msg_size_t,
+    rcv_size: mach_msg_size_t,
+    rcv_name: mach_port_name_t,
+    timeout: mach_msg_timeout_t,
+    notify: mach_port_name_t,
+) kern_return_t;
+
+pub const mach_msg_header_t = extern struct {
+    msgh_bits: mach_msg_bits_t,
+    msgh_size: mach_msg_size_t,
+    msgh_remote_port: mach_port_t,
+    msgh_local_port: mach_port_t,
+    msgh_voucher_port: mach_port_name_t,
+    msgh_id: mach_msg_id_t,
+};
+
+pub extern "c" fn task_get_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    masks: exception_mask_array_t,
+    masks_cnt: *mach_msg_type_number_t,
+    old_handlers: exception_handler_array_t,
+    old_behaviors: exception_behavior_array_t,
+    old_flavors: exception_flavor_array_t,
+) kern_return_t;
+pub extern "c" fn task_set_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    new_port: mach_port_t,
+    behavior: exception_behavior_t,
+    new_flavor: thread_state_flavor_t,
+) kern_return_t;
 
 pub const task_read_t = mach_port_t;
 
@@ -176,6 +408,7 @@ pub extern "c" fn task_resume(target_task: task_read_t) kern_return_t;
 pub extern "c" fn task_suspend(target_task: task_read_t) kern_return_t;
 
 pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn pid_for_task(target_tport: mach_port_name_t, pid: *pid_t) kern_return_t;
 pub extern "c" fn mach_vm_read(
     target_task: vm_map_read_t,
     address: mach_vm_address_t,
@@ -343,7 +576,7 @@ pub const vm_region_submap_short_info_64 = extern struct {
 
 pub const thread_act_t = mach_port_t;
 pub const thread_state_t = *natural_t;
-pub const mach_port_array_t = *mach_port_t;
+pub const mach_port_array_t = [*]mach_port_t;
 
 pub extern "c" fn task_threads(
     target_task: mach_port_t,
@@ -372,6 +605,9 @@ pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
 
 pub const THREAD_BASIC_INFO = 3;
 pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
+
+pub const THREAD_IDENTIFIER_INFO = 4;
+pub const THREAD_IDENTIFIER_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_identifier_info) / @sizeOf(natural_t);
 
 pub const thread_flavor_t = natural_t;
 pub const thread_info_t = *integer_t;
@@ -402,6 +638,17 @@ pub const thread_basic_info = extern struct {
     suspend_count: integer_t,
     // number of seconds that thread has been sleeping
     sleep_time: integer_t,
+};
+
+pub const thread_identifier_info = extern struct {
+    /// System-wide unique 64-bit thread id
+    thread_id: u64,
+
+    /// Handle to be used by libproc
+    thread_handle: u64,
+
+    /// libdispatch queue address
+    dispatch_qaddr: u64,
 };
 
 /// Cachability
@@ -506,7 +753,18 @@ pub extern "c" fn mach_vm_protect(
     new_protection: vm_prot_t,
 ) kern_return_t;
 
-pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_allocate(
+    task: ipc_space_t,
+    right: mach_port_right_t,
+    name: *mach_port_name_t,
+) kern_return_t;
+pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_insert_right(
+    task: ipc_space_t,
+    name: mach_port_name_t,
+    poly: mach_port_t,
+    poly_poly: mach_msg_type_name_t,
+) kern_return_t;
 
 pub extern "c" fn task_info(
     target_task: task_name_t,
@@ -514,6 +772,30 @@ pub extern "c" fn task_info(
     task_info_out: task_info_t,
     task_info_outCnt: *mach_msg_type_number_t,
 ) kern_return_t;
+
+pub const mach_task_basic_info = extern struct {
+    /// Virtual memory size (bytes)
+    virtual_size: mach_vm_size_t,
+
+    /// Resident memory size (bytes)
+    resident_size: mach_vm_size_t,
+
+    /// Total user run time for terminated threads
+    user_time: time_value_t,
+
+    /// Total system run time for terminated threads
+    system_time: time_value_t,
+
+    /// Default policy for new threads
+    policy: policy_t,
+
+    /// Suspend count for task
+    suspend_count: mach_vm_size_t,
+};
+
+pub const MACH_TASK_BASIC_INFO = 20;
+pub const MACH_TASK_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(mach_task_basic_info) / @sizeOf(natural_t);
+
 pub extern "c" fn _host_page_size(task: mach_port_t, size: *vm_size_t) kern_return_t;
 pub extern "c" fn vm_deallocate(target_task: vm_map_t, address: vm_address_t, size: vm_size_t) kern_return_t;
 pub extern "c" fn vm_machine_attribute(
@@ -1885,11 +2167,11 @@ pub const E = enum(u16) {
 };
 
 pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u8, @intCast(usize, err)));
+    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
 }
 
 /// Kernel return values
-pub const KernE = enum(u8) {
+pub const KernE = enum(u32) {
     SUCCESS = 0,
 
     /// Specified address is not currently valid
@@ -2106,6 +2388,104 @@ pub const KernE = enum(u8) {
     NOT_FOUND = 56,
 
     _,
+};
+
+pub const mach_msg_return_t = kern_return_t;
+
+pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
+    return @intToEnum(MachMsgE, @truncate(u32, @intCast(usize, err)));
+}
+
+/// All special error code bits defined below.
+pub const MACH_MSG_MASK: u32 = 0x3e00;
+/// No room in IPC name space for another capability name.
+pub const MACH_MSG_IPC_SPACE: u32 = 0x2000;
+/// No room in VM address space for out-of-line memory.
+pub const MACH_MSG_VM_SPACE: u32 = 0x1000;
+/// Kernel resource shortage handling out-of-line memory.
+pub const MACH_MSG_IPC_KERNEL: u32 = 0x800;
+/// Kernel resource shortage handling an IPC capability.
+pub const MACH_MSG_VM_KERNEL: u32 = 0x400;
+
+/// Mach msg return values
+pub const MachMsgE = enum(u32) {
+    SUCCESS = 0x00000000,
+
+    /// Thread is waiting to send.  (Internal use only.)
+    SEND_IN_PROGRESS = 0x10000001,
+    /// Bogus in-line data.
+    SEND_INVALID_DATA = 0x10000002,
+    /// Bogus destination port.
+    SEND_INVALID_DEST = 0x10000003,
+    ///  Message not sent before timeout expired.
+    SEND_TIMED_OUT = 0x10000004,
+    ///  Bogus voucher port.
+    SEND_INVALID_VOUCHER = 0x10000005,
+    ///  Software interrupt.
+    SEND_INTERRUPTED = 0x10000007,
+    ///  Data doesn't contain a complete message.
+    SEND_MSG_TOO_SMALL = 0x10000008,
+    ///  Bogus reply port.
+    SEND_INVALID_REPLY = 0x10000009,
+    ///  Bogus port rights in the message body.
+    SEND_INVALID_RIGHT = 0x1000000a,
+    ///  Bogus notify port argument.
+    SEND_INVALID_NOTIFY = 0x1000000b,
+    ///  Invalid out-of-line memory pointer.
+    SEND_INVALID_MEMORY = 0x1000000c,
+    ///  No message buffer is available.
+    SEND_NO_BUFFER = 0x1000000d,
+    ///  Send is too large for port
+    SEND_TOO_LARGE = 0x1000000e,
+    ///  Invalid msg-type specification.
+    SEND_INVALID_TYPE = 0x1000000f,
+    ///  A field in the header had a bad value.
+    SEND_INVALID_HEADER = 0x10000010,
+    ///  The trailer to be sent does not match kernel format.
+    SEND_INVALID_TRAILER = 0x10000011,
+    ///  The sending thread context did not match the context on the dest port
+    SEND_INVALID_CONTEXT = 0x10000012,
+    ///  compatibility: no longer a returned error
+    SEND_INVALID_RT_OOL_SIZE = 0x10000015,
+    ///  The destination port doesn't accept ports in body
+    SEND_NO_GRANT_DEST = 0x10000016,
+    ///  Message send was rejected by message filter
+    SEND_MSG_FILTERED = 0x10000017,
+
+    ///  Thread is waiting for receive.  (Internal use only.)
+    RCV_IN_PROGRESS = 0x10004001,
+    ///  Bogus name for receive port/port-set.
+    RCV_INVALID_NAME = 0x10004002,
+    ///  Didn't get a message within the timeout value.
+    RCV_TIMED_OUT = 0x10004003,
+    ///  Message buffer is not large enough for inline data.
+    RCV_TOO_LARGE = 0x10004004,
+    ///  Software interrupt.
+    RCV_INTERRUPTED = 0x10004005,
+    ///  compatibility: no longer a returned error
+    RCV_PORT_CHANGED = 0x10004006,
+    ///  Bogus notify port argument.
+    RCV_INVALID_NOTIFY = 0x10004007,
+    ///  Bogus message buffer for inline data.
+    RCV_INVALID_DATA = 0x10004008,
+    ///  Port/set was sent away/died during receive.
+    RCV_PORT_DIED = 0x10004009,
+    ///  compatibility: no longer a returned error
+    RCV_IN_SET = 0x1000400a,
+    ///  Error receiving message header.  See special bits.
+    RCV_HEADER_ERROR = 0x1000400b,
+    ///  Error receiving message body.  See special bits.
+    RCV_BODY_ERROR = 0x1000400c,
+    ///  Invalid msg-type specification in scatter list.
+    RCV_INVALID_TYPE = 0x1000400d,
+    ///  Out-of-line overwrite region is not large enough
+    RCV_SCATTER_SMALL = 0x1000400e,
+    ///  trailer type or number of trailer elements not supported
+    RCV_INVALID_TRAILER = 0x1000400f,
+    ///  Waiting for receive with timeout. (Internal use only.)
+    RCV_IN_PROGRESS_TIMED = 0x10004011,
+    ///  invalid reply port used in a STRICT_REPLY message
+    RCV_INVALID_REPLY = 0x10004012,
 };
 
 pub const SIGSTKSZ = 131072;
@@ -2677,11 +3057,20 @@ pub const _POSIX_SPAWN_RESLIDE = 0x0800;
 pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
 
 pub const PT_TRACE_ME = 0;
+pub const PT_READ_I = 1;
+pub const PT_READ_D = 2;
+pub const PT_READ_U = 3;
+pub const PT_WRITE_I = 4;
+pub const PT_WRITE_D = 5;
+pub const PT_WRITE_U = 6;
 pub const PT_CONTINUE = 7;
 pub const PT_KILL = 8;
 pub const PT_STEP = 9;
 pub const PT_DETACH = 11;
+pub const PT_SIGEXC = 12;
+pub const PT_THUPDATE = 13;
 pub const PT_ATTACHEXC = 14;
+pub const PT_FORCEQUOTA = 30;
 pub const PT_DENY_ATTACH = 31;
 
 pub const caddr_t = ?[*]u8;

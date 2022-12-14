@@ -16,3 +16,23 @@ pub const thread_state = extern struct {
     cpsr: u32, // Current program status register
     __pad: u32,
 };
+
+pub const EXC_TYPES_COUNT = 14;
+pub const EXC_MASK_MACHINE = 0;
+
+pub const ARM_THREAD_STATE = 1;
+pub const ARM_UNIFIED_THREAD_STATE = ARM_THREAD_STATE;
+pub const ARM_VFP_STATE = 2;
+pub const ARM_EXCEPTION_STATE = 3;
+pub const ARM_DEBUG_STATE = 4;
+pub const THREAD_STATE_NONE = 5;
+pub const ARM_THREAD_STATE64 = 6;
+pub const ARM_EXCEPTION_STATE64 = 7;
+pub const ARM_THREAD_STATE_LAST = 8;
+pub const ARM_THREAD_STATE32 = 9;
+pub const ARM_DEBUG_STATE32 = 14;
+pub const ARM_DEBUG_STATE64 = 15;
+pub const ARM_NEON_STATE = 16;
+pub const ARM_NEON_STATE64 = 17;
+pub const ARM_CPMU_STATE64 = 18;
+pub const ARM_PAGEIN_STATE = 27;

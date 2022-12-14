@@ -60,6 +60,9 @@ pub const ChildProcess = struct {
     /// Darwin-only. Disable ASLR for the child process.
     disable_aslr: bool = false,
 
+    /// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
+    start_suspended: bool = false,
+
     pub const Arg0Expand = os.Arg0Expand;
 
     pub const SpawnError = error{
@@ -577,6 +580,9 @@ pub const ChildProcess = struct {
         var flags: u16 = os.darwin.POSIX_SPAWN_SETSIGDEF | os.darwin.POSIX_SPAWN_SETSIGMASK;
         if (self.disable_aslr) {
             flags |= os.darwin._POSIX_SPAWN_DISABLE_ASLR;
+        }
+        if (self.start_suspended) {
+            flags |= os.darwin.POSIX_SPAWN_START_SUSPENDED;
         }
         try attr.set(flags);
 
