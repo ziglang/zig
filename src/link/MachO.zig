@@ -561,21 +561,26 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.writeLinkeditSegmentData(&ncmds, lc_writer);
     try load_commands.writeDylinkerLC(&ncmds, lc_writer);
 
-    if (self.base.options.output_mode == .Exe) blk: {
-        const seg_id = self.header_segment_cmd_index.?;
-        const seg = self.segments.items[seg_id];
-        const global = self.getEntryPoint() catch |err| switch (err) {
-            error.MissingMainEntrypoint => {
-                self.error_flags.no_entry_point_found = true;
-                break :blk;
-            },
-            else => |e| return e,
-        };
-        const sym = self.getSymbol(global);
-        try load_commands.writeMainLC(@intCast(u32, sym.n_value - seg.vmaddr), &self.base.options, &ncmds, lc_writer);
+    switch (self.base.options.output_mode) {
+        .Exe => blk: {
+            const seg_id = self.header_segment_cmd_index.?;
+            const seg = self.segments.items[seg_id];
+            const global = self.getEntryPoint() catch |err| switch (err) {
+                error.MissingMainEntrypoint => {
+                    self.error_flags.no_entry_point_found = true;
+                    break :blk;
+                },
+                else => |e| return e,
+            };
+            const sym = self.getSymbol(global);
+            try load_commands.writeMainLC(@intCast(u32, sym.n_value - seg.vmaddr), &self.base.options, &ncmds, lc_writer);
+        },
+        .Lib => if (self.base.options.link_mode == .Dynamic) {
+            try load_commands.writeDylibIdLC(self.base.allocator, &self.base.options, &ncmds, lc_writer);
+        },
+        else => {},
     }
 
-    try load_commands.writeDylibIdLC(self.base.allocator, &self.base.options, &ncmds, lc_writer);
     try load_commands.writeRpathLCs(self.base.allocator, &self.base.options, &ncmds, lc_writer);
 
     {
