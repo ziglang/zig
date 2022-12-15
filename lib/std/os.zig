@@ -5547,7 +5547,7 @@ pub fn res_mkquery(
     // Make a reasonably unpredictable id
     var ts: timespec = undefined;
     clock_gettime(CLOCK.REALTIME, &ts) catch {};
-    const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.tv_nsec)));
+    const UInt = @Int(.unsigned, @bitSizeOf(@TypeOf(ts.tv_nsec)));
     const unsec = @bitCast(UInt, ts.tv_nsec);
     const id = @truncate(u32, unsec + unsec / 65536);
     q[0] = @truncate(u8, id / 256);
@@ -5893,7 +5893,7 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
-    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).Int.bits - 1);
+    const size_t = @Int(.unsigned, @typeInfo(usize).Int.bits - 1);
     const max_count = switch (builtin.os.tag) {
         .linux => 0x7ffff000,
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),

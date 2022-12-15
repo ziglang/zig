@@ -28,7 +28,7 @@ fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
 }
 
 inline fn div(a: f32, b: f32) f32 {
-    const Z = std.meta.Int(.unsigned, 32);
+    const Z = @Int(.unsigned, 32);
 
     const significandBits = std.math.floatMantissaBits(f32);
     const exponentBits = std.math.floatExponentBits(f32);

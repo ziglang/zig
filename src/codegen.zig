@@ -110,10 +110,7 @@ pub fn generateFunction(
 
 fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
-    const Int = @Type(.{ .Int = .{
-        .signedness = .unsigned,
-        .bits = @typeInfo(F).Float.bits,
-    } });
+    const Int = @Int(.unsigned, @typeInfo(F).Float.bits);
     const int = @bitCast(Int, f);
     mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
 }

@@ -87,12 +87,12 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
         if (kvSplit(field)) |opt_version| {
             if (mem.eql(u8, opt_version.key, version_param_name)) {
                 if (@hasField(HashResult, "alg_version")) {
-                    const value_type_info = switch (@typeInfo(@TypeOf(out.alg_version))) {
+                    const int_type = switch (@typeInfo(@TypeOf(out.alg_version))) {
                         .Optional => |opt| comptime @typeInfo(opt.child),
                         else => |t| t,
-                    };
+                    }.Int;
                     out.alg_version = fmt.parseUnsigned(
-                        @Type(value_type_info),
+                        @Int(int_type.signedness, int_type.bits),
                         opt_version.value,
                         10,
                     ) catch return Error.InvalidEncoding;

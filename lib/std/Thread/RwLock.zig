@@ -171,7 +171,7 @@ pub const DefaultRwLock = struct {
     const READER: usize = 1 << (1 + @bitSizeOf(Count));
     const WRITER_MASK: usize = std.math.maxInt(Count) << @ctz(WRITER);
     const READER_MASK: usize = std.math.maxInt(Count) << @ctz(READER);
-    const Count = std.meta.Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));
+    const Count = @Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));
 
     pub fn tryLock(rwl: *DefaultRwLock) bool {
         if (rwl.mutex.tryLock()) {

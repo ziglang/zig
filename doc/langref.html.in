@@ -8187,7 +8187,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: anytype) @Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -8442,6 +8442,13 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
+      {#header_open|@Int#}
+      <pre>{#syntax#}@Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type{#endsyntax#}</pre>
+      <p>
+        TODO
+      </p>
+      {#header_close#}
+
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>
@@ -8478,7 +8485,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToError(value: @Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>

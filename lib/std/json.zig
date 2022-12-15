@@ -126,7 +126,7 @@ fn AggregateContainerStack(comptime n: usize) type {
 
         const element_bitcount = 8 * @sizeOf(usize);
         const element_count = n / element_bitcount;
-        const ElementType = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = element_bitcount } });
+        const ElementType = @Int(.unsigned, element_bitcount);
         const ElementShiftAmountType = std.math.Log2Int(ElementType);
 
         comptime {

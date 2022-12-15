@@ -8,7 +8,7 @@ const testing = std.testing;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
-const DoubleWord = std.meta.Int(.unsigned, @bitSizeOf(Word) * 2);
+const DoubleWord = @Int(.unsigned, @bitSizeOf(Word) * 2);
 const Log2Word = std.math.Log2Int(Word);
 
 const Opcode = spec.Opcode;

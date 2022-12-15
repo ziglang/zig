@@ -65,9 +65,9 @@ fn castInt(comptime DestType: type, target: anytype) DestType {
     const source = @typeInfo(@TypeOf(target)).Int;
 
     if (dest.bits < source.bits)
-        return @bitCast(DestType, @truncate(std.meta.Int(source.signedness, dest.bits), target))
+        return @bitCast(DestType, @truncate(@Int(source.signedness, dest.bits), target))
     else
-        return @bitCast(DestType, @as(std.meta.Int(source.signedness, dest.bits), target));
+        return @bitCast(DestType, @as(@Int(source.signedness, dest.bits), target));
 }
 
 fn castPtr(comptime DestType: type, target: anytype) DestType {

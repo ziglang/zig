@@ -14,7 +14,7 @@ comptime {
 
 pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     const T = f80;
-    const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const Z = @Int(.unsigned, @bitSizeOf(T));
 
     const significandBits = std.math.floatMantissaBits(T);
     const fractionalBits = std.math.floatFractionalBits(T);

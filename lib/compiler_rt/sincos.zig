@@ -216,7 +216,7 @@ pub const rem_pio2_generic = @compileError("TODO");
 inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
     const sc1pio4: F = 1.0 * math.pi / 4.0;
     const bits = @typeInfo(F).Float.bits;
-    const I = std.meta.Int(.unsigned, bits);
+    const I = @Int(.unsigned, bits);
     const ix = @bitCast(I, x) & (math.maxInt(I) >> 1);
     const se = @truncate(u16, ix >> (bits - 16));
 

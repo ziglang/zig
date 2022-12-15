@@ -1,4 +1,3 @@
-const Int = @import("std").meta.Int;
 const math = @import("std").math;
 const Log2Int = math.Log2Int;
 
@@ -6,7 +5,7 @@ pub inline fn floatToInt(comptime I: type, a: anytype) I {
     const F = @TypeOf(a);
     const float_bits = @typeInfo(F).Float.bits;
     const int_bits = @typeInfo(I).Int.bits;
-    const rep_t = Int(.unsigned, float_bits);
+    const rep_t = @Int(.unsigned, float_bits);
     const sig_bits = math.floatMantissaBits(F);
     const exp_bits = math.floatExponentBits(F);
     const fractional_bits = math.floatFractionalBits(F);

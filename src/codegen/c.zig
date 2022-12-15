@@ -6815,7 +6815,7 @@ fn writeStringLiteralChar(writer: anytype, c: u8) !void {
 
 fn undefPattern(comptime IntType: type) IntType {
     const int_info = @typeInfo(IntType).Int;
-    const UnsignedType = std.meta.Int(.unsigned, int_info.bits);
+    const UnsignedType = @Int(.unsigned, int_info.bits);
     return @bitCast(IntType, @as(UnsignedType, (1 << (int_info.bits | 1)) / 3));
 }
 

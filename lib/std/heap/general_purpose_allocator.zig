@@ -103,7 +103,7 @@ const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
-const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
+const SlotIndex = @Int(.unsigned, math.log2(page_size) + 1);
 
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 8 else 4;
 const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;

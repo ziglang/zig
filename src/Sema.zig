@@ -1146,6 +1146,7 @@ fn analyzeBodyInner(
                     .int_to_error          => try sema.zirIntToError(        block, extended),
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .reify_float           => try sema.zirReifyFloat(        block, extended),
+                    .reify_int             => try sema.zirReifyInt(          block, extended),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
                     .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
@@ -17954,20 +17955,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         .Null => return sema.fail(block, src, "@Type(.Null) has been deprecated", .{}),
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
-        .Int => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            const signedness_val = struct_val[0];
-            const bits_val = struct_val[1];
-
-            const signedness = signedness_val.toEnum(std.builtin.Signedness);
-            const bits = @intCast(u16, bits_val.toUnsignedInt(target));
-            const ty = switch (signedness) {
-                .signed => try Type.Tag.int_signed.create(sema.arena, bits),
-                .unsigned => try Type.Tag.int_unsigned.create(sema.arena, bits),
-            };
-            return sema.addType(ty);
-        },
+        .Int => return sema.fail(block, src, "@Type(.Int) has been deprecated; use @Int instead", .{}),
         .Vector => return sema.fail(block, src, "@Type(.Vector) has been deprecated", .{}),
         .Float => return sema.fail(block, src, "@Type(.Float) has been deprecated; use @Float instead", .{}),
         .Pointer => {
@@ -18444,6 +18432,15 @@ fn zirReifyFloat(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         128 => Type.f128,
         else => return sema.fail(block, src, "{}-bit float unsupported", .{bits}),
     };
+    return sema.addType(ty);
+}
+
+fn zirReifyInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const signedness = try sema.resolveBuiltinEnum(block, src, extra.lhs, "Signedness", "signedness must be comptime-known");
+    const bit_count = try sema.resolveInt(block, src, extra.rhs, Type.u16, "bit count must be comptime-known");
+    const ty = try Module.makeIntType(sema.arena, signedness, @intCast(u16, bit_count));
     return sema.addType(ty);
 }
 
@@ -29377,6 +29374,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .calling_convention,
         .address_space,
         .float_mode,
+        .signedness,
         .reduce_op,
         .call_options,
         .prefetch_options,
@@ -29642,6 +29640,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .calling_convention => return sema.getBuiltinType("CallingConvention"),
         .address_space => return sema.getBuiltinType("AddressSpace"),
         .float_mode => return sema.getBuiltinType("FloatMode"),
+        .signedness => return sema.getBuiltinType("Signedness"),
         .reduce_op => return sema.getBuiltinType("ReduceOp"),
         .call_options => return sema.getBuiltinType("CallOptions"),
         .prefetch_options => return sema.getBuiltinType("PrefetchOptions"),
@@ -30660,6 +30659,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .calling_convention,
         .address_space,
         .float_mode,
+        .signedness,
         .reduce_op,
         .call_options,
         .prefetch_options,
@@ -30983,6 +30983,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .calling_convention => return .calling_convention_type,
         .address_space => return .address_space_type,
         .float_mode => return .float_mode_type,
+        .signedness => return .signedness_type,
         .reduce_op => return .reduce_op_type,
         .call_options => return .call_options_type,
         .prefetch_options => return .prefetch_options_type,
@@ -31376,6 +31377,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .calling_convention,
         .address_space,
         .float_mode,
+        .signedness,
         .reduce_op,
         .call_options,
         .prefetch_options,
@@ -32206,6 +32208,7 @@ fn enumHasInt(
         .calling_convention,
         .address_space,
         .float_mode,
+        .signedness,
         .reduce_op,
         .call_options,
         .prefetch_options,

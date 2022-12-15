@@ -1833,7 +1833,7 @@ test "big.int truncate multi to single signed" {
 
 test "big.int truncate multi to multi unsigned" {
     const bits = @typeInfo(SignedDoubleLimb).Int.bits;
-    const Int = std.meta.Int(.unsigned, bits - 1);
+    const Int = @Int(.unsigned, bits - 1);
 
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer a.deinit();
@@ -1849,7 +1849,7 @@ test "big.int truncate multi to multi signed" {
 
     try a.truncate(&a, .signed, @bitSizeOf(Limb) + 1);
 
-    try testing.expect((try a.to(std.meta.Int(.signed, @bitSizeOf(Limb) + 1))) == -1 << @bitSizeOf(Limb));
+    try testing.expect((try a.to(@Int(.signed, @bitSizeOf(Limb) + 1))) == -1 << @bitSizeOf(Limb));
 }
 
 test "big.int truncate negative multi to single" {

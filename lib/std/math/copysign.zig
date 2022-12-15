@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 /// Returns a value with the magnitude of `magnitude` and the sign of `sign`.
 pub fn copysign(magnitude: anytype, sign: @TypeOf(magnitude)) @TypeOf(magnitude) {
     const T = @TypeOf(magnitude);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = @Int(.unsigned, @typeInfo(T).Float.bits);
     const sign_bit_mask = @as(TBits, 1) << (@bitSizeOf(T) - 1);
     const mag = @bitCast(TBits, magnitude) & ~sign_bit_mask;
     const sgn = @bitCast(TBits, sign) & sign_bit_mask;

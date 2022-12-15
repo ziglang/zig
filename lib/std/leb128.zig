@@ -55,7 +55,7 @@ pub fn writeULEB128(writer: anytype, uint_value: anytype) !void {
 /// or error.Overflow if the value cannot fit.
 pub fn readILEB128(comptime T: type, reader: anytype) !T {
     const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
-    const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
+    const U = @Int(.unsigned, @typeInfo(S).Int.bits);
     const ShiftU = std.math.Log2Int(U);
 
     const max_group = (@typeInfo(U).Int.bits + 6) / 7;
@@ -113,7 +113,7 @@ pub fn readILEB128(comptime T: type, reader: anytype) !T {
 pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
     const T = @TypeOf(int_value);
     const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
-    const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
+    const U = @Int(.unsigned, @typeInfo(S).Int.bits);
 
     var value = @intCast(S, int_value);
 
@@ -138,7 +138,7 @@ pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
 /// An example use case of this is in emitting DWARF info where one wants to make a ULEB128 field
 /// "relocatable", meaning that it becomes possible to later go back and patch the number to be a
 /// different value without shifting all the following code.
-pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(.unsigned, l * 7)) void {
+pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: @Int(.unsigned, l * 7)) void {
     const T = @TypeOf(int);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
     var value = @intCast(U, int);
@@ -312,7 +312,7 @@ fn test_write_leb128(value: anytype) !void {
     // decode to a larger bit size too, to ensure sign extension
     // is working as expected
     const larger_type_bits = ((@typeInfo(T).Int.bits + 8) / 8) * 8;
-    const B = std.meta.Int(signedness, larger_type_bits);
+    const B = @Int(signedness, larger_type_bits);
 
     const bytes_needed = bn: {
         if (@typeInfo(T).Int.bits <= 7) break :bn @as(u16, 1);
@@ -356,10 +356,10 @@ test "serialize unsigned LEB128" {
 
     comptime var t = 0;
     inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(.unsigned, t);
+        const T = @Int(.unsigned, t);
         const min = std.math.minInt(T);
         const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(.unsigned, @typeInfo(T).Int.bits + 1), min);
+        var i = @as(@Int(.unsigned, @typeInfo(T).Int.bits + 1), min);
 
         while (i <= max) : (i += 1) try test_write_leb128(@intCast(T, i));
     }
@@ -379,10 +379,10 @@ test "serialize signed LEB128" {
 
     comptime var t = 1;
     inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(.signed, t);
+        const T = @Int(.signed, t);
         const min = std.math.minInt(T);
         const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(.signed, @typeInfo(T).Int.bits + 1), min);
+        var i = @as(@Int(.signed, @typeInfo(T).Int.bits + 1), min);
 
         while (i <= max) : (i += 1) try test_write_leb128(@intCast(T, i));
     }

@@ -652,7 +652,7 @@ pub fn iterateBigTomb(l: Liveness, inst: Air.Inst.Index) BigTomb {
 
 /// How many tomb bits per AIR instruction.
 pub const bpi = 4;
-pub const Bpi = std.meta.Int(.unsigned, bpi);
+pub const Bpi = @Int(.unsigned, bpi);
 pub const OperandInt = std.math.Log2Int(Bpi);
 
 /// Useful for decoders of Liveness information.

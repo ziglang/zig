@@ -13,7 +13,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
     return struct {
         bits: Int,
 
-        pub const Int = meta.Int(.unsigned, bit_count);
+        pub const Int = @Int(.unsigned, bit_count);
         pub const bit_count = @typeInfo(Fields).Struct.fields.len;
 
         pub const FieldEnum = std.meta.FieldEnum(Fields);

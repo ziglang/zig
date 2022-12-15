@@ -54,7 +54,7 @@ pub fn Field(comptime params: FieldParams) type {
             var s = if (endian == .Little) s_ else orderSwap(s_);
             const field_order_s = comptime fos: {
                 var fos: [encoded_length]u8 = undefined;
-                mem.writeIntLittle(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order);
+                mem.writeIntLittle(@Int(.unsigned, encoded_length * 8), &fos, field_order);
                 break :fos fos;
             };
             if (crypto.utils.timingSafeCompare(u8, &s, &field_order_s, .Little) != .lt) {
@@ -90,7 +90,7 @@ pub fn Field(comptime params: FieldParams) type {
         }
 
         /// Element as an integer.
-        pub const IntRepr = meta.Int(.unsigned, params.field_bits);
+        pub const IntRepr = @Int(.unsigned, params.field_bits);
 
         /// Create a field element from an integer.
         pub fn fromInt(comptime x: IntRepr) NonCanonicalError!Fe {
@@ -270,7 +270,7 @@ pub fn Field(comptime params: FieldParams) type {
                 const ls = x126.sqn(126).mul(x126).sqn(3).mul(t111).sqn(33).mul(x32).sqn(95).mul(x31);
                 return ls.equivalent(Fe.one);
             } else {
-                const ls = x2.pow(std.meta.Int(.unsigned, field_bits), (field_order - 1) / 2); // Legendre symbol
+                const ls = x2.pow(@Int(.unsigned, field_bits), (field_order - 1) / 2); // Legendre symbol
                 return ls.equivalent(Fe.one);
             }
         }
@@ -307,7 +307,7 @@ pub fn Field(comptime params: FieldParams) type {
                 const x108 = x54.sqn(54).mul(x54);
                 return x108.sqn(108).mul(x108).sqn(7).mul(t1111111).sqn(23).mul(x22).sqn(6).mul(t11).sqn(2);
             } else {
-                return x2.pow(std.meta.Int(.unsigned, field_bits), (field_order + 1) / 4);
+                return x2.pow(@Int(.unsigned, field_bits), (field_order + 1) / 4);
             }
         }
 

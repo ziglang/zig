@@ -12,7 +12,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const fractionalBits = math.floatFractionalBits(T);
     const exponentBits = math.floatExponentBits(T);
 
-    const Z = std.meta.Int(.unsigned, typeWidth);
+    const Z = @Int(.unsigned, typeWidth);
 
     // ZSignificand is large enough to contain the significand, including an explicit integer bit
     const ZSignificand = PowerOfTwoSignificandZ(T);
@@ -196,7 +196,7 @@ fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
 /// the significand of T, including an explicit integer bit
 fn PowerOfTwoSignificandZ(comptime T: type) type {
     const bits = math.ceilPowerOfTwoAssert(u16, math.floatFractionalBits(T) + 1);
-    return std.meta.Int(.unsigned, bits);
+    return @Int(.unsigned, bits);
 }
 
 test {

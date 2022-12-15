@@ -197,8 +197,8 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+pub fn normalize(comptime T: type, significand: *@Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
+    const Z = @Int(.unsigned, @typeInfo(T).Float.bits);
     const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
@@ -209,10 +209,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
 pub inline fn fneg(a: anytype) @TypeOf(a) {
     const F = @TypeOf(a);
     const bits = @typeInfo(F).Float.bits;
-    const U = @Type(.{ .Int = .{
-        .signedness = .unsigned,
-        .bits = bits,
-    } });
+    const U = @Int(.unsigned, bits);
     const sign_bit_mask = @as(U, 1) << (bits - 1);
     const negated = @bitCast(U, a) ^ sign_bit_mask;
     return @bitCast(F, negated);

@@ -26,7 +26,7 @@ fn _Qp_div(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
 }
 
 inline fn div(a: f128, b: f128) f128 {
-    const Z = std.meta.Int(.unsigned, 128);
+    const Z = @Int(.unsigned, 128);
 
     const significandBits = std.math.floatMantissaBits(f128);
     const exponentBits = std.math.floatExponentBits(f128);

@@ -77,7 +77,7 @@ test "math.sqrt_int" {
 /// Returns the return type `sqrt` will return given an operand of type `T`.
 pub fn Sqrt(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .Int => |int| std.meta.Int(.unsigned, (int.bits + 1) / 2),
+        .Int => |int| @Int(.unsigned, (int.bits + 1) / 2),
         else => T,
     };
 }

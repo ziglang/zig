@@ -1307,8 +1307,8 @@ pub fn readVarPackedInt(
     endian: std.builtin.Endian,
     signedness: std.builtin.Signedness,
 ) T {
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
-    const iN = std.meta.Int(.signed, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
+    const iN = @Int(.signed, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const read_size = (bit_count + (bit_offset % 8) + 7) / 8;
@@ -1429,7 +1429,7 @@ pub fn readInt(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int.bits,
 }
 
 fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T {
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const bit_count = @as(usize, @bitSizeOf(T));
@@ -1437,7 +1437,7 @@ fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T
 
     const load_size = (bit_count + 7) / 8;
     const load_tail_bits = @intCast(u3, (load_size * 8) - bit_count);
-    const LoadInt = std.meta.Int(.unsigned, load_size * 8);
+    const LoadInt = @Int(.unsigned, load_size * 8);
 
     if (bit_count == 0)
         return 0;
@@ -1455,7 +1455,7 @@ fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T
 }
 
 fn readPackedIntBig(comptime T: type, bytes: []const u8, bit_offset: usize) T {
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const bit_count = @as(usize, @bitSizeOf(T));
@@ -1464,7 +1464,7 @@ fn readPackedIntBig(comptime T: type, bytes: []const u8, bit_offset: usize) T {
 
     const load_size = (bit_count + 7) / 8;
     const load_tail_bits = @intCast(u3, (load_size * 8) - bit_count);
-    const LoadInt = std.meta.Int(.unsigned, load_size * 8);
+    const LoadInt = @Int(.unsigned, load_size * 8);
 
     if (bit_count == 0)
         return 0;
@@ -1589,7 +1589,7 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]
 }
 
 pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const bit_count = @as(usize, @bitSizeOf(T));
@@ -1597,7 +1597,7 @@ pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, va
 
     const store_size = (@bitSizeOf(T) + 7) / 8;
     const store_tail_bits = @intCast(u3, (store_size * 8) - bit_count);
-    const StoreInt = std.meta.Int(.unsigned, store_size * 8);
+    const StoreInt = @Int(.unsigned, store_size * 8);
 
     if (bit_count == 0)
         return;
@@ -1622,7 +1622,7 @@ pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, va
 }
 
 pub fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const bit_count = @as(usize, @bitSizeOf(T));
@@ -1631,7 +1631,7 @@ pub fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value
 
     const store_size = (@bitSizeOf(T) + 7) / 8;
     const store_tail_bits = @intCast(u3, (store_size * 8) - bit_count);
-    const StoreInt = std.meta.Int(.unsigned, store_size * 8);
+    const StoreInt = @Int(.unsigned, store_size * 8);
 
     if (bit_count == 0)
         return;
@@ -1699,7 +1699,7 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
         return;
     }
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
+    const uint = @Int(.unsigned, @typeInfo(T).Int.bits);
     var bits = @bitCast(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -1724,7 +1724,7 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     }
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
+    const uint = @Int(.unsigned, @typeInfo(T).Int.bits);
     var bits = @bitCast(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
@@ -1770,7 +1770,7 @@ pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: Endian) v
 ///
 pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value: anytype, endian: std.builtin.Endian) void {
     const T = @TypeOf(value);
-    const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const uN = @Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
     const bit_shift = @intCast(u3, bit_offset % 8);
@@ -3723,7 +3723,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             const bits = t.Int.bits;
             if (bits <= max_gp_register_bits) {
                 const val2 = @as(
-                    std.meta.Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
+                    @Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
                     val,
                 );
                 asm volatile (""
@@ -3939,8 +3939,8 @@ test "read/write(Var)PackedInt" {
                 if (@bitSizeOf(PackedType) > @bitSizeOf(BackingType))
                     continue;
 
-                const iPackedType = std.meta.Int(.signed, @bitSizeOf(PackedType));
-                const uPackedType = std.meta.Int(.unsigned, @bitSizeOf(PackedType));
+                const iPackedType = @Int(.signed, @bitSizeOf(PackedType));
+                const uPackedType = @Int(.unsigned, @bitSizeOf(PackedType));
                 const Log2T = std.math.Log2Int(BackingType);
 
                 const offset_at_end = @bitSizeOf(BackingType) - @bitSizeOf(PackedType);
@@ -4007,8 +4007,8 @@ test "read/write(Var)PackedInt" {
                         }
 
                         const signedness = @typeInfo(PackedType).Int.signedness;
-                        const NextPowerOfTwoInt = std.meta.Int(signedness, comptime try std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
-                        const ui64 = std.meta.Int(signedness, 64);
+                        const NextPowerOfTwoInt = @Int(signedness, comptime try std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
+                        const ui64 = @Int(signedness, 64);
                         inline for ([_]type{ PackedType, NextPowerOfTwoInt, ui64 }) |U| {
                             { // Variable-size Read/Write (Native-endian)
 

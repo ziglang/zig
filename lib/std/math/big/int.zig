@@ -1835,7 +1835,7 @@ pub const Mutable = struct {
             var limb = switch (signedness) {
                 .unsigned => mem.readVarPackedInt(Limb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
                 .signed => b: {
-                    const SLimb = std.meta.Int(.signed, @bitSizeOf(Limb));
+                    const SLimb = @Int(.signed, @bitSizeOf(Limb));
                     const limb = mem.readVarPackedInt(SLimb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
                     break :b @bitCast(Limb, limb);
                 },
@@ -2047,7 +2047,7 @@ pub const Const = struct {
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = std.meta.Int(.unsigned, info.bits);
+                const UT = @Int(.unsigned, info.bits);
 
                 if (!self.fitsInTwosComp(info.signedness, info.bits)) {
                     return error.TargetTooSmall;

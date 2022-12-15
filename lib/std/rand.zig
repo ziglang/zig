@@ -102,8 +102,8 @@ pub const Random = struct {
     /// `i` is evenly distributed.
     pub fn int(r: Random, comptime T: type) T {
         const bits = @typeInfo(T).Int.bits;
-        const UnsignedT = std.meta.Int(.unsigned, bits);
-        const ByteAlignedT = std.meta.Int(.unsigned, @divTrunc(bits + 7, 8) * 8);
+        const UnsignedT = @Int(.unsigned, bits);
+        const ByteAlignedT = @Int(.unsigned, @divTrunc(bits + 7, 8) * 8);
 
         var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
@@ -145,9 +145,9 @@ pub const Random = struct {
         assert(0 < less_than);
         // Small is typically u32
         const small_bits = @divTrunc(bits + 31, 32) * 32;
-        const Small = std.meta.Int(.unsigned, small_bits);
+        const Small = @Int(.unsigned, small_bits);
         // Large is typically u64
-        const Large = std.meta.Int(.unsigned, small_bits * 2);
+        const Large = @Int(.unsigned, small_bits * 2);
 
         // adapted from:
         //   http://www.pcg-random.org/posts/bounded-rands.html
@@ -203,7 +203,7 @@ pub const Random = struct {
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(.unsigned, info.bits);
+            const UnsignedT = @Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
@@ -222,7 +222,7 @@ pub const Random = struct {
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(.unsigned, info.bits);
+            const UnsignedT = @Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
@@ -240,7 +240,7 @@ pub const Random = struct {
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(.unsigned, info.bits);
+            const UnsignedT = @Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
@@ -259,7 +259,7 @@ pub const Random = struct {
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(.unsigned, info.bits);
+            const UnsignedT = @Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
@@ -435,7 +435,7 @@ pub const Random = struct {
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     const bits = @typeInfo(T).Int.bits;
-    const T2 = std.meta.Int(.unsigned, bits * 2);
+    const T2 = @Int(.unsigned, bits * 2);
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html

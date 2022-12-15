@@ -324,7 +324,7 @@ fn atomicIntTypes() []const type {
     comptime var bytes = 1;
     comptime var types: []const type = &[_]type{};
     inline while (bytes <= @sizeOf(usize)) : (bytes *= 2) {
-        types = types ++ &[_]type{std.meta.Int(.unsigned, bytes * 8)};
+        types = types ++ &[_]type{@Int(.unsigned, bytes * 8)};
     }
     return types;
 }

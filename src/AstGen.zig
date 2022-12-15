@@ -8094,6 +8094,14 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .Int => {
+            const result = try gz.addExtendedPayload(.reify_int, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .signedness_type } }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .{ .ty = .u16_type } }, params[1]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], if (gz.force_comptime) .panic_comptime else .panic);

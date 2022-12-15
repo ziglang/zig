@@ -7,7 +7,7 @@ const expect = std.testing.expect;
 /// Returns x * 2^n.
 pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = @Int(.unsigned, @typeInfo(T).Float.bits);
 
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_bits = math.floatMantissaBits(T);
@@ -104,7 +104,7 @@ test "math.ldexp" {
 
         // Multiplications might flush the denormals to zero, esp. at
         // runtime, so we manually construct the constants here instead.
-        const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const Z = @Int(.unsigned, @bitSizeOf(T));
         const EightTimesTrueMin = @bitCast(T, @as(Z, 8));
         const TwoTimesTrueMin = @bitCast(T, @as(Z, 2));
 

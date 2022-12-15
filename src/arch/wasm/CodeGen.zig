@@ -2634,12 +2634,12 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
 /// Converts a signed integer to its 2's complement form and returns
 /// an unsigned integer instead.
 /// Asserts bitsize <= 64
-fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).Int.bits) {
+fn toTwosComplement(value: anytype, bits: u7) @Int(.unsigned, @typeInfo(@TypeOf(value)).Int.bits) {
     const T = @TypeOf(value);
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(@typeInfo(T).Int.signedness == .signed);
     assert(bits <= 64);
-    const WantedT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
+    const WantedT = @Int(.unsigned, @typeInfo(T).Int.bits);
     if (value >= 0) return @bitCast(WantedT, value);
     const max_value = @intCast(u64, (@as(u65, 1) << bits) - 1);
     const flipped = @intCast(T, (~-@as(i65, value)) + 1);

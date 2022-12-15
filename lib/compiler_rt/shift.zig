@@ -25,8 +25,8 @@ comptime {
 fn Dwords(comptime T: type, comptime signed_half: bool) type {
     return extern union {
         const bits = @divExact(@typeInfo(T).Int.bits, 2);
-        const HalfTU = std.meta.Int(.unsigned, bits);
-        const HalfTS = std.meta.Int(.signed, bits);
+        const HalfTU = @Int(.unsigned, bits);
+        const HalfTS = @Int(.signed, bits);
         const HalfT = if (signed_half) HalfTS else HalfTU;
 
         all: T,

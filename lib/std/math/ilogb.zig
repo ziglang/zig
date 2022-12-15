@@ -30,7 +30,7 @@ fn ilogbX(comptime T: type, x: T) i32 {
     const significandBits = math.floatMantissaBits(T);
     const exponentBits = math.floatExponentBits(T);
 
-    const Z = std.meta.Int(.unsigned, typeWidth);
+    const Z = @Int(.unsigned, typeWidth);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);

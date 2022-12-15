@@ -1448,7 +1448,7 @@ test "signed zeros are represented properly" {
         }
 
         fn testOne(comptime T: type) !void {
-            const ST = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+            const ST = @Int(.unsigned, @typeInfo(T).Float.bits);
             var as_fp_val = -@as(T, 0.0);
             var as_uint_val = @bitCast(ST, as_fp_val);
             // Ensure the sign bit is set.

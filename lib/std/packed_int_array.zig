@@ -42,13 +42,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
 
     // We bitcast the desired Int type to an unsigned version of itself
     // to avoid issues with shifting signed ints.
-    const UnInt = std.meta.Int(.unsigned, int_bits);
+    const UnInt = @Int(.unsigned, int_bits);
 
     // The maximum container int type
-    const MinIo = std.meta.Int(.unsigned, min_io_bits);
+    const MinIo = @Int(.unsigned, min_io_bits);
 
     // The minimum container int type
-    const MaxIo = std.meta.Int(.unsigned, max_io_bits);
+    const MaxIo = @Int(.unsigned, max_io_bits);
 
     return struct {
         /// Retrieves the integer at `index` from the packed data beginning at `bit_offset`
@@ -353,7 +353,7 @@ test "PackedIntArray" {
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
-        const I = std.meta.Int(sign, bits);
+        const I = @Int(sign, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
         const expected_bytes = ((bits * int_count) + 7) / 8;
@@ -421,7 +421,7 @@ test "PackedIntSlice" {
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
-        const I = std.meta.Int(sign, bits);
+        const I = @Int(sign, bits);
         const P = PackedIntSlice(I);
 
         var data = P.init(&buffer, int_count);
@@ -454,7 +454,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
 
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
-        const Int = std.meta.Int(.unsigned, bits);
+        const Int = @Int(.unsigned, bits);
 
         const PackedArray = PackedIntArray(Int, int_count);
         var packed_array = @as(PackedArray, undefined);

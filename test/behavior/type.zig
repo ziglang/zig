@@ -10,13 +10,12 @@ fn testTypes(comptime types: []const type) !void {
 }
 
 test "Type.Int" {
-    try testing.expect(u1 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 1 } }));
-    try testing.expect(i1 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 1 } }));
-    try testing.expect(u8 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 8 } }));
-    try testing.expect(i8 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 8 } }));
-    try testing.expect(u64 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 64 } }));
-    try testing.expect(i64 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 64 } }));
-    try testTypes(&[_]type{ u8, u32, i64 });
+    try testing.expect(u1 == @Int(.unsigned, 1));
+    try testing.expect(i1 == @Int(.signed, 1));
+    try testing.expect(u8 == @Int(.unsigned, 8));
+    try testing.expect(i8 == @Int(.signed, 8));
+    try testing.expect(u64 == @Int(.unsigned, 64));
+    try testing.expect(i64 == @Int(.signed, 64));
 }
 
 test "Type.EnumLiteral" {

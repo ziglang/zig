@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 /// Returns whether x is neither zero, subnormal, infinity, or NaN.
 pub fn isNormal(x: anytype) bool {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = @Int(.unsigned, @typeInfo(T).Float.bits);
 
     const increment_exp = 1 << math.floatMantissaBits(T);
     const remove_sign = ~@as(TBits, 0) >> 1;
@@ -22,7 +22,7 @@ pub fn isNormal(x: anytype) bool {
 test "math.isNormal" {
     // TODO add `c_longdouble' when math.inf(T) supports it
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const TBits = @Int(.unsigned, @bitSizeOf(T));
 
         // normals
         try expect(isNormal(@as(T, 1.0)));

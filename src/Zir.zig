@@ -1996,6 +1996,9 @@ pub const Inst = struct {
         /// Implement builtin `@Float`.
         /// `operand` is payload index to `UnNode`.
         reify_float,
+        /// Implement builtin `@Int`.
+        /// `operand` is payload index to `BinNode`. `lhs` is signedness, `rhs` is bit_count.
+        reify_int,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2072,6 +2075,7 @@ pub const Inst = struct {
         calling_convention_type,
         address_space_type,
         float_mode_type,
+        signedness_type,
         reduce_op_type,
         call_options_type,
         prefetch_options_type,
@@ -2343,6 +2347,10 @@ pub const Inst = struct {
             .float_mode_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.float_mode_type),
+            },
+            .signedness_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.signedness_type),
             },
             .reduce_op_type = .{
                 .ty = Type.initTag(.type),

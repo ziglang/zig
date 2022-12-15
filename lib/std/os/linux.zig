@@ -3444,7 +3444,7 @@ pub const dl_phdr_info = extern struct {
 
 pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
-pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
+pub const cpu_count_t = @Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;

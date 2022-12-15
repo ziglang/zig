@@ -218,7 +218,7 @@ fn __atomic_store_8(dst: *u64, value: u64, model: i32) callconv(.C) void {
 }
 
 fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
-    const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+    const WideAtomic = @Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
 
     const addr = @ptrToInt(ptr);
     const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);

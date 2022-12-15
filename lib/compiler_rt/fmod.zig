@@ -37,7 +37,7 @@ pub fn fmod(x: f64, y: f64) callconv(.C) f64 {
 /// Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
 pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     const T = f80;
-    const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const Z = @Int(.unsigned, @bitSizeOf(T));
 
     const significandBits = math.floatMantissaBits(T);
     const fractionalBits = math.floatFractionalBits(T);
@@ -263,7 +263,7 @@ pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
 
 inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     const bits = @typeInfo(T).Float.bits;
-    const uint = std.meta.Int(.unsigned, bits);
+    const uint = @Int(.unsigned, bits);
     const log2uint = math.Log2Int(uint);
     comptime assert(T == f32 or T == f64);
     const digits = if (T == f32) 23 else 52;

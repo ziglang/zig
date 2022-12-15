@@ -6746,7 +6746,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
     switch (mcv) {
         .immediate => |imm| {
             // This immediate is unsigned.
-            const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
+            const U = @Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
             if (imm >= math.maxInt(U)) {
                 return MCValue{ .register = try self.copyToTmpRegister(Type.initTag(.usize), mcv) };
             }
