@@ -55,24 +55,20 @@ pub const ArenaAllocator = struct {
     pub const ResetMode = union(enum) {
         /// Releases all allocated memory in the arena.
         free_all,
-
         /// This will pre-heat the arena for future allocations by allocating a
         /// large enough buffer for all previously done allocations.
         /// Preheating will speed up the allocation process by invoking the backing allocator
         /// less often than before. If `reset()` is used in a loop, this means that after the
         /// biggest operation, no memory allocations are performed anymore.
         retain_capacity,
-
         /// This is the same as `retain_capacity`, but the memory will be shrunk to
         /// this value if it exceeds the limit.
         retain_with_limit: usize,
     };
-
     /// Queries the current memory use of this arena.
     /// This will **not** include the storage required for internal keeping.
     pub fn queryCapacity(self: ArenaAllocator) usize {
         var size: usize = 0;
-
         var it = self.state.buffer_list.first;
         while (it) |node| : (it = node.next) {
             // Compute the actually allocated size excluding the
@@ -81,7 +77,6 @@ pub const ArenaAllocator = struct {
         }
         return size;
     }
-
     /// Resets the arena allocator and frees all allocated memory.
     ///
     /// `mode` defines how the currently allocated memory is handled.
@@ -94,7 +89,6 @@ pub const ArenaAllocator = struct {
     ///
     /// NOTE: If `mode` is `free_mode`, the function will always return `true`.
     pub fn reset(self: *ArenaAllocator, mode: ResetMode) bool {
-
         // Some words on the implementation:
         // The reset function can be implemented with two basic approaches:
         // - Counting how much bytes were allocated since the last reset, and storing that
@@ -112,25 +106,21 @@ pub const ArenaAllocator = struct {
         // Thus, only the first hand full of calls to reset() will actually need to iterate the linked
         // list, all future calls are just taking the first node, and only resetting the `end_index`
         // value.
-
         const current_capacity = if (mode != .free_all)
             @sizeOf(BufNode) + self.queryCapacity() // we need at least space for exactly one node + the current capacity
         else
             0;
-
         if (mode == .free_all or current_capacity == 0) {
             // just reset when we don't have anything to reallocate
             self.deinit();
             self.state = State{};
             return true;
         }
-
         const total_size = switch (mode) {
             .retain_capacity => current_capacity,
             .retain_with_limit => |limit| std.math.min(limit, current_capacity),
             .free_all => unreachable,
         };
-
         // Free all nodes except for the last one
         var it = self.state.buffer_list.first;
         const maybe_first_node = while (it) |node| {
@@ -141,36 +131,31 @@ pub const ArenaAllocator = struct {
             self.child_allocator.free(node.data);
             it = next_it;
         } else null;
-
         std.debug.assert(maybe_first_node == null or maybe_first_node.?.next == null);
-
         // reset the state before we try resizing the buffers, so we definitly have reset the arena to 0.
         self.state.end_index = 0;
-
         if (maybe_first_node) |first_node| {
             // perfect, no need to invoke the child_allocator
             if (first_node.data.len == total_size)
                 return true;
-
-            if (self.child_allocator.rawResize(first_node.data, @alignOf(BufNode), total_size, 1, @returnAddress())) |new_len| {
+            const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
+            if (self.child_allocator.rawResize(first_node.data, align_bits, total_size, @returnAddress())) {
                 // successful resize
-                first_node.data.len = new_len;
+                first_node.data.len = total_size;
             } else {
                 // manual realloc
-                const new_ptr = self.child_allocator.rawAlloc(total_size, @alignOf(BufNode), 1, @returnAddress()) catch {
+                const new_ptr = self.child_allocator.rawAlloc(total_size, align_bits, @returnAddress()) orelse {
                     // we failed to preheat the arena properly, signal this to the user.
                     return false;
                 };
-                self.child_allocator.rawFree(first_node.data, @alignOf(BufNode), @returnAddress());
-
-                const node = @ptrCast(*BufNode, new_ptr.ptr);
+                self.child_allocator.rawFree(first_node.data, align_bits, @returnAddress());
+                const node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), new_ptr));
                 node.* = BufNode{
-                    .data = new_ptr,
+                    .data = new_ptr[0..total_size],
                 };
                 self.state.buffer_list.first = node;
             }
         }
-
         return true;
     }
 
@@ -265,29 +250,21 @@ pub const ArenaAllocator = struct {
 test "ArenaAllocator (reset with preheating)" {
     var arena_allocator = ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
-
     // provides some variance in the allocated data
     var rng_src = std.rand.DefaultPrng.init(19930913);
     const random = rng_src.random();
-
     var rounds: usize = 25;
     while (rounds > 0) {
         rounds -= 1;
-
         _ = arena_allocator.reset(.retain_capacity);
-
         var alloced_bytes: usize = 0;
         var total_size: usize = random.intRangeAtMost(usize, 256, 16384);
-
         while (alloced_bytes < total_size) {
             const size = random.intRangeAtMost(usize, 16, 256);
             const alignment = 32;
-
             const slice = try arena_allocator.allocator().alignedAlloc(u8, alignment, size);
-
             try std.testing.expect(std.mem.isAligned(@ptrToInt(slice.ptr), alignment));
             try std.testing.expectEqual(size, slice.len);
-
             alloced_bytes += slice.len;
         }
     }
