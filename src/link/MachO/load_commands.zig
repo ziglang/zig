@@ -131,7 +131,19 @@ pub fn calcMinHeaderPad(gpa: Allocator, options: *const link.Options, ctx: CalcL
     return offset;
 }
 
-pub fn writeDylinkerLC(ncmds: *u32, lc_writer: anytype) !void {
+pub fn calcNumOfLCs(lc_buffer: []const u8) u32 {
+    var ncmds: u32 = 0;
+    var pos: usize = 0;
+    while (true) {
+        if (pos >= lc_buffer.len) break;
+        const cmd = @ptrCast(*align(1) const macho.load_command, lc_buffer.ptr + pos).*;
+        ncmds += 1;
+        pos += cmd.cmdsize;
+    }
+    return ncmds;
+}
+
+pub fn writeDylinkerLC(lc_writer: anytype) !void {
     const name_len = mem.sliceTo(default_dyld_path, 0).len;
     const cmdsize = @intCast(u32, mem.alignForwardGeneric(
         u64,
@@ -148,7 +160,6 @@ pub fn writeDylinkerLC(ncmds: *u32, lc_writer: anytype) !void {
     if (padding > 0) {
         try lc_writer.writeByteNTimes(0, padding);
     }
-    ncmds.* += 1;
 }
 
 const WriteDylibLCCtx = struct {
@@ -159,7 +170,7 @@ const WriteDylibLCCtx = struct {
     compatibility_version: u32 = 0x10000,
 };
 
-fn writeDylibLC(ctx: WriteDylibLCCtx, ncmds: *u32, lc_writer: anytype) !void {
+fn writeDylibLC(ctx: WriteDylibLCCtx, lc_writer: anytype) !void {
     const name_len = ctx.name.len + 1;
     const cmdsize = @intCast(u32, mem.alignForwardGeneric(
         u64,
@@ -182,10 +193,9 @@ fn writeDylibLC(ctx: WriteDylibLCCtx, ncmds: *u32, lc_writer: anytype) !void {
     if (padding > 0) {
         try lc_writer.writeByteNTimes(0, padding);
     }
-    ncmds.* += 1;
 }
 
-pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, ncmds: *u32, lc_writer: anytype) !void {
+pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
     assert(options.output_mode == .Lib and options.link_mode == .Dynamic);
     const emit = options.emit.?;
     const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
@@ -205,18 +215,7 @@ pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, ncmds: *u32,
         .name = install_name,
         .current_version = curr.major << 16 | curr.minor << 8 | curr.patch,
         .compatibility_version = compat.major << 16 | compat.minor << 8 | compat.patch,
-    }, ncmds, lc_writer);
-}
-
-pub fn writeMainLC(entryoff: u32, options: *const link.Options, ncmds: *u32, lc_writer: anytype) !void {
-    assert(options.output_mode == .Exe);
-    try lc_writer.writeStruct(macho.entry_point_command{
-        .cmd = .MAIN,
-        .cmdsize = @sizeOf(macho.entry_point_command),
-        .entryoff = entryoff,
-        .stacksize = options.stack_size_override orelse 0,
-    });
-    ncmds.* += 1;
+    }, lc_writer);
 }
 
 const RpathIterator = struct {
@@ -244,7 +243,7 @@ const RpathIterator = struct {
     }
 };
 
-pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, ncmds: *u32, lc_writer: anytype) !void {
+pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
     var it = RpathIterator.init(gpa, options.rpath_list);
     defer it.deinit();
 
@@ -265,11 +264,10 @@ pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, ncmds: *u32, 
         if (padding > 0) {
             try lc_writer.writeByteNTimes(0, padding);
         }
-        ncmds.* += 1;
     }
 }
 
-pub fn writeBuildVersionLC(options: *const link.Options, ncmds: *u32, lc_writer: anytype) !void {
+pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !void {
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
     const platform_version = blk: {
         const ver = options.target.os.version_range.semver.min;
@@ -299,10 +297,9 @@ pub fn writeBuildVersionLC(options: *const link.Options, ncmds: *u32, lc_writer:
         .tool = .LD,
         .version = 0x0,
     }));
-    ncmds.* += 1;
 }
 
-pub fn writeLoadDylibLCs(dylibs: []const Dylib, referenced: []u16, ncmds: *u32, lc_writer: anytype) !void {
+pub fn writeLoadDylibLCs(dylibs: []const Dylib, referenced: []u16, lc_writer: anytype) !void {
     for (referenced) |index| {
         const dylib = dylibs[index];
         const dylib_id = dylib.id orelse unreachable;
@@ -312,23 +309,6 @@ pub fn writeLoadDylibLCs(dylibs: []const Dylib, referenced: []u16, ncmds: *u32, 
             .timestamp = dylib_id.timestamp,
             .current_version = dylib_id.current_version,
             .compatibility_version = dylib_id.compatibility_version,
-        }, ncmds, lc_writer);
+        }, lc_writer);
     }
-}
-
-pub fn writeSourceVersionLC(ncmds: *u32, lc_writer: anytype) !void {
-    try lc_writer.writeStruct(macho.source_version_command{
-        .cmdsize = @sizeOf(macho.source_version_command),
-        .version = 0x0,
-    });
-    ncmds.* += 1;
-}
-
-pub fn writeUuidLC(uuid: *const [16]u8, ncmds: *u32, lc_writer: anytype) !void {
-    var uuid_lc = macho.uuid_command{
-        .cmdsize = @sizeOf(macho.uuid_command),
-        .uuid = uuid.*,
-    };
-    try lc_writer.writeStruct(uuid_lc);
-    ncmds.* += 1;
 }
