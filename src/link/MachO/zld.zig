@@ -2692,7 +2692,12 @@ pub const Zld = struct {
                 conformUuid(&self.uuid_cmd.uuid);
             },
             else => {
-                const max_file_size = self.symtab_cmd.stroff + self.symtab_cmd.strsize;
+                const max_file_end = self.symtab_cmd.stroff + self.symtab_cmd.strsize;
+
+                const FileSubsection = struct {
+                    start: u32,
+                    end: u32,
+                };
 
                 var subsections: [5]FileSubsection = undefined;
                 var count: usize = 0;
@@ -2743,7 +2748,7 @@ pub const Zld = struct {
                                 @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
                             else
                                 @sizeOf(macho.linkedit_data_command),
-                            .end = max_file_size,
+                            .end = max_file_end,
                         };
                         count += 1;
                     } else {
@@ -2773,7 +2778,7 @@ pub const Zld = struct {
                             @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
                         else
                             @sizeOf(macho.linkedit_data_command),
-                        .end = max_file_size,
+                        .end = max_file_end,
                     };
                     count += 1;
                 }
@@ -2815,29 +2820,6 @@ pub const Zld = struct {
         out[6] = (out[6] & 0x0F) | (3 << 4);
         out[8] = (out[8] & 0x3F) | 0x80;
     }
-
-    const FileSubsection = struct {
-        start: u32,
-        end: u32,
-    };
-
-    // fn calcUuidHashes(
-    //     self: *Zld,
-    //     comp: *const Compilation,
-    //     cut: FileSubsection,
-    //     hashes: *std.ArrayList([Md5.digest_length]u8),
-    // ) !void {
-    //     const chunk_size = 0x4000;
-    //     const total_hashes = mem.alignForward(cut.end - cut.start, chunk_size) / chunk_size;
-    //     try hashes.resize(hashes.items.len + total_hashes);
-
-    //     var hasher = Hasher(Md5){};
-    //     try hasher.hash(self.gpa, comp.thread_pool, self.file, hashes.items, .{
-    //         .chunk_size = chunk_size,
-    //         .file_pos = cut.start,
-    //         .max_file_size = cut.end - cut.start,
-    //     });
-    // }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
         const seg = self.getLinkeditSegmentPtr();
