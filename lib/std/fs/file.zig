@@ -294,14 +294,17 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
-        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
-        /// unique across time, as some file systems may reuse an inode after its file has been deleted.
-        /// Some systems may change the inode of a file over time.
+        /// A number that the system uses to point to the file metadata. This
+        /// number is not guaranteed to be unique across time, as some file
+        /// systems may reuse an inode after its file has been deleted. Some
+        /// systems may change the inode of a file over time.
         ///
-        /// On Linux, the inode is a structure that stores the metadata, and the inode _number_ is what
-        /// you see here: the index number of the inode.
+        /// On Linux, the inode is a structure that stores the metadata, and
+        /// the inode _number_ is what you see here: the index number of the
+        /// inode.
         ///
-        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
+        /// The FileIndex on Windows is similar. It is a number for a file that
+        /// is unique to each filesystem.
         inode: INode,
         size: u64,
         mode: Mode,
@@ -313,6 +316,50 @@ pub const File = struct {
         mtime: i128,
         /// Creation time in nanoseconds, relative to UTC 1970-01-01.
         ctime: i128,
+
+        pub fn fromSystem(st: os.system.Stat) Stat {
+            const atime = st.atime();
+            const mtime = st.mtime();
+            const ctime = st.ctime();
+            const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
+                .BLOCK_DEVICE => Kind.BlockDevice,
+                .CHARACTER_DEVICE => Kind.CharacterDevice,
+                .DIRECTORY => Kind.Directory,
+                .SYMBOLIC_LINK => Kind.SymLink,
+                .REGULAR_FILE => Kind.File,
+                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
+                else => Kind.Unknown,
+            } else blk: {
+                const m = st.mode & os.S.IFMT;
+                switch (m) {
+                    os.S.IFBLK => break :blk Kind.BlockDevice,
+                    os.S.IFCHR => break :blk Kind.CharacterDevice,
+                    os.S.IFDIR => break :blk Kind.Directory,
+                    os.S.IFIFO => break :blk Kind.NamedPipe,
+                    os.S.IFLNK => break :blk Kind.SymLink,
+                    os.S.IFREG => break :blk Kind.File,
+                    os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
+                    else => {},
+                }
+                if (builtin.os.tag == .solaris) switch (m) {
+                    os.S.IFDOOR => break :blk Kind.Door,
+                    os.S.IFPORT => break :blk Kind.EventPort,
+                    else => {},
+                };
+
+                break :blk .Unknown;
+            };
+
+            return Stat{
+                .inode = st.ino,
+                .size = @bitCast(u64, st.size),
+                .mode = st.mode,
+                .kind = kind,
+                .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+                .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+                .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            };
+        }
     };
 
     pub const StatError = os.FStatError;
@@ -342,47 +389,7 @@ pub const File = struct {
         }
 
         const st = try os.fstat(self.handle);
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-            .BLOCK_DEVICE => Kind.BlockDevice,
-            .CHARACTER_DEVICE => Kind.CharacterDevice,
-            .DIRECTORY => Kind.Directory,
-            .SYMBOLIC_LINK => Kind.SymLink,
-            .REGULAR_FILE => Kind.File,
-            .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-            else => Kind.Unknown,
-        } else blk: {
-            const m = st.mode & os.S.IFMT;
-            switch (m) {
-                os.S.IFBLK => break :blk Kind.BlockDevice,
-                os.S.IFCHR => break :blk Kind.CharacterDevice,
-                os.S.IFDIR => break :blk Kind.Directory,
-                os.S.IFIFO => break :blk Kind.NamedPipe,
-                os.S.IFLNK => break :blk Kind.SymLink,
-                os.S.IFREG => break :blk Kind.File,
-                os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
-                else => {},
-            }
-            if (builtin.os.tag == .solaris) switch (m) {
-                os.S.IFDOOR => break :blk Kind.Door,
-                os.S.IFPORT => break :blk Kind.EventPort,
-                else => {},
-            };
-
-            break :blk .Unknown;
-        };
-
-        return Stat{
-            .inode = st.ino,
-            .size = @bitCast(u64, st.size),
-            .mode = st.mode,
-            .kind = kind,
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
-        };
+        return Stat.fromSystem(st);
     }
 
     pub const ChmodError = std.os.FChmodError;

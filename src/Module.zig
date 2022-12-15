@@ -4156,7 +4156,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
     file.status = .success_zir;
 }
 
-pub fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
+fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
     var af = try builtin_pkg.root_src_directory.handle.atomicFile(builtin_pkg.root_src_path, .{});
     defer af.deinit();
     try af.file.writeAll(file.source);
