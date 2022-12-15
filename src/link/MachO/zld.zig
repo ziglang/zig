@@ -25,7 +25,6 @@ const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
 const Dylib = @import("Dylib.zig");
-const Hasher = @import("hasher.zig").ParallelHasher;
 const MachO = @import("../MachO.zig");
 const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
@@ -44,7 +43,9 @@ pub const Zld = struct {
     dysymtab_cmd: macho.dysymtab_command = .{},
     function_starts_cmd: macho.linkedit_data_command = .{ .cmd = .FUNCTION_STARTS },
     data_in_code_cmd: macho.linkedit_data_command = .{ .cmd = .DATA_IN_CODE },
-    uuid_cmd: macho.uuid_command = .{},
+    uuid_cmd: macho.uuid_command = .{
+        .uuid = [_]u8{0} ** 16,
+    },
     codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 
     objects: std.ArrayListUnmanaged(Object) = .{},
@@ -2679,7 +2680,9 @@ pub const Zld = struct {
         linkedit_cmd_offset: u32,
         symtab_cmd_offset: u32,
         uuid_cmd_offset: u32,
+        codesig_cmd_offset: ?u32,
     }) !void {
+        _ = comp;
         switch (self.options.optimize_mode) {
             .Debug => {
                 // In Debug we don't really care about reproducibility, so put in a random value
@@ -2689,27 +2692,34 @@ pub const Zld = struct {
                 conformUuid(&self.uuid_cmd.uuid);
             },
             else => {
-                const seg = self.getLinkeditSegmentPtr();
-                const max_file_size = @intCast(u32, seg.fileoff + seg.filesize);
+                const max_file_size = self.symtab_cmd.stroff + self.symtab_cmd.strsize;
 
-                var hashes = std.ArrayList([Md5.digest_length]u8).init(self.gpa);
-                defer hashes.deinit();
-
-                var subsections: [4]FileSubsection = undefined;
-                var count: usize = 2;
+                var subsections: [5]FileSubsection = undefined;
+                var count: usize = 0;
 
                 // Exclude LINKEDIT segment command as it contains file size that includes stabs contribution
                 // and code signature.
-                subsections[0] = .{
+                subsections[count] = .{
                     .start = 0,
                     .end = args.linkedit_cmd_offset,
                 };
+                count += 1;
 
                 // Exclude SYMTAB and DYSYMTAB commands for the same reason.
-                subsections[1] = .{
-                    .start = args.linkedit_cmd_offset + @sizeOf(macho.segment_command_64),
+                subsections[count] = .{
+                    .start = subsections[count - 1].end + @sizeOf(macho.segment_command_64),
                     .end = args.symtab_cmd_offset,
                 };
+                count += 1;
+
+                // Exclude CODE_SIGNATURE command (if present).
+                if (args.codesig_cmd_offset) |offset| {
+                    subsections[count] = .{
+                        .start = subsections[count - 1].end + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
+                        .end = offset,
+                    };
+                    count += 1;
+                }
 
                 if (!self.options.strip) {
                     // Exclude region comprising all symbol stabs.
@@ -2726,9 +2736,13 @@ pub const Zld = struct {
                         if (local.stab()) break i;
                     } else locals.len;
                     const nstabs = locals.len - istab;
+
                     if (nstabs == 0) {
-                        subsections[2] = .{
-                            .start = args.symtab_cmd_offset + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                            else
+                                @sizeOf(macho.linkedit_data_command),
                             .end = max_file_size,
                         };
                         count += 1;
@@ -2738,38 +2752,80 @@ pub const Zld = struct {
                         // not part of the UUID calculation anyway.
                         const stab_stroff = locals[istab].n_strx;
 
-                        subsections[2] = .{
-                            .start = args.symtab_cmd_offset + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                            else
+                                @sizeOf(macho.linkedit_data_command),
                             .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
                         };
-                        subsections[3] = .{
-                            .start = subsections[2].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
+                        count += 1;
+
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
                             .end = self.symtab_cmd.stroff + stab_stroff,
                         };
-
-                        count += 2;
+                        count += 1;
                     }
                 } else {
-                    subsections[2] = .{
-                        .start = args.symtab_cmd_offset + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
+                    subsections[count] = .{
+                        .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                            @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                        else
+                            @sizeOf(macho.linkedit_data_command),
                         .end = max_file_size,
                     };
                     count += 1;
                 }
 
+                const chunk_size = 0x4000;
+
+                var rb = RingBuffer{};
+                var hasher = Md5.init(.{});
+                var buffer: [chunk_size]u8 = undefined;
+                var hashed: usize = 0;
+
                 for (subsections[0..count]) |cut| {
-                    std.debug.print("{x} - {x}\n", .{ cut.start, cut.end });
-                    try self.calcUuidHashes(comp, cut, &hashes);
+                    // std.debug.print("{x} - {x}, {x}\n", .{ cut.start, cut.end, cut.end - cut.start });
+
+                    const size = cut.end - cut.start;
+                    const num_chunks = mem.alignForward(size, chunk_size) / chunk_size;
+
+                    var i: usize = 0;
+                    while (i < num_chunks) : (i += 1) {
+                        const fstart = cut.start + i * chunk_size;
+                        const fsize = if (fstart + chunk_size > cut.end)
+                            cut.end - fstart
+                        else
+                            chunk_size;
+                        // std.debug.print("fstart {x}, fsize {x}\n", .{ fstart, fsize });
+                        const amt = try self.file.preadAll(buffer[0..fsize], fstart);
+                        if (amt != fsize) return error.InputOutput;
+
+                        // try formatBinaryBlob(buffer[0..fsize], .{ .fmt_as_str = false }, std.io.getStdOut().writer());
+
+                        var leftover = rb.append(buffer[0..fsize]);
+                        while (leftover > 0) {
+                            if (rb.full()) {
+                                hasher.update(rb.getBuffer());
+                                hashed += rb.getBuffer().len;
+                                rb.clear();
+                            }
+                            leftover = rb.append(buffer[fsize - leftover ..]);
+                        }
+                    }
                 }
 
-                const final_buffer = try self.gpa.alloc(u8, hashes.items.len * Md5.digest_length);
-                defer self.gpa.free(final_buffer);
-
-                for (hashes.items) |hash, i| {
-                    mem.copy(u8, final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
+                if (!rb.empty()) {
+                    // try formatBinaryBlob(rb.getBuffer(), .{ .fmt_as_str = false }, std.io.getStdOut().writer());
+                    hasher.update(rb.getBuffer());
+                    hashed += rb.getBuffer().len;
+                    rb.clear();
                 }
 
-                Md5.hash(final_buffer, &self.uuid_cmd.uuid, .{});
+                // std.debug.print("hashed {x}\n", .{hashed});
+
+                hasher.final(&self.uuid_cmd.uuid);
                 conformUuid(&self.uuid_cmd.uuid);
             },
         }
@@ -2777,6 +2833,79 @@ pub const Zld = struct {
         const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
         try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
     }
+
+    const FmtBinaryBlobOpts = struct {
+        fmt_as_str: bool = true,
+        escape_str: bool = false,
+    };
+
+    fn formatBinaryBlob(blob: []const u8, opts: FmtBinaryBlobOpts, writer: anytype) !void {
+        // Format as 16-by-16-by-8 with two left column in hex, and right in ascii:
+        // xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx  xxxxxxxx
+        var i: usize = 0;
+        const step = 16;
+        var tmp_buf: [step]u8 = undefined;
+        while (i < blob.len) : (i += step) {
+            const end = if (blob[i..].len >= step) step else blob[i..].len;
+            const padding = step - blob[i .. i + end].len;
+            if (padding > 0) {
+                mem.set(u8, &tmp_buf, 0);
+            }
+            mem.copy(u8, &tmp_buf, blob[i .. i + end]);
+            try writer.print("{x}  {x:<016} {x:<016}", .{
+                i, std.fmt.fmtSliceHexLower(tmp_buf[0 .. step / 2]), std.fmt.fmtSliceHexLower(tmp_buf[step / 2 .. step]),
+            });
+            if (opts.fmt_as_str) {
+                if (opts.escape_str) {
+                    try writer.print("  {s}", .{std.fmt.fmtSliceEscapeLower(tmp_buf[0..step])});
+                } else {
+                    try writer.print("  {s}", .{tmp_buf[0..step]});
+                }
+            }
+            try writer.writeByte('\n');
+        }
+    }
+
+    const RingBuffer = struct {
+        buffer: [chunk_size]u8 = undefined,
+        pos: usize = 0,
+
+        const chunk_size = 0x4000;
+
+        fn append(rb: *RingBuffer, data: []u8) usize {
+            const cpy_size = if (data.len > rb.available())
+                data.len - rb.available()
+            else
+                data.len;
+            // std.debug.print("  appending {x} of {x} (pos {x})\n", .{ cpy_size, data.len, rb.pos });
+            mem.copy(u8, rb.buffer[rb.pos..], data[0..cpy_size]);
+            rb.pos += cpy_size;
+            const leftover = data.len - cpy_size;
+            // std.debug.print("    leftover {x}\n", .{leftover});
+            // std.debug.print("    buffer {x} full\n", .{rb.pos});
+            return leftover;
+        }
+
+        fn available(rb: RingBuffer) usize {
+            return rb.buffer.len - rb.pos;
+        }
+
+        fn clear(rb: *RingBuffer) void {
+            rb.pos = 0;
+        }
+
+        fn full(rb: RingBuffer) bool {
+            return rb.buffer.len == rb.pos;
+        }
+
+        fn empty(rb: RingBuffer) bool {
+            return rb.pos == 0;
+        }
+
+        fn getBuffer(rb: *const RingBuffer) []const u8 {
+            return rb.buffer[0..rb.pos];
+        }
+    };
 
     inline fn conformUuid(out: *[Md5.digest_length]u8) void {
         // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
@@ -2789,23 +2918,23 @@ pub const Zld = struct {
         end: u32,
     };
 
-    fn calcUuidHashes(
-        self: *Zld,
-        comp: *const Compilation,
-        cut: FileSubsection,
-        hashes: *std.ArrayList([Md5.digest_length]u8),
-    ) !void {
-        const chunk_size = 0x4000;
-        const total_hashes = mem.alignForward(cut.end - cut.start, chunk_size) / chunk_size;
-        try hashes.resize(hashes.items.len + total_hashes);
+    // fn calcUuidHashes(
+    //     self: *Zld,
+    //     comp: *const Compilation,
+    //     cut: FileSubsection,
+    //     hashes: *std.ArrayList([Md5.digest_length]u8),
+    // ) !void {
+    //     const chunk_size = 0x4000;
+    //     const total_hashes = mem.alignForward(cut.end - cut.start, chunk_size) / chunk_size;
+    //     try hashes.resize(hashes.items.len + total_hashes);
 
-        var hasher = Hasher(Md5){};
-        try hasher.hash(self.gpa, comp.thread_pool, self.file, hashes.items, .{
-            .chunk_size = chunk_size,
-            .file_pos = cut.start,
-            .max_file_size = cut.end - cut.start,
-        });
-    }
+    //     var hasher = Hasher(Md5){};
+    //     try hasher.hash(self.gpa, comp.thread_pool, self.file, hashes.items, .{
+    //         .chunk_size = chunk_size,
+    //         .file_pos = cut.start,
+    //         .max_file_size = cut.end - cut.start,
+    //     });
+    // }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
         const seg = self.getLinkeditSegmentPtr();
@@ -4133,6 +4262,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) break :blk true;
             break :blk false;
         };
+        var codesig_cmd_offset: ?u32 = null;
         var codesig: ?CodeSignature = if (requires_codesig) blk: {
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
@@ -4145,6 +4275,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try codesig.addEntitlements(gpa, path);
             }
             try zld.writeCodeSignaturePadding(&codesig);
+            codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
             try lc_writer.writeStruct(zld.codesig_cmd);
             break :blk codesig;
         } else null;
@@ -4158,6 +4289,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             .linkedit_cmd_offset = linkedit_cmd_offset,
             .symtab_cmd_offset = symtab_cmd_offset,
             .uuid_cmd_offset = uuid_cmd_offset,
+            .codesig_cmd_offset = codesig_cmd_offset,
         });
 
         if (codesig) |*csig| {
