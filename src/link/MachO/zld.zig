@@ -2780,10 +2780,8 @@ pub const Zld = struct {
 
                 const chunk_size = 0x4000;
 
-                var rb = RingBuffer{};
                 var hasher = Md5.init(.{});
                 var buffer: [chunk_size]u8 = undefined;
-                var hashed: usize = 0;
 
                 for (subsections[0..count]) |cut| {
                     const size = cut.end - cut.start;
@@ -2799,22 +2797,8 @@ pub const Zld = struct {
                         const amt = try self.file.preadAll(buffer[0..fsize], fstart);
                         if (amt != fsize) return error.InputOutput;
 
-                        var leftover = rb.append(buffer[0..fsize]);
-                        while (leftover > 0) {
-                            if (rb.full()) {
-                                hasher.update(rb.getBuffer());
-                                hashed += rb.getBuffer().len;
-                                rb.clear();
-                            }
-                            leftover = rb.append(buffer[fsize - leftover ..]);
-                        }
+                        hasher.update(buffer[0..fsize]);
                     }
-                }
-
-                if (!rb.empty()) {
-                    hasher.update(rb.getBuffer());
-                    hashed += rb.getBuffer().len;
-                    rb.clear();
                 }
 
                 hasher.final(&self.uuid_cmd.uuid);
@@ -2825,44 +2809,6 @@ pub const Zld = struct {
         const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
         try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
     }
-
-    const RingBuffer = struct {
-        buffer: [chunk_size]u8 = undefined,
-        pos: usize = 0,
-
-        const chunk_size = 0x4000;
-
-        fn append(rb: *RingBuffer, data: []u8) usize {
-            const cpy_size = if (data.len > rb.available())
-                data.len - rb.available()
-            else
-                data.len;
-            mem.copy(u8, rb.buffer[rb.pos..], data[0..cpy_size]);
-            rb.pos += cpy_size;
-            const leftover = data.len - cpy_size;
-            return leftover;
-        }
-
-        fn available(rb: RingBuffer) usize {
-            return rb.buffer.len - rb.pos;
-        }
-
-        fn clear(rb: *RingBuffer) void {
-            rb.pos = 0;
-        }
-
-        fn full(rb: RingBuffer) bool {
-            return rb.buffer.len == rb.pos;
-        }
-
-        fn empty(rb: RingBuffer) bool {
-            return rb.pos == 0;
-        }
-
-        fn getBuffer(rb: *const RingBuffer) []const u8 {
-            return rb.buffer[0..rb.pos];
-        }
-    };
 
     inline fn conformUuid(out: *[Md5.digest_length]u8) void {
         // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
