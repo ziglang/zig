@@ -204,18 +204,10 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             return @intCast(u32, rel_value);
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
-            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
-            var current_atom = target_atom.getFirst();
-            var offset: u32 = 0;
-            // TODO: Calculate this during atom allocation, rather than
-            // this linear calculation. For now it's done here as atoms
-            // are being sorted after atom allocation, as functions aren't
-            // merged until later.
-            while (true) {
-                offset += 5; // each atom uses 5 bytes to store its body's size
-                if (current_atom == target_atom) break;
-                current_atom = current_atom.next.?;
-            }
+            const target_atom = wasm_bin.symbol_atom.get(target_loc) orelse {
+                return @bitCast(u32, @as(i32, -1));
+            };
+            const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
             const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
             return @intCast(u32, rel_value);
         },
