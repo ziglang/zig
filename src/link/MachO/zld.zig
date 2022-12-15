@@ -2556,12 +2556,6 @@ pub const Zld = struct {
             }
         }
 
-        if (!self.options.strip) {
-            for (self.objects.items) |object| {
-                try self.generateSymbolStabs(object, &locals);
-            }
-        }
-
         var exports = std.ArrayList(macho.nlist_64).init(gpa);
         defer exports.deinit();
 
@@ -2590,6 +2584,14 @@ pub const Zld = struct {
             out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
             try imports.append(out_sym);
             try imports_table.putNoClobber(global, new_index);
+        }
+
+        // We generate stabs last in order to ensure that the strtab always has debug info
+        // strings trailing
+        if (!self.options.strip) {
+            for (self.objects.items) |object| {
+                try self.generateSymbolStabs(object, &locals);
+            }
         }
 
         const nlocals = @intCast(u32, locals.items.len);
