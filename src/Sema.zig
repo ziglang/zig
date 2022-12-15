@@ -25952,6 +25952,30 @@ fn storePtr2(
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     try sema.queueFullTypeResolution(elem_ty);
+
+    if (ptr_ty.ptrInfo().data.vector_index == .runtime) {
+        const ptr_inst = Air.refToIndex(ptr).?;
+        const air_tags = sema.air_instructions.items(.tag);
+        if (air_tags[ptr_inst] == .ptr_elem_ptr) {
+            const ty_pl = sema.air_instructions.items(.data)[ptr_inst].ty_pl;
+            const bin_op = sema.getTmpAir().extraData(Air.Bin, ty_pl.payload).data;
+            _ = try block.addInst(.{
+                .tag = .vector_store_elem,
+                .data = .{ .vector_store_elem = .{
+                    .vector_ptr = bin_op.lhs,
+                    .payload = try block.sema.addExtra(Air.Bin{
+                        .lhs = bin_op.rhs,
+                        .rhs = operand,
+                    }),
+                } },
+            });
+            return;
+        }
+        return sema.fail(block, ptr_src, "unable to determine vector element index of type '{}'", .{
+            ptr_ty.fmt(sema.mod),
+        });
+    }
+
     if (is_ret) {
         _ = try block.addBinOp(.store, ptr, operand);
     } else {
@@ -27825,6 +27849,19 @@ fn analyzeLoad(
         if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
         }
+    }
+
+    if (ptr_ty.ptrInfo().data.vector_index == .runtime) {
+        const ptr_inst = Air.refToIndex(ptr).?;
+        const air_tags = sema.air_instructions.items(.tag);
+        if (air_tags[ptr_inst] == .ptr_elem_ptr) {
+            const ty_pl = sema.air_instructions.items(.data)[ptr_inst].ty_pl;
+            const bin_op = sema.getTmpAir().extraData(Air.Bin, ty_pl.payload).data;
+            return block.addBinOp(.ptr_elem_val, bin_op.lhs, bin_op.rhs);
+        }
+        return sema.fail(block, ptr_src, "unable to determine vector element index of type '{}'", .{
+            ptr_ty.fmt(sema.mod),
+        });
     }
 
     return block.addTyOp(.load, elem_ty, ptr);
@@ -32697,23 +32734,24 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
     const target = sema.mod.getTarget();
     const parent_ty = ptr_ty.childType();
 
+    const VI = Type.Payload.Pointer.Data.VectorIndex;
+
     const vector_info: struct {
-        host_size: u16,
-        bit_offset: u16,
-        alignment: u32,
+        host_size: u16 = 0,
+        alignment: u32 = 0,
+        vector_index: VI = .none,
     } = if (parent_ty.tag() == .vector) blk: {
         const elem_bits = elem_ty.bitSize(target);
-        const is_packed = elem_bits != 0 and (elem_bits & (elem_bits - 1)) != 0;
-        // TODO: runtime-known index
-        assert(!is_packed or offset != null);
-        const is_packed_with_offset = is_packed and offset != null and offset.? != 0;
-        const target_offset = if (is_packed_with_offset) (if (target.cpu.arch.endian() == .Big) (parent_ty.vectorLen() - 1 - offset.?) else offset.?) else 0;
+        if (elem_bits == 0) break :blk .{};
+        const is_packed = elem_bits < 8 or !std.math.isPowerOfTwo(elem_bits);
+        if (!is_packed) break :blk .{};
+
         break :blk .{
-            .host_size = if (is_packed_with_offset) @intCast(u16, parent_ty.abiSize(target)) else 0,
-            .bit_offset = if (is_packed_with_offset) @intCast(u16, elem_bits * target_offset) else 0,
-            .alignment = if (is_packed_with_offset) @intCast(u16, parent_ty.abiAlignment(target)) else 0,
+            .host_size = @intCast(u16, parent_ty.arrayLen()),
+            .alignment = @intCast(u16, parent_ty.abiAlignment(target)),
+            .vector_index = if (offset) |some| @intToEnum(VI, some) else .runtime,
         };
-    } else .{ .host_size = 0, .bit_offset = 0, .alignment = 0 };
+    } else .{};
 
     const alignment: u32 = a: {
         // Calculate the new pointer alignment.
@@ -32741,6 +32779,6 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         .@"volatile" = ptr_info.@"volatile",
         .@"align" = alignment,
         .host_size = vector_info.host_size,
-        .bit_offset = vector_info.bit_offset,
+        .vector_index = vector_info.vector_index,
     });
 }

@@ -1234,3 +1234,30 @@ test "array operands to shuffle are coerced to vectors" {
     var b = @shuffle(u32, a, @splat(5, @as(u24, 0)), mask);
     try expectEqual([_]u32{ 0, 3, 5, 7, 9 }, b);
 }
+
+test "load packed vector element" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var x: @Vector(2, u15) = .{ 1, 4 };
+    try expect((&x[0]).* == 1);
+    try expect((&x[1]).* == 4);
+}
+
+test "store packed vector element" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var v = @Vector(4, u1){ 1, 1, 1, 1 };
+    try expectEqual(@Vector(4, u1){ 1, 1, 1, 1 }, v);
+    v[0] = 0;
+    try expectEqual(@Vector(4, u1){ 0, 1, 1, 1 }, v);
+}

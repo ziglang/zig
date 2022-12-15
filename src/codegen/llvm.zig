@@ -1572,6 +1572,7 @@ pub const Object = struct {
                     ptr_info.@"addrspace" != .generic or
                     ptr_info.bit_offset != 0 or
                     ptr_info.host_size != 0 or
+                    ptr_info.vector_index != .none or
                     ptr_info.@"allowzero" or
                     !ptr_info.mutable or
                     ptr_info.@"volatile" or
@@ -4660,6 +4661,8 @@ pub const FuncGen = struct {
                 .wasm_memory_size => try self.airWasmMemorySize(inst),
                 .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
 
+                .vector_store_elem => try self.airVectorStoreElem(inst),
+
                 .constant => unreachable,
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
@@ -5022,7 +5025,7 @@ pub const FuncGen = struct {
                 .data = ret_ty,
             };
             const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-            self.store(ret_ptr, ptr_ty, operand, .NotAtomic);
+            try self.store(ret_ptr, ptr_ty, operand, .NotAtomic);
             _ = self.builder.buildRetVoid();
             return null;
         }
@@ -5779,6 +5782,10 @@ pub const FuncGen = struct {
 
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+
+        const elem_ptr = self.air.getRefType(ty_pl.ty);
+        if (elem_ptr.ptrInfo().data.vector_index != .none) return base_ptr;
+
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
         if (ptr_ty.isSinglePointer()) {
             // If this is a single-item pointer to an array, we need another index in the GEP.
@@ -6803,7 +6810,7 @@ pub const FuncGen = struct {
                 .data = payload_ty,
             };
             const payload_ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-            self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
+            try self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
             const non_null_ptr = self.builder.buildStructGEP(llvm_optional_ty, optional_ptr, 1, "");
             _ = self.builder.buildStore(non_null_bit, non_null_ptr);
             return optional_ptr;
@@ -6839,7 +6846,7 @@ pub const FuncGen = struct {
                 .data = payload_ty,
             };
             const payload_ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-            self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
+            try self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
             return result_ptr;
         }
 
@@ -6906,6 +6913,28 @@ pub const FuncGen = struct {
             operand,
         };
         return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+    }
+
+    fn airVectorStoreElem(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        const data = self.air.instructions.items(.data)[inst].vector_store_elem;
+        const extra = self.air.extraData(Air.Bin, data.payload).data;
+
+        const vector_ptr = try self.resolveInst(data.vector_ptr);
+        const vector_ptr_ty = self.air.typeOf(data.vector_ptr);
+        const index = try self.resolveInst(extra.lhs);
+        const operand = try self.resolveInst(extra.rhs);
+
+        const loaded_vector = blk: {
+            const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.elemType2());
+            const load_inst = self.builder.buildLoad(elem_llvm_ty, vector_ptr, "");
+            const target = self.dg.module.getTarget();
+            load_inst.setAlignment(vector_ptr_ty.ptrAlignment(target));
+            load_inst.setVolatile(llvm.Bool.fromBool(vector_ptr_ty.isVolatilePtr()));
+            break :blk load_inst;
+        };
+        const modified_vector = self.builder.buildInsertElement(loaded_vector, operand, index, "");
+        try self.store(vector_ptr, vector_ptr_ty, modified_vector, .NotAtomic);
+        return null;
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -8135,7 +8164,7 @@ pub const FuncGen = struct {
             }
         } else {
             const src_operand = try self.resolveInst(bin_op.rhs);
-            self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
+            try self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
         }
         return null;
     }
@@ -8385,7 +8414,7 @@ pub const FuncGen = struct {
                 element = self.builder.buildZExt(element, abi_ty, "");
             }
         }
-        self.store(ptr, ptr_ty, element, ordering);
+        try self.store(ptr, ptr_ty, element, ordering);
         return null;
     }
 
@@ -9178,7 +9207,7 @@ pub const FuncGen = struct {
                             },
                         };
                         const field_ptr_ty = Type.initPayload(&field_ptr_payload.base);
-                        self.store(field_ptr, field_ptr_ty, llvm_elem, .NotAtomic);
+                        try self.store(field_ptr, field_ptr_ty, llvm_elem, .NotAtomic);
                     }
 
                     return alloca_inst;
@@ -9216,7 +9245,7 @@ pub const FuncGen = struct {
                     };
                     const elem_ptr = self.builder.buildInBoundsGEP(llvm_result_ty, alloca_inst, &indices, indices.len, "");
                     const llvm_elem = try self.resolveInst(elem);
-                    self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
+                    try self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
                 }
                 if (array_info.sentinel) |sent_val| {
                     const indices: [2]*llvm.Value = .{
@@ -9229,7 +9258,7 @@ pub const FuncGen = struct {
                         .val = sent_val,
                     });
 
-                    self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
+                    try self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
                 }
 
                 return alloca_inst;
@@ -9352,7 +9381,7 @@ pub const FuncGen = struct {
             };
             const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
             const field_ptr = self.builder.buildInBoundsGEP(llvm_union_ty, casted_ptr, &indices, len, "");
-            self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
+            try self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
             return result_ptr;
         }
 
@@ -9364,7 +9393,7 @@ pub const FuncGen = struct {
             };
             const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
             const field_ptr = self.builder.buildInBoundsGEP(llvm_union_ty, casted_ptr, &indices, len, "");
-            self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
+            try self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
         }
         {
             const indices: [2]*llvm.Value = .{
@@ -9693,6 +9722,20 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const ptr_alignment = info.alignment(target);
         const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
+
+        assert(info.vector_index != .runtime);
+        if (info.vector_index != .none) {
+            const index_u32 = self.dg.context.intType(32).constInt(@enumToInt(info.vector_index), .False);
+            const vec_elem_ty = try self.dg.lowerType(info.pointee_type);
+            const vec_ty = vec_elem_ty.vectorType(info.host_size);
+
+            const loaded_vector = self.builder.buildLoad(vec_ty, ptr, "");
+            loaded_vector.setAlignment(ptr_alignment);
+            loaded_vector.setVolatile(ptr_volatile);
+
+            return self.builder.buildExtractElement(loaded_vector, index_u32, "");
+        }
+
         if (info.host_size == 0) {
             if (isByRef(info.pointee_type)) {
                 return self.loadByRef(ptr, info.pointee_type, ptr_alignment, info.@"volatile");
@@ -9748,7 +9791,7 @@ pub const FuncGen = struct {
         ptr_ty: Type,
         elem: *llvm.Value,
         ordering: llvm.AtomicOrdering,
-    ) void {
+    ) !void {
         const info = ptr_ty.ptrInfo().data;
         const elem_ty = info.pointee_type;
         if (!elem_ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
@@ -9757,6 +9800,26 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const ptr_alignment = ptr_ty.ptrAlignment(target);
         const ptr_volatile = llvm.Bool.fromBool(info.@"volatile");
+
+        assert(info.vector_index != .runtime);
+        if (info.vector_index != .none) {
+            const index_u32 = self.dg.context.intType(32).constInt(@enumToInt(info.vector_index), .False);
+            const vec_elem_ty = try self.dg.lowerType(elem_ty);
+            const vec_ty = vec_elem_ty.vectorType(info.host_size);
+
+            const loaded_vector = self.builder.buildLoad(vec_ty, ptr, "");
+            loaded_vector.setAlignment(ptr_alignment);
+            loaded_vector.setVolatile(ptr_volatile);
+
+            const modified_vector = self.builder.buildInsertElement(loaded_vector, elem, index_u32, "");
+
+            const store_inst = self.builder.buildStore(modified_vector, ptr);
+            assert(ordering == .NotAtomic);
+            store_inst.setAlignment(ptr_alignment);
+            store_inst.setVolatile(ptr_volatile);
+            return;
+        }
+
         if (info.host_size != 0) {
             const int_elem_ty = self.context.intType(info.host_size * 8);
             const int_ptr = self.builder.buildBitCast(ptr, int_elem_ty.pointerType(0), "");

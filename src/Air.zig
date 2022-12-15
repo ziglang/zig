@@ -737,6 +737,10 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         save_err_return_trace_index,
 
+        /// Store an element to a vector pointer at an index.
+        /// Uses the `vector_store_elem` field.
+        vector_store_elem,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -813,6 +817,11 @@ pub const Inst = struct {
         reduce: struct {
             operand: Ref,
             operation: std.builtin.ReduceOp,
+        },
+        vector_store_elem: struct {
+            vector_ptr: Ref,
+            // Index into a different array.
+            payload: u32,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -1177,6 +1186,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
+        .vector_store_elem,
         => return Type.void,
 
         .ptrtoint,
