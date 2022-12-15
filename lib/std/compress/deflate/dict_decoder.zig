@@ -206,7 +206,6 @@ pub const DictDecoder = struct {
 
 test "dictionary decoder" {
     const ArrayList = std.ArrayList;
-    const expect = std.testing.expect;
     const testing = std.testing;
 
     const abc = "ABC\n";
@@ -416,5 +415,5 @@ test "dictionary decoder" {
     _ = try want.write(want_list.items[want_list.items.len - dd.histSize() ..][0..10]);
 
     _ = try got.write(dd.readFlush());
-    try expect(mem.eql(u8, got_list.items, want_list.items));
+    try testing.expectEqualSlices(u8, want_list.items, got_list.items);
 }

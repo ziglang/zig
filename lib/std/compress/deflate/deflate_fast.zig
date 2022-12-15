@@ -354,7 +354,7 @@ pub const DeflateFast = struct {
 };
 
 test "best speed match 1/3" {
-    const expect = std.testing.expect;
+    const expectEqual = std.testing.expectEqual;
 
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -367,7 +367,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 6);
+        try expectEqual(@as(i32, 6), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -380,7 +380,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 1 };
@@ -393,7 +393,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 2);
+        try expectEqual(@as(i32, 2), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -406,7 +406,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(0, -1, &current);
-        try expect(got == 4);
+        try expectEqual(@as(i32, 4), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2, 3, 4, 5, 2, 2 };
@@ -419,7 +419,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(4, -7, &current);
-        try expect(got == 5);
+        try expectEqual(@as(i32, 5), got);
     }
     {
         var previous = [_]u8{ 9, 9, 9, 9, 9 };
@@ -432,7 +432,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(0, -1, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{ 9, 9, 9, 9, 9 };
@@ -445,12 +445,12 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, 0, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
 }
 
 test "best speed match 2/3" {
-    const expect = std.testing.expect;
+    const expectEqual = std.testing.expectEqual;
 
     {
         var previous = [_]u8{};
@@ -463,7 +463,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, -5, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{};
@@ -476,7 +476,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, -1, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{};
@@ -489,7 +489,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, 0, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
     {
         var previous = [_]u8{ 3, 4, 5 };
@@ -502,13 +502,13 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 3, 4, 5 };
         var got: i32 = e.matchLen(0, -3, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
 }
 
 test "best speed match 2/2" {
     const testing = std.testing;
-    const expect = testing.expect;
+    const expectEqual = testing.expectEqual;
 
     const Case = struct {
         previous: u32,
@@ -580,7 +580,7 @@ test "best speed match 2/2" {
             .cur = 0,
         };
         var got: i32 = e.matchLen(c.s, c.t, current);
-        try expect(got == c.expected);
+        try expectEqual(@as(i32, c.expected), got);
     }
 }
 
@@ -623,16 +623,16 @@ test "best speed shift offsets" {
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     var got = tokens_count;
-    try expect(want_first_tokens == got);
+    try testing.expectEqual(want_first_tokens, got);
 
     // Verify we are about to wrap.
-    try expect(enc.cur == buffer_reset);
+    try testing.expectEqual(@as(i32, buffer_reset), enc.cur);
 
     // Part 2 should match clean state as well even if wrapped.
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     got = tokens_count;
-    try expect(want_second_tokens == got);
+    try testing.expectEqual(want_second_tokens, got);
 
     // Verify that we wrapped.
     try expect(enc.cur < buffer_reset);
@@ -645,13 +645,12 @@ test "best speed shift offsets" {
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     got = tokens_count;
-    try expect(want_first_tokens == got);
+    try testing.expectEqual(want_first_tokens, got);
 }
 
 test "best speed reset" {
     // test that encoding is consistent across a warparound of the table offset.
     // See https://github.com/golang/go/issues/34121
-    const expect = std.testing.expect;
     const fmt = std.fmt;
     const testing = std.testing;
 
@@ -716,6 +715,6 @@ test "best speed reset" {
         try comp.close();
 
         // output must match at wraparound
-        try expect(mem.eql(u8, got.items, want.items));
+        try testing.expectEqualSlices(u8, want.items, got.items);
     }
 }

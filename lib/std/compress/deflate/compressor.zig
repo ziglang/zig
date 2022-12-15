@@ -1079,7 +1079,7 @@ test "deflate" {
         try comp.close();
         comp.deinit();
 
-        try expect(mem.eql(u8, output.items, dt.out));
+        try testing.expectEqualSlices(u8, dt.out, output.items);
     }
 }
 
@@ -1104,7 +1104,7 @@ test "bulkHash4" {
             _ = bulkHash4(y, dst);
             for (dst) |got, i| {
                 var want = hash4(y[i..]);
-                try expect(got == want);
+                try testing.expectEqual(want, got);
             }
         }
     }
