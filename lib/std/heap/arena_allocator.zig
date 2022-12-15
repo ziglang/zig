@@ -283,7 +283,7 @@ test "ArenaAllocator (reset with preheating)" {
             const size = random.intRangeAtMost(usize, 16, 256);
             const alignment = 32;
 
-            const slice = try arena_allocator.allocator().allocAdvanced(u8, alignment, size, .exact);
+            const slice = try arena_allocator.allocator().alignedAlloc(u8, alignment, size);
 
             try std.testing.expect(std.mem.isAligned(@ptrToInt(slice.ptr), alignment));
             try std.testing.expectEqual(size, slice.len);
