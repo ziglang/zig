@@ -212,6 +212,15 @@ pub fn categorizeOperand(
             return .write;
         },
 
+        .vector_store_elem => {
+            const o = air_datas[inst].vector_store_elem;
+            const extra = air.extraData(Air.Bin, o.payload).data;
+            if (o.vector_ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
+            return .write;
+        },
+
         .arg,
         .alloc,
         .ret_ptr,
@@ -822,6 +831,12 @@ fn analyzeInst(
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
+        },
+
+        .vector_store_elem => {
+            const o = inst_datas[inst].vector_store_elem;
+            const extra = a.air.extraData(Air.Bin, o.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ o.vector_ptr, extra.lhs, extra.rhs });
         },
 
         .arg,

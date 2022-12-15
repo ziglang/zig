@@ -1971,6 +1971,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .is_named_enum_value,
         .error_set_has_value,
         .addrspace_cast,
+        .vector_store_elem,
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .add_optimized,
@@ -2213,6 +2214,7 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ptr_ty = func.air.typeOf(bin_op.lhs);
     const ptr_info = ptr_ty.ptrInfo().data;
     const ty = ptr_ty.childType();
+
     if (ptr_info.host_size == 0) {
         try func.store(lhs, rhs, ty, 0);
     } else {

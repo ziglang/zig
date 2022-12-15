@@ -306,6 +306,7 @@ const Writer = struct {
             .shuffle => try w.writeShuffle(s, inst),
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
+            .vector_store_elem => try w.writeVectorStoreElem(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
         }
@@ -476,6 +477,17 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 1, extra.rhs);
+    }
+
+    fn writeVectorStoreElem(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const data = w.air.instructions.items(.data)[inst].vector_store_elem;
+        const extra = w.air.extraData(Air.VectorCmp, data.payload).data;
+
+        try w.writeOperand(s, inst, 0, data.vector_ptr);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

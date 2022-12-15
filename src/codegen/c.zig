@@ -2908,6 +2908,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
+            .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
             // zig fmt: on
         };
         if (result_value == .local) {
