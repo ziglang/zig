@@ -2786,8 +2786,6 @@ pub const Zld = struct {
                 var hashed: usize = 0;
 
                 for (subsections[0..count]) |cut| {
-                    // std.debug.print("{x} - {x}, {x}\n", .{ cut.start, cut.end, cut.end - cut.start });
-
                     const size = cut.end - cut.start;
                     const num_chunks = mem.alignForward(size, chunk_size) / chunk_size;
 
@@ -2798,11 +2796,8 @@ pub const Zld = struct {
                             cut.end - fstart
                         else
                             chunk_size;
-                        // std.debug.print("fstart {x}, fsize {x}\n", .{ fstart, fsize });
                         const amt = try self.file.preadAll(buffer[0..fsize], fstart);
                         if (amt != fsize) return error.InputOutput;
-
-                        // try formatBinaryBlob(buffer[0..fsize], .{ .fmt_as_str = false }, std.io.getStdOut().writer());
 
                         var leftover = rb.append(buffer[0..fsize]);
                         while (leftover > 0) {
@@ -2817,13 +2812,10 @@ pub const Zld = struct {
                 }
 
                 if (!rb.empty()) {
-                    // try formatBinaryBlob(rb.getBuffer(), .{ .fmt_as_str = false }, std.io.getStdOut().writer());
                     hasher.update(rb.getBuffer());
                     hashed += rb.getBuffer().len;
                     rb.clear();
                 }
-
-                // std.debug.print("hashed {x}\n", .{hashed});
 
                 hasher.final(&self.uuid_cmd.uuid);
                 conformUuid(&self.uuid_cmd.uuid);
@@ -2832,38 +2824,6 @@ pub const Zld = struct {
 
         const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
         try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
-    }
-
-    const FmtBinaryBlobOpts = struct {
-        fmt_as_str: bool = true,
-        escape_str: bool = false,
-    };
-
-    fn formatBinaryBlob(blob: []const u8, opts: FmtBinaryBlobOpts, writer: anytype) !void {
-        // Format as 16-by-16-by-8 with two left column in hex, and right in ascii:
-        // xxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxx  xxxxxxxx
-        var i: usize = 0;
-        const step = 16;
-        var tmp_buf: [step]u8 = undefined;
-        while (i < blob.len) : (i += step) {
-            const end = if (blob[i..].len >= step) step else blob[i..].len;
-            const padding = step - blob[i .. i + end].len;
-            if (padding > 0) {
-                mem.set(u8, &tmp_buf, 0);
-            }
-            mem.copy(u8, &tmp_buf, blob[i .. i + end]);
-            try writer.print("{x}  {x:<016} {x:<016}", .{
-                i, std.fmt.fmtSliceHexLower(tmp_buf[0 .. step / 2]), std.fmt.fmtSliceHexLower(tmp_buf[step / 2 .. step]),
-            });
-            if (opts.fmt_as_str) {
-                if (opts.escape_str) {
-                    try writer.print("  {s}", .{std.fmt.fmtSliceEscapeLower(tmp_buf[0..step])});
-                } else {
-                    try writer.print("  {s}", .{tmp_buf[0..step]});
-                }
-            }
-            try writer.writeByte('\n');
-        }
     }
 
     const RingBuffer = struct {
@@ -2877,12 +2837,9 @@ pub const Zld = struct {
                 data.len - rb.available()
             else
                 data.len;
-            // std.debug.print("  appending {x} of {x} (pos {x})\n", .{ cpy_size, data.len, rb.pos });
             mem.copy(u8, rb.buffer[rb.pos..], data[0..cpy_size]);
             rb.pos += cpy_size;
             const leftover = data.len - cpy_size;
-            // std.debug.print("    leftover {x}\n", .{leftover});
-            // std.debug.print("    buffer {x} full\n", .{rb.pos});
             return leftover;
         }
 
