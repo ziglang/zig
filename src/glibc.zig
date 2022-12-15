@@ -174,6 +174,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const target_ver = target.os.version_range.linux.glibc;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
 
+    // In all cases in this function, we add the C compiler flags to
+    // cache_exempt_flags rather than extra_flags, because these arguments
+    // depend on only properties that are already covered by the cache
+    // manifest. Including these arguments in the cache could only possibly
+    // waste computation and create false negatives.
+
     switch (crt_file) {
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -193,7 +199,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
-                    .extra_flags = args.items,
+                    .cache_exempt_flags = args.items,
                 },
             });
         },
@@ -212,7 +218,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
-                    .extra_flags = args.items,
+                    .cache_exempt_flags = args.items,
                 },
             });
         },
@@ -237,7 +243,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 const src_path = if (start_old_init_fini) "start-2.33.S" else "start.S";
                 break :blk .{
                     .src_path = try start_asm_path(comp, arena, src_path),
-                    .extra_flags = args.items,
+                    .cache_exempt_flags = args.items,
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
@@ -256,7 +262,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 });
                 break :blk .{
                     .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
-                    .extra_flags = args.items,
+                    .cache_exempt_flags = args.items,
                 };
             };
             return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_o, abi_note_o });
@@ -355,7 +361,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 });
                 files_buf[files_index] = .{
                     .src_path = try lib_path(comp, arena, dep.path),
-                    .extra_flags = args.items,
+                    .cache_exempt_flags = args.items,
                 };
                 files_index += 1;
             }
@@ -661,7 +667,6 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     var man = cache.obtain();
     defer man.deinit();
     man.hash.addBytes(build_options.version);
-    man.hash.addBytes(comp.zig_lib_directory.path orelse ".");
     man.hash.add(target.cpu.arch);
     man.hash.add(target.abi);
     man.hash.add(target_version);
