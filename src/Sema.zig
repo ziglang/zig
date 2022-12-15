@@ -16356,6 +16356,15 @@ fn finishCondBr(
     return Air.indexToRef(block_inst);
 }
 
+fn checkNullableType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    switch (ty.zigTypeTag()) {
+        .Optional, .Null, .Undefined => return,
+        .Pointer => if (ty.isPtrLikeOptional()) return,
+        else => {},
+    }
+    return sema.failWithExpectedOptionalType(block, src, ty);
+}
+
 fn zirIsNonNull(
     sema: *Sema,
     block: *Block,
@@ -16367,6 +16376,7 @@ fn zirIsNonNull(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
+    try sema.checkNullableType(block, src, sema.typeOf(operand));
     return sema.analyzeIsNull(block, src, operand, true);
 }
 
@@ -16381,6 +16391,7 @@ fn zirIsNonNullPtr(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
+    try sema.checkNullableType(block, src, sema.typeOf(ptr).elemType2());
     if ((try sema.resolveMaybeUndefVal(ptr)) == null) {
         return block.addUnOp(.is_non_null_ptr, ptr);
     }
@@ -16388,12 +16399,23 @@ fn zirIsNonNullPtr(
     return sema.analyzeIsNull(block, src, loaded, true);
 }
 
+fn checkErrorType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    switch (ty.zigTypeTag()) {
+        .ErrorSet, .ErrorUnion, .Undefined => return,
+        else => return sema.fail(block, src, "expected error union type, found '{}'", .{
+            ty.fmt(sema.mod),
+        }),
+    }
+}
+
 fn zirIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
+    try sema.checkErrorType(block, src, sema.typeOf(operand));
     return sema.analyzeIsNonErr(block, inst_data.src(), operand);
 }
 
@@ -16404,6 +16426,7 @@ fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
+    try sema.checkErrorType(block, src, sema.typeOf(ptr).elemType2());
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsNonErr(block, src, loaded);
 }
