@@ -99,7 +99,7 @@ fn testReader(data: []const u8, expected: []const u8) !void {
     defer testing.allocator.free(buf);
 
     // Check against the reference
-    try testing.expectEqualSlices(u8, buf, expected);
+    try testing.expectEqualSlices(u8, expected, buf);
 }
 
 // All the test cases are obtained by compressing the RFC1951 text
