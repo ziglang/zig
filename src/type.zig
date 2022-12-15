@@ -4586,7 +4586,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is an integer, enum, error set, or vector of one of them.
-    pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
+    pub fn intInfo(self: Type, target: Target) std.builtin.Type.Int {
         var ty = self;
         while (true) switch (ty.tag()) {
             .int_unsigned => return .{
