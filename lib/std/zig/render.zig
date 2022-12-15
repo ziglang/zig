@@ -1675,7 +1675,12 @@ fn renderStructInit(
 
         try renderToken(ais, tree, struct_init.ast.lbrace + 1, .none); // .
         try renderIdentifier(ais, tree, struct_init.ast.lbrace + 2, .space, .eagerly_unquote); // name
-        try renderToken(ais, tree, struct_init.ast.lbrace + 3, .space); // =
+        // Don't output a space after the = if expression is a multiline string,
+        // since then it will start on the next line.
+        const nodes = tree.nodes.items(.tag);
+        const expr = nodes[struct_init.ast.fields[0]];
+        var space_after_equal: Space = if (expr == .multiline_string_literal) .none else .space;
+        try renderToken(ais, tree, struct_init.ast.lbrace + 3, space_after_equal); // =
         try renderExpression(gpa, ais, tree, struct_init.ast.fields[0], .comma);
 
         for (struct_init.ast.fields[1..]) |field_init| {
@@ -1683,7 +1688,8 @@ fn renderStructInit(
             try renderExtraNewlineToken(ais, tree, init_token - 3);
             try renderToken(ais, tree, init_token - 3, .none); // .
             try renderIdentifier(ais, tree, init_token - 2, .space, .eagerly_unquote); // name
-            try renderToken(ais, tree, init_token - 1, .space); // =
+            space_after_equal = if (nodes[field_init] == .multiline_string_literal) .none else .space;
+            try renderToken(ais, tree, init_token - 1, space_after_equal); // =
             try renderExpression(gpa, ais, tree, field_init, .comma);
         }
 
