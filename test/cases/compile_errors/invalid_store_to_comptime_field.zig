@@ -61,6 +61,11 @@ pub export fn entry6() void {
     };
     _ = State.init(false);
 }
+pub export fn entry7() void {
+    const list1 = .{ "sss", 1, 2, 3 };
+    const list2 = @TypeOf(list1){ .@"0" = "xxx", .@"1" = 4, .@"2" = 5, .@"3" = 6 };
+    _ = list2;
+}
 
 // error
 // target=native
@@ -73,4 +78,5 @@ pub export fn entry6() void {
 // :25:29: note: default value set here
 // :41:16: error: value stored in comptime field does not match the default value of the field
 // :45:12: error: value stored in comptime field does not match the default value of the field
+// :66:43: error: value stored in comptime field does not match the default value of the field
 // :59:35: error: value stored in comptime field does not match the default value of the field
