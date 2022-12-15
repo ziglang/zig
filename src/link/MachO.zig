@@ -39,6 +39,7 @@ const Object = @import("MachO/Object.zig");
 const LibStub = @import("tapi.zig").LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Md5 = std.crypto.hash.Md5;
 const Module = @import("../Module.zig");
 const Relocation = @import("MachO/Relocation.zig");
 const StringTable = @import("strtab.zig").StringTable;
@@ -598,6 +599,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (self.cold_start) {
         std.crypto.random.bytes(&self.uuid_cmd.uuid);
+        Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
+        conformUuid(&self.uuid_cmd.uuid);
     }
     try lc_writer.writeStruct(self.uuid_cmd);
 
@@ -661,6 +664,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     self.cold_start = false;
+}
+inline fn conformUuid(out: *[Md5.digest_length]u8) void {
+    // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
+    out[6] = (out[6] & 0x0F) | (3 << 4);
+    out[8] = (out[8] & 0x3F) | 0x80;
 }
 
 pub fn resolveLibSystem(

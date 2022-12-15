@@ -13,6 +13,7 @@ pub fn ParallelHasher(comptime Hasher: type) type {
     return struct {
         pub fn hash(self: @This(), gpa: Allocator, pool: *ThreadPool, file: fs.File, out: [][hash_size]u8, opts: struct {
             chunk_size: u16 = 0x4000,
+            file_pos: u64 = 0,
             max_file_size: ?u64 = null,
         }) !void {
             _ = self;
@@ -38,7 +39,14 @@ pub fn ParallelHasher(comptime Hasher: type) type {
                     const fstart = i * opts.chunk_size;
                     const fsize = if (fstart + opts.chunk_size > file_size) file_size - fstart else opts.chunk_size;
                     wg.start();
-                    try pool.spawn(worker, .{ file, fstart, buffer[fstart..][0..fsize], &out[i], &results[i], &wg });
+                    try pool.spawn(worker, .{
+                        file,
+                        fstart + opts.file_pos,
+                        buffer[fstart..][0..fsize],
+                        &out[i],
+                        &results[i],
+                        &wg,
+                    });
                 }
             }
             for (results) |result| _ = try result;

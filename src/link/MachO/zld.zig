@@ -16,7 +16,6 @@ const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
-const uuid = @import("uuid.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -26,7 +25,9 @@ const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
 const Dylib = @import("Dylib.zig");
+const Hasher = @import("hasher.zig").ParallelHasher;
 const MachO = @import("../MachO.zig");
+const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const StringTable = @import("../strtab.zig").StringTable;
@@ -2680,15 +2681,96 @@ pub const Zld = struct {
                 // In Debug we don't really care about reproducibility, so put in a random value
                 // and be done with it.
                 std.crypto.random.bytes(&self.uuid_cmd.uuid);
+                Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
+                conformUuid(&self.uuid_cmd.uuid);
             },
             else => {
                 const seg = self.getLinkeditSegmentPtr();
-                const file_size = seg.fileoff + seg.filesize;
-                try uuid.calcUuidParallel(comp, self.file, file_size, &self.uuid_cmd.uuid);
+                const max_file_size = @intCast(u32, seg.fileoff + seg.filesize);
+
+                var hashes = std.ArrayList([Md5.digest_length]u8).init(self.gpa);
+                defer hashes.deinit();
+
+                if (!self.options.strip) {
+                    // First exclusion region will comprise all symbol stabs.
+                    const nlocals = self.dysymtab_cmd.nlocalsym;
+
+                    const locals_buf = try self.gpa.alloc(u8, nlocals * @sizeOf(macho.nlist_64));
+                    defer self.gpa.free(locals_buf);
+
+                    const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
+                    if (amt != locals_buf.len) return error.InputOutput;
+                    const locals = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), locals_buf))[0..nlocals];
+
+                    const istab: usize = for (locals) |local, i| {
+                        if (local.stab()) break i;
+                    } else locals.len;
+                    const nstabs = locals.len - istab;
+
+                    // Next, a subsection of the strtab.
+                    // We do not care about anything succeeding strtab as it is the code signature data which is
+                    // not part of the UUID calculation anyway.
+                    const stab_stroff = locals[istab].n_strx;
+
+                    const first_cut = FileSubsection{
+                        .start = 0,
+                        .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
+                    };
+                    const second_cut = FileSubsection{
+                        .start = first_cut.end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
+                        .end = self.symtab_cmd.stroff + stab_stroff,
+                    };
+
+                    for (&[_]FileSubsection{ first_cut, second_cut }) |cut| {
+                        try self.calcUuidHashes(comp, cut, &hashes);
+                    }
+                } else {
+                    try self.calcUuidHashes(comp, .{ .start = 0, .end = max_file_size }, &hashes);
+                }
+
+                const final_buffer = try self.gpa.alloc(u8, hashes.items.len * Md5.digest_length);
+                defer self.gpa.free(final_buffer);
+
+                for (hashes.items) |hash, i| {
+                    mem.copy(u8, final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
+                }
+
+                Md5.hash(final_buffer, &self.uuid_cmd.uuid, .{});
+                conformUuid(&self.uuid_cmd.uuid);
             },
         }
+
         const in_file = @sizeOf(macho.mach_header_64) + offset + @sizeOf(macho.load_command);
         try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
+    }
+
+    inline fn conformUuid(out: *[Md5.digest_length]u8) void {
+        // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
+        out[6] = (out[6] & 0x0F) | (3 << 4);
+        out[8] = (out[8] & 0x3F) | 0x80;
+    }
+
+    const FileSubsection = struct {
+        start: u32,
+        end: u32,
+    };
+
+    fn calcUuidHashes(
+        self: *Zld,
+        comp: *const Compilation,
+        cut: FileSubsection,
+        hashes: *std.ArrayList([Md5.digest_length]u8),
+    ) !void {
+        const chunk_size = 0x4000;
+        const total_hashes = mem.alignForward(cut.end - cut.start, chunk_size) / chunk_size;
+        try hashes.resize(hashes.items.len + total_hashes);
+
+        var hasher = Hasher(Md5){};
+        try hasher.hash(self.gpa, comp.thread_pool, self.file, hashes.items, .{
+            .chunk_size = chunk_size,
+            .file_pos = cut.start,
+            .max_file_size = cut.end - cut.start,
+        });
     }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
