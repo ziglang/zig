@@ -1145,6 +1145,7 @@ fn analyzeBodyInner(
                     .error_to_int          => try sema.zirErrorToInt(        block, extended),
                     .int_to_error          => try sema.zirIntToError(        block, extended),
                     .reify                 => try sema.zirReify(             block, extended, inst),
+                    .reify_float           => try sema.zirReifyFloat(        block, extended),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
                     .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
@@ -17968,23 +17969,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             return sema.addType(ty);
         },
         .Vector => return sema.fail(block, src, "@Type(.Vector) has been deprecated", .{}),
-        .Float => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            // bits: comptime_int,
-            const bits_val = struct_val[0];
-
-            const bits = @intCast(u16, bits_val.toUnsignedInt(target));
-            const ty = switch (bits) {
-                16 => Type.f16,
-                32 => Type.f32,
-                64 => Type.f64,
-                80 => Type.f80,
-                128 => Type.f128,
-                else => return sema.fail(block, src, "{}-bit float unsupported", .{bits}),
-            };
-            return sema.addType(ty);
-        },
+        .Float => return sema.fail(block, src, "@Type(.Float) has been deprecated; use @Float instead", .{}),
         .Pointer => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
@@ -18445,6 +18430,21 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         .Fn => return sema.fail(block, src, "@Type(.Fn) has been deprecated", .{}),
         .Frame => return sema.failWithUseOfAsync(block, src),
     }
+}
+
+fn zirReifyFloat(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const bits = try sema.resolveInt(block, src, extra.operand, Type.u16, "bit count must be comptime-known");
+    const ty = switch (bits) {
+        16 => Type.f16,
+        32 => Type.f32,
+        64 => Type.f64,
+        80 => Type.f80,
+        128 => Type.f128,
+        else => return sema.fail(block, src, "{}-bit float unsupported", .{bits}),
+    };
+    return sema.addType(ty);
 }
 
 fn reifyStruct(

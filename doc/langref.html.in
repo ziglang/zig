@@ -8321,6 +8321,13 @@ test "decl access by string" {
       </p>
       {#header_close#}
 
+      {#header_open|@Float#}
+      <pre>{#syntax#}@Float(comptime bit_count: u16) type{#endsyntax#}</pre>
+      <p>
+        TODO
+      </p>
+      {#header_close#}
+
       {#header_open|@floatCast#}
       <pre>{#syntax#}@floatCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>

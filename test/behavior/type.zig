@@ -71,12 +71,11 @@ test "Type.Pointer" {
 }
 
 test "Type.Float" {
-    try testing.expect(f16 == @Type(.{ .Float = .{ .bits = 16 } }));
-    try testing.expect(f32 == @Type(.{ .Float = .{ .bits = 32 } }));
-    try testing.expect(f64 == @Type(.{ .Float = .{ .bits = 64 } }));
-    try testing.expect(f80 == @Type(.{ .Float = .{ .bits = 80 } }));
-    try testing.expect(f128 == @Type(.{ .Float = .{ .bits = 128 } }));
-    try testTypes(&[_]type{ f16, f32, f64, f80, f128 });
+    try testing.expect(f16 == @Float(16));
+    try testing.expect(f32 == @Float(32));
+    try testing.expect(f64 == @Float(64));
+    try testing.expect(f80 == @Float(80));
+    try testing.expect(f128 == @Float(128));
 }
 
 test "Type.Array" {

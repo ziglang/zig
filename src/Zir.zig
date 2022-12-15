@@ -1993,6 +1993,9 @@ pub const Inst = struct {
         /// Implement the builtin `@addrSpaceCast`
         /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
+        /// Implement builtin `@Float`.
+        /// `operand` is payload index to `UnNode`.
+        reify_float,
 
         pub const InstData = struct {
             opcode: Extended,

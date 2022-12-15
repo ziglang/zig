@@ -806,7 +806,7 @@ fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness
 }
 
 fn parseContextDependentFloat(self: *Assembler, comptime width: u16) !void {
-    const Float = std.meta.Float(width);
+    const Float = @Float(width);
     const Int = std.meta.Int(.unsigned, width);
 
     const tok = self.currentToken();

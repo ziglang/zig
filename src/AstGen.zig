@@ -8087,6 +8087,13 @@ fn builtinCall(
             const result = indexToRef(new_index);
             return rvalue(gz, ri, result, node);
         },
+        .Float => {
+            const result = try gz.addExtendedPayload(.reify_float, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = try expr(gz, scope, .{ .rl = .{ .ty = .u16_type } }, params[0]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], if (gz.force_comptime) .panic_comptime else .panic);

@@ -44,6 +44,7 @@ pub const Tag = enum {
     fence,
     field,
     field_parent_ptr,
+    Float,
     float_cast,
     float_to_int,
     frame,
@@ -454,6 +455,13 @@ pub const list = list: {
             .{
                 .tag = .field_parent_ptr,
                 .param_count = 3,
+            },
+        },
+        .{
+            "@Float",
+            .{
+                .tag = .Float,
+                .param_count = 1,
             },
         },
         .{
