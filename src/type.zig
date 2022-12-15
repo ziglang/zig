@@ -3489,7 +3489,10 @@ pub const Type = extern union {
                     return AbiSizeAdvanced{ .scalar = 0 };
                 }
 
-                if (!child_type.hasRuntimeBits()) return AbiSizeAdvanced{ .scalar = 1 };
+                if (!(child_type.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                    error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+                    else => |e| return e,
+                })) return AbiSizeAdvanced{ .scalar = 1 };
 
                 if (ty.optionalReprIsPayload()) {
                     return abiSizeAdvanced(child_type, target, strat);
@@ -3518,7 +3521,10 @@ pub const Type = extern union {
                 // in abiAlignmentAdvanced.
                 const data = ty.castTag(.error_union).?.data;
                 const code_size = abiSize(Type.anyerror, target);
-                if (!data.payload.hasRuntimeBits()) {
+                if (!(data.payload.hasRuntimeBitsAdvanced(false, strat) catch |err| switch (err) {
+                    error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+                    else => |e| return e,
+                })) {
                     // Same as anyerror.
                     return AbiSizeAdvanced{ .scalar = code_size };
                 }
