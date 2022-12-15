@@ -51,7 +51,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return if (alignment) |a| ([:s]align(a) T) else [:s]T;
         }
 
-        /// Deinitialize with `deinit`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
@@ -62,7 +62,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Initialize with capacity to hold at least `num` elements.
         /// The resulting capacity is likely to be equal to `num`.
-        /// Deinitialize with `deinit`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
             try self.ensureTotalCapacityPrecise(num);
@@ -78,7 +78,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
-        /// Deinitialize with `deinit`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn fromOwnedSlice(allocator: Allocator, slice: Slice) Self {
             return Self{
                 .items = slice,
@@ -97,8 +97,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// The caller owns the returned memory. Empties this ArrayList,
-        /// however its capacity may or may not be cleared and deinit() is
-        /// still required to clean up its memory.
+        /// Its capacity is cleared, making deinit() safe but unnecessary to call.
         pub fn toOwnedSlice(self: *Self) Allocator.Error!Slice {
             const allocator = self.allocator;
 
@@ -112,7 +111,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
             @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
-            self.items.len = 0;
+            self.clearAndFree();
             return new_memory;
         }
 
@@ -475,7 +474,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 /// An ArrayList, but the allocator is passed as a parameter to the relevant functions
 /// rather than stored in the struct itself. The same allocator **must** be used throughout
 /// the entire lifetime of an ArrayListUnmanaged. Initialize directly or with
-/// `initCapacity`, and deinitialize with `deinit`.
+/// `initCapacity`, and deinitialize with `deinit` or use `toOwnedSlice`.
 pub fn ArrayListUnmanaged(comptime T: type) type {
     return ArrayListAlignedUnmanaged(T, null);
 }
@@ -483,7 +482,7 @@ pub fn ArrayListUnmanaged(comptime T: type) type {
 /// An ArrayListAligned, but the allocator is passed as a parameter to the relevant
 /// functions rather than stored  in the struct itself. The same allocator **must**
 /// be used throughout the entire lifetime of an ArrayListAlignedUnmanaged.
-/// Initialize directly or with `initCapacity`, and deinitialize with `deinit`.
+/// Initialize directly or with `initCapacity`, and deinitialize with `deinit` or use `toOwnedSlice`.
 pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -514,7 +513,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Initialize with capacity to hold at least num elements.
         /// The resulting capacity is likely to be equal to `num`.
-        /// Deinitialize with `deinit`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
             try self.ensureTotalCapacityPrecise(allocator, num);
@@ -533,9 +532,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return .{ .items = self.items, .capacity = self.capacity, .allocator = allocator };
         }
 
-        /// The caller owns the returned memory. Empties this ArrayList,
-        /// however its capacity may or may not be cleared and deinit() is
-        /// still required to clean up its memory.
+        /// The caller owns the returned memory. Empties this ArrayList.
+        /// Its capacity is cleared, making deinit() safe but unnecessary to call.
         pub fn toOwnedSlice(self: *Self, allocator: Allocator) Allocator.Error!Slice {
             const old_memory = self.allocatedSlice();
             if (allocator.resize(old_memory, self.items.len)) {
@@ -547,7 +545,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
             @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
-            self.items.len = 0;
+            self.clearAndFree(allocator);
             return new_memory;
         }
 
