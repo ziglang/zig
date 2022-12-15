@@ -716,6 +716,8 @@ pub const VaList = switch (builtin.cpu.arch) {
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,
+    /// The data's locality in an inclusive range from 0 to 3.
+    ///
     /// 0 means no temporal locality. That is, the data can be immediately
     /// dropped from the cache after it is accessed.
     ///
