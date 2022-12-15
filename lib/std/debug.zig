@@ -2008,8 +2008,13 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
 }
 
-test "#4353: std.debug should manage resources correctly" {
+test "manage resources correctly" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+        // https://github.com/ziglang/zig/issues/13963
+        return error.SkipZigTest;
+    }
 
     const writer = std.io.null_writer;
     var di = try openSelfDebugInfo(testing.allocator);
