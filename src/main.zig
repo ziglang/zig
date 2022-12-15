@@ -3431,7 +3431,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
 
     if (errors.list.len != 0) {
         const ttyconf: std.debug.TTY.Config = switch (comp.color) {
-            .auto => std.debug.detectTTYConfig(),
+            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -4252,7 +4252,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
                 try Compilation.AllErrors.addZir(arena_instance.allocator(), &errors, &file);
                 const ttyconf: std.debug.TTY.Config = switch (color) {
-                    .auto => std.debug.detectTTYConfig(),
+                    .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
                     .on => .escape_codes,
                     .off => .no_color,
                 };
@@ -4465,7 +4465,7 @@ fn fmtPathFile(
 
             try Compilation.AllErrors.addZir(arena_instance.allocator(), &errors, &file);
             const ttyconf: std.debug.TTY.Config = switch (fmt.color) {
-                .auto => std.debug.detectTTYConfig(),
+                .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
                 .on => .escape_codes,
                 .off => .no_color,
             };
@@ -4586,7 +4586,7 @@ fn printErrsMsgToStdErr(
         };
 
         const ttyconf: std.debug.TTY.Config = switch (color) {
-            .auto => std.debug.detectTTYConfig(),
+            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -5176,7 +5176,7 @@ pub fn cmdAstCheck(
         var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
         try Compilation.AllErrors.addZir(arena, &errors, &file);
         const ttyconf: std.debug.TTY.Config = switch (color) {
-            .auto => std.debug.detectTTYConfig(),
+            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -5301,7 +5301,7 @@ pub fn cmdChangelist(
     if (file.zir.hasCompileErrors()) {
         var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
         try Compilation.AllErrors.addZir(arena, &errors, &file);
-        const ttyconf = std.debug.detectTTYConfig();
+        const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
         for (errors.items) |full_err_msg| {
             full_err_msg.renderToStdErr(ttyconf);
         }
@@ -5340,7 +5340,7 @@ pub fn cmdChangelist(
     if (file.zir.hasCompileErrors()) {
         var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
         try Compilation.AllErrors.addZir(arena, &errors, &file);
-        const ttyconf = std.debug.detectTTYConfig();
+        const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
         for (errors.items) |full_err_msg| {
             full_err_msg.renderToStdErr(ttyconf);
         }
