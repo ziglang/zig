@@ -347,11 +347,6 @@ fn test_write_leb128(value: anytype) !void {
 }
 
 test "serialize unsigned LEB128" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
-        // https://github.com/ziglang/zig/issues/12031
-        return error.SkipZigTest;
-    }
-
     const max_bits = 18;
 
     comptime var t = 0;
@@ -366,11 +361,6 @@ test "serialize unsigned LEB128" {
 }
 
 test "serialize signed LEB128" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
-        // https://github.com/ziglang/zig/issues/12031
-        return error.SkipZigTest;
-    }
-
     // explicitly test i0 because starting `t` at 0
     // will break the while loop
     try test_write_leb128(@as(i0, 0));
