@@ -980,12 +980,12 @@ test "std.enums.EnumSet const iterator" {
     };
 
     var result = EnumSet(Direction).initEmpty();
-    var it = diag.iterator();
+    var it = diag_move.iterator();
     while (it.next()) |dir| {
         result.insert(dir);
     }
 
-    try testing.expect(result.eql(diag));
+    try testing.expect(result.eql(diag_move));
 }
 
 /// A map from keys to values, using an index lookup.  Uses a
