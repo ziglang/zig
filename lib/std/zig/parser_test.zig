@@ -5500,6 +5500,35 @@ test "zig fmt: canonicalize symbols (keywords)" {
     );
 }
 
+test "zig fmt: no space before newline before multiline string" {
+    try testCanonical(
+        \\const S = struct {
+        \\    text: []const u8,
+        \\    comment: []const u8,
+        \\};
+        \\
+        \\test {
+        \\    const s1 = .{
+        \\        .text =
+        \\        \\hello
+        \\        \\world
+        \\        ,
+        \\        .comment = "test",
+        \\    };
+        \\    _ = s1;
+        \\    const s2 = .{
+        \\        .comment = "test",
+        \\        .text =
+        \\        \\hello
+        \\        \\world
+        \\        ,
+        \\    };
+        \\    _ = s2;
+        \\}
+        \\
+    );
+}
+
 // Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
 test "zig fmt: canonicalize symbols (character escapes)" {
     try testTransform(

@@ -9948,7 +9948,7 @@ pub const FuncGen = struct {
             constraints: [:0]const u8,
         } = switch (target.cpu.arch) {
             .x86 => .{
-                .template = 
+                .template =
                 \\roll $$3,  %edi ; roll $$13, %edi
                 \\roll $$61, %edi ; roll $$51, %edi
                 \\xchgl %ebx,%ebx
@@ -9956,7 +9956,7 @@ pub const FuncGen = struct {
                 .constraints = "={edx},{eax},0,~{cc},~{memory}",
             },
             .x86_64 => .{
-                .template = 
+                .template =
                 \\rolq $$3,  %rdi ; rolq $$13, %rdi
                 \\rolq $$61, %rdi ; rolq $$51, %rdi
                 \\xchgq %rbx,%rbx
@@ -9964,7 +9964,7 @@ pub const FuncGen = struct {
                 .constraints = "={rdx},{rax},0,~{cc},~{memory}",
             },
             .aarch64, .aarch64_32, .aarch64_be => .{
-                .template = 
+                .template =
                 \\ror x12, x12, #3  ;  ror x12, x12, #13
                 \\ror x12, x12, #51 ;  ror x12, x12, #61
                 \\orr x10, x10, x10
