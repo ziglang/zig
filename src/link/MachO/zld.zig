@@ -4155,7 +4155,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
             // where the code signature goes into.
             var codesig = CodeSignature.init(page_size);
-            codesig.code_directory.ident = options.emit.?.sub_path;
+            codesig.code_directory.ident = fs.path.basename(full_out_path);
             if (options.entitlements) |path| {
                 try codesig.addEntitlements(gpa, path);
             }
