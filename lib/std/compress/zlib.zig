@@ -190,6 +190,20 @@ fn testReader(data: []const u8, expected: []const u8) !void {
     try testing.expectEqualSlices(u8, expected, buf);
 }
 
+fn testWriter(data: []const u8, expected: []const u8) !void {
+    var out_stream = std.ArrayList(u8).init(testing.allocator);
+    defer out_stream.deinit();
+
+    var zlib_stream = try zlibStreamWriter(testing.allocator, out_stream.writer(), .{});
+    defer zlib_stream.deinit();
+
+    // Write and compress all data
+    try zlib_stream.writer().writeAll(data);
+
+    // Check against the reference
+    try testing.expectEqualSlices(u8, expected, out_stream.items);
+}
+
 // All the test cases are obtained by compressing the RFC1951 text
 //
 // https://tools.ietf.org/rfc/rfc1951.txt length=36944 bytes
