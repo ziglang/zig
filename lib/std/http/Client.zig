@@ -12,7 +12,7 @@ pub const Request = struct {
     client: *Client,
     stream: net.Stream,
     headers: std.ArrayListUnmanaged(u8) = .{},
-    tls: std.crypto.Tls = .{},
+    tls: std.crypto.Tls,
     protocol: Protocol,
 
     pub const Protocol = enum { http, https };
@@ -55,6 +55,13 @@ pub const Request = struct {
             },
         }
     }
+
+    pub fn read(req: *Request, buffer: []u8) !usize {
+        switch (req.protocol) {
+            .http => return req.stream.read(buffer),
+            .https => return req.tls.read(req.stream, buffer),
+        }
+    }
 };
 
 pub fn deinit(client: *Client) void {
@@ -68,6 +75,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
         .client = client,
         .stream = try net.tcpConnectToHost(client.allocator, options.host, options.port),
         .protocol = options.protocol,
+        .tls = undefined,
     };
     client.active_requests += 1;
     errdefer req.deinit();
@@ -75,7 +83,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
     switch (options.protocol) {
         .http => {},
         .https => {
-            try req.tls.init(req.stream, options.host);
+            req.tls = try std.crypto.Tls.init(req.stream, options.host);
         },
     }
 
