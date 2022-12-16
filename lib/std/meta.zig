@@ -144,22 +144,6 @@ test "std.meta.stringToEnum" {
     try testing.expect(null == stringToEnum(E1, "C"));
 }
 
-/// Deprecated, use `@bitSizeOf()`.
-/// TODO Remove this after zig 0.10.0 is released.
-pub fn bitCount(comptime T: type) comptime_int {
-    return switch (@typeInfo(T)) {
-        .Bool => 1,
-        .Int => |info| info.bits,
-        .Float => |info| info.bits,
-        else => @compileError("Expected bool, int or float type, found '" ++ @typeName(T) ++ "'"),
-    };
-}
-
-test "std.meta.bitCount" {
-    try testing.expect(bitCount(u8) == 8);
-    try testing.expect(bitCount(f32) == 32);
-}
-
 /// Returns the alignment of type T.
 /// Note that if T is a pointer or function type the result is different than
 /// the one returned by @alignOf(T).
