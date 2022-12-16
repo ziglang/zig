@@ -2542,6 +2542,10 @@ pub const DeclGen = struct {
             try writer.print("{c}{d}", .{ signAbbrev(int_info.signedness), c_bits });
         } else if (ty.isRuntimeFloat()) {
             try ty.print(writer, dg.module);
+        } else if (ty.isPtrAtRuntime()) {
+            try writer.print("p{d}", .{ ty.bitSize(target) });
+        } else if (ty.zigTypeTag() == .Bool) {
+            try writer.print("u8", .{});
         } else return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
             ty.fmt(dg.module),
         });
@@ -6083,7 +6087,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writer.writeAll(";\n");
         try writer.writeAll("if (");
         try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
-        try f.renderTypecast(writer, ptr_ty.elemType());
+        try f.renderTypecast(writer, ptr_ty.childType());
         try writer.writeByte(')');
         if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
         try writer.writeAll(" *)");
@@ -6096,6 +6100,8 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writeMemoryOrder(writer, extra.successOrder());
         try writer.writeAll(", ");
         try writeMemoryOrder(writer, extra.failureOrder());
+        try writer.writeAll(", ");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
         try writer.writeByte(')');
         try writer.writeAll(") {\n");
         f.object.indent_writer.pushIndent();
@@ -6110,7 +6116,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writer.writeAll(";\n");
         try f.writeCValue(writer, local, .Other);
         try writer.print(".is_null = zig_cmpxchg_{s}((zig_atomic(", .{flavor});
-        try f.renderTypecast(writer, ptr_ty.elemType());
+        try f.renderTypecast(writer, ptr_ty.childType());
         try writer.writeByte(')');
         if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
         try writer.writeAll(" *)");
@@ -6123,6 +6129,8 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writeMemoryOrder(writer, extra.successOrder());
         try writer.writeAll(", ");
         try writeMemoryOrder(writer, extra.failureOrder());
+        try writer.writeAll(", ");
+        try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
         try writer.writeByte(')');
         try writer.writeAll(";\n");
     }
@@ -6145,8 +6153,8 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ pl_op.operand, extra.operand });
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
 
+    try f.writeCValue(writer, local, .Other);
     try writer.print(" = zig_atomicrmw_{s}((", .{toAtomicRmwSuffix(extra.op())});
     switch (extra.op()) {
         else => {
@@ -6166,6 +6174,8 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand, .FunctionArgument);
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, extra.ordering());
+    try writer.writeAll(", ");
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
     try writer.writeAll(");\n");
 
     if (f.liveness.isUnused(inst)) {
@@ -6198,6 +6208,8 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, atomic_load.order);
+    try writer.writeAll(", ");
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
     try writer.writeAll(");\n");
 
     return local;
@@ -6219,7 +6231,9 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
     try f.writeCValue(writer, element, .FunctionArgument);
-    try writer.print(", {s});\n", .{order});
+    try writer.print(", {s}, ", .{order});
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
+    try writer.writeAll(");\n");
 
     return CValue.none;
 }
