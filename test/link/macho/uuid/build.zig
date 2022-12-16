@@ -1,25 +1,13 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
-
-    switch (builtin.cpu.arch) {
-        .aarch64 => {
-            testUuid(b, test_step, .ReleaseSafe, "eb1203019e453d808d4f1e71053af9af");
-            testUuid(b, test_step, .ReleaseFast, "eb1203019e453d808d4f1e71053af9af");
-            testUuid(b, test_step, .ReleaseSmall, "eb1203019e453d808d4f1e71053af9af");
-        },
-        .x86_64 => {
-            testUuid(b, test_step, .ReleaseSafe, "b3598e7c42dc38b0bd2975ead6e4ae85");
-            testUuid(b, test_step, .ReleaseFast, "b3598e7c42dc38b0bd2975ead6e4ae85");
-            testUuid(b, test_step, .ReleaseSmall, "1064b25eef4e3e6391866188b3dd7156");
-        },
-        else => unreachable,
-    }
+    testUuid(b, test_step, .ReleaseSafe, "eb1203019e453d808d4f1e71053af9af");
+    testUuid(b, test_step, .ReleaseFast, "eb1203019e453d808d4f1e71053af9af");
+    testUuid(b, test_step, .ReleaseSmall, "eb1203019e453d808d4f1e71053af9af");
 }
 
 fn testUuid(b: *Builder, test_step: *std.build.Step, mode: std.builtin.Mode, comptime exp: []const u8) void {
@@ -45,7 +33,7 @@ fn testUuid(b: *Builder, test_step: *std.build.Step, mode: std.builtin.Mode, com
 fn simpleDylib(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
     const dylib = b.addSharedLibrary("test", null, b.version(1, 0, 0));
     dylib.setBuildMode(mode);
-    dylib.setTarget(.{ .os_tag = .macos });
+    dylib.setTarget(.{ .cpu_arch = .aarch64, .os_tag = .macos });
     dylib.addCSourceFile("test.c", &.{});
     dylib.linkLibC();
     return dylib;
