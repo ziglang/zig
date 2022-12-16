@@ -353,7 +353,7 @@ fn parallelHash(
     gpa: Allocator,
     pool: *ThreadPool,
     file: fs.File,
-    file_size: u64,
+    file_size: u32,
 ) !void {
     var wg: WaitGroup = .{};
 
