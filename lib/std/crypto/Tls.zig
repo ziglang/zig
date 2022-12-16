@@ -592,9 +592,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
         const end_hdr = i + 5;
         if (end_hdr > handshake_buf.len) return error.TlsRecordOverflow;
         if (end_hdr > len) {
-            std.debug.print("read len={d} atleast={d}\n", .{ len, end_hdr - len });
             len += try stream.readAtLeast(handshake_buf[len..], end_hdr - len);
-            std.debug.print("new len: {d} bytes\n", .{len});
             if (end_hdr > len) return error.EndOfStream;
         }
         const ct = @intToEnum(ContentType, handshake_buf[i]);
@@ -605,12 +603,9 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
         const record_size = mem.readIntBig(u16, handshake_buf[i..][0..2]);
         i += 2;
         const end = i + record_size;
-        std.debug.print("ct={any} record_size={d} end={d}\n", .{ ct, record_size, end });
         if (end > handshake_buf.len) return error.TlsRecordOverflow;
         if (end > len) {
-            std.debug.print("read len={d} atleast={d}\n", .{ len, end - len });
             len += try stream.readAtLeast(handshake_buf[len..], end - len);
-            std.debug.print("new len: {d} bytes\n", .{len});
             if (end > len) return error.EndOfStream;
         }
         switch (ct) {
@@ -665,11 +660,25 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                                 return error.TlsBadLength;
                             switch (handshake_type) {
                                 @enumToInt(HandshakeType.encrypted_extensions) => {
-                                    const ext_size = mem.readIntBig(u16, cleartext[ct_i..][0..2]);
+                                    const total_ext_size = mem.readIntBig(u16, cleartext[ct_i..][0..2]);
                                     ct_i += 2;
-                                    std.debug.print("{d} bytes of encrypted extensions\n", .{
-                                        ext_size,
-                                    });
+                                    const end_ext_i = ct_i + total_ext_size;
+                                    while (ct_i < end_ext_i) {
+                                        const et = mem.readIntBig(u16, cleartext[ct_i..][0..2]);
+                                        ct_i += 2;
+                                        const ext_size = mem.readIntBig(u16, cleartext[ct_i..][0..2]);
+                                        ct_i += 2;
+                                        const next_ext_i = ct_i + ext_size;
+                                        switch (et) {
+                                            @enumToInt(ExtensionType.server_name) => {},
+                                            else => {
+                                                std.debug.print("encrypted extension: {any}\n", .{
+                                                    et,
+                                                });
+                                            },
+                                        }
+                                        ct_i = next_ext_i;
+                                    }
                                 },
                                 @enumToInt(HandshakeType.certificate) => {
                                     std.debug.print("cool certificate bro\n", .{});
@@ -887,19 +896,18 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
     // Capacity of output buffer, in records, rounded up.
     const buf_cap = (buffer.len +| (max_ciphertext_len - 1)) / max_ciphertext_len;
     const wanted_read_len = buf_cap * (max_ciphertext_len + ciphertext_record_header_len);
-    const actual_read_len = try stream.read(in_buf[prev_len..@min(wanted_read_len, in_buf.len)]);
+    const ask_slice = in_buf[prev_len..@min(wanted_read_len, in_buf.len)];
+    const actual_read_len = try stream.read(ask_slice);
     const frag = in_buf[0 .. prev_len + actual_read_len];
     if (frag.len == 0) {
         tls.eof = true;
         return 0;
     }
-    std.debug.print("actual_read_len={d} frag.len={d}\n", .{ actual_read_len, frag.len });
     var in: usize = 0;
     var out: usize = 0;
 
     while (true) {
         if (in + ciphertext_record_header_len > frag.len) {
-            std.debug.print("in={d} frag.len={d}\n", .{ in, frag.len });
             return finishRead(tls, frag, in, out);
         }
         const ct = @intToEnum(ContentType, frag[in]);
@@ -912,7 +920,6 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
         const end = in + record_size;
         if (end > frag.len) {
             if (record_size > max_ciphertext_len) return error.TlsRecordOverflow;
-            std.debug.print("end={d} frag.len={d}\n", .{ end, frag.len });
             return finishRead(tls, frag, in, out);
         }
         switch (ct) {
@@ -980,6 +987,7 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
                 }
             },
             else => {
+                std.debug.print("unexpected ct: {any}\n", .{ct});
                 return error.TlsUnexpectedMessage;
             },
         }
