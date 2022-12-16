@@ -1753,11 +1753,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(ssp.full_object_path);
         }
 
-        // compiler-rt
-        if (compiler_rt_path) |p| {
-            try argv.append(p);
-        }
-
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             const system_libs = self.base.options.system_libs.keys();
@@ -1834,6 +1829,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     return error.FlushFailure;
                 }
             }
+        }
+
+        // compiler-rt. Since compiler_rt exports symbols like `memset`, it needs
+        // to be after the shared libraries, so they are picked up from the shared
+        // libraries, not libcompiler_rt.
+        if (compiler_rt_path) |p| {
+            try argv.append(p);
         }
 
         // crt postlude
