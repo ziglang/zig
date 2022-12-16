@@ -15690,14 +15690,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace());
 
-            const field_values = try sema.arena.create([5]Value);
+            const field_values = try sema.arena.create([4]Value);
             field_values.* = .{
-                // layout: ContainerLayout,
-                try Value.Tag.enum_field_index.create(
-                    sema.arena,
-                    @enumToInt(std.builtin.Type.ContainerLayout.Auto),
-                ),
-
                 // tag_type: type,
                 try Value.Tag.ty.create(sema.arena, int_tag_ty),
                 // fields: []const EnumField,
@@ -18312,22 +18306,14 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         .Enum => {
             const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
-            // layout: ContainerLayout,
-            const layout_val = struct_val[0];
             // tag_type: type,
-            const tag_type_val = struct_val[1];
+            const tag_type_val = struct_val[0];
             // fields: []const EnumField,
-            const fields_val = struct_val[2];
+            const fields_val = struct_val[1];
             // decls: []const Declaration,
-            const decls_val = struct_val[3];
+            const decls_val = struct_val[2];
             // is_exhaustive: bool,
-            const is_exhaustive_val = struct_val[4];
-
-            // enum layout is always auto
-            const layout = layout_val.toEnum(std.builtin.Type.ContainerLayout);
-            if (layout != .Auto) {
-                return sema.fail(block, src, "reified enums must have a layout .Auto", .{});
-            }
+            const is_exhaustive_val = struct_val[3];
 
             // Decls
             if (decls_val.sliceLen(mod) > 0) {

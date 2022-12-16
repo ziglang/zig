@@ -238,7 +238,6 @@ fn testEnum() !void {
 
     const os_info = @typeInfo(Os);
     try expect(os_info == .Enum);
-    try expect(os_info.Enum.layout == .Auto);
     try expect(os_info.Enum.fields.len == 4);
     try expect(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
     try expect(os_info.Enum.fields[3].value == 3);

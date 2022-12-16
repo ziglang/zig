@@ -154,7 +154,6 @@ pub fn isExtern(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Extern,
         .Union => |u| u.layout == .Extern,
-        .Enum => |e| e.layout == .Extern,
         else => false,
     };
 }
@@ -172,7 +171,6 @@ pub fn isPacked(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Packed,
         .Union => |u| u.layout == .Packed,
-        .Enum => |e| e.layout == .Packed,
         else => false,
     };
 }

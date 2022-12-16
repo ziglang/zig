@@ -354,7 +354,6 @@ test "Type.Enum" {
 
     const Foo = @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = u8,
             .fields = &.{
                 .{ .name = "a", .value = 1 },
@@ -369,7 +368,6 @@ test "Type.Enum" {
     try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = u32,
             .fields = &.{
                 .{ .name = "a", .value = 1 },
@@ -424,7 +422,6 @@ test "Type.Union" {
 
     const Tag = @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = u1,
             .fields = &.{
                 .{ .name = "signed", .value = 0 },
@@ -456,7 +453,6 @@ test "Type.Union from Type.Enum" {
 
     const Tag = @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = u0,
             .fields = &.{
                 .{ .name = "working_as_expected", .value = 0 },

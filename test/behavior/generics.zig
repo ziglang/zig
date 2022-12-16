@@ -273,7 +273,6 @@ test "generic function instantiation turns into comptime call" {
             var enumFields: [1]std.builtin.Type.EnumField = .{.{ .name = "A", .value = 0 }};
             return @Type(.{
                 .Enum = .{
-                    .layout = .Auto,
                     .tag_type = u0,
                     .fields = &enumFields,
                     .decls = &.{},
