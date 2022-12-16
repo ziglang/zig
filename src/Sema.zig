@@ -18393,7 +18393,100 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             try new_decl.finalizeNewArena(&new_decl_arena);
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
-        .Fn => return sema.fail(block, src, "@Type(.Fn) has been deprecated", .{}),
+        .Fn => {
+            const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
+            // TODO use reflection instead of magic numbers here
+            // calling_convention: CallingConvention,
+            const cc = struct_val[0].toEnum(std.builtin.CallingConvention);
+            // alignment: comptime_int,
+            const alignment_val = struct_val[1];
+            // is_generic: bool,
+            const is_generic = struct_val[2].toBool();
+            // is_var_args: bool,
+            const is_var_args = struct_val[3].toBool();
+            // return_type: ?type,
+            const return_type_val = struct_val[4];
+            // args: []const Param,
+            const args_val = struct_val[5];
+
+            if (is_generic) {
+                return sema.fail(block, src, "Type.Fn.is_generic must be false for @Type", .{});
+            }
+
+            if (is_var_args and cc != .C) {
+                return sema.fail(block, src, "varargs functions must have C calling convention", .{});
+            }
+
+            const alignment = alignment: {
+                if (!try sema.intFitsInType(alignment_val, Type.u32, null)) {
+                    return sema.fail(block, src, "alignment must fit in 'u32'", .{});
+                }
+                const alignment = @intCast(u29, alignment_val.toUnsignedInt(target));
+                if (alignment == target_util.defaultFunctionAlignment(target)) {
+                    break :alignment 0;
+                } else {
+                    break :alignment alignment;
+                }
+            };
+            const return_type = return_type_val.optionalValue() orelse
+                return sema.fail(block, src, "Type.Fn.return_type must be non-null for @Type", .{});
+
+            var buf: Value.ToTypeBuffer = undefined;
+
+            const args_slice_val = args_val.castTag(.slice).?.data;
+            const args_len = try sema.usizeCast(block, src, args_slice_val.len.toUnsignedInt(mod.getTarget()));
+
+            const param_types = try sema.arena.alloc(Type, args_len);
+            const comptime_params = try sema.arena.alloc(bool, args_len);
+
+            var noalias_bits: u32 = 0;
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                var arg_buf: Value.ElemValueBuffer = undefined;
+                const arg = args_slice_val.ptr.elemValueBuffer(mod, i, &arg_buf);
+                const arg_val = arg.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // is_generic: bool,
+                const arg_is_generic = arg_val[0].toBool();
+                // is_noalias: bool,
+                const arg_is_noalias = arg_val[1].toBool();
+                // arg_type: ?type,
+                const param_type_val = arg_val[2];
+
+                if (arg_is_generic) {
+                    return sema.fail(block, src, "Type.Fn.Param.is_generic must be false for @Type", .{});
+                }
+
+                if (arg_is_noalias) {
+                    noalias_bits = @as(u32, 1) << (std.math.cast(u5, i) orelse
+                        return sema.fail(block, src, "this compiler implementation only supports 'noalias' on the first 32 parameters", .{}));
+                }
+
+                const param_type = param_type_val.optionalValue() orelse
+                    return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
+
+                param_types[i] = try param_type.toType(&buf).copy(sema.arena);
+                comptime_params[i] = false;
+            }
+
+            var fn_info = Type.Payload.Function.Data{
+                .param_types = param_types,
+                .comptime_params = comptime_params.ptr,
+                .noalias_bits = noalias_bits,
+                .return_type = try return_type.toType(&buf).copy(sema.arena),
+                .alignment = alignment,
+                .cc = cc,
+                .is_var_args = is_var_args,
+                .is_generic = false,
+                .align_is_generic = false,
+                .cc_is_generic = false,
+                .section_is_generic = false,
+                .addrspace_is_generic = false,
+            };
+
+            const ty = try Type.Tag.function.create(sema.arena, fn_info);
+            return sema.addType(ty);
+        },
         .Frame => return sema.failWithUseOfAsync(block, src),
     }
 }
