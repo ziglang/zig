@@ -99,33 +99,6 @@ test "@Type create slice with null sentinel" {
     try testing.expect(Slice == []align(8) const *i32);
 }
 
-test "@Type picks up the sentinel value from Type" {
-    try testTypes(&[_]type{
-        [*:0]u8,                             [*:0]const u8,
-        [*:0]volatile u8,                    [*:0]const volatile u8,
-        [*:0]align(4) u8,                    [*:0]align(4) const u8,
-        [*:0]align(4) volatile u8,           [*:0]align(4) const volatile u8,
-        [*:0]align(8) u8,                    [*:0]align(8) const u8,
-        [*:0]align(8) volatile u8,           [*:0]align(8) const volatile u8,
-        [*:0]allowzero u8,                   [*:0]allowzero const u8,
-        [*:0]allowzero volatile u8,          [*:0]allowzero const volatile u8,
-        [*:0]allowzero align(4) u8,          [*:0]allowzero align(4) const u8,
-        [*:0]allowzero align(4) volatile u8, [*:0]allowzero align(4) const volatile u8,
-        [*:5]allowzero align(4) volatile u8, [*:5]allowzero align(4) const volatile u8,
-        [:0]u8,                              [:0]const u8,
-        [:0]volatile u8,                     [:0]const volatile u8,
-        [:0]align(4) u8,                     [:0]align(4) const u8,
-        [:0]align(4) volatile u8,            [:0]align(4) const volatile u8,
-        [:0]align(8) u8,                     [:0]align(8) const u8,
-        [:0]align(8) volatile u8,            [:0]align(8) const volatile u8,
-        [:0]allowzero u8,                    [:0]allowzero const u8,
-        [:0]allowzero volatile u8,           [:0]allowzero const volatile u8,
-        [:0]allowzero align(4) u8,           [:0]allowzero align(4) const u8,
-        [:0]allowzero align(4) volatile u8,  [:0]allowzero align(4) const volatile u8,
-        [:4]allowzero align(4) volatile u8,  [:4]allowzero align(4) const volatile u8,
-    });
-}
-
 test "Type.AnyFrame" {
     if (true) {
         // https://github.com/ziglang/zig/issues/6025

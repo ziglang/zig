@@ -8,8 +8,6 @@ const root = @import("root");
 pub const trait = @import("meta/trait.zig");
 pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
-const Type = std.builtin.Type;
-
 test "std.meta.TrailerFlags" {
     _ = TrailerFlags;
 }
@@ -185,6 +183,64 @@ test "std.meta.alignment" {
     try testing.expect(alignment([]align(2) u8) == 2);
     try testing.expect(alignment(fn () void) > 0);
     try testing.expect(alignment(fn () align(128) void) == 128);
+}
+
+pub fn Type(comptime info: std.builtin.Type) type {
+    return switch (info) {
+        .Type => type,
+        .Void => void,
+        .Bool => bool,
+        .NoReturn => noreturn,
+        .Int => |int| @Int(int.signedness, int.bits),
+        .Float => |float| @Float(float.bits),
+        .Pointer => @Type(info),
+        .Array => |arr| if (arr.sentinel) |_| @Array(arr.len, arr.child, @ptrCast(*const arr.child, @alignCast(@alignOf(arr.child), arr.sentinel.?)).*) else @Array(arr.len, arr.child),
+        .Struct => @Type(info),
+        .ComptimeFloat => comptime_float,
+        .ComptimeInt => comptime_int,
+        .Undefined => @TypeOf(undefined),
+        .Null => @TypeOf(null),
+        .Optional => |op| ?op.child,
+        .ErrorUnion => @Type(info),
+        .ErrorSet => @Type(info),
+        .Enum => @Type(info),
+        .Union => @Type(info),
+        .Fn => @Type(info),
+        .Opaque => @Type(info),
+        .Frame => @Type(info),
+        .AnyFrame => @Type(info),
+        .Vector => |vec| @Vector(vec.len, vec.child),
+        .EnumLiteral => @Type(.EnumLiteral),
+    };
+}
+
+comptime {
+    const tests = [_]type{
+        type,                                void,                                      bool,                                noreturn,
+        u0,                                  u8,                                        u23,                                 u64,
+        i0,                                  i8,                                        i23,                                 i64,
+        f16,                                 f32,                                       f80,                                 f128,
+        [1]u8,                               [30]usize,                                 [7]bool,                             [11:0]u8,
+        [*:0]u8,                             [*:0]const u8,                             [*:0]volatile u8,                    [*:0]const volatile u8,
+        [*:0]align(4) u8,                    [*:0]align(4) const u8,                    [*:0]align(4) volatile u8,           [*:0]align(4) const volatile u8,
+        [*:0]align(8) u8,                    [*:0]align(8) const u8,                    [*:0]align(8) volatile u8,           [*:0]align(8) const volatile u8,
+        [*:0]allowzero u8,                   [*:0]allowzero const u8,                   [*:0]allowzero volatile u8,          [*:0]allowzero const volatile u8,
+        [*:0]allowzero align(4) u8,          [*:0]allowzero align(4) const u8,          [*:0]allowzero align(4) volatile u8, [*:0]allowzero align(4) const volatile u8,
+        [*:5]allowzero align(4) volatile u8, [*:5]allowzero align(4) const volatile u8, [:0]u8,                              [:0]const u8,
+        [:0]volatile u8,                     [:0]const volatile u8,                     [:0]align(4) u8,                     [:0]align(4) const u8,
+        [:0]align(4) volatile u8,            [:0]align(4) const volatile u8,            [:0]align(8) u8,                     [:0]align(8) const u8,
+        [:0]align(8) volatile u8,            [:0]align(8) const volatile u8,            [:0]allowzero u8,                    [:0]allowzero const u8,
+        [:0]allowzero volatile u8,           [:0]allowzero const volatile u8,           [:0]allowzero align(4) u8,           [:0]allowzero align(4) const u8,
+        [:0]allowzero align(4) volatile u8,  [:0]allowzero align(4) const volatile u8,  [:4]allowzero align(4) volatile u8,  [:4]allowzero align(4) const volatile u8,
+        @TypeOf(.Dummy),                     @TypeOf(.Foo),                             @TypeOf(.Bar),                       @TypeOf(.some_other_value),
+    };
+    inline for (tests) |T| {
+        _ = struct {
+            test "std.meta.Type" {
+                try testing.expectEqual(T, Type(@typeInfo(T)));
+            }
+        };
+    }
 }
 
 /// Given a parameterized type (array, vector, pointer, optional), returns the "child type".
@@ -374,7 +430,7 @@ test "std.meta.assumeSentinel" {
     try testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
 }
 
-pub fn containerLayout(comptime T: type) Type.ContainerLayout {
+pub fn containerLayout(comptime T: type) std.builtin.Type.ContainerLayout {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.layout,
         .Enum => |info| info.layout,
@@ -411,7 +467,7 @@ test "std.meta.containerLayout" {
 
 /// Instead of this function, prefer to use e.g. `@typeInfo(foo).Struct.decls`
 /// directly when you know what kind of type it is.
-pub fn declarations(comptime T: type) []const Type.Declaration {
+pub fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.decls,
         .Enum => |info| info.decls,
@@ -439,7 +495,7 @@ test "std.meta.declarations" {
         fn a() void {}
     };
 
-    const decls = comptime [_][]const Type.Declaration{
+    const decls = comptime [_][]const std.builtin.Type.Declaration{
         declarations(E1),
         declarations(S1),
         declarations(U1),
@@ -452,7 +508,7 @@ test "std.meta.declarations" {
     }
 }
 
-pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) Type.Declaration {
+pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) std.builtin.Type.Declaration {
     inline for (comptime declarations(T)) |decl| {
         if (comptime mem.eql(u8, decl.name, decl_name))
             return decl;
@@ -476,7 +532,7 @@ test "std.meta.declarationInfo" {
         fn a() void {}
     };
 
-    const infos = comptime [_]Type.Declaration{
+    const infos = comptime [_]std.builtin.Type.Declaration{
         declarationInfo(E1, "a"),
         declarationInfo(S1, "a"),
         declarationInfo(U1, "a"),
