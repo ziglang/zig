@@ -157,13 +157,12 @@ fn parseTableOfContents(archive: *Archive, allocator: Allocator, reader: anytype
     };
 
     var i: usize = 0;
-    while (i < sym_tab.len) {
-        const string = mem.sliceTo(sym_tab[i..], 0);
-        if (string.len == 0) {
-            i += 1;
-            continue;
-        }
-        i += string.len;
+    var pos: usize = 0;
+    while (i < num_symbols) : (i += 1) {
+        const string = mem.sliceTo(sym_tab[pos..], 0);
+        pos += string.len + 1;
+        if (string.len == 0) continue;
+
         const name = try allocator.dupe(u8, string);
         errdefer allocator.free(name);
         const gop = try archive.toc.getOrPut(allocator, name);
@@ -172,7 +171,7 @@ fn parseTableOfContents(archive: *Archive, allocator: Allocator, reader: anytype
         } else {
             gop.value_ptr.* = .{};
         }
-        try gop.value_ptr.append(allocator, symbol_positions[gop.index]);
+        try gop.value_ptr.append(allocator, symbol_positions[i]);
     }
 }
 
