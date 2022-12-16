@@ -5865,19 +5865,34 @@ pub const FuncGen = struct {
         const array_ty = self.air.typeOf(bin_op.lhs);
         const array_llvm_val = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+        const array_llvm_ty = try self.dg.lowerType(array_ty);
+        const elem_ty = array_ty.childType();
         if (isByRef(array_ty)) {
-            const array_llvm_ty = try self.dg.lowerType(array_ty);
             const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), rhs };
-            const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
-            const elem_ty = array_ty.childType();
             if (isByRef(elem_ty)) {
+                const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
                 if (canElideLoad(self, body_tail))
                     return elem_ptr;
 
                 const target = self.dg.module.getTarget();
                 return self.loadByRef(elem_ptr, elem_ty, elem_ty.abiAlignment(target), false);
             } else {
+                const lhs_index = Air.refToIndex(bin_op.lhs).?;
                 const elem_llvm_ty = try self.dg.lowerType(elem_ty);
+                if (self.air.instructions.items(.tag)[lhs_index] == .load) {
+                    const load_data = self.air.instructions.items(.data)[lhs_index];
+                    const load_ptr = load_data.ty_op.operand;
+                    const load_ptr_tag = self.air.instructions.items(.tag)[Air.refToIndex(load_ptr).?];
+                    switch (load_ptr_tag) {
+                        .struct_field_ptr, .struct_field_ptr_index_0, .struct_field_ptr_index_1, .struct_field_ptr_index_2, .struct_field_ptr_index_3 => {
+                            const load_ptr_inst = try self.resolveInst(load_ptr);
+                            const gep = self.builder.buildInBoundsGEP(array_llvm_ty, load_ptr_inst, &indices, indices.len, "");
+                            return self.builder.buildLoad(elem_llvm_ty, gep, "");
+                        },
+                        else => {},
+                    }
+                }
+                const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
                 return self.builder.buildLoad(elem_llvm_ty, elem_ptr, "");
             }
         }
