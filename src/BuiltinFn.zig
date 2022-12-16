@@ -5,6 +5,7 @@ pub const Tag = enum {
     addrspace_cast,
     align_cast,
     align_of,
+    Array,
     as,
     async_call,
     atomic_load,
@@ -174,6 +175,13 @@ pub const list = list: {
             .{
                 .tag = .align_of,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@Array",
+            .{
+                .tag = .Array,
+                .param_count = null,
             },
         },
         .{

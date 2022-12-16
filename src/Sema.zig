@@ -1147,6 +1147,7 @@ fn analyzeBodyInner(
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .reify_float           => try sema.zirReifyFloat(        block, extended),
                     .reify_int             => try sema.zirReifyInt(          block, extended),
+                    .reify_array           => try sema.zirReifyArray(        block, extended),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
                     .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
@@ -18045,30 +18046,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             });
             return sema.addType(ty);
         },
-        .Array => {
-            const struct_val = union_val.val.castTag(.aggregate).?.data;
-            // TODO use reflection instead of magic numbers here
-            // len: comptime_int,
-            const len_val = struct_val[0];
-            // child: type,
-            const child_val = struct_val[1];
-            // sentinel: ?*const anyopaque,
-            const sentinel_val = struct_val[2];
-
-            const len = len_val.toUnsignedInt(target);
-            var buffer: Value.ToTypeBuffer = undefined;
-            const child_ty = try child_val.toType(&buffer).copy(sema.arena);
-            const sentinel = if (sentinel_val.castTag(.opt_payload)) |p| blk: {
-                const ptr_ty = try Type.ptr(sema.arena, mod, .{
-                    .@"addrspace" = .generic,
-                    .pointee_type = child_ty,
-                });
-                break :blk (try sema.pointerDeref(block, src, p.data, ptr_ty)).?;
-            } else null;
-
-            const ty = try Type.array(sema.arena, len, sentinel, child_ty, sema.mod);
-            return sema.addType(ty);
-        },
+        .Array => return sema.fail(block, src, "@Type(.Array) has been deprecated; use @Array instead", .{}),
         .Optional => return sema.fail(block, src, "@Type(.Optional) has been deprecated", .{}),
         .ErrorUnion => return sema.fail(block, src, "@Type(.ErrorUnion) has been deprecated", .{}),
         .ErrorSet => {
@@ -18441,6 +18419,21 @@ fn zirReifyInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData)
     const signedness = try sema.resolveBuiltinEnum(block, src, extra.lhs, "Signedness", "signedness must be comptime-known");
     const bit_count = try sema.resolveInt(block, src, extra.rhs, Type.u16, "bit count must be comptime-known");
     const ty = try Module.makeIntType(sema.arena, signedness, @intCast(u16, bit_count));
+    return sema.addType(ty);
+}
+
+fn zirReifyArray(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnExtra, extended.operand).data;
+    const extra_real = sema.code.extraData(Zir.Inst.ArrayTypeSentinel, extra.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const len = try sema.resolveInt(block, src, extra_real.len, Type.usize, "len must be comptime-known");
+    const elem_type = try sema.resolveType(block, src, extra_real.elem_type);
+    if (extra_real.sentinel == .none) {
+        const ty = try Type.array(sema.arena, len, null, elem_type, sema.mod);
+        return sema.addType(ty);
+    }
+    const sentinel = try sema.resolveInstConst(block, src, extra_real.sentinel, "sentinel must be comptime-known");
+    const ty = try Type.array(sema.arena, len, sentinel.val, elem_type, sema.mod);
     return sema.addType(ty);
 }
 

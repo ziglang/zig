@@ -8102,6 +8102,26 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .Array => {
+            const payload = switch (params.len) {
+                2 => Zir.Inst.ArrayTypeSentinel{
+                    .len = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, params[0]),
+                    .elem_type = try expr(gz, scope, .{ .rl = .{ .ty = .type_type } }, params[1]),
+                    .sentinel = .none,
+                },
+                3 => Zir.Inst.ArrayTypeSentinel{
+                    .len = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, params[0]),
+                    .elem_type = try expr(gz, scope, .{ .rl = .{ .ty = .type_type } }, params[1]),
+                    .sentinel = try expr(gz, scope, .{ .rl = .none }, params[2]),
+                },
+                else => return astgen.failNode(node, "expected 2 or 3 arguments, found {d}", .{params.len}),
+            };
+            const result = try gz.addExtendedPayload(.reify_array, Zir.Inst.UnExtra{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = try astgen.addExtra(payload),
+            });
+            return rvalue(gz, ri, result, node);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], if (gz.force_comptime) .panic_comptime else .panic);

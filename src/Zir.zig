@@ -1999,6 +1999,10 @@ pub const Inst = struct {
         /// Implement builtin `@Int`.
         /// `operand` is payload index to `BinNode`. `lhs` is signedness, `rhs` is bit_count.
         reify_int,
+        /// Implement builtin `@Array`.
+        /// `operand` is payload index to `UnExtra`.
+        /// `operand` is extra index to `ArrayTypeSentinel`.
+        reify_array,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2956,6 +2960,11 @@ pub const Inst = struct {
     pub const UnNode = struct {
         node: i32,
         operand: Ref,
+    };
+
+    pub const UnExtra = struct {
+        node: i32,
+        operand: u32,
     };
 
     pub const ElemPtrImm = struct {

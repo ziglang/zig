@@ -7618,6 +7618,14 @@ comptime {
       {#see_also|Alignment#}
       {#header_close#}
 
+      {#header_open|@Array#}
+      <pre>{#syntax#}@Array(comptime len: usize, comptime Child: type) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Array(comptime len: usize, comptime Child: type, comptime sentinel: Child) type{#endsyntax#}</pre>
+      <p>
+        TODO
+      </p>
+      {#header_close#}
+
       {#header_open|@as#}
       <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
       <p>

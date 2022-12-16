@@ -78,28 +78,9 @@ test "Type.Float" {
 }
 
 test "Type.Array" {
-    try testing.expect([123]u8 == @Type(.{
-        .Array = .{
-            .len = 123,
-            .child = u8,
-            .sentinel = null,
-        },
-    }));
-    try testing.expect([2]u32 == @Type(.{
-        .Array = .{
-            .len = 2,
-            .child = u32,
-            .sentinel = null,
-        },
-    }));
-    try testing.expect([2:0]u32 == @Type(.{
-        .Array = .{
-            .len = 2,
-            .child = u32,
-            .sentinel = &@as(u32, 0),
-        },
-    }));
-    try testTypes(&[_]type{ [1]u8, [30]usize, [7]bool });
+    try testing.expect([123]u8 == @Array(123, u8));
+    try testing.expect([2]u32 == @Array(2, u32));
+    try testing.expect([2:0]u32 == @Array(2, u32, 0));
 }
 
 test "@Type create slice with null sentinel" {
@@ -120,7 +101,6 @@ test "@Type create slice with null sentinel" {
 
 test "@Type picks up the sentinel value from Type" {
     try testTypes(&[_]type{
-        [11:0]u8,                            [4:10]u8,
         [*:0]u8,                             [*:0]const u8,
         [*:0]volatile u8,                    [*:0]const volatile u8,
         [*:0]align(4) u8,                    [*:0]align(4) const u8,

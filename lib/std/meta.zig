@@ -294,13 +294,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                         .is_volatile = info.is_volatile,
                         .alignment = info.alignment,
                         .address_space = info.address_space,
-                        .child = @Type(.{
-                            .Array = .{
-                                .len = array_info.len,
-                                .child = array_info.child,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
-                            },
-                        }),
+                        .child = @Array(array_info.len, array_info.child, sentinel_val),
                         .is_allowzero = info.is_allowzero,
                         .sentinel = info.sentinel,
                     },

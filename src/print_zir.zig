@@ -506,6 +506,7 @@ const Writer = struct {
             .reify,
             .reify_float,
             .reify_int,
+            .reify_array,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
