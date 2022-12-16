@@ -41,7 +41,7 @@ pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
-pub const Tz = @import("tz.zig").Tz;
+pub const Tz = tz.Tz;
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
@@ -86,6 +86,7 @@ pub const simd = @import("simd.zig");
 pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
+pub const tz = @import("tz.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
