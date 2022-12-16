@@ -1,5 +1,5 @@
 //
-// Decompressor for ZLIB data streams (RFC1950)
+// Compressor/Decompressor for ZLIB data streams (RFC1950)
 
 const std = @import("std");
 const io = std.io;
@@ -8,7 +8,7 @@ const testing = std.testing;
 const mem = std.mem;
 const deflate = std.compress.deflate;
 
-pub fn ZlibStream(comptime ReaderType: type) type {
+pub fn ZlibStreamReader(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
 
@@ -84,14 +84,99 @@ pub fn ZlibStream(comptime ReaderType: type) type {
     };
 }
 
-pub fn zlibStream(allocator: mem.Allocator, reader: anytype) !ZlibStream(@TypeOf(reader)) {
-    return ZlibStream(@TypeOf(reader)).init(allocator, reader);
+pub fn zlibStreamReader(allocator: mem.Allocator, reader: anytype) !ZlibStreamReader(@TypeOf(reader)) {
+    return ZlibStreamReader(@TypeOf(reader)).init(allocator, reader);
 }
+
+pub const CompressionLevel = enum(u2) {
+    no_compression = 0,
+    fastest = 1,
+    default = 2,
+    maximum = 3,
+};
+
+pub const CompressionOptions = struct {
+    level: CompressionLevel = .default,
+};
+
+pub fn ZlibStreamWriter(comptime WriterType: type) type {
+    return struct {
+        const Self = @This();
+
+        const Error = WriterType.Error ||
+            deflate.Compressor(WriterType).Error;
+        pub const Writer = io.Writer(*Self, Error, write);
+
+        allocator: mem.Allocator,
+        deflator: deflate.Compressor(WriterType),
+        in_writer: WriterType,
+        hasher: std.hash.Adler32,
+
+        fn init(allocator: mem.Allocator, dest: WriterType, options: CompressionOptions) !Self {
+            // Zlib header format is specified in RFC1950
+            const CM: u4 = 8; // DEFLATE
+            const CINFO: u4 = 7; // 32K window
+            const CMF: u8 = (@as(u8, CINFO) << 4) | CM;
+
+            const FLEVEL: u2 = @enumToInt(options.level);
+            const FDICT: u1 = 0; // No preset dictionary support
+            const FLG_temp = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5);
+            const FCHECK: u5 = 31 - ((@as(u16, CMF) * 256 + FLG_temp) % 31);
+            const FLG = FLG_temp | FCHECK;
+
+            const compression_level: deflate.Compression = switch (options.level) {
+                .no_compression => .no_compression,
+                .fastest => .best_speed,
+                .default => .default_compression,
+                .maximum => .best_compression,
+            };
+
+            try dest.writeAll(&.{ CMF, FLG });
+
+            return Self{
+                .allocator = allocator,
+                .deflator = try deflate.compressor(allocator, dest, .{ .level = compression_level }),
+                .in_writer = dest,
+                .hasher = std.hash.Adler32.init(),
+            };
+        }
+
+        pub fn write(self: *Self, bytes: []const u8) Error!usize {
+            if (bytes.len == 0) {
+                return 0;
+            }
+
+            const w = try self.deflator.write(bytes);
+
+            self.hasher.update(bytes[0..w]);
+            return w;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.deflator.deinit();
+        }
+
+        pub fn close(self: *Self) !void {
+            const hash = self.hasher.final();
+            try self.deflator.close();
+            try self.in_writer.writeIntBig(u32, hash);
+        }
+    };
+}
+
+pub fn zlibStreamWriter(allocator: mem.Allocator, writer: anytype, options: CompressionOptions) !ZlibStreamWriter(@TypeOf(writer)) {
+    return ZlibStreamWriter(@TypeOf(writer)).init(allocator, writer, options);
+}
+
 
 fn testReader(data: []const u8, expected: []const u8) !void {
     var in_stream = io.fixedBufferStream(data);
 
-    var zlib_stream = try zlibStream(testing.allocator, in_stream.reader());
+    var zlib_stream = try zlibStreamReader(testing.allocator, in_stream.reader());
     defer zlib_stream.deinit();
 
     // Read and decompress the whole file
@@ -169,4 +254,20 @@ test "sanity checks" {
         error.EndOfStream,
         testReader(&[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
     );
+}
+
+test "compress data" {
+    const allocator = testing.allocator;
+    const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
+
+    var compressed_data = std.ArrayList(u8).init(allocator);
+    defer compressed_data.deinit();
+
+    var compressor = try zlibStreamWriter(allocator, compressed_data.writer(), .{});
+    defer compressor.deinit();
+
+    try compressor.writer().writeAll(rfc1951_txt);
+    try compressor.close();
+
+    try testReader(compressed_data.items, rfc1951_txt);
 }
