@@ -487,13 +487,18 @@ test "std.meta.declarationInfo" {
         try testing.expect(!info.is_pub);
     }
 }
-pub fn fields(comptime T: type) switch (@typeInfo(T)) {
-    .Struct => []const Type.StructField,
-    .Union => []const Type.UnionField,
-    .ErrorSet => []const Type.Error,
-    .Enum => []const Type.EnumField,
-    else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
-} {
+
+pub fn Field(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .Struct => std.builtin.Type.StructField,
+        .Union => std.builtin.Type.UnionField,
+        .ErrorSet => std.builtin.Type.Error,
+        .Enum => std.builtin.Type.EnumField,
+        else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
+    };
+}
+
+pub fn fields(comptime T: type) []const Field(T) {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.fields,
         .Union => |info| info.fields,
@@ -532,13 +537,7 @@ test "std.meta.fields" {
     try testing.expect(comptime uf[0].field_type == u8);
 }
 
-pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
-    .Struct => Type.StructField,
-    .Union => Type.UnionField,
-    .ErrorSet => Type.Error,
-    .Enum => Type.EnumField,
-    else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
-} {
+pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) Field(T) {
     return fields(T)[@enumToInt(field)];
 }
 
