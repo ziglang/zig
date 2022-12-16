@@ -1,296 +1,27 @@
-const std = @import("../std.zig");
-const Tls = @This();
+const std = @import("../../std.zig");
+const tls = std.crypto.tls;
+const Client = @This();
 const net = std.net;
 const mem = std.mem;
 const crypto = std.crypto;
 const assert = std.debug.assert;
 
+const ApplicationCipher = tls.ApplicationCipher;
+const CipherSuite = tls.CipherSuite;
+const ContentType = tls.ContentType;
+const HandshakeType = tls.HandshakeType;
+const CipherParams = tls.CipherParams;
+const max_ciphertext_len = tls.max_ciphertext_len;
+const hkdfExpandLabel = tls.hkdfExpandLabel;
+
 application_cipher: ApplicationCipher,
 read_seq: u64,
 write_seq: u64,
 /// The size is enough to contain exactly one TLSCiphertext record.
-partially_read_buffer: [max_ciphertext_record_len]u8,
+partially_read_buffer: [tls.max_ciphertext_record_len]u8,
 /// The number of partially read bytes inside `partiall_read_buffer`.
 partially_read_len: u15,
 eof: bool,
-
-pub const ciphertext_record_header_len = 5;
-pub const max_ciphertext_len = (1 << 14) + 256;
-pub const max_ciphertext_record_len = max_ciphertext_len + ciphertext_record_header_len;
-pub const hello_retry_request_sequence = [32]u8{
-    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
-    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
-};
-
-pub const ProtocolVersion = enum(u16) {
-    tls_1_2 = 0x0303,
-    tls_1_3 = 0x0304,
-    _,
-};
-
-pub const ContentType = enum(u8) {
-    invalid = 0,
-    change_cipher_spec = 20,
-    alert = 21,
-    handshake = 22,
-    application_data = 23,
-    _,
-};
-
-pub const HandshakeType = enum(u8) {
-    client_hello = 1,
-    server_hello = 2,
-    new_session_ticket = 4,
-    end_of_early_data = 5,
-    encrypted_extensions = 8,
-    certificate = 11,
-    certificate_request = 13,
-    certificate_verify = 15,
-    finished = 20,
-    key_update = 24,
-    message_hash = 254,
-};
-
-pub const ExtensionType = enum(u16) {
-    /// RFC 6066
-    server_name = 0,
-    /// RFC 6066
-    max_fragment_length = 1,
-    /// RFC 6066
-    status_request = 5,
-    /// RFC 8422, 7919
-    supported_groups = 10,
-    /// RFC 8446
-    signature_algorithms = 13,
-    /// RFC 5764
-    use_srtp = 14,
-    /// RFC 6520
-    heartbeat = 15,
-    /// RFC 7301
-    application_layer_protocol_negotiation = 16,
-    /// RFC 6962
-    signed_certificate_timestamp = 18,
-    /// RFC 7250
-    client_certificate_type = 19,
-    /// RFC 7250
-    server_certificate_type = 20,
-    /// RFC 7685
-    padding = 21,
-    /// RFC 8446
-    pre_shared_key = 41,
-    /// RFC 8446
-    early_data = 42,
-    /// RFC 8446
-    supported_versions = 43,
-    /// RFC 8446
-    cookie = 44,
-    /// RFC 8446
-    psk_key_exchange_modes = 45,
-    /// RFC 8446
-    certificate_authorities = 47,
-    /// RFC 8446
-    oid_filters = 48,
-    /// RFC 8446
-    post_handshake_auth = 49,
-    /// RFC 8446
-    signature_algorithms_cert = 50,
-    /// RFC 8446
-    key_share = 51,
-};
-
-pub const AlertLevel = enum(u8) {
-    warning = 1,
-    fatal = 2,
-    _,
-};
-
-pub const AlertDescription = enum(u8) {
-    close_notify = 0,
-    unexpected_message = 10,
-    bad_record_mac = 20,
-    record_overflow = 22,
-    handshake_failure = 40,
-    bad_certificate = 42,
-    unsupported_certificate = 43,
-    certificate_revoked = 44,
-    certificate_expired = 45,
-    certificate_unknown = 46,
-    illegal_parameter = 47,
-    unknown_ca = 48,
-    access_denied = 49,
-    decode_error = 50,
-    decrypt_error = 51,
-    protocol_version = 70,
-    insufficient_security = 71,
-    internal_error = 80,
-    inappropriate_fallback = 86,
-    user_canceled = 90,
-    missing_extension = 109,
-    unsupported_extension = 110,
-    unrecognized_name = 112,
-    bad_certificate_status_response = 113,
-    unknown_psk_identity = 115,
-    certificate_required = 116,
-    no_application_protocol = 120,
-    _,
-};
-
-pub const SignatureScheme = enum(u16) {
-    // RSASSA-PKCS1-v1_5 algorithms
-    rsa_pkcs1_sha256 = 0x0401,
-    rsa_pkcs1_sha384 = 0x0501,
-    rsa_pkcs1_sha512 = 0x0601,
-
-    // ECDSA algorithms
-    ecdsa_secp256r1_sha256 = 0x0403,
-    ecdsa_secp384r1_sha384 = 0x0503,
-    ecdsa_secp521r1_sha512 = 0x0603,
-
-    // RSASSA-PSS algorithms with public key OID rsaEncryption
-    rsa_pss_rsae_sha256 = 0x0804,
-    rsa_pss_rsae_sha384 = 0x0805,
-    rsa_pss_rsae_sha512 = 0x0806,
-
-    // EdDSA algorithms
-    ed25519 = 0x0807,
-    ed448 = 0x0808,
-
-    // RSASSA-PSS algorithms with public key OID RSASSA-PSS
-    rsa_pss_pss_sha256 = 0x0809,
-    rsa_pss_pss_sha384 = 0x080a,
-    rsa_pss_pss_sha512 = 0x080b,
-
-    // Legacy algorithms
-    rsa_pkcs1_sha1 = 0x0201,
-    ecdsa_sha1 = 0x0203,
-
-    _,
-};
-
-pub const NamedGroup = enum(u16) {
-    // Elliptic Curve Groups (ECDHE)
-    secp256r1 = 0x0017,
-    secp384r1 = 0x0018,
-    secp521r1 = 0x0019,
-    x25519 = 0x001D,
-    x448 = 0x001E,
-
-    // Finite Field Groups (DHE)
-    ffdhe2048 = 0x0100,
-    ffdhe3072 = 0x0101,
-    ffdhe4096 = 0x0102,
-    ffdhe6144 = 0x0103,
-    ffdhe8192 = 0x0104,
-
-    _,
-};
-
-// Plaintext:
-// * type: ContentType
-// * legacy_record_version: u16 = 0x0303,
-// * length: u16,
-//   - The length (in bytes) of the following TLSPlaintext.fragment.  The
-//     length MUST NOT exceed 2^14 bytes.
-// * fragment: opaque
-//   - the data being transmitted
-
-// Ciphertext
-// * ContentType opaque_type = application_data; /* 23 */
-// * ProtocolVersion legacy_record_version = 0x0303; /* TLS v1.2 */
-// * uint16 length;
-// * opaque encrypted_record[TLSCiphertext.length];
-
-// Handshake:
-// * type: HandshakeType
-// * length: u24
-// * data: opaque
-
-// ServerHello:
-// * ProtocolVersion legacy_version = 0x0303;
-// * Random random;
-// * opaque legacy_session_id_echo<0..32>;
-// * CipherSuite cipher_suite;
-// * uint8 legacy_compression_method = 0;
-// * Extension extensions<6..2^16-1>;
-
-// Extension:
-// * ExtensionType extension_type;
-// * opaque extension_data<0..2^16-1>;
-
-pub const CipherSuite = enum(u16) {
-    TLS_AES_128_GCM_SHA256 = 0x1301,
-    TLS_AES_256_GCM_SHA384 = 0x1302,
-    TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
-    TLS_AES_128_CCM_SHA256 = 0x1304,
-    TLS_AES_128_CCM_8_SHA256 = 0x1305,
-};
-
-pub const CipherParams = union(CipherSuite) {
-    TLS_AES_128_GCM_SHA256: struct {
-        const AEAD = crypto.aead.aes_gcm.Aes128Gcm;
-        const Hash = crypto.hash.sha2.Sha256;
-        const Hmac = crypto.auth.hmac.Hmac(Hash);
-        const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        handshake_secret: [Hkdf.key_len]u8,
-        master_secret: [Hkdf.key_len]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        transcript_hash: Hash,
-    },
-    TLS_AES_256_GCM_SHA384: struct {
-        const AEAD = crypto.aead.aes_gcm.Aes256Gcm;
-        const Hash = crypto.hash.sha2.Sha384;
-        const Hmac = crypto.auth.hmac.Hmac(Hash);
-        const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        handshake_secret: [Hkdf.key_len]u8,
-        master_secret: [Hkdf.key_len]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        transcript_hash: Hash,
-    },
-    TLS_CHACHA20_POLY1305_SHA256: void,
-    TLS_AES_128_CCM_SHA256: void,
-    TLS_AES_128_CCM_8_SHA256: void,
-};
-
-/// Encryption parameters for application traffic.
-pub const ApplicationCipher = union(CipherSuite) {
-    TLS_AES_128_GCM_SHA256: struct {
-        const AEAD = crypto.aead.aes_gcm.Aes128Gcm;
-        const Hash = crypto.hash.sha2.Sha256;
-        const Hmac = crypto.auth.hmac.Hmac(Hash);
-        const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        client_key: [AEAD.key_length]u8,
-        server_key: [AEAD.key_length]u8,
-        client_iv: [AEAD.nonce_length]u8,
-        server_iv: [AEAD.nonce_length]u8,
-    },
-    TLS_AES_256_GCM_SHA384: struct {
-        const AEAD = crypto.aead.aes_gcm.Aes256Gcm;
-        const Hash = crypto.hash.sha2.Sha384;
-        const Hmac = crypto.auth.hmac.Hmac(Hash);
-        const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        client_key: [AEAD.key_length]u8,
-        server_key: [AEAD.key_length]u8,
-        client_iv: [AEAD.nonce_length]u8,
-        server_iv: [AEAD.nonce_length]u8,
-    },
-    TLS_CHACHA20_POLY1305_SHA256: void,
-    TLS_AES_128_CCM_SHA256: void,
-    TLS_AES_128_CCM_8_SHA256: void,
-};
 
 const cipher_suites = blk: {
     const fields = @typeInfo(CipherSuite).Enum.fields;
@@ -305,7 +36,7 @@ const cipher_suites = blk: {
 };
 
 /// `host` is only borrowed during this function call.
-pub fn init(stream: net.Stream, host: []const u8) !Tls {
+pub fn init(stream: net.Stream, host: []const u8) !Client {
     var x25519_priv_key: [32]u8 = undefined;
     crypto.random.bytes(&x25519_priv_key);
     const x25519_pub_key = crypto.dh.X25519.recoverPublicKey(x25519_priv_key) catch |err| {
@@ -440,8 +171,8 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
 
         switch (ct) {
             .alert => {
-                const level = @intToEnum(AlertLevel, frag[0]);
-                const desc = @intToEnum(AlertDescription, frag[1]);
+                const level = @intToEnum(tls.AlertLevel, frag[0]);
+                const desc = @intToEnum(tls.AlertDescription, frag[1]);
                 std.debug.print("alert: {s} {s}\n", .{ @tagName(level), @tagName(desc) });
                 return error.TlsAlert;
             },
@@ -454,7 +185,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                 const hello = frag[4..];
                 const legacy_version = mem.readIntBig(u16, hello[0..2]);
                 const random = hello[2..34].*;
-                if (mem.eql(u8, &random, &hello_retry_request_sequence)) {
+                if (mem.eql(u8, &random, &tls.hello_retry_request_sequence)) {
                     @panic("TODO handle HelloRetryRequest");
                 }
                 const legacy_session_id_echo_len = hello[34];
@@ -478,16 +209,16 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                     const next_i = i + ext_size;
                     if (next_i > hello.len) return error.TlsBadLength;
                     switch (et) {
-                        @enumToInt(ExtensionType.supported_versions) => {
+                        @enumToInt(tls.ExtensionType.supported_versions) => {
                             if (supported_version != 0) return error.TlsIllegalParameter;
                             supported_version = mem.readIntBig(u16, hello[i..][0..2]);
                         },
-                        @enumToInt(ExtensionType.key_share) => {
+                        @enumToInt(tls.ExtensionType.key_share) => {
                             if (opt_x25519_server_pub_key != null) return error.TlsIllegalParameter;
                             const named_group = mem.readIntBig(u16, hello[i..][0..2]);
                             i += 2;
                             switch (named_group) {
-                                @enumToInt(NamedGroup.x25519) => {
+                                @enumToInt(tls.NamedGroup.x25519) => {
                                     const key_size = mem.readIntBig(u16, hello[i..][0..2]);
                                     i += 2;
                                     if (key_size != 32) return error.TlsBadLength;
@@ -509,10 +240,10 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                     return error.TlsIllegalParameter;
                 const tls_version = if (supported_version == 0) legacy_version else supported_version;
                 switch (tls_version) {
-                    @enumToInt(ProtocolVersion.tls_1_2) => {
+                    @enumToInt(tls.ProtocolVersion.tls_1_2) => {
                         std.debug.print("server wants TLS v1.2\n", .{});
                     },
-                    @enumToInt(ProtocolVersion.tls_1_3) => {
+                    @enumToInt(tls.ProtocolVersion.tls_1_3) => {
                         std.debug.print("server wants TLS v1.3\n", .{});
                     },
                     else => return error.TlsIllegalParameter,
@@ -544,7 +275,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                         const hello_hash = p.transcript_hash.peek();
                         const zeroes = [1]u8{0} ** P.Hash.digest_length;
                         const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
-                        const empty_hash = emptyHash(P.Hash);
+                        const empty_hash = tls.emptyHash(P.Hash);
                         const hs_derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);
                         p.handshake_secret = P.Hkdf.extract(&hs_derived_secret, &shared_key);
                         const ap_derived_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
@@ -670,7 +401,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                                         ct_i += 2;
                                         const next_ext_i = ct_i + ext_size;
                                         switch (et) {
-                                            @enumToInt(ExtensionType.server_name) => {},
+                                            @enumToInt(tls.ExtensionType.server_name) => {},
                                             else => {
                                                 std.debug.print("encrypted extension: {any}\n", .{
                                                     et,
@@ -699,7 +430,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
                                             const P = @TypeOf(p.*);
                                             // TODO verify the server's data
                                             const handshake_hash = p.transcript_hash.finalResult();
-                                            const verify_data = hmac(P.Hmac, &handshake_hash, p.client_finished_key);
+                                            const verify_data = tls.hmac(P.Hmac, &handshake_hash, p.client_finished_key);
                                             const out_cleartext = [_]u8{
                                                 @enumToInt(HandshakeType.finished),
                                                 0, 0, verify_data.len, // length
@@ -782,8 +513,8 @@ pub fn init(stream: net.Stream, host: []const u8) !Tls {
     return error.TlsHandshakeFailure;
 }
 
-pub fn write(tls: *Tls, stream: net.Stream, bytes: []const u8) !usize {
-    var ciphertext_buf: [max_ciphertext_record_len * 4]u8 = undefined;
+pub fn write(c: *Client, stream: net.Stream, bytes: []const u8) !usize {
+    var ciphertext_buf: [tls.max_ciphertext_record_len * 4]u8 = undefined;
     // Due to the trailing inner content type byte in the ciphertext, we need
     // an additional buffer for storing the cleartext into before encrypting.
     var cleartext_buf: [max_ciphertext_len]u8 = undefined;
@@ -792,16 +523,16 @@ pub fn write(tls: *Tls, stream: net.Stream, bytes: []const u8) !usize {
     var iovec_end: usize = 0;
     var bytes_i: usize = 0;
     // How many bytes are taken up by overhead per record.
-    const overhead_len: usize = switch (tls.application_cipher) {
+    const overhead_len: usize = switch (c.application_cipher) {
         inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p| l: {
             const P = @TypeOf(p.*);
             const V = @Vector(P.AEAD.nonce_length, u8);
-            const overhead_len = ciphertext_record_header_len + P.AEAD.tag_length + 1;
+            const overhead_len = tls.ciphertext_record_header_len + P.AEAD.tag_length + 1;
             while (true) {
                 const encrypted_content_len = @intCast(u16, @min(
                     @min(bytes.len - bytes_i, max_ciphertext_len - 1),
                     ciphertext_buf.len -
-                        ciphertext_record_header_len - P.AEAD.tag_length - ciphertext_end - 1,
+                        tls.ciphertext_record_header_len - P.AEAD.tag_length - ciphertext_end - 1,
                 ));
                 if (encrypted_content_len == 0) break :l overhead_len;
 
@@ -815,7 +546,7 @@ pub fn write(tls: *Tls, stream: net.Stream, bytes: []const u8) !usize {
                 const ad = ciphertext_buf[ciphertext_end..][0..5];
                 ad.* =
                     [_]u8{@enumToInt(ContentType.application_data)} ++
-                    int2(@enumToInt(ProtocolVersion.tls_1_2)) ++
+                    int2(@enumToInt(tls.ProtocolVersion.tls_1_2)) ++
                     int2(ciphertext_len + P.AEAD.tag_length);
                 ciphertext_end += ad.len;
                 const ciphertext = ciphertext_buf[ciphertext_end..][0..ciphertext_len];
@@ -823,12 +554,12 @@ pub fn write(tls: *Tls, stream: net.Stream, bytes: []const u8) !usize {
                 const auth_tag = ciphertext_buf[ciphertext_end..][0..P.AEAD.tag_length];
                 ciphertext_end += auth_tag.len;
                 const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
-                const operand: V = pad ++ @bitCast([8]u8, big(tls.write_seq));
-                tls.write_seq += 1;
+                const operand: V = pad ++ @bitCast([8]u8, big(c.write_seq));
+                c.write_seq += 1;
                 const nonce: [P.AEAD.nonce_length]u8 = @as(V, p.client_iv) ^ operand;
                 P.AEAD.encrypt(ciphertext, auth_tag, cleartext, ad, nonce, p.client_key);
                 //std.debug.print("seq: {d} nonce: {} client_key: {} client_iv: {} ad: {} auth_tag: {}\nserver_key: {} server_iv: {}\n", .{
-                //    tls.write_seq - 1,
+                //    c.write_seq - 1,
                 //    std.fmt.fmtSliceHexLower(&nonce),
                 //    std.fmt.fmtSliceHexLower(&p.client_key),
                 //    std.fmt.fmtSliceHexLower(&p.client_iv),
@@ -878,37 +609,37 @@ pub fn write(tls: *Tls, stream: net.Stream, bytes: []const u8) !usize {
     }
 }
 
-pub fn writeAll(tls: *Tls, stream: net.Stream, bytes: []const u8) !void {
+pub fn writeAll(c: *Client, stream: net.Stream, bytes: []const u8) !void {
     var index: usize = 0;
     while (index < bytes.len) {
-        index += try tls.write(stream, bytes[index..]);
+        index += try c.write(stream, bytes[index..]);
     }
 }
 
 /// Returns number of bytes that have been read, which are now populated inside
 /// `buffer`. A return value of zero bytes does not necessarily mean end of
 /// stream.
-pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
-    const prev_len = tls.partially_read_len;
+pub fn read(c: *Client, stream: net.Stream, buffer: []u8) !usize {
+    const prev_len = c.partially_read_len;
     var in_buf: [max_ciphertext_len * 4]u8 = undefined;
-    mem.copy(u8, &in_buf, tls.partially_read_buffer[0..prev_len]);
+    mem.copy(u8, &in_buf, c.partially_read_buffer[0..prev_len]);
 
     // Capacity of output buffer, in records, rounded up.
     const buf_cap = (buffer.len +| (max_ciphertext_len - 1)) / max_ciphertext_len;
-    const wanted_read_len = buf_cap * (max_ciphertext_len + ciphertext_record_header_len);
+    const wanted_read_len = buf_cap * (max_ciphertext_len + tls.ciphertext_record_header_len);
     const ask_slice = in_buf[prev_len..@min(wanted_read_len, in_buf.len)];
     const actual_read_len = try stream.read(ask_slice);
     const frag = in_buf[0 .. prev_len + actual_read_len];
     if (frag.len == 0) {
-        tls.eof = true;
+        c.eof = true;
         return 0;
     }
     var in: usize = 0;
     var out: usize = 0;
 
     while (true) {
-        if (in + ciphertext_record_header_len > frag.len) {
-            return finishRead(tls, frag, in, out);
+        if (in + tls.ciphertext_record_header_len > frag.len) {
+            return finishRead(c, frag, in, out);
         }
         const ct = @intToEnum(ContentType, frag[in]);
         in += 1;
@@ -920,14 +651,14 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
         const end = in + record_size;
         if (end > frag.len) {
             if (record_size > max_ciphertext_len) return error.TlsRecordOverflow;
-            return finishRead(tls, frag, in, out);
+            return finishRead(c, frag, in, out);
         }
         switch (ct) {
             .alert => {
                 @panic("TODO handle an alert here");
             },
             .application_data => {
-                const cleartext_len = switch (tls.application_cipher) {
+                const cleartext_len = switch (c.application_cipher) {
                     inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p| c: {
                         const P = @TypeOf(p.*);
                         const V = @Vector(P.AEAD.nonce_length, u8);
@@ -938,11 +669,11 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
                         const auth_tag = frag[in..][0..P.AEAD.tag_length].*;
                         const cleartext = buffer[out..][0..ciphertext_len];
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
-                        const operand: V = pad ++ @bitCast([8]u8, big(tls.read_seq));
-                        tls.read_seq += 1;
+                        const operand: V = pad ++ @bitCast([8]u8, big(c.read_seq));
+                        c.read_seq += 1;
                         const nonce: [P.AEAD.nonce_length]u8 = @as(V, p.server_iv) ^ operand;
                         //std.debug.print("seq: {d} nonce: {} server_key: {} server_iv: {}\n", .{
-                        //    tls.read_seq - 1,
+                        //    c.read_seq - 1,
                         //    std.fmt.fmtSliceHexLower(&nonce),
                         //    std.fmt.fmtSliceHexLower(&p.server_key),
                         //    std.fmt.fmtSliceHexLower(&p.server_iv),
@@ -965,10 +696,10 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
                 const inner_ct = @intToEnum(ContentType, buffer[out + cleartext_len - 1]);
                 switch (inner_ct) {
                     .alert => {
-                        const level = @intToEnum(AlertLevel, buffer[out]);
-                        const desc = @intToEnum(AlertDescription, buffer[out + 1]);
+                        const level = @intToEnum(tls.AlertLevel, buffer[out]);
+                        const desc = @intToEnum(tls.AlertDescription, buffer[out + 1]);
                         if (desc == .close_notify) {
-                            tls.eof = true;
+                            c.eof = true;
                             return out;
                         }
                         std.debug.print("alert: {s} {s}\n", .{ @tagName(level), @tagName(desc) });
@@ -995,50 +726,11 @@ pub fn read(tls: *Tls, stream: net.Stream, buffer: []u8) !usize {
     }
 }
 
-fn finishRead(tls: *Tls, frag: []const u8, in: usize, out: usize) usize {
+fn finishRead(c: *Client, frag: []const u8, in: usize, out: usize) usize {
     const saved_buf = frag[in..];
-    mem.copy(u8, &tls.partially_read_buffer, saved_buf);
-    tls.partially_read_len = @intCast(u15, saved_buf.len);
+    mem.copy(u8, &c.partially_read_buffer, saved_buf);
+    c.partially_read_len = @intCast(u15, saved_buf.len);
     return out;
-}
-
-fn hkdfExpandLabel(
-    comptime Hkdf: type,
-    key: [Hkdf.prk_length]u8,
-    label: []const u8,
-    context: []const u8,
-    comptime len: usize,
-) [len]u8 {
-    const max_label_len = 255;
-    const max_context_len = 255;
-    const tls13 = "tls13 ";
-    var buf: [2 + 1 + tls13.len + max_label_len + 1 + max_context_len]u8 = undefined;
-    mem.writeIntBig(u16, buf[0..2], len);
-    buf[2] = @intCast(u8, tls13.len + label.len);
-    buf[3..][0..tls13.len].* = tls13.*;
-    var i: usize = 3 + tls13.len;
-    mem.copy(u8, buf[i..], label);
-    i += label.len;
-    buf[i] = @intCast(u8, context.len);
-    i += 1;
-    mem.copy(u8, buf[i..], context);
-    i += context.len;
-
-    var result: [len]u8 = undefined;
-    Hkdf.expand(&result, buf[0..i], key);
-    return result;
-}
-
-fn emptyHash(comptime Hash: type) [Hash.digest_length]u8 {
-    var result: [Hash.digest_length]u8 = undefined;
-    Hash.hash(&.{}, &result, .{});
-    return result;
-}
-
-fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) [Hmac.mac_length]u8 {
-    var result: [Hmac.mac_length]u8 = undefined;
-    Hmac.create(&result, message, &key);
-    return result;
 }
 
 const builtin = @import("builtin");

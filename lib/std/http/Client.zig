@@ -12,7 +12,7 @@ pub const Request = struct {
     client: *Client,
     stream: net.Stream,
     headers: std.ArrayListUnmanaged(u8) = .{},
-    tls: std.crypto.Tls,
+    tls_client: std.crypto.tls.Client,
     protocol: Protocol,
 
     pub const Protocol = enum { http, https };
@@ -51,7 +51,7 @@ pub const Request = struct {
                 try req.stream.writeAll(req.headers.items);
             },
             .https => {
-                try req.tls.writeAll(req.stream, req.headers.items);
+                try req.tls_client.writeAll(req.stream, req.headers.items);
             },
         }
     }
@@ -59,7 +59,7 @@ pub const Request = struct {
     pub fn read(req: *Request, buffer: []u8) !usize {
         switch (req.protocol) {
             .http => return req.stream.read(buffer),
-            .https => return req.tls.read(req.stream, buffer),
+            .https => return req.tls_client.read(req.stream, buffer),
         }
     }
 
@@ -74,7 +74,7 @@ pub const Request = struct {
             if (amt == 0) {
                 switch (req.protocol) {
                     .http => break,
-                    .https => if (req.tls.eof) break,
+                    .https => if (req.tls_client.eof) break,
                 }
             }
             index += amt;
@@ -94,7 +94,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
         .client = client,
         .stream = try net.tcpConnectToHost(client.allocator, options.host, options.port),
         .protocol = options.protocol,
-        .tls = undefined,
+        .tls_client = undefined,
     };
     client.active_requests += 1;
     errdefer req.deinit();
@@ -102,7 +102,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
     switch (options.protocol) {
         .http => {},
         .https => {
-            req.tls = try std.crypto.Tls.init(req.stream, options.host);
+            req.tls_client = try std.crypto.tls.Client.init(req.stream, options.host);
         },
     }
 
