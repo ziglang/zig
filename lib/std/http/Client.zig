@@ -62,6 +62,25 @@ pub const Request = struct {
             .https => return req.tls.read(req.stream, buffer),
         }
     }
+
+    pub fn readAll(req: *Request, buffer: []u8) !usize {
+        return readAtLeast(req, buffer, buffer.len);
+    }
+
+    pub fn readAtLeast(req: *Request, buffer: []u8, len: usize) !usize {
+        var index: usize = 0;
+        while (index < len) {
+            const amt = try req.read(buffer[index..]);
+            if (amt == 0) {
+                switch (req.protocol) {
+                    .http => break,
+                    .https => if (req.tls.eof) break,
+                }
+            }
+            index += amt;
+        }
+        return index;
+    }
 };
 
 pub fn deinit(client: *Client) void {
@@ -92,7 +111,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
         @tagName(options.method).len +
             1 +
             options.path.len +
-            " HTTP/2\r\nHost: ".len +
+            " HTTP/1.1\r\nHost: ".len +
             options.host.len +
             "\r\nUpgrade-Insecure-Requests: 1\r\n".len +
             client.headers.items.len +
@@ -101,7 +120,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
     req.headers.appendSliceAssumeCapacity(@tagName(options.method));
     req.headers.appendSliceAssumeCapacity(" ");
     req.headers.appendSliceAssumeCapacity(options.path);
-    req.headers.appendSliceAssumeCapacity(" HTTP/2\r\nHost: ");
+    req.headers.appendSliceAssumeCapacity(" HTTP/1.1\r\nHost: ");
     req.headers.appendSliceAssumeCapacity(options.host);
     switch (options.protocol) {
         .https => req.headers.appendSliceAssumeCapacity("\r\nUpgrade-Insecure-Requests: 1\r\n"),
