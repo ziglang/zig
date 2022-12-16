@@ -114,12 +114,12 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
 
         fn init(allocator: mem.Allocator, dest: WriterType, options: CompressionOptions) !Self {
             // Zlib header format is specified in RFC1950
-            const CM: u4 = 8;
-            const CINFO: u4 = 7;
+            const CM: u4 = 8; // DEFLATE
+            const CINFO: u4 = 7; // 32K window
             const CMF: u8 = (@as(u8, CINFO) << 4) | CM;
 
             const FLEVEL: u2 = @enumToInt(options.level);
-            const FDICT: u1 = 0;
+            const FDICT: u1 = 0; // No preset dictionary support
             const FCHECK: u5 = 28;
             const FLG = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5) | FCHECK;
 
