@@ -52,7 +52,7 @@ pub const StdIoAction = union(enum) {
 pub const OutputFile = struct {
     file: std.build.GeneratedFile,
     name: []u8,
-    format: std.meta.FnPtr(fn (std.mem.Allocator, string: []const u8) std.mem.Allocator.Error![]u8),
+    format: *const fn (std.mem.Allocator, string: []const u8) std.mem.Allocator.Error![]u8,
 };
 
 pub const Arg = union(enum) {
