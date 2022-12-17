@@ -966,7 +966,7 @@ pub const ChildProcess = struct {
         defer self.allocator.free(cmd_line_w);
 
         windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-            if (no_path_err != error.FileNotFound) return no_path_err;
+            if (no_path_err != error.FileNotFound and no_path_err != error.InvalidExe) return no_path_err;
 
             const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
@@ -991,7 +991,7 @@ pub const ChildProcess = struct {
                 if (windowsCreateProcess(path_no_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
                     break :retry;
                 } else |err| switch (err) {
-                    error.FileNotFound, error.AccessDenied => {},
+                    error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
                     else => return err,
                 }
 
@@ -1007,6 +1007,7 @@ pub const ChildProcess = struct {
                     } else |err| switch (err) {
                         error.FileNotFound => continue,
                         error.AccessDenied => continue,
+                        error.InvalidExe => continue,
                         else => return err,
                     }
                 }
