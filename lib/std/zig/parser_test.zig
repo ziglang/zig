@@ -214,6 +214,13 @@ test "zig fmt: top-level fields" {
     );
 }
 
+test "zig fmt: top-level tuple function call type" {
+    try testCanonical(
+        \\foo()
+        \\
+    );
+}
+
 test "zig fmt: C style containers" {
     try testError(
         \\struct Foo {
