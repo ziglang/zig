@@ -79,7 +79,6 @@ typedef char bool;
 #if zig_has_attribute(aligned)
 #define zig_align_fn(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
-// TODO: Figure out how to do this under MSVC
 #define zig_align_fn(alignment)
 #else
 #define zig_align_fn zig_align_fn_unavailable
@@ -1346,25 +1345,25 @@ static inline zig_i128 zig_shl_i128(zig_i128 lhs, zig_u8 rhs) {
 
 static inline zig_u128 zig_add_u128(zig_u128 lhs, zig_u128 rhs) {
     zig_u128 res;
-    res.hi = lhs.hi + rhs.hi + zig_addo_u64(&res.lo, lhs.lo, rhs.lo, zig_maxInt_u64);
+    res.hi = lhs.hi + rhs.hi + zig_addo_u64(&res.lo, lhs.lo, rhs.lo, 64);
     return res;
 }
 
 static inline zig_i128 zig_add_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 res;
-    res.hi = lhs.hi + rhs.hi + zig_addo_u64(&res.lo, lhs.lo, rhs.lo, zig_maxInt_u64);
+    res.hi = lhs.hi + rhs.hi + zig_addo_u64(&res.lo, lhs.lo, rhs.lo, 64);
     return res;
 }
 
 static inline zig_u128 zig_sub_u128(zig_u128 lhs, zig_u128 rhs) {
     zig_u128 res;
-    res.hi = lhs.hi - rhs.hi - zig_subo_u64(&res.lo, lhs.lo, rhs.lo, zig_maxInt_u64);
+    res.hi = lhs.hi - rhs.hi - zig_subo_u64(&res.lo, lhs.lo, rhs.lo, 64);
     return res;
 }
 
 static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 res;
-    res.hi = lhs.hi - rhs.hi - zig_subo_u64(&res.lo, lhs.lo, rhs.lo, zig_maxInt_u64);
+    res.hi = lhs.hi - rhs.hi - zig_subo_u64(&res.lo, lhs.lo, rhs.lo, 64);
     return res;
 }
 
