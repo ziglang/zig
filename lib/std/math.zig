@@ -1437,6 +1437,19 @@ pub const CompareOperator = enum {
     gt,
     /// Not equal (`!=`)
     neq,
+
+    /// Reverse the direction of the comparison.
+    /// Use when swapping the left and right hand operands.
+    pub fn reverse(op: CompareOperator) CompareOperator {
+        return switch (op) {
+            .lt => .gt,
+            .lte => .gte,
+            .gt => .lt,
+            .gte => .lte,
+            .eq => .eq,
+            .neq => .neq,
+        };
+    }
 };
 
 /// This function does the same thing as comparison operators, however the
@@ -1494,6 +1507,15 @@ test "order.compare" {
     try testing.expect(order(1, 0).compare(.gte));
     try testing.expect(order(1, 0).compare(.gt));
     try testing.expect(order(1, 0).compare(.neq));
+}
+
+test "compare.reverse" {
+    inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
+        const op = @intToEnum(CompareOperator, op_field.value);
+        try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
+        try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
+        try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
+    }
 }
 
 /// Returns a mask of all ones if value is true,
