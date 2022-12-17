@@ -1397,6 +1397,10 @@ static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
 #define zig_div_floor_u128 zig_div_trunc_u128
 #define zig_mod_u128 zig_rem_u128
 
+static inline zig_u128 zig_nand_u128(zig_u128 lhs, zig_u128 rhs) {
+    return zig_not_u128(zig_and_u128(lhs, rhs), 128);
+}
+
 static inline zig_u128 zig_min_u128(zig_u128 lhs, zig_u128 rhs) {
     return zig_cmp_u128(lhs, rhs) < zig_as_i32(0) ? lhs : rhs;
 }
@@ -2236,5 +2240,41 @@ static inline bool zig_msvc_cmpxchg_u128(zig_u128 volatile* obj, zig_u128* expec
 static inline bool zig_msvc_cmpxchg_i128(zig_i128 volatile* obj, zig_i128* expected, zig_i128 desired) {
     return _InterlockedCompareExchange128((zig_i64 volatile*)obj, desired.hi, desired.lo, (zig_u64*)expected);
 }
+
+#define zig_msvc_atomics_128xchg(Type) \
+    static inline zig_##Type zig_msvc_atomicrmw_xchg_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+        bool success = false; \
+        zig_##Type prev; \
+        while (!success) { \
+            prev = *obj; \
+            success = zig_msvc_cmpxchg_##Type(obj, &prev, value); \
+        } \
+        return prev; \
+    }
+
+zig_msvc_atomics_128xchg(u128)
+zig_msvc_atomics_128xchg(i128)
+
+#define zig_msvc_atomics_128op(Type, operation) \
+    static inline zig_##Type zig_msvc_atomicrmw_##operation##_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+        bool success = false; \
+        zig_##Type new; \
+        zig_##Type prev; \
+        while (!success) { \
+            prev = *obj; \
+            new = zig_##operation##_##Type(prev, value); \
+            success = zig_msvc_cmpxchg_##Type(obj, &prev, new); \
+        } \
+        return prev; \
+    }
+
+zig_msvc_atomics_128op(u128, add)
+zig_msvc_atomics_128op(u128, sub)
+zig_msvc_atomics_128op(u128, or)
+zig_msvc_atomics_128op(u128, xor)
+zig_msvc_atomics_128op(u128, and)
+zig_msvc_atomics_128op(u128, nand)
+zig_msvc_atomics_128op(u128, min)
+zig_msvc_atomics_128op(u128, max)
 
 #endif

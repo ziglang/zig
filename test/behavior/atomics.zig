@@ -252,7 +252,7 @@ test "atomicrmw with ints" {
     }
 
     // TODO: https://github.com/ziglang/zig/issues/13989
-    const bit_values = [_]usize{ 8, 16, 32, 64 };// ++ if (builtin.zig_backend != .stage2_c) [_]usize{ } else [_]usize{ 128 };
+    const bit_values = [_]usize{ 8, 16, 32, 64 } ++ if (builtin.zig_backend != .stage2_c) [_]usize{ } else [_]usize{ 128 };
     inline for (bit_values) |bits| {
         try testAtomicRmwInt(.unsigned, bits);
         comptime try testAtomicRmwInt(.unsigned, bits);
