@@ -1327,17 +1327,20 @@ static inline zig_i128 zig_not_i128(zig_i128 val, zig_u8 bits) {
 }
 
 static inline zig_u128 zig_shr_u128(zig_u128 lhs, zig_u8 rhs) {
-    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = lhs.hi << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 };
-    return (zig_u128){ .hi = lhs.hi << rhs | lhs.lo >> (zig_as_u8(64) - rhs), .lo = lhs.lo << rhs };
+    if (rhs == zig_as_u8(0)) return lhs;
+    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = zig_minInt_u64, .lo = lhs.hi >> (rhs - zig_as_u8(64)) };
+    return (zig_u128){ .hi = lhs.hi >> rhs, .lo = lhs.hi << (zig_as_u8(64) - rhs) | lhs.lo >> rhs };
 }
 
 static inline zig_u128 zig_shl_u128(zig_u128 lhs, zig_u8 rhs) {
-    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = lhs.hi << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 };
+    if (rhs == zig_as_u8(0)) return lhs;
+    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = lhs.lo << rhs, .lo = zig_minInt_u64 };
     return (zig_u128){ .hi = lhs.hi << rhs | lhs.lo >> (zig_as_u8(64) - rhs), .lo = lhs.lo << rhs };
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, zig_u8 rhs) {
-    if (rhs >= zig_as_u8(64)) return (zig_i128){ .hi = lhs.hi << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 };
+    if (rhs == zig_as_u8(0)) return lhs;
+    if (rhs >= zig_as_u8(64)) return (zig_i128){ .hi = lhs.hi << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 }; // TODO: Fix?
     return (zig_i128){ .hi = lhs.hi << rhs | lhs.lo >> (zig_as_u8(64) - rhs), .lo = lhs.lo << rhs };
 }
 
