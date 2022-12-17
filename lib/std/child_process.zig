@@ -995,12 +995,22 @@ pub const ChildProcess = struct {
                 const path_no_ext = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_name });
                 defer self.allocator.free(path_no_ext);
 
+                const path_no_ext_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, path_no_ext);
+                defer self.allocator.free(path_no_ext_w);
+
+                if (windowsCreateProcess(path_no_ext_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                    break :retry;
+                } else |err| switch (err) {
+                    error.FileNotFound, error.AccessDenied => {},
+                    else => return err,
+                }
+
                 var ext_it = mem.tokenize(u8, PATHEXT, ";");
                 while (ext_it.next()) |app_ext| {
-                    const joined_path = try mem.concat(self.allocator, u8, &[_][]const u8{ path_no_ext, app_ext });
-                    defer self.allocator.free(joined_path);
+                    const ext_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_ext);
+                    defer self.allocator.free(ext_w);
 
-                    const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
+                    const joined_path_w = try std.mem.concatWithSentinel(self.allocator, u16, &.{ path_no_ext_w, ext_w }, 0);
                     defer self.allocator.free(joined_path_w);
 
                     if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
