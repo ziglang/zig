@@ -13,6 +13,7 @@ const bind = @import("bind.zig");
 const dead_strip = @import("dead_strip.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
 
@@ -25,6 +26,7 @@ const Compilation = @import("../../Compilation.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
+const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const StringTable = @import("../strtab.zig").StringTable;
@@ -34,7 +36,17 @@ pub const Zld = struct {
     gpa: Allocator,
     file: fs.File,
     page_size: u16,
-    options: link.Options,
+    options: *const link.Options,
+
+    dyld_info_cmd: macho.dyld_info_command = .{},
+    symtab_cmd: macho.symtab_command = .{},
+    dysymtab_cmd: macho.dysymtab_command = .{},
+    function_starts_cmd: macho.linkedit_data_command = .{ .cmd = .FUNCTION_STARTS },
+    data_in_code_cmd: macho.linkedit_data_command = .{ .cmd = .DATA_IN_CODE },
+    uuid_cmd: macho.uuid_command = .{
+        .uuid = [_]u8{0} ** 16,
+    },
+    codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 
     objects: std.ArrayListUnmanaged(Object) = .{},
     archives: std.ArrayListUnmanaged(Archive) = .{},
@@ -1227,195 +1239,6 @@ pub const Zld = struct {
         }
     }
 
-    fn writeDylinkerLC(ncmds: *u32, lc_writer: anytype) !void {
-        const name_len = mem.sliceTo(MachO.default_dyld_path, 0).len;
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylinker_command) + name_len,
-            @sizeOf(u64),
-        ));
-        try lc_writer.writeStruct(macho.dylinker_command{
-            .cmd = .LOAD_DYLINKER,
-            .cmdsize = cmdsize,
-            .name = @sizeOf(macho.dylinker_command),
-        });
-        try lc_writer.writeAll(mem.sliceTo(MachO.default_dyld_path, 0));
-        const padding = cmdsize - @sizeOf(macho.dylinker_command) - name_len;
-        if (padding > 0) {
-            try lc_writer.writeByteNTimes(0, padding);
-        }
-        ncmds.* += 1;
-    }
-
-    fn writeMainLC(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        if (self.options.output_mode != .Exe) return;
-        const seg_id = self.getSegmentByName("__TEXT").?;
-        const seg = self.segments.items[seg_id];
-        const global = self.getEntryPoint();
-        const sym = self.getSymbol(global);
-        try lc_writer.writeStruct(macho.entry_point_command{
-            .cmd = .MAIN,
-            .cmdsize = @sizeOf(macho.entry_point_command),
-            .entryoff = @intCast(u32, sym.n_value - seg.vmaddr),
-            .stacksize = self.options.stack_size_override orelse 0,
-        });
-        ncmds.* += 1;
-    }
-
-    const WriteDylibLCCtx = struct {
-        cmd: macho.LC,
-        name: []const u8,
-        timestamp: u32 = 2,
-        current_version: u32 = 0x10000,
-        compatibility_version: u32 = 0x10000,
-    };
-
-    fn writeDylibLC(ctx: WriteDylibLCCtx, ncmds: *u32, lc_writer: anytype) !void {
-        const name_len = ctx.name.len + 1;
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylib_command) + name_len,
-            @sizeOf(u64),
-        ));
-        try lc_writer.writeStruct(macho.dylib_command{
-            .cmd = ctx.cmd,
-            .cmdsize = cmdsize,
-            .dylib = .{
-                .name = @sizeOf(macho.dylib_command),
-                .timestamp = ctx.timestamp,
-                .current_version = ctx.current_version,
-                .compatibility_version = ctx.compatibility_version,
-            },
-        });
-        try lc_writer.writeAll(ctx.name);
-        try lc_writer.writeByte(0);
-        const padding = cmdsize - @sizeOf(macho.dylib_command) - name_len;
-        if (padding > 0) {
-            try lc_writer.writeByteNTimes(0, padding);
-        }
-        ncmds.* += 1;
-    }
-
-    fn writeDylibIdLC(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        if (self.options.output_mode != .Lib) return;
-        const install_name = self.options.install_name orelse self.options.emit.?.sub_path;
-        const curr = self.options.version orelse std.builtin.Version{
-            .major = 1,
-            .minor = 0,
-            .patch = 0,
-        };
-        const compat = self.options.compatibility_version orelse std.builtin.Version{
-            .major = 1,
-            .minor = 0,
-            .patch = 0,
-        };
-        try writeDylibLC(.{
-            .cmd = .ID_DYLIB,
-            .name = install_name,
-            .current_version = curr.major << 16 | curr.minor << 8 | curr.patch,
-            .compatibility_version = compat.major << 16 | compat.minor << 8 | compat.patch,
-        }, ncmds, lc_writer);
-    }
-
-    const RpathIterator = struct {
-        buffer: []const []const u8,
-        table: std.StringHashMap(void),
-        count: usize = 0,
-
-        fn init(gpa: Allocator, rpaths: []const []const u8) RpathIterator {
-            return .{ .buffer = rpaths, .table = std.StringHashMap(void).init(gpa) };
-        }
-
-        fn deinit(it: *RpathIterator) void {
-            it.table.deinit();
-        }
-
-        fn next(it: *RpathIterator) !?[]const u8 {
-            while (true) {
-                if (it.count >= it.buffer.len) return null;
-                const rpath = it.buffer[it.count];
-                it.count += 1;
-                const gop = try it.table.getOrPut(rpath);
-                if (gop.found_existing) continue;
-                return rpath;
-            }
-        }
-    };
-
-    fn writeRpathLCs(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        const gpa = self.gpa;
-
-        var it = RpathIterator.init(gpa, self.options.rpath_list);
-        defer it.deinit();
-
-        while (try it.next()) |rpath| {
-            const rpath_len = rpath.len + 1;
-            const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-                u64,
-                @sizeOf(macho.rpath_command) + rpath_len,
-                @sizeOf(u64),
-            ));
-            try lc_writer.writeStruct(macho.rpath_command{
-                .cmdsize = cmdsize,
-                .path = @sizeOf(macho.rpath_command),
-            });
-            try lc_writer.writeAll(rpath);
-            try lc_writer.writeByte(0);
-            const padding = cmdsize - @sizeOf(macho.rpath_command) - rpath_len;
-            if (padding > 0) {
-                try lc_writer.writeByteNTimes(0, padding);
-            }
-            ncmds.* += 1;
-        }
-    }
-
-    fn writeBuildVersionLC(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-        const platform_version = blk: {
-            const ver = self.options.target.os.version_range.semver.min;
-            const platform_version = ver.major << 16 | ver.minor << 8;
-            break :blk platform_version;
-        };
-        const sdk_version = if (self.options.native_darwin_sdk) |sdk| blk: {
-            const ver = sdk.version;
-            const sdk_version = ver.major << 16 | ver.minor << 8;
-            break :blk sdk_version;
-        } else platform_version;
-        const is_simulator_abi = self.options.target.abi == .simulator;
-        try lc_writer.writeStruct(macho.build_version_command{
-            .cmdsize = cmdsize,
-            .platform = switch (self.options.target.os.tag) {
-                .macos => .MACOS,
-                .ios => if (is_simulator_abi) macho.PLATFORM.IOSSIMULATOR else macho.PLATFORM.IOS,
-                .watchos => if (is_simulator_abi) macho.PLATFORM.WATCHOSSIMULATOR else macho.PLATFORM.WATCHOS,
-                .tvos => if (is_simulator_abi) macho.PLATFORM.TVOSSIMULATOR else macho.PLATFORM.TVOS,
-                else => unreachable,
-            },
-            .minos = platform_version,
-            .sdk = sdk_version,
-            .ntools = 1,
-        });
-        try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
-            .tool = .LD,
-            .version = 0x0,
-        }));
-        ncmds.* += 1;
-    }
-
-    fn writeLoadDylibLCs(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        for (self.referenced_dylibs.keys()) |id| {
-            const dylib = self.dylibs.items[id];
-            const dylib_id = dylib.id orelse unreachable;
-            try writeDylibLC(.{
-                .cmd = if (dylib.weak) .LOAD_WEAK_DYLIB else .LOAD_DYLIB,
-                .name = dylib_id.name,
-                .timestamp = dylib_id.timestamp,
-                .current_version = dylib_id.current_version,
-                .compatibility_version = dylib_id.compatibility_version,
-            }, ncmds, lc_writer);
-        }
-    }
-
     pub fn deinit(self: *Zld) void {
         const gpa = self.gpa;
 
@@ -1514,110 +1337,6 @@ pub const Zld = struct {
                 .initprot = protection,
             });
         }
-    }
-
-    fn calcLCsSize(self: *Zld, assume_max_path_len: bool) !u32 {
-        const gpa = self.gpa;
-
-        var sizeofcmds: u64 = 0;
-        for (self.segments.items) |seg| {
-            sizeofcmds += seg.nsects * @sizeOf(macho.section_64) + @sizeOf(macho.segment_command_64);
-        }
-
-        // LC_DYLD_INFO_ONLY
-        sizeofcmds += @sizeOf(macho.dyld_info_command);
-        // LC_FUNCTION_STARTS
-        if (self.getSectionByName("__TEXT", "__text")) |_| {
-            sizeofcmds += @sizeOf(macho.linkedit_data_command);
-        }
-        // LC_DATA_IN_CODE
-        sizeofcmds += @sizeOf(macho.linkedit_data_command);
-        // LC_SYMTAB
-        sizeofcmds += @sizeOf(macho.symtab_command);
-        // LC_DYSYMTAB
-        sizeofcmds += @sizeOf(macho.dysymtab_command);
-        // LC_LOAD_DYLINKER
-        sizeofcmds += MachO.calcInstallNameLen(
-            @sizeOf(macho.dylinker_command),
-            mem.sliceTo(MachO.default_dyld_path, 0),
-            false,
-        );
-        // LC_MAIN
-        if (self.options.output_mode == .Exe) {
-            sizeofcmds += @sizeOf(macho.entry_point_command);
-        }
-        // LC_ID_DYLIB
-        if (self.options.output_mode == .Lib) {
-            sizeofcmds += blk: {
-                const install_name = self.options.install_name orelse self.options.emit.?.sub_path;
-                break :blk MachO.calcInstallNameLen(
-                    @sizeOf(macho.dylib_command),
-                    install_name,
-                    assume_max_path_len,
-                );
-            };
-        }
-        // LC_RPATH
-        {
-            var it = RpathIterator.init(gpa, self.options.rpath_list);
-            defer it.deinit();
-            while (try it.next()) |rpath| {
-                sizeofcmds += MachO.calcInstallNameLen(
-                    @sizeOf(macho.rpath_command),
-                    rpath,
-                    assume_max_path_len,
-                );
-            }
-        }
-        // LC_SOURCE_VERSION
-        sizeofcmds += @sizeOf(macho.source_version_command);
-        // LC_BUILD_VERSION
-        sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-        // LC_UUID
-        sizeofcmds += @sizeOf(macho.uuid_command);
-        // LC_LOAD_DYLIB
-        for (self.referenced_dylibs.keys()) |id| {
-            const dylib = self.dylibs.items[id];
-            const dylib_id = dylib.id orelse unreachable;
-            sizeofcmds += MachO.calcInstallNameLen(
-                @sizeOf(macho.dylib_command),
-                dylib_id.name,
-                assume_max_path_len,
-            );
-        }
-        // LC_CODE_SIGNATURE
-        {
-            const target = self.options.target;
-            const requires_codesig = blk: {
-                if (self.options.entitlements) |_| break :blk true;
-                if (target.cpu.arch == .aarch64 and (target.os.tag == .macos or target.abi == .simulator))
-                    break :blk true;
-                break :blk false;
-            };
-            if (requires_codesig) {
-                sizeofcmds += @sizeOf(macho.linkedit_data_command);
-            }
-        }
-
-        return @intCast(u32, sizeofcmds);
-    }
-
-    fn calcMinHeaderPad(self: *Zld) !u64 {
-        var padding: u32 = (try self.calcLCsSize(false)) + (self.options.headerpad_size orelse 0);
-        log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
-
-        if (self.options.headerpad_max_install_names) {
-            var min_headerpad_size: u32 = try self.calcLCsSize(true);
-            log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
-                min_headerpad_size + @sizeOf(macho.mach_header_64),
-            });
-            padding = @max(padding, min_headerpad_size);
-        }
-
-        const offset = @sizeOf(macho.mach_header_64) + padding;
-        log.debug("actual headerpad size 0x{x}", .{offset});
-
-        return offset;
     }
 
     pub fn allocateSymbol(self: *Zld) !u32 {
@@ -1842,7 +1561,11 @@ pub const Zld = struct {
     fn allocateSegments(self: *Zld) !void {
         for (self.segments.items) |*segment, segment_index| {
             const is_text_segment = mem.eql(u8, segment.segName(), "__TEXT");
-            const base_size = if (is_text_segment) try self.calcMinHeaderPad() else 0;
+            const base_size = if (is_text_segment) try load_commands.calcMinHeaderPad(self.gpa, self.options, .{
+                .segments = self.segments.items,
+                .dylibs = self.dylibs.items,
+                .referenced_dylibs = self.referenced_dylibs.keys(),
+            }) else 0;
             try self.allocateSegment(@intCast(u8, segment_index), base_size);
         }
     }
@@ -2015,7 +1738,7 @@ pub const Zld = struct {
         return (@intCast(u8, segment_precedence) << 4) + section_precedence;
     }
 
-    fn writeSegmentHeaders(self: *Zld, ncmds: *u32, writer: anytype) !void {
+    fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
         for (self.segments.items) |seg, i| {
             const indexes = self.getSectionIndexes(@intCast(u8, i));
             var out_seg = seg;
@@ -2039,16 +1762,14 @@ pub const Zld = struct {
                 if (header.size == 0) continue;
                 try writer.writeStruct(header);
             }
-
-            ncmds.* += 1;
         }
     }
 
-    fn writeLinkeditSegmentData(self: *Zld, ncmds: *u32, lc_writer: anytype, reverse_lookups: [][]u32) !void {
-        try self.writeDyldInfoData(ncmds, lc_writer, reverse_lookups);
-        try self.writeFunctionStarts(ncmds, lc_writer);
-        try self.writeDataInCode(ncmds, lc_writer);
-        try self.writeSymtabs(ncmds, lc_writer);
+    fn writeLinkeditSegmentData(self: *Zld, reverse_lookups: [][]u32) !void {
+        try self.writeDyldInfoData(reverse_lookups);
+        try self.writeFunctionStarts();
+        try self.writeDataInCode();
+        try self.writeSymtabs();
 
         const seg = self.getLinkeditSegmentPtr();
         seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
@@ -2437,7 +2158,7 @@ pub const Zld = struct {
         try trie.finalize(gpa);
     }
 
-    fn writeDyldInfoData(self: *Zld, ncmds: *u32, lc_writer: anytype, reverse_lookups: [][]u32) !void {
+    fn writeDyldInfoData(self: *Zld, reverse_lookups: [][]u32) !void {
         const gpa = self.gpa;
 
         var rebase_pointers = std.ArrayList(bind.Pointer).init(gpa);
@@ -2506,21 +2227,14 @@ pub const Zld = struct {
         const size = math.cast(usize, lazy_bind_size) orelse return error.Overflow;
         try self.populateLazyBindOffsetsInStubHelper(buffer[offset..][0..size]);
 
-        try lc_writer.writeStruct(macho.dyld_info_command{
-            .cmd = .DYLD_INFO_ONLY,
-            .cmdsize = @sizeOf(macho.dyld_info_command),
-            .rebase_off = @intCast(u32, rebase_off),
-            .rebase_size = @intCast(u32, rebase_size),
-            .bind_off = @intCast(u32, bind_off),
-            .bind_size = @intCast(u32, bind_size),
-            .weak_bind_off = 0,
-            .weak_bind_size = 0,
-            .lazy_bind_off = @intCast(u32, lazy_bind_off),
-            .lazy_bind_size = @intCast(u32, lazy_bind_size),
-            .export_off = @intCast(u32, export_off),
-            .export_size = @intCast(u32, export_size),
-        });
-        ncmds.* += 1;
+        self.dyld_info_cmd.rebase_off = @intCast(u32, rebase_off);
+        self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size);
+        self.dyld_info_cmd.bind_off = @intCast(u32, bind_off);
+        self.dyld_info_cmd.bind_size = @intCast(u32, bind_size);
+        self.dyld_info_cmd.lazy_bind_off = @intCast(u32, lazy_bind_off);
+        self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size);
+        self.dyld_info_cmd.export_off = @intCast(u32, export_off);
+        self.dyld_info_cmd.export_size = @intCast(u32, export_size);
     }
 
     fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
@@ -2638,7 +2352,7 @@ pub const Zld = struct {
 
     const asc_u64 = std.sort.asc(u64);
 
-    fn writeFunctionStarts(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
+    fn writeFunctionStarts(self: *Zld) !void {
         const text_seg_index = self.getSegmentByName("__TEXT") orelse return;
         const text_sect_index = self.getSectionByName("__TEXT", "__text") orelse return;
         const text_seg = self.segments.items[text_seg_index];
@@ -2697,13 +2411,8 @@ pub const Zld = struct {
 
         try self.file.pwriteAll(buffer.items, offset);
 
-        try lc_writer.writeStruct(macho.linkedit_data_command{
-            .cmd = .FUNCTION_STARTS,
-            .cmdsize = @sizeOf(macho.linkedit_data_command),
-            .dataoff = @intCast(u32, offset),
-            .datasize = @intCast(u32, needed_size),
-        });
-        ncmds.* += 1;
+        self.function_starts_cmd.dataoff = @intCast(u32, offset);
+        self.function_starts_cmd.datasize = @intCast(u32, needed_size);
     }
 
     fn filterDataInCode(
@@ -2725,7 +2434,7 @@ pub const Zld = struct {
         return dices[start..end];
     }
 
-    fn writeDataInCode(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
+    fn writeDataInCode(self: *Zld) !void {
         var out_dice = std.ArrayList(macho.data_in_code_entry).init(self.gpa);
         defer out_dice.deinit();
 
@@ -2775,54 +2484,19 @@ pub const Zld = struct {
         log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
 
         try self.file.pwriteAll(mem.sliceAsBytes(out_dice.items), offset);
-        try lc_writer.writeStruct(macho.linkedit_data_command{
-            .cmd = .DATA_IN_CODE,
-            .cmdsize = @sizeOf(macho.linkedit_data_command),
-            .dataoff = @intCast(u32, offset),
-            .datasize = @intCast(u32, needed_size),
-        });
-        ncmds.* += 1;
+
+        self.data_in_code_cmd.dataoff = @intCast(u32, offset);
+        self.data_in_code_cmd.datasize = @intCast(u32, needed_size);
     }
 
-    fn writeSymtabs(self: *Zld, ncmds: *u32, lc_writer: anytype) !void {
-        var symtab_cmd = macho.symtab_command{
-            .cmdsize = @sizeOf(macho.symtab_command),
-            .symoff = 0,
-            .nsyms = 0,
-            .stroff = 0,
-            .strsize = 0,
-        };
-        var dysymtab_cmd = macho.dysymtab_command{
-            .cmdsize = @sizeOf(macho.dysymtab_command),
-            .ilocalsym = 0,
-            .nlocalsym = 0,
-            .iextdefsym = 0,
-            .nextdefsym = 0,
-            .iundefsym = 0,
-            .nundefsym = 0,
-            .tocoff = 0,
-            .ntoc = 0,
-            .modtaboff = 0,
-            .nmodtab = 0,
-            .extrefsymoff = 0,
-            .nextrefsyms = 0,
-            .indirectsymoff = 0,
-            .nindirectsyms = 0,
-            .extreloff = 0,
-            .nextrel = 0,
-            .locreloff = 0,
-            .nlocrel = 0,
-        };
-        var ctx = try self.writeSymtab(&symtab_cmd);
+    fn writeSymtabs(self: *Zld) !void {
+        var ctx = try self.writeSymtab();
         defer ctx.imports_table.deinit();
-        try self.writeDysymtab(ctx, &dysymtab_cmd);
-        try self.writeStrtab(&symtab_cmd);
-        try lc_writer.writeStruct(symtab_cmd);
-        try lc_writer.writeStruct(dysymtab_cmd);
-        ncmds.* += 2;
+        try self.writeDysymtab(ctx);
+        try self.writeStrtab();
     }
 
-    fn writeSymtab(self: *Zld, lc: *macho.symtab_command) !SymtabCtx {
+    fn writeSymtab(self: *Zld) !SymtabCtx {
         const gpa = self.gpa;
 
         var locals = std.ArrayList(macho.nlist_64).init(gpa);
@@ -2840,12 +2514,6 @@ pub const Zld = struct {
                 var out_sym = sym;
                 out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(sym_loc));
                 try locals.append(out_sym);
-            }
-        }
-
-        if (!self.options.strip) {
-            for (self.objects.items) |object| {
-                try self.generateSymbolStabs(object, &locals);
             }
         }
 
@@ -2879,6 +2547,14 @@ pub const Zld = struct {
             try imports_table.putNoClobber(global, new_index);
         }
 
+        // We generate stabs last in order to ensure that the strtab always has debug info
+        // strings trailing
+        if (!self.options.strip) {
+            for (self.objects.items) |object| {
+                try self.generateSymbolStabs(object, &locals);
+            }
+        }
+
         const nlocals = @intCast(u32, locals.items.len);
         const nexports = @intCast(u32, exports.items.len);
         const nimports = @intCast(u32, imports.items.len);
@@ -2903,8 +2579,8 @@ pub const Zld = struct {
         log.debug("writing symtab from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
         try self.file.pwriteAll(buffer.items, offset);
 
-        lc.symoff = @intCast(u32, offset);
-        lc.nsyms = nsyms;
+        self.symtab_cmd.symoff = @intCast(u32, offset);
+        self.symtab_cmd.nsyms = nsyms;
 
         return SymtabCtx{
             .nlocalsym = nlocals,
@@ -2914,7 +2590,7 @@ pub const Zld = struct {
         };
     }
 
-    fn writeStrtab(self: *Zld, lc: *macho.symtab_command) !void {
+    fn writeStrtab(self: *Zld) !void {
         const seg = self.getLinkeditSegmentPtr();
         const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
         const needed_size = self.strtab.buffer.items.len;
@@ -2924,8 +2600,8 @@ pub const Zld = struct {
 
         try self.file.pwriteAll(self.strtab.buffer.items, offset);
 
-        lc.stroff = @intCast(u32, offset);
-        lc.strsize = @intCast(u32, needed_size);
+        self.symtab_cmd.stroff = @intCast(u32, offset);
+        self.symtab_cmd.strsize = @intCast(u32, needed_size);
     }
 
     const SymtabCtx = struct {
@@ -2935,7 +2611,7 @@ pub const Zld = struct {
         imports_table: std.AutoHashMap(SymbolWithLoc, u32),
     };
 
-    fn writeDysymtab(self: *Zld, ctx: SymtabCtx, lc: *macho.dysymtab_command) !void {
+    fn writeDysymtab(self: *Zld, ctx: SymtabCtx) !void {
         const gpa = self.gpa;
         const nstubs = @intCast(u32, self.stubs.items.len);
         const ngot_entries = @intCast(u32, self.got_entries.items.len);
@@ -2991,21 +2667,161 @@ pub const Zld = struct {
         assert(buf.items.len == needed_size);
         try self.file.pwriteAll(buf.items, offset);
 
-        lc.nlocalsym = ctx.nlocalsym;
-        lc.iextdefsym = iextdefsym;
-        lc.nextdefsym = ctx.nextdefsym;
-        lc.iundefsym = iundefsym;
-        lc.nundefsym = ctx.nundefsym;
-        lc.indirectsymoff = @intCast(u32, offset);
-        lc.nindirectsyms = nindirectsyms;
+        self.dysymtab_cmd.nlocalsym = ctx.nlocalsym;
+        self.dysymtab_cmd.iextdefsym = iextdefsym;
+        self.dysymtab_cmd.nextdefsym = ctx.nextdefsym;
+        self.dysymtab_cmd.iundefsym = iundefsym;
+        self.dysymtab_cmd.nundefsym = ctx.nundefsym;
+        self.dysymtab_cmd.indirectsymoff = @intCast(u32, offset);
+        self.dysymtab_cmd.nindirectsyms = nindirectsyms;
     }
 
-    fn writeCodeSignaturePadding(
-        self: *Zld,
-        code_sig: *CodeSignature,
-        ncmds: *u32,
-        lc_writer: anytype,
-    ) !u32 {
+    fn writeUuid(self: *Zld, comp: *const Compilation, args: struct {
+        linkedit_cmd_offset: u32,
+        symtab_cmd_offset: u32,
+        uuid_cmd_offset: u32,
+        codesig_cmd_offset: ?u32,
+    }) !void {
+        _ = comp;
+        switch (self.options.optimize_mode) {
+            .Debug => {
+                // In Debug we don't really care about reproducibility, so put in a random value
+                // and be done with it.
+                std.crypto.random.bytes(&self.uuid_cmd.uuid);
+                Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
+                conformUuid(&self.uuid_cmd.uuid);
+            },
+            else => {
+                const max_file_end = self.symtab_cmd.stroff + self.symtab_cmd.strsize;
+
+                const FileSubsection = struct {
+                    start: u32,
+                    end: u32,
+                };
+
+                var subsections: [5]FileSubsection = undefined;
+                var count: usize = 0;
+
+                // Exclude LINKEDIT segment command as it contains file size that includes stabs contribution
+                // and code signature.
+                subsections[count] = .{
+                    .start = 0,
+                    .end = args.linkedit_cmd_offset,
+                };
+                count += 1;
+
+                // Exclude SYMTAB and DYSYMTAB commands for the same reason.
+                subsections[count] = .{
+                    .start = subsections[count - 1].end + @sizeOf(macho.segment_command_64),
+                    .end = args.symtab_cmd_offset,
+                };
+                count += 1;
+
+                // Exclude CODE_SIGNATURE command (if present).
+                if (args.codesig_cmd_offset) |offset| {
+                    subsections[count] = .{
+                        .start = subsections[count - 1].end + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
+                        .end = offset,
+                    };
+                    count += 1;
+                }
+
+                if (!self.options.strip) {
+                    // Exclude region comprising all symbol stabs.
+                    const nlocals = self.dysymtab_cmd.nlocalsym;
+
+                    const locals_buf = try self.gpa.alloc(u8, nlocals * @sizeOf(macho.nlist_64));
+                    defer self.gpa.free(locals_buf);
+
+                    const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
+                    if (amt != locals_buf.len) return error.InputOutput;
+                    const locals = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), locals_buf))[0..nlocals];
+
+                    const istab: usize = for (locals) |local, i| {
+                        if (local.stab()) break i;
+                    } else locals.len;
+                    const nstabs = locals.len - istab;
+
+                    if (nstabs == 0) {
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                            else
+                                @sizeOf(macho.linkedit_data_command),
+                            .end = max_file_end,
+                        };
+                        count += 1;
+                    } else {
+                        // Exclude a subsection of the strtab with names of the stabs.
+                        // We do not care about anything succeeding strtab as it is the code signature data which is
+                        // not part of the UUID calculation anyway.
+                        const stab_stroff = locals[istab].n_strx;
+
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                            else
+                                @sizeOf(macho.linkedit_data_command),
+                            .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
+                        };
+                        count += 1;
+
+                        subsections[count] = .{
+                            .start = subsections[count - 1].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
+                            .end = self.symtab_cmd.stroff + stab_stroff,
+                        };
+                        count += 1;
+                    }
+                } else {
+                    subsections[count] = .{
+                        .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
+                            @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
+                        else
+                            @sizeOf(macho.linkedit_data_command),
+                        .end = max_file_end,
+                    };
+                    count += 1;
+                }
+
+                const chunk_size = 0x4000;
+
+                var hasher = Md5.init(.{});
+                var buffer: [chunk_size]u8 = undefined;
+
+                for (subsections[0..count]) |cut| {
+                    const size = cut.end - cut.start;
+                    const num_chunks = mem.alignForward(size, chunk_size) / chunk_size;
+
+                    var i: usize = 0;
+                    while (i < num_chunks) : (i += 1) {
+                        const fstart = cut.start + i * chunk_size;
+                        const fsize = if (fstart + chunk_size > cut.end)
+                            cut.end - fstart
+                        else
+                            chunk_size;
+                        const amt = try self.file.preadAll(buffer[0..fsize], fstart);
+                        if (amt != fsize) return error.InputOutput;
+
+                        hasher.update(buffer[0..fsize]);
+                    }
+                }
+
+                hasher.final(&self.uuid_cmd.uuid);
+                conformUuid(&self.uuid_cmd.uuid);
+            },
+        }
+
+        const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
+        try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
+    }
+
+    inline fn conformUuid(out: *[Md5.digest_length]u8) void {
+        // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
+        out[6] = (out[6] & 0x0F) | (3 << 4);
+        out[8] = (out[8] & 0x3F) | 0x80;
+    }
+
+    fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
         const seg = self.getLinkeditSegmentPtr();
         // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
         // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
@@ -3018,23 +2834,11 @@ pub const Zld = struct {
         // except for code signature data.
         try self.file.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
 
-        try lc_writer.writeStruct(macho.linkedit_data_command{
-            .cmd = .CODE_SIGNATURE,
-            .cmdsize = @sizeOf(macho.linkedit_data_command),
-            .dataoff = @intCast(u32, offset),
-            .datasize = @intCast(u32, needed_size),
-        });
-        ncmds.* += 1;
-
-        return @intCast(u32, offset);
+        self.codesig_cmd.dataoff = @intCast(u32, offset);
+        self.codesig_cmd.datasize = @intCast(u32, needed_size);
     }
 
-    fn writeCodeSignature(
-        self: *Zld,
-        comp: *const Compilation,
-        code_sig: *CodeSignature,
-        offset: u32,
-    ) !void {
+    fn writeCodeSignature(self: *Zld, comp: *const Compilation, code_sig: *CodeSignature) !void {
         const seg_id = self.getSegmentByName("__TEXT").?;
         const seg = self.segments.items[seg_id];
 
@@ -3045,17 +2849,17 @@ pub const Zld = struct {
             .file = self.file,
             .exec_seg_base = seg.fileoff,
             .exec_seg_limit = seg.filesize,
-            .file_size = offset,
+            .file_size = self.codesig_cmd.dataoff,
             .output_mode = self.options.output_mode,
         }, buffer.writer());
         assert(buffer.items.len == code_sig.size());
 
         log.debug("writing code signature from 0x{x} to 0x{x}", .{
-            offset,
-            offset + buffer.items.len,
+            self.codesig_cmd.dataoff,
+            self.codesig_cmd.dataoff + buffer.items.len,
         });
 
-        try self.file.pwriteAll(buffer.items, offset);
+        try self.file.pwriteAll(buffer.items, self.codesig_cmd.dataoff);
     }
 
     /// Writes Mach-O file header.
@@ -3734,7 +3538,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
     defer tracy.end();
 
     const gpa = macho_file.base.allocator;
-    const options = macho_file.base.options;
+    const options = &macho_file.base.options;
     const target = options.target;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -3884,7 +3688,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             macho_file.base.file = try directory.handle.createFile(sub_path, .{
                 .truncate = true,
                 .read = true,
-                .mode = link.determineMode(options),
+                .mode = link.determineMode(options.*),
             });
         }
         var zld = Zld{
@@ -4271,12 +4075,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         try zld.writeAtoms(reverse_lookups);
-
-        var lc_buffer = std.ArrayList(u8).init(arena);
-        const lc_writer = lc_buffer.writer();
-        var ncmds: u32 = 0;
-
-        try zld.writeLinkeditSegmentData(&ncmds, lc_writer, reverse_lookups);
+        try zld.writeLinkeditSegmentData(reverse_lookups);
 
         // If the last section of __DATA segment is zerofill section, we need to ensure
         // that the free space between the end of the last non-zerofill section of __DATA
@@ -4301,39 +4100,54 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             }
         }
 
-        try Zld.writeDylinkerLC(&ncmds, lc_writer);
-        try zld.writeMainLC(&ncmds, lc_writer);
-        try zld.writeDylibIdLC(&ncmds, lc_writer);
-        try zld.writeRpathLCs(&ncmds, lc_writer);
+        // Write load commands
+        var lc_buffer = std.ArrayList(u8).init(arena);
+        const lc_writer = lc_buffer.writer();
 
-        {
-            try lc_writer.writeStruct(macho.source_version_command{
-                .cmdsize = @sizeOf(macho.source_version_command),
-                .version = 0x0,
+        try zld.writeSegmentHeaders(lc_writer);
+        const linkedit_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len - @sizeOf(macho.segment_command_64));
+
+        try lc_writer.writeStruct(zld.dyld_info_cmd);
+        try lc_writer.writeStruct(zld.function_starts_cmd);
+        try lc_writer.writeStruct(zld.data_in_code_cmd);
+
+        const symtab_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
+        try lc_writer.writeStruct(zld.symtab_cmd);
+        try lc_writer.writeStruct(zld.dysymtab_cmd);
+
+        try load_commands.writeDylinkerLC(lc_writer);
+
+        if (zld.options.output_mode == .Exe) {
+            const seg_id = zld.getSegmentByName("__TEXT").?;
+            const seg = zld.segments.items[seg_id];
+            const global = zld.getEntryPoint();
+            const sym = zld.getSymbol(global);
+            try lc_writer.writeStruct(macho.entry_point_command{
+                .entryoff = @intCast(u32, sym.n_value - seg.vmaddr),
+                .stacksize = options.stack_size_override orelse 0,
             });
-            ncmds += 1;
+        } else {
+            assert(zld.options.output_mode == .Lib);
+            try load_commands.writeDylibIdLC(zld.gpa, zld.options, lc_writer);
         }
 
-        try zld.writeBuildVersionLC(&ncmds, lc_writer);
+        try load_commands.writeRpathLCs(zld.gpa, zld.options, lc_writer);
+        try lc_writer.writeStruct(macho.source_version_command{
+            .version = 0,
+        });
+        try load_commands.writeBuildVersionLC(zld.options, lc_writer);
 
-        {
-            var uuid_lc = macho.uuid_command{
-                .cmdsize = @sizeOf(macho.uuid_command),
-                .uuid = undefined,
-            };
-            std.crypto.random.bytes(&uuid_lc.uuid);
-            try lc_writer.writeStruct(uuid_lc);
-            ncmds += 1;
-        }
+        const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
+        try lc_writer.writeStruct(zld.uuid_cmd);
 
-        try zld.writeLoadDylibLCs(&ncmds, lc_writer);
+        try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), lc_writer);
 
         const requires_codesig = blk: {
             if (options.entitlements) |_| break :blk true;
             if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) break :blk true;
             break :blk false;
         };
-        var codesig_offset: ?u32 = null;
+        var codesig_cmd_offset: ?u32 = null;
         var codesig: ?CodeSignature = if (requires_codesig) blk: {
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
@@ -4341,24 +4155,30 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
             // where the code signature goes into.
             var codesig = CodeSignature.init(page_size);
-            codesig.code_directory.ident = options.emit.?.sub_path;
+            codesig.code_directory.ident = fs.path.basename(full_out_path);
             if (options.entitlements) |path| {
                 try codesig.addEntitlements(gpa, path);
             }
-            codesig_offset = try zld.writeCodeSignaturePadding(&codesig, &ncmds, lc_writer);
+            try zld.writeCodeSignaturePadding(&codesig);
+            codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
+            try lc_writer.writeStruct(zld.codesig_cmd);
             break :blk codesig;
         } else null;
         defer if (codesig) |*csig| csig.deinit(gpa);
 
-        var headers_buf = std.ArrayList(u8).init(arena);
-        try zld.writeSegmentHeaders(&ncmds, headers_buf.writer());
+        const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
+        try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
+        try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
 
-        try zld.file.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
-        try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
-        try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
+        try zld.writeUuid(comp, .{
+            .linkedit_cmd_offset = linkedit_cmd_offset,
+            .symtab_cmd_offset = symtab_cmd_offset,
+            .uuid_cmd_offset = uuid_cmd_offset,
+            .codesig_cmd_offset = codesig_cmd_offset,
+        });
 
         if (codesig) |*csig| {
-            try zld.writeCodeSignature(comp, csig, codesig_offset.?); // code signing always comes last
+            try zld.writeCodeSignature(comp, csig); // code signing always comes last
         }
     }
 
