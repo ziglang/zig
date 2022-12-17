@@ -1658,6 +1658,16 @@ fn buildOutputType(
                             };
                         }
                     },
+                    .install_name => {
+                        install_name = it.only_arg;
+                    },
+                    .undefined => {
+                        if (mem.eql(u8, "dynamic_lookup", it.only_arg)) {
+                            linker_allow_shlib_undefined = true;
+                        } else {
+                            fatal("unsupported -undefined option '{s}'", .{it.only_arg});
+                        }
+                    },
                 }
             }
             // Parse linker args.
@@ -4719,6 +4729,8 @@ pub const ClangArgIterator = struct {
         weak_framework,
         headerpad_max_install_names,
         compress_debug_sections,
+        install_name,
+        undefined,
     };
 
     const Args = struct {

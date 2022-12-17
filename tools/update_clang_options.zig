@@ -492,6 +492,14 @@ const known_options = [_]KnownOpt{
         .name = "compress-debug-sections=",
         .ident = "compress_debug_sections",
     },
+    .{
+        .name = "install_name",
+        .ident = "install_name",
+    },
+    .{
+        .name = "undefined",
+        .ident = "undefined",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
