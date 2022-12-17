@@ -23,22 +23,6 @@ partially_read_buffer: [tls.max_ciphertext_record_len]u8,
 partially_read_len: u15,
 eof: bool,
 
-// Measurement taken with 0.11.0-dev.810+c2f5848fe
-// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
-// zig run .lib/std/crypto/benchmark.zig -OReleaseFast
-//       aegis-128l:      15382 MiB/s
-//        aegis-256:       9553 MiB/s
-//       aes128-gcm:       3721 MiB/s
-//       aes256-gcm:       3010 MiB/s
-// chacha20Poly1305:        597 MiB/s
-
-const cipher_suites =
-    int2(@enumToInt(tls.CipherSuite.AEGIS_128L_SHA256)) ++
-    int2(@enumToInt(tls.CipherSuite.AEGIS_256_SHA384)) ++
-    int2(@enumToInt(tls.CipherSuite.AES_128_GCM_SHA256)) ++
-    int2(@enumToInt(tls.CipherSuite.AES_256_GCM_SHA384)) ++
-    int2(@enumToInt(tls.CipherSuite.CHACHA20_POLY1305_SHA256));
-
 /// `host` is only borrowed during this function call.
 pub fn init(stream: net.Stream, host: []const u8) !Client {
     const kp = crypto.dh.X25519.KeyPair.create(null) catch |err| switch (err) {
@@ -713,3 +697,31 @@ inline fn int2(x: u16) [2]u8 {
         @truncate(u8, x),
     };
 }
+
+/// The priority order here is chosen based on what crypto algorithms Zig has
+/// available in the standard library as well as what is faster. Following are
+/// a few data points on the relative performance of these algorithms.
+///
+/// Measurement taken with 0.11.0-dev.810+c2f5848fe
+/// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
+/// zig run .lib/std/crypto/benchmark.zig -OReleaseFast
+///       aegis-128l:      15382 MiB/s
+///        aegis-256:       9553 MiB/s
+///       aes128-gcm:       3721 MiB/s
+///       aes256-gcm:       3010 MiB/s
+/// chacha20Poly1305:        597 MiB/s
+///
+/// Measurement taken with 0.11.0-dev.810+c2f5848fe
+/// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
+/// zig run .lib/std/crypto/benchmark.zig -OReleaseFast -mcpu=baseline
+///       aegis-128l:        629 MiB/s
+/// chacha20Poly1305:        529 MiB/s
+///        aegis-256:        461 MiB/s
+///       aes128-gcm:        138 MiB/s
+///       aes256-gcm:        120 MiB/s
+const cipher_suites =
+    int2(@enumToInt(tls.CipherSuite.AEGIS_128L_SHA256)) ++
+    int2(@enumToInt(tls.CipherSuite.AEGIS_256_SHA384)) ++
+    int2(@enumToInt(tls.CipherSuite.AES_128_GCM_SHA256)) ++
+    int2(@enumToInt(tls.CipherSuite.AES_256_GCM_SHA384)) ++
+    int2(@enumToInt(tls.CipherSuite.CHACHA20_POLY1305_SHA256));
