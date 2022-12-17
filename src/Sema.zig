@@ -8820,7 +8820,9 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (!this_generic and is_noalias and !param.ty.isPtrAtRuntime()) {
+    if (!sema.is_generic_instantiation and !this_generic and is_noalias and
+        !(param.ty.zigTypeTag() == .Pointer or param.ty.isPtrLikeOptional()))
+    {
         return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
     }
 }
