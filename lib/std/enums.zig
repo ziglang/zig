@@ -878,7 +878,7 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
         /// index order.  Modifications to the set during iteration
         /// may or may not be observed by the iterator, but will
         /// not invalidate it.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return .{ .inner = self.bits.iterator(.{}) };
         }
 
@@ -968,6 +968,24 @@ test "pure EnumSet fns" {
     try testing.expect(full.differenceWith(empty).eql(full));
     try testing.expect(full.differenceWith(red).eql(black));
     try testing.expect(full.differenceWith(black).eql(red));
+}
+
+test "std.enums.EnumSet const iterator" {
+    const Direction = enum { up, down, left, right };
+    const diag_move = init: {
+        var move = EnumSet(Direction).initEmpty();
+        move.insert(.right);
+        move.insert(.up);
+        break :init move;
+    };
+
+    var result = EnumSet(Direction).initEmpty();
+    var it = diag_move.iterator();
+    while (it.next()) |dir| {
+        result.insert(dir);
+    }
+
+    try testing.expect(result.eql(diag_move));
 }
 
 /// A map from keys to values, using an index lookup.  Uses a
