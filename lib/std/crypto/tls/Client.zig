@@ -23,27 +23,27 @@ partially_read_buffer: [tls.max_ciphertext_record_len]u8,
 partially_read_len: u15,
 eof: bool,
 
-const cipher_suites = blk: {
-    const fields = @typeInfo(CipherSuite).Enum.fields;
-    var result: [(fields.len + 1) * 2]u8 = undefined;
-    mem.writeIntBig(u16, result[0..2], result.len - 2);
-    for (fields) |field, i| {
-        const int = @enumToInt(@field(CipherSuite, field.name));
-        result[(i + 1) * 2] = @truncate(u8, int >> 8);
-        result[(i + 1) * 2 + 1] = @truncate(u8, int);
-    }
-    break :blk result;
-};
+// Measurement taken with 0.11.0-dev.810+c2f5848fe
+// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
+// zig run .lib/std/crypto/benchmark.zig -OReleaseFast
+//       aegis-128l:      15382 MiB/s
+//        aegis-256:       9553 MiB/s
+//       aes128-gcm:       3721 MiB/s
+//       aes256-gcm:       3010 MiB/s
+// chacha20Poly1305:        597 MiB/s
+
+const cipher_suites =
+    int2(@enumToInt(tls.CipherSuite.AEGIS_128L_SHA256)) ++
+    int2(@enumToInt(tls.CipherSuite.AEGIS_256_SHA384)) ++
+    int2(@enumToInt(tls.CipherSuite.AES_128_GCM_SHA256)) ++
+    int2(@enumToInt(tls.CipherSuite.AES_256_GCM_SHA384)) ++
+    int2(@enumToInt(tls.CipherSuite.CHACHA20_POLY1305_SHA256));
 
 /// `host` is only borrowed during this function call.
 pub fn init(stream: net.Stream, host: []const u8) !Client {
-    var x25519_priv_key: [32]u8 = undefined;
-    crypto.random.bytes(&x25519_priv_key);
-    const x25519_pub_key = crypto.dh.X25519.recoverPublicKey(x25519_priv_key) catch |err| {
-        switch (err) {
-            // Only possible to happen if the private key is all zeroes.
-            error.IdentityElement => return error.InsufficientEntropy,
-        }
+    const kp = crypto.dh.X25519.KeyPair.create(null) catch |err| switch (err) {
+        // Only possible to happen if the private key is all zeroes.
+        error.IdentityElement => return error.InsufficientEntropy,
     };
 
     // random (u32)
@@ -98,7 +98,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
         0, 36, // byte length of client_shares
         0x00, 0x1D, // NamedGroup.x25519
         0, 32, // byte length of key_exchange
-    } ++ x25519_pub_key ++ [_]u8{
+    } ++ kp.public_key ++ [_]u8{
 
         // Extension: server_name
         0, 0, // ExtensionType.server_name
@@ -120,7 +120,9 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
 
         // ClientHello
         0x03, 0x03, // legacy_version
-    } ++ rand_buf ++ [1]u8{0} ++ cipher_suites ++ [_]u8{
+    } ++ rand_buf ++ [1]u8{0} ++
+        int2(cipher_suites.len) ++ cipher_suites ++
+        [_]u8{
         0x01, 0x00, // legacy_compression_methods
     } ++ extensions_header;
 
@@ -191,9 +193,8 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                 const legacy_session_id_echo_len = hello[34];
                 if (legacy_session_id_echo_len != 0) return error.TlsIllegalParameter;
                 const cipher_suite_int = mem.readIntBig(u16, hello[35..37]);
-                const cipher_suite_tag = std.meta.intToEnum(CipherSuite, cipher_suite_int) catch
-                    return error.TlsIllegalParameter;
-                std.debug.print("server wants cipher suite {s}\n", .{@tagName(cipher_suite_tag)});
+                const cipher_suite_tag = @intToEnum(CipherSuite, cipher_suite_int);
+                std.debug.print("server wants cipher suite {any}\n", .{cipher_suite_tag});
                 const legacy_compression_method = hello[37];
                 _ = legacy_compression_method;
                 const extensions_size = mem.readIntBig(u16, hello[38..40]);
@@ -250,13 +251,18 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                 }
 
                 const shared_key = crypto.dh.X25519.scalarmult(
-                    x25519_priv_key,
+                    kp.secret_key,
                     x25519_server_pub_key.*,
                 ) catch return error.TlsDecryptFailure;
 
                 switch (cipher_suite_tag) {
-                    inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |tag| {
-                        const P = std.meta.TagPayload(CipherParams, tag);
+                    inline .AES_128_GCM_SHA256,
+                    .AES_256_GCM_SHA384,
+                    .CHACHA20_POLY1305_SHA256,
+                    .AEGIS_256_SHA384,
+                    .AEGIS_128L_SHA256,
+                    => |tag| {
+                        const P = std.meta.TagPayloadByName(CipherParams, @tagName(tag));
                         cipher_params = @unionInit(CipherParams, @tagName(tag), .{
                             .handshake_secret = undefined,
                             .master_secret = undefined,
@@ -301,14 +307,8 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                         //    std.fmt.fmtSliceHexLower(&p.server_handshake_iv),
                         //});
                     },
-                    .TLS_CHACHA20_POLY1305_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_8_SHA256 => {
-                        @panic("TODO");
+                    else => {
+                        return error.TlsIllegalParameter;
                     },
                 }
             },
@@ -347,7 +347,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
             .application_data => {
                 var cleartext_buf: [8000]u8 = undefined;
                 const cleartext = switch (cipher_params) {
-                    inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p| c: {
+                    inline else => |*p| c: {
                         const P = @TypeOf(p.*);
                         const ciphertext_len = record_size - P.AEAD.tag_length;
                         const ciphertext = handshake_buf[i..][0..ciphertext_len];
@@ -365,15 +365,6 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                             return error.TlsBadRecordMac;
                         p.transcript_hash.update(cleartext[0 .. cleartext.len - 1]);
                         break :c cleartext;
-                    },
-                    .TLS_CHACHA20_POLY1305_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_8_SHA256 => {
-                        @panic("TODO");
                     },
                 };
 
@@ -426,7 +417,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                                         0x01,
                                     };
                                     const app_cipher = switch (cipher_params) {
-                                        inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p, tag| c: {
+                                        inline else => |*p, tag| c: {
                                             const P = @TypeOf(p.*);
                                             // TODO verify the server's data
                                             const handshake_hash = p.transcript_hash.finalResult();
@@ -466,15 +457,6 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                                                 .client_iv = hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length),
                                                 .server_iv = hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length),
                                             });
-                                        },
-                                        .TLS_CHACHA20_POLY1305_SHA256 => {
-                                            @panic("TODO");
-                                        },
-                                        .TLS_AES_128_CCM_SHA256 => {
-                                            @panic("TODO");
-                                        },
-                                        .TLS_AES_128_CCM_8_SHA256 => {
-                                            @panic("TODO");
                                         },
                                     };
                                     std.debug.print("remaining bytes: {d}\n", .{len - end});
@@ -524,7 +506,7 @@ pub fn write(c: *Client, stream: net.Stream, bytes: []const u8) !usize {
     var bytes_i: usize = 0;
     // How many bytes are taken up by overhead per record.
     const overhead_len: usize = switch (c.application_cipher) {
-        inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p| l: {
+        inline else => |*p| l: {
             const P = @TypeOf(p.*);
             const V = @Vector(P.AEAD.nonce_length, u8);
             const overhead_len = tls.ciphertext_record_header_len + P.AEAD.tag_length + 1;
@@ -576,15 +558,6 @@ pub fn write(c: *Client, stream: net.Stream, bytes: []const u8) !usize {
                 };
                 iovec_end += 1;
             }
-        },
-        .TLS_CHACHA20_POLY1305_SHA256 => {
-            @panic("TODO");
-        },
-        .TLS_AES_128_CCM_SHA256 => {
-            @panic("TODO");
-        },
-        .TLS_AES_128_CCM_8_SHA256 => {
-            @panic("TODO");
         },
     };
 
@@ -659,7 +632,7 @@ pub fn read(c: *Client, stream: net.Stream, buffer: []u8) !usize {
             },
             .application_data => {
                 const cleartext_len = switch (c.application_cipher) {
-                    inline .TLS_AES_128_GCM_SHA256, .TLS_AES_256_GCM_SHA384 => |*p| c: {
+                    inline else => |*p| c: {
                         const P = @TypeOf(p.*);
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const ad = frag[in - 5 ..][0..5];
@@ -681,15 +654,6 @@ pub fn read(c: *Client, stream: net.Stream, buffer: []u8) !usize {
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, p.server_key) catch
                             return error.TlsBadRecordMac;
                         break :c cleartext.len;
-                    },
-                    .TLS_CHACHA20_POLY1305_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_SHA256 => {
-                        @panic("TODO");
-                    },
-                    .TLS_AES_128_CCM_8_SHA256 => {
-                        @panic("TODO");
                     },
                 };
 

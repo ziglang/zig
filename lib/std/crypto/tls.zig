@@ -211,17 +211,20 @@ pub const NamedGroup = enum(u16) {
 };
 
 pub const CipherSuite = enum(u16) {
-    TLS_AES_128_GCM_SHA256 = 0x1301,
-    TLS_AES_256_GCM_SHA384 = 0x1302,
-    TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
-    TLS_AES_128_CCM_SHA256 = 0x1304,
-    TLS_AES_128_CCM_8_SHA256 = 0x1305,
+    AES_128_GCM_SHA256 = 0x1301,
+    AES_256_GCM_SHA384 = 0x1302,
+    CHACHA20_POLY1305_SHA256 = 0x1303,
+    AES_128_CCM_SHA256 = 0x1304,
+    AES_128_CCM_8_SHA256 = 0x1305,
+    AEGIS_256_SHA384 = 0x1306,
+    AEGIS_128L_SHA256 = 0x1307,
+    _,
 };
 
-pub const CipherParams = union(CipherSuite) {
-    TLS_AES_128_GCM_SHA256: struct {
-        pub const AEAD = crypto.aead.aes_gcm.Aes128Gcm;
-        pub const Hash = crypto.hash.sha2.Sha256;
+pub fn CipherParamsT(comptime AeadType: type, comptime HashType: type) type {
+    return struct {
+        pub const AEAD = AeadType;
+        pub const Hash = HashType;
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
@@ -234,55 +237,38 @@ pub const CipherParams = union(CipherSuite) {
         client_handshake_iv: [AEAD.nonce_length]u8,
         server_handshake_iv: [AEAD.nonce_length]u8,
         transcript_hash: Hash,
-    },
-    TLS_AES_256_GCM_SHA384: struct {
-        pub const AEAD = crypto.aead.aes_gcm.Aes256Gcm;
-        pub const Hash = crypto.hash.sha2.Sha384;
+    };
+}
+
+pub const CipherParams = union(enum) {
+    AES_128_GCM_SHA256: CipherParamsT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
+    AES_256_GCM_SHA384: CipherParamsT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
+    CHACHA20_POLY1305_SHA256: CipherParamsT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
+    AEGIS_256_SHA384: CipherParamsT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha384),
+    AEGIS_128L_SHA256: CipherParamsT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
+};
+
+pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type) type {
+    return struct {
+        pub const AEAD = AeadType;
+        pub const Hash = HashType;
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
-        handshake_secret: [Hkdf.prk_length]u8,
-        master_secret: [Hkdf.prk_length]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        transcript_hash: Hash,
-    },
-    TLS_CHACHA20_POLY1305_SHA256: void,
-    TLS_AES_128_CCM_SHA256: void,
-    TLS_AES_128_CCM_8_SHA256: void,
-};
+        client_key: [AEAD.key_length]u8,
+        server_key: [AEAD.key_length]u8,
+        client_iv: [AEAD.nonce_length]u8,
+        server_iv: [AEAD.nonce_length]u8,
+    };
+}
 
 /// Encryption parameters for application traffic.
-pub const ApplicationCipher = union(CipherSuite) {
-    TLS_AES_128_GCM_SHA256: struct {
-        pub const AEAD = crypto.aead.aes_gcm.Aes128Gcm;
-        pub const Hash = crypto.hash.sha2.Sha256;
-        pub const Hmac = crypto.auth.hmac.Hmac(Hash);
-        pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        client_key: [AEAD.key_length]u8,
-        server_key: [AEAD.key_length]u8,
-        client_iv: [AEAD.nonce_length]u8,
-        server_iv: [AEAD.nonce_length]u8,
-    },
-    TLS_AES_256_GCM_SHA384: struct {
-        pub const AEAD = crypto.aead.aes_gcm.Aes256Gcm;
-        pub const Hash = crypto.hash.sha2.Sha384;
-        pub const Hmac = crypto.auth.hmac.Hmac(Hash);
-        pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
-
-        client_key: [AEAD.key_length]u8,
-        server_key: [AEAD.key_length]u8,
-        client_iv: [AEAD.nonce_length]u8,
-        server_iv: [AEAD.nonce_length]u8,
-    },
-    TLS_CHACHA20_POLY1305_SHA256: void,
-    TLS_AES_128_CCM_SHA256: void,
-    TLS_AES_128_CCM_8_SHA256: void,
+pub const ApplicationCipher = union(enum) {
+    AES_128_GCM_SHA256: ApplicationCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
+    AES_256_GCM_SHA384: ApplicationCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
+    CHACHA20_POLY1305_SHA256: ApplicationCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
+    AEGIS_256_SHA384: ApplicationCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha384),
+    AEGIS_128L_SHA256: ApplicationCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
 };
 
 pub fn hkdfExpandLabel(
