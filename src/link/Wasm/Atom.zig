@@ -168,12 +168,13 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
         => return wasm_bin.function_table.get(target_loc) orelse 0,
-        .R_WASM_TYPE_INDEX_LEB => return blk: {
-            if (symbol.isUndefined()) {
-                const imp = wasm_bin.imports.get(target_loc).?;
-                break :blk imp.kind.function;
-            }
-            break :blk wasm_bin.functions.values()[symbol.index - wasm_bin.imported_functions_count].type_index;
+        .R_WASM_TYPE_INDEX_LEB => {
+            const file_index = atom.file orelse {
+                return relocation.index;
+            };
+
+            const original_type = wasm_bin.objects.items[file_index].func_types[relocation.index];
+            return wasm_bin.getTypeIndex(original_type).?;
         },
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
