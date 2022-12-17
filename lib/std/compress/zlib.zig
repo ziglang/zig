@@ -88,7 +88,7 @@ pub fn zlibStreamReader(allocator: mem.Allocator, reader: anytype) !ZlibStreamRe
     return ZlibStreamReader(@TypeOf(reader)).init(allocator, reader);
 }
 
-pub const CompressionLevel = enum (u2) {
+pub const CompressionLevel = enum(u2) {
     fastest = 0,
     fast = 1,
     default = 2,
@@ -125,7 +125,7 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
 
             const compression_level: deflate.Compression = switch (options.level) {
                 .fastest => .no_compression,
-                .fast    => .best_speed,
+                .fast => .best_speed,
                 .default => .default_compression,
                 .maximum => .best_compression,
             };
@@ -174,7 +174,6 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
 pub fn zlibStreamWriter(allocator: mem.Allocator, writer: anytype, options: CompressionOptions) !ZlibStreamWriter(@TypeOf(writer)) {
     return ZlibStreamWriter(@TypeOf(writer)).init(allocator, writer, options);
 }
-
 
 fn testReader(data: []const u8, expected: []const u8) !void {
     var in_stream = io.fixedBufferStream(data);
