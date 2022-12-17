@@ -965,56 +965,90 @@ pub const ChildProcess = struct {
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-            if (no_path_err != error.FileNotFound and no_path_err != error.InvalidExe) return no_path_err;
-
-            const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
-            const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
-
-            var path_buf = std.ArrayListUnmanaged(u16){};
-            defer path_buf.deinit(self.allocator);
-
-            const app_name = self.argv[0];
-            const app_name_trimmed_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, mem.trimLeft(u8, app_name, "\\/"));
-            defer self.allocator.free(app_name_trimmed_w);
-
-            var it = mem.tokenize(u16, PATH, &[_]u16{';'});
-            retry: while (it.next()) |search_path| {
-                path_buf.clearRetainingCapacity();
-                const search_path_trimmed = mem.trimRight(u16, search_path, &[_]u16{ '\\', '/' });
-                try path_buf.appendSlice(self.allocator, search_path_trimmed);
-                try path_buf.append(self.allocator, fs.path.sep);
-                try path_buf.appendSlice(self.allocator, app_name_trimmed_w);
-                try path_buf.append(self.allocator, 0);
-                const path_no_ext = path_buf.items[0 .. path_buf.items.len - 1 :0];
-
-                if (windowsCreateProcess(path_no_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
-                    break :retry;
-                } else |err| switch (err) {
-                    error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
-                    else => return err,
+        exec: {
+            windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+                switch (no_path_err) {
+                    error.FileNotFound, error.InvalidExe => {},
+                    else => |e| return e,
                 }
 
-                var ext_it = mem.tokenize(u16, PATHEXT, &[_]u16{';'});
-                while (ext_it.next()) |ext| {
-                    path_buf.shrinkRetainingCapacity(path_no_ext.len);
-                    try path_buf.appendSlice(self.allocator, ext);
-                    try path_buf.append(self.allocator, 0);
-                    const joined_path = path_buf.items[0 .. path_buf.items.len - 1 :0];
+                const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
+                const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
 
-                    if (windowsCreateProcess(joined_path.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
-                        break :retry;
-                    } else |err| switch (err) {
-                        error.FileNotFound => continue,
-                        error.AccessDenied => continue,
-                        error.InvalidExe => continue,
-                        else => return err,
+                var path_buf = std.ArrayListUnmanaged(u16){};
+                defer path_buf.deinit(self.allocator);
+
+                // Try again with PATHEXT's extensions appended
+                {
+                    try path_buf.appendSlice(self.allocator, app_path_w);
+                    var ext_it = mem.tokenize(u16, PATHEXT, &[_]u16{';'});
+                    while (ext_it.next()) |ext| {
+                        path_buf.shrinkRetainingCapacity(app_path_w.len);
+                        try path_buf.appendSlice(self.allocator, ext);
+                        try path_buf.append(self.allocator, 0);
+                        const path_with_ext = path_buf.items[0 .. path_buf.items.len - 1 :0];
+
+                        if (windowsCreateProcess(path_with_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                            break :exec;
+                        } else |err| switch (err) {
+                            error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
+                            else => return err,
+                        }
                     }
                 }
-            } else {
-                return no_path_err; // return the original error
-            }
-        };
+
+                // app_path_w has the cwd prepended to it if cwd is non-null, so when
+                // searching the PATH we should make sure we use the app_name verbatim.
+                var app_name_w_needs_free = false;
+                const app_name_w = x: {
+                    if (self.cwd) |_| {
+                        app_name_w_needs_free = true;
+                        break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, self.argv[0]);
+                    } else {
+                        break :x app_path_w;
+                    }
+                };
+                defer if (app_name_w_needs_free) self.allocator.free(app_name_w);
+
+                var it = mem.tokenize(u16, PATH, &[_]u16{';'});
+                while (it.next()) |search_path| {
+                    path_buf.clearRetainingCapacity();
+                    const search_path_trimmed = mem.trimRight(u16, search_path, &[_]u16{ '\\', '/' });
+                    try path_buf.appendSlice(self.allocator, search_path_trimmed);
+                    try path_buf.append(self.allocator, fs.path.sep);
+                    const app_name_trimmed = mem.trimLeft(u16, app_name_w, &[_]u16{ '\\', '/' });
+                    try path_buf.appendSlice(self.allocator, app_name_trimmed);
+                    try path_buf.append(self.allocator, 0);
+                    const path_no_ext = path_buf.items[0 .. path_buf.items.len - 1 :0];
+
+                    if (windowsCreateProcess(path_no_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                        break :exec;
+                    } else |err| switch (err) {
+                        error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
+                        else => return err,
+                    }
+
+                    var ext_it = mem.tokenize(u16, PATHEXT, &[_]u16{';'});
+                    while (ext_it.next()) |ext| {
+                        path_buf.shrinkRetainingCapacity(path_no_ext.len);
+                        try path_buf.appendSlice(self.allocator, ext);
+                        try path_buf.append(self.allocator, 0);
+                        const joined_path = path_buf.items[0 .. path_buf.items.len - 1 :0];
+
+                        if (windowsCreateProcess(joined_path.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                            break :exec;
+                        } else |err| switch (err) {
+                            error.FileNotFound => continue,
+                            error.AccessDenied => continue,
+                            error.InvalidExe => continue,
+                            else => return err,
+                        }
+                    }
+                } else {
+                    return no_path_err; // return the original error
+                }
+            };
+        }
 
         if (g_hChildStd_IN_Wr) |h| {
             self.stdin = File{ .handle = h };
