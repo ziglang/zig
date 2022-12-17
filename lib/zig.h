@@ -1749,11 +1749,27 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define __builtin_infl() zig_msvc_flt_infl
 #endif
 
+#define zig_has_float_builtins (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf))
+#if zig_has_float_builtins
+#define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
+#define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
+#define zig_as_special_f64(sign, name, arg, repr) sign zig_as_f64(__builtin_##name, )(arg)
+#define zig_as_special_f80(sign, name, arg, repr) sign zig_as_f80(__builtin_##name, )(arg)
+#define zig_as_special_f128(sign, name, arg, repr) sign zig_as_f128(__builtin_##name, )(arg)
+#define zig_as_special_c_longdouble(sign, name, arg, repr) sign zig_as_c_longdouble(__builtin_##name, )(arg)
+#else
+#define zig_as_special_f16(sign, name, arg, repr) zig_float_from_repr_f16(repr)
+#define zig_as_special_f32(sign, name, arg, repr) zig_float_from_repr_f32(repr)
+#define zig_as_special_f64(sign, name, arg, repr) zig_float_from_repr_f64(repr)
+#define zig_as_special_f80(sign, name, arg, repr) zig_float_from_repr_f80(repr)
+#define zig_as_special_f128(sign, name, arg, repr)  zig_float_from_repr_f128(repr)
+#define zig_as_special_c_longdouble(sign, name, arg, repr) zig_float_from_repr_c_longdouble(repr)
+#endif
+
 #define zig_has_f16 1
 #define zig_bitSizeOf_f16 16
 #define zig_libc_name_f16(name) __##name##h
 #define zig_as_special_constant_f16(sign, name, arg, repr) zig_as_special_f16(sign, name, arg, repr)
-#define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 11
 typedef float zig_f16;
 #define zig_as_f16(fp, repr) fp##f
@@ -1790,7 +1806,6 @@ typedef zig_i16 zig_f16;
 #else
 #define zig_as_special_constant_f32(sign, name, arg, repr) zig_as_special_f32(sign, name, arg, repr)
 #endif
-#define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 24
 typedef float zig_f32;
 #define zig_as_f32(fp, repr) fp##f
@@ -1824,7 +1839,6 @@ typedef zig_i32 zig_f32;
 #else
 #define zig_as_special_constant_f64(sign, name, arg, repr) zig_as_special_f64(sign, name, arg, repr)
 #endif
-#define zig_as_special_f64(sign, name, arg, repr) sign zig_as_f64(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
 #define zig_as_f64(fp, repr) fp##f
@@ -1857,7 +1871,6 @@ typedef zig_i64 zig_f64;
 #define zig_bitSizeOf_f80 80
 #define zig_libc_name_f80(name) __##name##x
 #define zig_as_special_constant_f80(sign, name, arg, repr) zig_as_special_f80(sign, name, arg, repr)
-#define zig_as_special_f80(sign, name, arg, repr) sign zig_as_f80(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 64
 typedef float zig_f80;
 #define zig_as_f80(fp, repr) fp##f
@@ -1893,7 +1906,6 @@ typedef zig_i128 zig_f80;
 #define zig_bitSizeOf_f128 128
 #define zig_libc_name_f128(name) name##q
 #define zig_as_special_constant_f128(sign, name, arg, repr) zig_as_special_f128(sign, name, arg, repr)
-#define zig_as_special_f128(sign, name, arg, repr) sign zig_as_f128(__builtin_##name, )(arg)
 #if FLT_MANT_DIG == 113
 typedef float zig_f128;
 #define zig_as_f128(fp, repr) fp##f
@@ -1930,8 +1942,7 @@ typedef zig_i128 zig_f128;
 #define zig_has_c_longdouble 1
 #define zig_libc_name_c_longdouble(name) name##l
 #define zig_as_special_constant_c_longdouble(sign, name, arg, repr) zig_as_special_c_longdouble(sign, name, arg, repr)
-#define zig_as_special_c_longdouble(sign, name, arg, repr) sign __builtin_##name##l(arg)
-#if !_MSC_VER // TODO: Is there a better way to detect this is just double?
+#if !_MSC_VER // TODO: Is there a better way to detect long double == double on msvc?
 typedef long double zig_c_longdouble;
 #define zig_as_c_longdouble(fp, repr) fp##l
 #else
@@ -1946,6 +1957,87 @@ typedef zig_i128 zig_c_longdouble;
 #undef zig_as_special_constant_c_longdouble
 #define zig_as_special_constant_c_longdouble(sign, name, arg, repr) repr
 #endif
+
+#if !zig_has_float_builtins
+#define zig_float_from_repr(Type, ReprType) \
+    static inline zig_##Type zig_float_from_repr_##Type(zig_##ReprType repr) { \
+        return *((zig_##Type*)&repr); \
+    }
+
+zig_float_from_repr(f16, u16)
+zig_float_from_repr(f32, u32)
+zig_float_from_repr(f64, u64)
+zig_float_from_repr(f80, u128)
+zig_float_from_repr(f128, u128)
+zig_float_from_repr(c_longdouble, u128)
+#endif
+
+/* #define zig_float_from_repr(Type) *((zig_##Type*)&repr) */
+
+/* #define zig_float_inf_builtin_0(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_inf_##Type(zig_##ReprType repr) { \ */
+/*         return zig_float_from_repr(Type); \ */
+/*     } */
+/* #define zig_float_inf_builtin_1(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_inf_##Type(zig_##ReprType repr) {  \ */
+/*         return __builtin_inf(); \ */
+/*     } */
+/* #define zig_float_nan_builtin_0(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_nan_##Type(const char* arg, zig_##ReprType repr) { \ */
+/*         return zig_float_from_repr(Type); \ */
+/*     } */
+/* #define zig_float_nan_builtin_1(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_nan_##Type(const char* arg, zig_##ReprType repr) { \ */
+/*         return __builtin_nan(arg); \ */
+/*     } */
+/* #define zig_float_nans_builtin_0(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_nans_##Type(const char* arg, zig_##ReprType repr) { \ */
+/*         return zig_float_from_repr(Type); \ */
+/*     } */
+/* #define zig_float_nans_builtin_1(Type, ReprType) \ */
+/*     static inline zig_##Type zig_as_special_nans_##Type(const char* arg, zig_##ReprType repr) {  \ */
+/*         return __builtin_nans(arg); \ */
+/*     } */
+
+/* #define zig_float_special_builtins(Type, ReprType) \ */
+/*     zig_expand_concat(zig_float_inf_builtin_,  zig_has_builtin(inf))(Type, ReprType) \ */
+/*     zig_expand_concat(zig_float_nan_builtin_,  zig_has_builtin(nan))(Type, ReprType) \ */
+/*     zig_expand_concat(zig_float_nans_builtin_, zig_has_builtin(nans))(Type, ReprType) */
+
+/* #if zig_has_builtin(nan) */
+/* #define zig_as_special_nan(arg, repr) __builtin_nan(arg); */
+/* #define zig_as_special_nan_f16(arg, repr) __builtin_nan(arg); */
+/* #define zig_as_special_nan_f32(arg, repr) __builtin_nan(arg); */
+/* #define zig_as_special_nan_f64(arg, repr) __builtin_nan(arg); */
+/* #define zig_as_special_nan_f80(arg, repr) __builtin_nan(arg); */
+/* #define zig_as_special_nan_f128(arg, repr) __builtin_nan(arg); */
+/* #else */
+/* zig_float_special_builtins(); */
+/* #endif */
+
+/* #if zig_has_f16 */
+/* zig_float_special_builtins(f16, u16) */
+/* #endif */
+
+/* #if zig_has_f32 */
+/* zig_float_special_builtins(f32, u32) */
+/* #endif */
+
+/* #if zig_has_f64 */
+/* zig_float_special_builtins(f64, u64) */
+/* #endif */
+
+/* #if zig_has_f80 */
+/* zig_float_special_builtins(f80, u128) */
+/* #endif */
+
+/* #if zig_has_f128 */
+/* zig_float_special_builtins(f128, u128) */
+/* #endif */
+
+/* #if zig_has_c_longdouble */
+/* zig_float_special_builtins(c_longdouble, u128) */
+/* #endif */
 
 #if zig_bitSizeOf_c_longdouble == 16
 #define zig_compiler_rt_abbrev_c_longdouble zig_compiler_rt_abbrev_f16
@@ -2100,7 +2192,7 @@ zig_float_builtins(c_longdouble)
 #if _MSC_VER && (_M_IX86 || _M_X64)
 #include <intrin.h>
 
-// TODO: zig_msvc_atomic_load should just load 32 bit without interlocked on x86, and just load 64 bit without interlocked on x64
+// TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64
 
 #define zig_msvc_atomics(Type, suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
