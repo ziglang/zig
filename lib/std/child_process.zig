@@ -997,6 +997,9 @@ pub const ChildProcess = struct {
                     }
                 }
 
+                // No need to search the PATH if the app path is absolute
+                if (fs.path.isAbsoluteWindowsWTF16(app_path_w)) return no_path_err;
+
                 // app_path_w has the cwd prepended to it if cwd is non-null, so when
                 // searching the PATH we should make sure we use the app_name verbatim.
                 var app_name_w_needs_free = false;
