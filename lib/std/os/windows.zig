@@ -1569,6 +1569,7 @@ pub const CreateProcessError = error{
     AccessDenied,
     InvalidName,
     NameTooLong,
+    InvalidExe,
     Unexpected,
 };
 
@@ -1603,6 +1604,27 @@ pub fn CreateProcessW(
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            // These are all the system errors that are mapped to ENOEXEC by
+            // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
+            // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)
+            // or urt/misc/errno.cpp (newer SDK) in the Windows SDK.
+            .BAD_FORMAT,
+            .INVALID_STARTING_CODESEG, // MIN_EXEC_ERROR in errno.cpp
+            .INVALID_STACKSEG,
+            .INVALID_MODULETYPE,
+            .INVALID_EXE_SIGNATURE,
+            .EXE_MARKED_INVALID,
+            .BAD_EXE_FORMAT,
+            .ITERATED_DATA_EXCEEDS_64k,
+            .INVALID_MINALLOCSIZE,
+            .DYNLINK_FROM_INVALID_RING,
+            .IOPL_NOT_ENABLED,
+            .INVALID_SEGDPL,
+            .AUTODATASEG_EXCEEDS_64k,
+            .RING2SEG_MUST_BE_MOVABLE,
+            .RELOC_CHAIN_XEEDS_SEGLIM,
+            .INFLOOP_IN_RELOC_CHAIN, // MAX_EXEC_ERROR in errno.cpp
+            => return error.InvalidExe,
             else => |err| return unexpectedError(err),
         }
     }
