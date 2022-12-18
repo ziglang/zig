@@ -172,8 +172,8 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
 // SHA256=164ef0897b4cbec63abf1b57f069f3599bd0fb7c72c2a4dee21bd7e03ec9af67
 test "compressed data" {
     try testReader(
-        @embedFile("rfc1952.txt.gz"),
-        @embedFile("rfc1952.txt"),
+        @embedFile("testdata/rfc1952.txt.gz"),
+        @embedFile("testdata/rfc1952.txt"),
     );
 }
 

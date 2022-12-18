@@ -106,7 +106,7 @@ pub fn build(b: *Builder) !void {
             .install_dir = .lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
-                // exclude files from lib/std/compress/
+                // exclude files from lib/std/compress/testdata
                 ".gz",
                 ".z.0",
                 ".z.9",
