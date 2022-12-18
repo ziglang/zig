@@ -946,109 +946,105 @@ pub const ChildProcess = struct {
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
+        const app_name_utf8 = self.argv[0];
+        const app_name_is_absolute = fs.path.isAbsolute(app_name_utf8);
+
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
-        const app_path = x: {
-            if (self.cwd) |cwd| {
-                const resolved = try fs.path.resolve(self.allocator, &[_][]const u8{ cwd, self.argv[0] });
-                defer self.allocator.free(resolved);
-                break :x try cstr.addNullByte(self.allocator, resolved);
+        var cwd_path_w_needs_free = false;
+        const cwd_path_w = x: {
+            // If the app name is absolute, then we need to use its dirname as the cwd
+            if (app_name_is_absolute) {
+                cwd_path_w_needs_free = true;
+                const dir = fs.path.dirname(app_name_utf8).?;
+                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, dir);
+            } else if (self.cwd) |cwd| {
+                cwd_path_w_needs_free = true;
+                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd);
             } else {
-                break :x try cstr.addNullByte(self.allocator, self.argv[0]);
+                break :x &[_:0]u16{}; // empty for cwd
             }
         };
-        defer self.allocator.free(app_path);
+        defer if (cwd_path_w_needs_free) self.allocator.free(cwd_path_w);
 
-        const app_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_path);
-        defer self.allocator.free(app_path_w);
+        // If the app name has more than just a filename, then we need to separate that
+        // into the basename and dirname and use the dirname as an addition to the cwd
+        // path. This is because NtQueryDirectoryFile cannot accept FileName params with
+        // path separators.
+        const app_basename_utf8 = fs.path.basename(app_name_utf8);
+        // If the app name is absolute, then the cwd will already have the app's dirname in it,
+        // so only populate app_dirname if app name is a relative path with > 0 path separators.
+        const maybe_app_dirname_utf8 = if (!app_name_is_absolute) fs.path.dirname(app_name_utf8) else null;
+        const app_dirname_w: ?[:0]u16 = x: {
+            if (maybe_app_dirname_utf8) |app_dirname_utf8| {
+                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, app_dirname_utf8);
+            }
+            break :x null;
+        };
+        defer if (app_dirname_w != null) self.allocator.free(app_dirname_w.?);
+
+        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_basename_utf8);
+        defer self.allocator.free(app_name_w);
 
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
         exec: {
-            windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-                switch (no_path_err) {
-                    error.FileNotFound, error.InvalidExe => {},
+            const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
+            const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
+
+            var app_buf = std.ArrayListUnmanaged(u16){};
+            defer app_buf.deinit(self.allocator);
+
+            try app_buf.appendSlice(self.allocator, app_name_w);
+
+            var dir_buf = std.ArrayListUnmanaged(u16){};
+            defer dir_buf.deinit(self.allocator);
+
+            if (cwd_path_w.len > 0) {
+                try dir_buf.appendSlice(self.allocator, cwd_path_w);
+            }
+            if (app_dirname_w) |app_dir| {
+                if (dir_buf.items.len > 0) try dir_buf.append(self.allocator, fs.path.sep);
+                try dir_buf.appendSlice(self.allocator, app_dir);
+            }
+            if (dir_buf.items.len > 0) {
+                // Need to normalize the path, openDirW can't handle things like double backslashes
+                const normalized_len = windows.normalizePath(u16, dir_buf.items) catch return error.BadPathName;
+                dir_buf.shrinkRetainingCapacity(normalized_len);
+            }
+
+            windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+                var original_err = switch (no_path_err) {
+                    error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
+                    error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,
-                }
-
-                const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
-                const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
-
-                var path_buf = std.ArrayListUnmanaged(u16){};
-                defer path_buf.deinit(self.allocator);
-
-                // Try again with PATHEXT's extensions appended
-                {
-                    try path_buf.appendSlice(self.allocator, app_path_w);
-                    var ext_it = mem.tokenize(u16, PATHEXT, &[_]u16{';'});
-                    while (ext_it.next()) |ext| {
-                        path_buf.shrinkRetainingCapacity(app_path_w.len);
-                        try path_buf.appendSlice(self.allocator, ext);
-                        try path_buf.append(self.allocator, 0);
-                        const path_with_ext = path_buf.items[0 .. path_buf.items.len - 1 :0];
-
-                        if (windowsCreateProcess(path_with_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
-                            break :exec;
-                        } else |err| switch (err) {
-                            error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
-                            else => return err,
-                        }
-                    }
-                }
-
-                // No need to search the PATH if the app path is absolute
-                if (fs.path.isAbsoluteWindowsWTF16(app_path_w)) return no_path_err;
-
-                // app_path_w has the cwd prepended to it if cwd is non-null, so when
-                // searching the PATH we should make sure we use the app_name verbatim.
-                var app_name_w_needs_free = false;
-                const app_name_w = x: {
-                    if (self.cwd) |_| {
-                        app_name_w_needs_free = true;
-                        break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, self.argv[0]);
-                    } else {
-                        break :x app_path_w;
-                    }
                 };
-                defer if (app_name_w_needs_free) self.allocator.free(app_name_w);
+
+                // If the app name had path separators, that disallows PATH searching,
+                // and there's no need to search the PATH if the cwd path is absolute.
+                if (app_dirname_w != null or fs.path.isAbsoluteWindowsWTF16(cwd_path_w)) {
+                    return original_err;
+                }
 
                 var it = mem.tokenize(u16, PATH, &[_]u16{';'});
                 while (it.next()) |search_path| {
-                    path_buf.clearRetainingCapacity();
-                    const search_path_trimmed = mem.trimRight(u16, search_path, &[_]u16{ '\\', '/' });
-                    try path_buf.appendSlice(self.allocator, search_path_trimmed);
-                    try path_buf.append(self.allocator, fs.path.sep);
-                    const app_name_trimmed = mem.trimLeft(u16, app_name_w, &[_]u16{ '\\', '/' });
-                    try path_buf.appendSlice(self.allocator, app_name_trimmed);
-                    try path_buf.append(self.allocator, 0);
-                    const path_no_ext = path_buf.items[0 .. path_buf.items.len - 1 :0];
+                    dir_buf.clearRetainingCapacity();
+                    try dir_buf.appendSlice(self.allocator, search_path);
+                    // Need to normalize the path, some PATH values can contain things like double
+                    // backslashes which openDirW can't handle
+                    const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
+                    dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                    if (windowsCreateProcess(path_no_ext.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                    if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
                         break :exec;
                     } else |err| switch (err) {
-                        error.FileNotFound, error.AccessDenied, error.InvalidExe => {},
-                        else => return err,
-                    }
-
-                    var ext_it = mem.tokenize(u16, PATHEXT, &[_]u16{';'});
-                    while (ext_it.next()) |ext| {
-                        path_buf.shrinkRetainingCapacity(path_no_ext.len);
-                        try path_buf.appendSlice(self.allocator, ext);
-                        try path_buf.append(self.allocator, 0);
-                        const joined_path = path_buf.items[0 .. path_buf.items.len - 1 :0];
-
-                        if (windowsCreateProcess(joined_path.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
-                            break :exec;
-                        } else |err| switch (err) {
-                            error.FileNotFound => continue,
-                            error.AccessDenied => continue,
-                            error.InvalidExe => continue,
-                            else => return err,
-                        }
+                        error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
+                        error.UnrecoverableInvalidExe => return error.InvalidExe,
+                        else => |e| return e,
                     }
                 } else {
-                    return no_path_err; // return the original error
+                    return original_err;
                 }
             };
         }
@@ -1094,6 +1090,235 @@ pub const ChildProcess = struct {
     }
 };
 
+/// Expects `app_buf` to contain exactly the app name, and `dir_buf` to contain exactly the dir path.
+/// After return, `app_buf` will always contain exactly the app name and `dir_buf` will always contain exactly the dir path.
+/// Note: `app_buf` should not contain any leading path separators.
+/// Note: If the dir is the cwd, dir_buf should be empty (len = 0).
+fn windowsCreateProcessPathExt(
+    allocator: mem.Allocator,
+    dir_buf: *std.ArrayListUnmanaged(u16),
+    app_buf: *std.ArrayListUnmanaged(u16),
+    pathext: [:0]const u16,
+    cmd_line: [*:0]u16,
+    envp_ptr: ?[*]u16,
+    cwd_ptr: ?[*:0]u16,
+    lpStartupInfo: *windows.STARTUPINFOW,
+    lpProcessInformation: *windows.PROCESS_INFORMATION,
+) !void {
+    const app_name_len = app_buf.items.len;
+    const dir_path_len = dir_buf.items.len;
+
+    if (app_name_len == 0) return error.FileNotFound;
+
+    defer app_buf.shrinkRetainingCapacity(app_name_len);
+    defer dir_buf.shrinkRetainingCapacity(dir_path_len);
+
+    // The name of the game here is to avoid CreateProcessW calls at all costs,
+    // and only ever try calling it when we have a real candidate for execution.
+    // Secondarily, we want to minimize the number of syscalls used when checking
+    // for each PATHEXT-appended version of the app name.
+    //
+    // An overview of the technique used:
+    // - Open the search directory for iteration (either cwd or a path from PATH)
+    // - Use NtQueryDirectoryFile with a wildcard filename of `<app name>*` to
+    //   check if anything that could possibly match either the unappended version
+    //   of the app name or any of the versions with a PATHEXT value appended exists.
+    // - If the wildcard NtQueryDirectoryFile call found nothing, we can exit early
+    //   without needing to use PATHEXT at all.
+    //
+    // This allows us to use a <open dir, NtQueryDirectoryFile, close dir> sequence
+    // for any directory that doesn't contain any possible matches, instead of having
+    // to use a separate look up for each individual filename combination (unappended +
+    // each PATHEXT appended). For directories where the wildcard *does* match something,
+    // we only need to do a maximum of <number of supported PATHEXT extensions> more
+    // NtQueryDirectoryFile calls.
+
+    var dir = dir: {
+        if (fs.path.isAbsoluteWindowsWTF16(dir_buf.items[0..dir_path_len])) {
+            const prefixed_path = try windows.wToPrefixedFileW(dir_buf.items[0..dir_path_len]);
+            break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
+        }
+        // needs to be null-terminated
+        try dir_buf.append(allocator, 0);
+        defer dir_buf.shrinkRetainingCapacity(dir_buf.items[0..dir_path_len].len);
+        const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
+        break :dir std.fs.cwd().openDirW(dir_path_z.ptr, .{}, true) catch return error.FileNotFound;
+    };
+    defer dir.close();
+
+    // Add wildcard and null-terminator
+    try app_buf.append(allocator, '*');
+    try app_buf.append(allocator, 0);
+    const app_name_wildcard = app_buf.items[0 .. app_buf.items.len - 1 :0];
+
+    // Enough for the FILE_DIRECTORY_INFORMATION + (NAME_MAX UTF-16 code units [2 bytes each]).
+    const file_info_buf_size = @sizeOf(windows.FILE_DIRECTORY_INFORMATION) + (windows.NAME_MAX * 2);
+    var file_information_buf: [file_info_buf_size]u8 align(@alignOf(os.windows.FILE_DIRECTORY_INFORMATION)) = undefined;
+    var io_status: windows.IO_STATUS_BLOCK = undefined;
+    const found_name: ?[]const u16 = found_name: {
+        const app_name_len_bytes = math.cast(u16, app_name_wildcard.len * 2) orelse return error.NameTooLong;
+        var app_name_unicode_string = windows.UNICODE_STRING{
+            .Length = app_name_len_bytes,
+            .MaximumLength = app_name_len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(app_name_wildcard.ptr)),
+        };
+        const rc = windows.ntdll.NtQueryDirectoryFile(
+            dir.fd,
+            null,
+            null,
+            null,
+            &io_status,
+            &file_information_buf,
+            file_information_buf.len,
+            .FileDirectoryInformation,
+            // TODO: It might be better to iterate over all wildcard matches and
+            //       only pick the ones that match an appended PATHEXT instead of only
+            //       using the wildcard as a lookup and then restarting iteration
+            //       on future NtQueryDirectoryFile calls.
+            //
+            //       However, note that this could lead to worse outcomes in the
+            //       case of a very generic command name (e.g. "a"), so it might
+            //       be better to only use the wildcard to determine if it's worth
+            //       checking with PATHEXT (this is the current behavior).
+            windows.TRUE, // single result
+            &app_name_unicode_string,
+            windows.TRUE, // restart iteration
+        );
+
+        // If we get nothing with the wildcard, then we can just bail out
+        // as we know appending PATHEXT will not yield anything.
+        switch (rc) {
+            .SUCCESS => {},
+            .NO_SUCH_FILE => return error.FileNotFound,
+            .NO_MORE_FILES => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
+            else => return windows.unexpectedStatus(rc),
+        }
+
+        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
+        if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
+            break :found_name null;
+        }
+        break :found_name @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
+    };
+
+    const unappended_err = unappended: {
+        // NtQueryDirectoryFile returns results in order by filename, so the first result of
+        // the wildcard call will always be the unappended version if it exists. So, if found_name
+        // is not the unappended version, we can skip straight to trying versions with PATHEXT appended.
+        // TODO: This might depend on the filesystem, though; need to somehow verify that it always
+        //       works this way.
+        if (found_name != null and windows.eqlIgnoreCaseWTF16(found_name.?, app_buf.items[0..app_name_len])) {
+            if (dir_path_len != 0) switch (dir_buf.items[dir_buf.items.len - 1]) {
+                '/', '\\' => {},
+                else => try dir_buf.append(allocator, fs.path.sep),
+            };
+            try dir_buf.appendSlice(allocator, app_buf.items[0..app_name_len]);
+            try dir_buf.append(allocator, 0);
+            const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
+
+            if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+                return;
+            } else |err| switch (err) {
+                error.FileNotFound,
+                error.AccessDenied,
+                => break :unappended err,
+                error.InvalidExe => {
+                    // On InvalidExe, if the extension of the app name is .exe then
+                    // it's treated as an unrecoverable error. Otherwise, it'll be
+                    // skipped as normal.
+                    const app_name = app_buf.items[0..app_name_len];
+                    const ext_start = std.mem.lastIndexOfScalar(u16, app_name, '.') orelse break :unappended err;
+                    const ext = app_name[ext_start..];
+                    if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                        return error.UnrecoverableInvalidExe;
+                    }
+                    break :unappended err;
+                },
+                else => return err,
+            }
+        }
+        break :unappended error.FileNotFound;
+    };
+
+    // Now we know that at least *a* file matching the wildcard exists, we can loop
+    // through PATHEXT in order and exec any that exist
+
+    var ext_it = mem.tokenize(u16, pathext, &[_]u16{';'});
+    while (ext_it.next()) |ext| {
+        if (!windowsCreateProcessSupportsExtension(ext)) continue;
+
+        app_buf.shrinkRetainingCapacity(app_name_len);
+        try app_buf.appendSlice(allocator, ext);
+        try app_buf.append(allocator, 0);
+        const app_name_appended = app_buf.items[0 .. app_buf.items.len - 1 :0];
+
+        const app_name_len_bytes = math.cast(u16, app_name_appended.len * 2) orelse return error.NameTooLong;
+        var app_name_unicode_string = windows.UNICODE_STRING{
+            .Length = app_name_len_bytes,
+            .MaximumLength = app_name_len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(app_name_appended.ptr)),
+        };
+
+        // Re-use the directory handle but this time we call with the appended app name
+        // with no wildcard.
+        const rc = windows.ntdll.NtQueryDirectoryFile(
+            dir.fd,
+            null,
+            null,
+            null,
+            &io_status,
+            &file_information_buf,
+            file_information_buf.len,
+            .FileDirectoryInformation,
+            windows.TRUE, // single result
+            &app_name_unicode_string,
+            windows.TRUE, // restart iteration
+        );
+
+        switch (rc) {
+            .SUCCESS => {},
+            .NO_SUCH_FILE => continue,
+            .NO_MORE_FILES => continue,
+            .ACCESS_DENIED => continue,
+            else => return windows.unexpectedStatus(rc),
+        }
+
+        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
+        // Skip directories
+        if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) continue;
+
+        dir_buf.shrinkRetainingCapacity(dir_path_len);
+        if (dir_path_len != 0) switch (dir_buf.items[dir_buf.items.len - 1]) {
+            '/', '\\' => {},
+            else => try dir_buf.append(allocator, fs.path.sep),
+        };
+        try dir_buf.appendSlice(allocator, app_buf.items[0..app_name_len]);
+        try dir_buf.appendSlice(allocator, ext);
+        try dir_buf.append(allocator, 0);
+        const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
+
+        if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            return;
+        } else |err| switch (err) {
+            error.FileNotFound => continue,
+            error.AccessDenied => continue,
+            error.InvalidExe => {
+                // On InvalidExe, if the extension of the app name is .exe then
+                // it's treated as an unrecoverable error. Otherwise, it'll be
+                // skipped as normal.
+                if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                    return error.UnrecoverableInvalidExe;
+                }
+                continue;
+            },
+            else => return err,
+        }
+    }
+
+    return unappended_err;
+}
+
 fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
@@ -1124,6 +1349,64 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
         lpStartupInfo,
         lpProcessInformation,
     );
+}
+
+/// Case-insenstive UTF-16 lookup
+fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
+    const State = enum {
+        start,
+        dot,
+        b,
+        ba,
+        c,
+        cm,
+        co,
+        e,
+        ex,
+    };
+    var state: State = .start;
+    for (ext) |c| switch (state) {
+        .start => switch (c) {
+            '.' => state = .dot,
+            else => return false,
+        },
+        .dot => switch (c) {
+            'b', 'B' => state = .b,
+            'c', 'C' => state = .c,
+            'e', 'E' => state = .e,
+            else => return false,
+        },
+        .b => switch (c) {
+            'a', 'A' => state = .ba,
+            else => return false,
+        },
+        .c => switch (c) {
+            'm', 'M' => state = .cm,
+            'o', 'O' => state = .co,
+            else => return false,
+        },
+        .e => switch (c) {
+            'x', 'X' => state = .ex,
+            else => return false,
+        },
+        .ba => switch (c) {
+            't', 'T' => return true, // .BAT
+            else => return false,
+        },
+        .cm => switch (c) {
+            'd', 'D' => return true, // .CMD
+            else => return false,
+        },
+        .co => switch (c) {
+            'm', 'M' => return true, // .COM
+            else => return false,
+        },
+        .ex => switch (c) {
+            'e', 'E' => return true, // .EXE
+            else => return false,
+        },
+    };
+    return false;
 }
 
 /// Caller must dealloc.

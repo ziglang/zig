@@ -3702,6 +3702,20 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
 
 pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.C) void;
 
+pub const FILE_DIRECTORY_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex: ULONG,
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    AllocationSize: LARGE_INTEGER,
+    FileAttributes: ULONG,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
 pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
     FileIndex: ULONG,
