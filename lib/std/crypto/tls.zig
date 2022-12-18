@@ -237,6 +237,7 @@ pub fn CipherParamsT(comptime AeadType: type, comptime HashType: type) type {
         client_handshake_iv: [AEAD.nonce_length]u8,
         server_handshake_iv: [AEAD.nonce_length]u8,
         transcript_hash: Hash,
+        finished_digest: [Hash.digest_length]u8,
     };
 }
 
