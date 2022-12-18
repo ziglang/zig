@@ -1,4 +1,4 @@
-//! NVidia PTX (Paralle Thread Execution)
+//! NVidia PTX (Parallel Thread Execution)
 //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
 //! For this we rely on the nvptx backend of LLVM
 //! Kernel functions need to be marked both as "export" and "callconv(.Kernel)"

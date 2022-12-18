@@ -20,7 +20,7 @@
 //!
 //! 1. Each CPU architecture supported by Linux has its own unique ABI and
 //!    syscall API. It is not guaranteed that the syscall numbers and arguments
-//!    are the same across architectures, or that they're even implemted. Thus,
+//!    are the same across architectures, or that they're even implemented. Thus,
 //!    filters cannot be assumed to be portable without consulting documentation
 //!    like syscalls(2) and testing on target hardware. This also requires
 //!    checking the value of `data.arch` to make sure that a filter was compiled

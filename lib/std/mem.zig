@@ -227,7 +227,7 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
 /// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
 /// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
+/// This can be used to zero-initialize any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {

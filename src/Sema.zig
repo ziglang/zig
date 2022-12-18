@@ -4155,7 +4155,7 @@ fn validateUnionInit(
             const msg = try sema.errMsg(
                 block,
                 init_src,
-                "cannot initialize multiple union fields at once, unions can only have one active field",
+                "cannot initialize multiple union fields at once; unions can only have one active field",
                 .{},
             );
             errdefer msg.destroy(sema.gpa);
@@ -9646,7 +9646,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .Union => "union",
                 else => unreachable,
             };
-            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
+            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}'; {s} does not have a guaranteed in-memory layout", .{
                 dest_ty.fmt(sema.mod), container,
             });
         },
@@ -9709,7 +9709,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .Union => "union",
                 else => unreachable,
             };
-            return sema.fail(block, operand_src, "cannot @bitCast from '{}', {s} does not have a guaranteed in-memory layout", .{
+            return sema.fail(block, operand_src, "cannot @bitCast from '{}'; {s} does not have a guaranteed in-memory layout", .{
                 operand_ty.fmt(sema.mod), container,
             });
         },
@@ -27891,7 +27891,7 @@ fn coerceAnonStructToUnion(
             const msg = if (field_count > 1) try sema.errMsg(
                 block,
                 inst_src,
-                "cannot initialize multiple union fields at once, unions can only have one active field",
+                "cannot initialize multiple union fields at once; unions can only have one active field",
                 .{},
             ) else try sema.errMsg(
                 block,
