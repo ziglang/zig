@@ -221,6 +221,27 @@ test "zig fmt: top-level tuple function call type" {
     );
 }
 
+test "zig fmt: top-level enum missing 'const name ='" {
+    try testError(
+        \\enum(u32)
+        \\
+    , &[_]Error{.expected_token});
+}
+
+test "zig fmt: top-level bare asterisk+identifier" {
+    try testCanonical(
+        \\*x
+        \\
+    );
+}
+
+test "zig fmt: top-level bare asterisk+asterisk+identifier" {
+    try testCanonical(
+        \\**x
+        \\
+    );
+}
+
 test "zig fmt: C style containers" {
     try testError(
         \\struct Foo {
