@@ -1993,6 +1993,18 @@ pub const Inst = struct {
         /// Implement the builtin `@addrSpaceCast`
         /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
+        /// Implement builtin `@cVaArg`.
+        /// `operand` is payload index to `BinNode`.
+        c_va_arg,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is payload index to `UnNode`.
+        c_va_copy,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is payload index to `UnNode`.
+        c_va_end,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is `src_node: i32`.
+        c_va_start,
 
         pub const InstData = struct {
             opcode: Extended,

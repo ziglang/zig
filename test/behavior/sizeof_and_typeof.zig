@@ -288,3 +288,8 @@ test "runtime instructions inside typeof in comptime only scope" {
         try expect(@TypeOf((T{}).b) == i8);
     }
 }
+
+test "@sizeOf optional of previously unresolved union" {
+    const Node = union { a: usize };
+    try expect(@sizeOf(?Node) == @sizeOf(Node) + @alignOf(Node));
+}

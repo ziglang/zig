@@ -42,6 +42,7 @@ string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.d
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
+fn_var_args: bool = false,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
 imports: std.AutoArrayHashMapUnmanaged(u32, Ast.TokenIndex) = .{},
@@ -3892,16 +3893,16 @@ fn fnDecl(
             .noalias_bits = noalias_bits,
         });
     } else func: {
-        if (is_var_args) {
-            return astgen.failTok(fn_proto.ast.fn_token, "non-extern function is variadic", .{});
-        }
-
         // as a scope, fn_gz encloses ret_gz, but for instruction list, fn_gz stacks on ret_gz
         fn_gz.instructions_top = ret_gz.instructions.items.len;
 
         const prev_fn_block = astgen.fn_block;
         astgen.fn_block = &fn_gz;
         defer astgen.fn_block = prev_fn_block;
+
+        const prev_var_args = astgen.fn_var_args;
+        astgen.fn_var_args = is_var_args;
+        defer astgen.fn_var_args = prev_var_args;
 
         astgen.advanceSourceCursorToNode(body_node);
         const lbrace_line = astgen.source_line - decl_gz.decl_line;
@@ -6071,7 +6072,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try cond_scope.addUnNode(tag, err_union, while_full.ast.then_expr),
+                .bool_bit = try cond_scope.addUnNode(tag, err_union, while_full.ast.cond_expr),
             };
         } else if (while_full.payload_token) |_| {
             const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
@@ -6079,7 +6080,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try cond_scope.addUnNode(tag, optional, while_full.ast.then_expr),
+                .bool_bit = try cond_scope.addUnNode(tag, optional, while_full.ast.cond_expr),
             };
         } else {
             const cond = try expr(&cond_scope, &cond_scope.base, bool_ri, while_full.ast.cond_expr);
@@ -8383,6 +8384,46 @@ fn builtinCall(
                 .rhs = options,
             });
             return rvalue(gz, ri, result, node);
+        },
+        .c_va_arg => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@cVaArg' outside function scope", .{});
+            }
+            const result = try gz.addExtendedPayload(.c_va_arg, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try typeExpr(gz, scope, params[1]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .c_va_copy => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@cVaCopy' outside function scope", .{});
+            }
+            const result = try gz.addExtendedPayload(.c_va_copy, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = try expr(gz, scope, .{ .rl = .none }, params[0]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .c_va_end => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@cVaEnd' outside function scope", .{});
+            }
+            const result = try gz.addExtendedPayload(.c_va_end, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = try expr(gz, scope, .{ .rl = .none }, params[0]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .c_va_start => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@cVaStart' outside function scope", .{});
+            }
+            if (!astgen.fn_var_args) {
+                return astgen.failNode(node, "'@cVaStart' in a non-variadic function", .{});
+            }
+            return rvalue(gz, ri, try gz.addNodeExtended(.c_va_start, node), node);
         },
     }
 }

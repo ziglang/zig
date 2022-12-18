@@ -741,6 +741,19 @@ pub const Inst = struct {
         /// Uses the `vector_store_elem` field.
         vector_store_elem,
 
+        /// Implements @cVaArg builtin.
+        /// Uses the `ty_op` field.
+        c_va_arg,
+        /// Implements @cVaCopy builtin.
+        /// Uses the `ty_op` field.
+        c_va_copy,
+        /// Implements @cVaEnd builtin.
+        /// Uses the `un_op` field.
+        c_va_end,
+        /// Implements @cVaStart builtin.
+        /// Uses the `ty` field.
+        c_va_start,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1092,6 +1105,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ret_ptr,
         .arg,
         .err_return_trace,
+        .c_va_start,
         => return datas[inst].ty,
 
         .assembly,
@@ -1156,6 +1170,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .byte_swap,
         .bit_reverse,
         .addrspace_cast,
+        .c_va_arg,
+        .c_va_copy,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -1187,6 +1203,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .prefetch,
         .set_err_return_trace,
         .vector_store_elem,
+        .c_va_end,
         => return Type.void,
 
         .ptrtoint,

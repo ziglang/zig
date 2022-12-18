@@ -1972,6 +1972,10 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .error_set_has_value,
         .addrspace_cast,
         .vector_store_elem,
+        .c_va_arg,
+        .c_va_copy,
+        .c_va_end,
+        .c_va_start,
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .add_optimized,

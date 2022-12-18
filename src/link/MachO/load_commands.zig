@@ -36,7 +36,7 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     // LC_DYLD_INFO_ONLY
     sizeofcmds += @sizeOf(macho.dyld_info_command);
     // LC_FUNCTION_STARTS
-    if (has_text_segment and ctx.wants_function_starts) |_| {
+    if (has_text_segment and ctx.wants_function_starts) {
         sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
     // LC_DATA_IN_CODE

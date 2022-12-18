@@ -622,6 +622,87 @@ pub const CallModifier = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListAarch64 = extern struct {
+    __stack: *anyopaque,
+    __gr_top: *anyopaque,
+    __vr_top: *anyopaque,
+    __gr_offs: c_int,
+    __vr_offs: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListHexagon = extern struct {
+    __gpr: c_long,
+    __fpr: c_long,
+    __overflow_arg_area: *anyopaque,
+    __reg_save_area: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListPowerPc = extern struct {
+    gpr: u8,
+    fpr: u8,
+    reserved: c_ushort,
+    overflow_arg_area: *anyopaque,
+    reg_save_area: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListS390x = extern struct {
+    __current_saved_reg_area_pointer: *anyopaque,
+    __saved_reg_area_end_pointer: *anyopaque,
+    __overflow_area_pointer: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListX86_64 = extern struct {
+    gp_offset: c_uint,
+    fp_offset: c_uint,
+    overflow_arg_area: *anyopaque,
+    reg_save_area: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaList = switch (builtin.cpu.arch) {
+    .aarch64 => switch (builtin.os.tag) {
+        .windows => *u8,
+        .ios, .macos, .tvos, .watchos => *u8,
+        else => @compileError("disabled due to miscompilations"), // VaListAarch64,
+    },
+    .arm => switch (builtin.os.tag) {
+        .ios, .macos, .tvos, .watchos => *u8,
+        else => *anyopaque,
+    },
+    .amdgcn => *u8,
+    .avr => *anyopaque,
+    .bpfel, .bpfeb => *anyopaque,
+    .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .mips, .mipsel, .mips64, .mips64el => *anyopaque,
+    .riscv32, .riscv64 => *anyopaque,
+    .powerpc, .powerpcle => switch (builtin.os.tag) {
+        .ios, .macos, .tvos, .watchos, .aix => *u8,
+        else => VaListPowerPc,
+    },
+    .powerpc64, .powerpc64le => *u8,
+    .sparc, .sparcel, .sparc64 => *anyopaque,
+    .spirv32, .spirv64 => *anyopaque,
+    .s390x => VaListS390x,
+    .wasm32, .wasm64 => *anyopaque,
+    .x86 => *u8,
+    .x86_64 => switch (builtin.os.tag) {
+        .windows => @compileError("disabled due to miscompilations"), // *u8,
+        else => VaListX86_64,
+    },
+    else => @compileError("VaList not supported for this target yet"),
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,

@@ -238,6 +238,7 @@ pub fn categorizeOperand(
         .wasm_memory_size,
         .err_return_trace,
         .save_err_return_trace_index,
+        .c_va_start,
         => return .none,
 
         .fence => return .write,
@@ -279,6 +280,8 @@ pub fn categorizeOperand(
         .splat,
         .error_set_has_value,
         .addrspace_cast,
+        .c_va_arg,
+        .c_va_copy,
         => {
             const o = air_datas[inst].ty_op;
             if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -322,6 +325,7 @@ pub fn categorizeOperand(
         .trunc_float,
         .neg,
         .cmp_lt_errors_len,
+        .c_va_end,
         => {
             const o = air_datas[inst].un_op;
             if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -857,6 +861,7 @@ fn analyzeInst(
         .wasm_memory_size,
         .err_return_trace,
         .save_err_return_trace_index,
+        .c_va_start,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
@@ -898,6 +903,8 @@ fn analyzeInst(
         .splat,
         .error_set_has_value,
         .addrspace_cast,
+        .c_va_arg,
+        .c_va_copy,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });
@@ -936,6 +943,7 @@ fn analyzeInst(
         .neg_optimized,
         .cmp_lt_errors_len,
         .set_err_return_trace,
+        .c_va_end,
         => {
             const operand = inst_datas[inst].un_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });

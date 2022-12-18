@@ -191,6 +191,7 @@ const Writer = struct {
             .neg_optimized,
             .cmp_lt_errors_len,
             .set_err_return_trace,
+            .c_va_end,
             => try w.writeUnOp(s, inst),
 
             .breakpoint,
@@ -205,6 +206,7 @@ const Writer = struct {
             .ret_ptr,
             .arg,
             .err_return_trace,
+            .c_va_start,
             => try w.writeTy(s, inst),
 
             .not,
@@ -246,6 +248,8 @@ const Writer = struct {
             .bit_reverse,
             .error_set_has_value,
             .addrspace_cast,
+            .c_va_arg,
+            .c_va_copy,
             => try w.writeTyOp(s, inst),
 
             .block,
