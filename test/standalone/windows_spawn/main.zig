@@ -142,6 +142,10 @@ pub fn main() anyerror!void {
     defer allocator.free(goodbye_abs_path);
     // then the PATH should not be searched and we should get InvalidExe
     try testExecError(error.InvalidExe, allocator, goodbye_abs_path);
+
+    // If we try to exec but provide a cwd that is an absolute path, the PATH
+    // should still be searched and the goodbye.exe in something should be found.
+    try testExecWithCwd(allocator, "goodbye", tmp_absolute_path, "hello from exe\n");
 }
 
 fn testExecError(err: anyerror, allocator: std.mem.Allocator, command: []const u8) !void {
@@ -149,9 +153,14 @@ fn testExecError(err: anyerror, allocator: std.mem.Allocator, command: []const u
 }
 
 fn testExec(allocator: std.mem.Allocator, command: []const u8, expected_stdout: []const u8) !void {
+    return testExecWithCwd(allocator, command, null, expected_stdout);
+}
+
+fn testExecWithCwd(allocator: std.mem.Allocator, command: []const u8, cwd: ?[]const u8, expected_stdout: []const u8) !void {
     var result = try std.ChildProcess.exec(.{
         .allocator = allocator,
         .argv = &[_][]const u8{command},
+        .cwd = cwd,
     });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
