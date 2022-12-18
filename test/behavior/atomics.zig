@@ -251,7 +251,8 @@ test "atomicrmw with ints" {
         return error.SkipZigTest;
     }
 
-    const bit_values = [_]usize{ 8, 16, 32, 64 };
+    // TODO: Use the max atomic bit size for the target, maybe builtin?
+    const bit_values = [_]usize{ 8 } ++ if (builtin.cpu.arch == .x86_64) [_]usize{ 16, 32, 64 } else [_]usize{ };
     inline for (bit_values) |bits| {
         try testAtomicRmwInt(.unsigned, bits);
         comptime try testAtomicRmwInt(.unsigned, bits);

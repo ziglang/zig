@@ -1677,6 +1677,40 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
+    /// If a is positive, this passes through to truncate.
+    /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
+    ///
+    /// Asserts `r` has enough storage to store the result.
+    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
+    pub fn convertToTwosComplement(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        if (a.positive) {
+            r.truncate(a, signedness, bit_count);
+            return;
+        }
+
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+        if (req_limbs == 0 or a.eqZero()) {
+            r.set(0);
+            return;
+        }
+
+        const bit = @truncate(Log2Limb, bit_count - 1);
+        const signmask = @as(Limb, 1) << bit;
+        const mask = (signmask << 1) -% 1;
+
+        r.addScalar(a.abs(), -1);
+        if (req_limbs > r.len) {
+            mem.set(Limb, r.limbs[r.len..req_limbs], 0);
+        }
+
+        assert(r.limbs.len >= req_limbs);
+        r.len = req_limbs;
+
+        llnot(r.limbs[0..r.len]);
+        r.limbs[r.len - 1] &= mask;
+        r.normalize(r.len);
+    }
+
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
     /// r may alias a.
     ///

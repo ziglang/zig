@@ -2603,7 +2603,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         ty: Type,
         val: Value,
-        location: ValueRenderLocation, // TODO: Instead add this as optional arg to fmtIntLiteralLoc
+        location: ValueRenderLocation, // TODO: Instead add this as optional arg to fmtIntLiteral
     ) !std.fmt.Formatter(formatIntLiteral) {
         const int_info = ty.intInfo(dg.module.getTarget());
         const c_bits = toCIntBits(int_info.bits);
@@ -7251,11 +7251,16 @@ fn formatIntLiteral(
         return writer.print("{s}_{s}", .{ abbrev, if (int.positive) "MAX" else "MIN" });
     }
 
+    var use_twos_comp = false;
     if (!int.positive) {
         if (c_bits > 64) {
-            // TODO: Could use negate function instead?
-            // TODO: Use fmtIntLiteral for 0?
-            try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
+            // TODO: Can this be done for decimal literals as well?
+            if (fmt.len == 1 and fmt[0] != 'd') {
+                use_twos_comp = true;
+            } else {
+                // TODO: Use fmtIntLiteral for 0?
+                try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
+            }
         } else {
             try writer.writeByte('-');
         }
@@ -7310,16 +7315,34 @@ fn formatIntLiteral(
     } else {
         assert(c_bits == 128);
         const split = std.math.min(int.limbs.len, limbs_count_64);
+        var twos_comp_limbs: [BigInt.calcTwosCompLimbCount(128)]BigIntLimb = undefined;
+
+        // Adding a negation in the C code before the doesn't work in all cases:
+        // - struct versions would require an extra zig_sub_ call to negate, which wouldn't work in constant expressions
+        // - negating the f80 int representation (i128) doesn't make sense
+        // Instead we write out the literal as a negative number in twos complement
+        var limbs = int.limbs;
+
+        if (use_twos_comp) {
+            var twos_comp = BigInt.Mutable{
+                .limbs = &twos_comp_limbs,
+                .positive = undefined,
+                .len = undefined,
+            };
+
+            twos_comp.convertToTwosComplement(int, .signed, int_info.bits);
+            limbs = twos_comp.limbs;
+        }
 
         var upper_pl = Value.Payload.BigInt{
             .base = .{ .tag = .int_big_positive },
-            .data = int.limbs[split..],
+            .data = limbs[split..],
         };
         const upper_val = Value.initPayload(&upper_pl.base);
         try formatIntLiteral(.{
             .ty = switch (int_info.signedness) {
                 .unsigned => Type.u64,
-                .signed => Type.i64,
+                .signed => if (use_twos_comp) Type.u64 else Type.i64,
             },
             .val = upper_val,
             .mod = data.mod,
@@ -7329,7 +7352,7 @@ fn formatIntLiteral(
 
         var lower_pl = Value.Payload.BigInt{
             .base = .{ .tag = .int_big_positive },
-            .data = int.limbs[0..split],
+            .data = limbs[0..split],
         };
         const lower_val = Value.initPayload(&lower_pl.base);
         try formatIntLiteral(.{
@@ -7338,7 +7361,7 @@ fn formatIntLiteral(
             .mod = data.mod,
         }, fmt, options, writer);
 
-        if (!int.positive and c_bits > 64) try writer.writeByte(')');
+        if (!int.positive and c_bits > 64 and !use_twos_comp) try writer.writeByte(')');
         return writer.writeByte(')');
     }
 
