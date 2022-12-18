@@ -670,6 +670,203 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
     return error.TestExpectedEndsWith;
 }
 
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+    switch (@typeInfo(@TypeOf(actual))) {
+        .NoReturn,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
+        => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
+
+        .Undefined,
+        .Null,
+        .Void,
+        => return,
+
+        .Type => {
+            if (actual != expected) {
+                std.debug.print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
+                return error.TestExpectedEqual;
+            }
+        },
+
+        .Bool,
+        .Int,
+        .Float,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Enum,
+        .Fn,
+        .ErrorSet,
+        => {
+            if (actual != expected) {
+                std.debug.print("expected {}, found {}\n", .{ expected, actual });
+                return error.TestExpectedEqual;
+            }
+        },
+
+        .Pointer => |pointer| {
+            switch (pointer.size) {
+                .C => {
+                    if (actual != expected) {
+                        std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
+                        return error.TestExpectedEqual;
+                    }
+                },
+                .One => {
+                    try expectEqualDeep(expected.*, actual.*);
+                },
+                .Many, .Slice => {
+                    if (expected.len != actual.len) {
+                        std.debug.print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
+                        return error.TestExpectedEqual;
+                    }
+                    var i: usize = 0;
+                    while (i < expected.len) : (i += 1) {
+                        expectEqualDeep(expected[i], actual[i]) catch |e| {
+                            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{
+                                i, expected[i], actual[i],
+                            });
+                            return e;
+                        };
+                    }
+                },
+            }
+        },
+
+        .Array => |_| {
+            if (expected.len != actual.len) {
+                std.debug.print("Array len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
+                return error.TestExpectedEqual;
+            }
+            var i: usize = 0;
+            while (i < expected.len) : (i += 1) {
+                expectEqualDeep(expected[i], actual[i]) catch |e| {
+                    std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{
+                        i, expected[i], actual[i],
+                    });
+                    return e;
+                };
+            }
+        },
+
+        .Vector => |info| {
+            if (info.len != @typeInfo(@TypeOf(actual)).Vector.len) {
+                std.debug.print("Vector len not the same, expected {*}, found {*}\n", .{ info.len, @typeInfo(@TypeOf(actual)).Vector.len });
+                return error.TestExpectedEqual;
+            }
+            var i: usize = 0;
+            while (i < info.len) : (i += 1) {
+                expectEqualDeep(expected[i], actual[i]) catch |e| {
+                    std.debug.print("index {} incorrect. expected {}, found {}\n", .{
+                        i, expected[i], actual[i],
+                    });
+                    return e;
+                };
+            }
+        },
+
+        .Struct => |structType| {
+            inline for (structType.fields) |field| {
+                try expectEqualDeep(@field(expected, field.name), @field(actual, field.name));
+            }
+        },
+
+        .Union => |union_info| {
+            if (union_info.tag_type == null) {
+                @compileError("Unable to compare untagged union values");
+            }
+
+            const Tag = std.meta.Tag(@TypeOf(expected));
+
+            const expectedTag = @as(Tag, expected);
+            const actualTag = @as(Tag, actual);
+
+            try expectEqual(expectedTag, actualTag);
+
+            // we only reach this loop if the tags are equal
+            inline for (std.meta.fields(@TypeOf(actual))) |fld| {
+                if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
+                    try expectEqualDeep(@field(expected, fld.name), @field(actual, fld.name));
+                    return;
+                }
+            }
+
+            // we iterate over *all* union fields
+            // => we should never get here as the loop above is
+            //    including all possible values.
+            unreachable;
+        },
+
+        .Optional => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqualDeep(expected_payload, actual_payload);
+                } else {
+                    std.debug.print("expected {any}, found null\n", .{expected_payload});
+                    return error.TestExpectedEqual;
+                }
+            } else {
+                if (actual) |actual_payload| {
+                    std.debug.print("expected null, found {any}\n", .{actual_payload});
+                    return error.TestExpectedEqual;
+                }
+            }
+        },
+
+        .ErrorUnion => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqualDeep(expected_payload, actual_payload);
+                } else |actual_err| {
+                    std.debug.print("expected {any}, found {}\n", .{ expected_payload, actual_err });
+                    return error.TestExpectedEqual;
+                }
+            } else |expected_err| {
+                if (actual) |actual_payload| {
+                    std.debug.print("expected {}, found {any}\n", .{ expected_err, actual_payload });
+                    return error.TestExpectedEqual;
+                } else |actual_err| {
+                    try expectEqualDeep(expected_err, actual_err);
+                }
+            }
+        },
+    }
+}
+
+test "expectEqualDeep primitive type" {
+    try expectEqualDeep(1, 1);
+    try expectEqualDeep(true, true);
+    try expectEqualDeep(1.5, 1.5);
+}
+
+test "expectEqualDeep composite type" {
+    try expectEqualDeep("abc", "abc");
+    const s1: []const u8 = "abc";
+    const s2 = "abcd";
+    const s3: []const u8 = s2[0..3];
+    try expectEqualDeep(s1, s3);
+
+    const TestStruct = struct { s: []const u8 };
+    try expectEqualDeep(TestStruct{ .s = "abc" }, TestStruct{ .s = "abc" });
+    try expectEqualDeep([_][]const u8{ "a", "b", "c" }, [_][]const u8{ "a", "b", "c" });
+
+    // vector
+    try expectEqualDeep(@splat(4, @as(u32, 4)), @splat(4, @as(u32, 4)));
+}
+
+test "expectEqualDeep bad case" {
+    try expectError(error.TestExpectedEqual, expectEqualDeep(1, 2));
+    try expectError(error.TestExpectedEqual, expectEqualDeep("abc", "abd"));
+    const TestStruct = struct { s: []const u8 };
+    try expectError(error.TestExpectedEqual, expectEqualDeep(TestStruct{ .s = "abc" }, TestStruct{ .s = "abd" }));
+    try expectError(error.TestExpectedEqual, expectEqualDeep([_][]const u8{ "a", "b", "c" }, [_][]const u8{ "a", "a", "c" }));
+
+    // vector
+    try expectError(error.TestExpectedEqual, expectEqualDeep(@splat(4, @as(u32, 3)), @splat(4, @as(u32, 4))));
+}
+
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
         line_begin + 1
