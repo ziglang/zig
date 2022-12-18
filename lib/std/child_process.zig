@@ -1022,8 +1022,12 @@ pub const ChildProcess = struct {
                 };
 
                 // If the app name had path separators, that disallows PATH searching,
-                // and there's no need to search the PATH if the cwd path is absolute.
-                if (app_dirname_w != null or fs.path.isAbsoluteWindowsWTF16(cwd_path_w)) {
+                // and there's no need to search the PATH if the app name is absolute.
+                // We still search the path if the cwd is absolute because of the
+                // "cwd set in ChildProcess is in effect when choosing the executable path
+                // to match posix semantics" behavior--we don't want to skip searching
+                // the PATH just because we were trying to set the cwd of the child process.
+                if (app_dirname_w != null or app_name_is_absolute) {
                     return original_err;
                 }
 
