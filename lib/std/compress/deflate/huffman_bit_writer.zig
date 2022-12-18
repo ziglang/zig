@@ -848,11 +848,6 @@ test "writeBlockHuff" {
     // Tests huffman encoding against reference files to detect possible regressions.
     // If encoding/bit allocation changes you can regenerate these files
 
-    if (builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/13892
-        return error.SkipZigTest;
-    }
-
     try testBlockHuff(
         "huffman-null-max.input",
         "huffman-null-max.golden",
