@@ -2189,9 +2189,9 @@ fn fullCall(tree: Ast, info: full.Call.Components) full.Call {
         .ast = info,
         .async_token = null,
     };
-    const maybe_async_token = tree.firstToken(info.fn_expr) - 1;
-    if (token_tags[maybe_async_token] == .keyword_async) {
-        result.async_token = maybe_async_token;
+    const first_token = tree.firstToken(info.fn_expr);
+    if (first_token != 0 and token_tags[first_token - 1] == .keyword_async) {
+        result.async_token = first_token - 1;
     }
     return result;
 }
