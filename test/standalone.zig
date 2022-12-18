@@ -63,6 +63,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
 
+    if (builtin.os.tag == .windows) {
+        cases.addBuildFile("test/standalone/windows_spawn/build.zig", .{});
+    }
+
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
         .build_modes = true,
         .cross_targets = true,

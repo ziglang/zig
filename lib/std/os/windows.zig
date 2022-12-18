@@ -1624,6 +1624,9 @@ pub fn CreateProcessW(
             .RING2SEG_MUST_BE_MOVABLE,
             .RELOC_CHAIN_XEEDS_SEGLIM,
             .INFLOOP_IN_RELOC_CHAIN, // MAX_EXEC_ERROR in errno.cpp
+            // This one is not mapped to ENOEXEC but it is possible, for example
+            // when calling CreateProcessW on a plain text file with a .exe extension
+            .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
             else => |err| return unexpectedError(err),
         }
@@ -1822,6 +1825,23 @@ pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
         .dwHighDateTime = @truncate(u32, adjusted >> 32),
         .dwLowDateTime = @truncate(u32, adjusted),
     };
+}
+
+/// Compares two WTF16 strings using RtlEqualUnicodeString
+pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
+    const a_bytes = @intCast(u16, a.len * 2);
+    const a_string = UNICODE_STRING{
+        .Length = a_bytes,
+        .MaximumLength = a_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(a.ptr)),
+    };
+    const b_bytes = @intCast(u16, b.len * 2);
+    const b_string = UNICODE_STRING{
+        .Length = b_bytes,
+        .MaximumLength = b_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(b.ptr)),
+    };
+    return ntdll.RtlEqualUnicodeString(&a_string, &b_string, TRUE) == TRUE;
 }
 
 pub const PathSpace = struct {
@@ -3681,6 +3701,20 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
 };
 
 pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.C) void;
+
+pub const FILE_DIRECTORY_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex: ULONG,
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    AllocationSize: LARGE_INTEGER,
+    FileAttributes: ULONG,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
 
 pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
