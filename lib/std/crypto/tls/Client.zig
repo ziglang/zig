@@ -343,7 +343,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ @bitCast([8]u8, big(read_seq));
                         read_seq += 1;
-                        const nonce: [P.AEAD.nonce_length]u8 = @as(V, p.server_handshake_iv) ^ operand;
+                        const nonce = @as(V, p.server_handshake_iv) ^ operand;
                         const ad = handshake_buf[end_hdr - 5 ..][0..5];
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
@@ -522,7 +522,7 @@ pub fn write(c: *Client, stream: net.Stream, bytes: []const u8) !usize {
                 const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                 const operand: V = pad ++ @bitCast([8]u8, big(c.write_seq));
                 c.write_seq += 1;
-                const nonce: [P.AEAD.nonce_length]u8 = @as(V, p.client_iv) ^ operand;
+                const nonce = @as(V, p.client_iv) ^ operand;
                 P.AEAD.encrypt(ciphertext, auth_tag, cleartext, ad, nonce, p.client_key);
                 //std.debug.print("seq: {d} nonce: {} client_key: {} client_iv: {} ad: {} auth_tag: {}\nserver_key: {} server_iv: {}\n", .{
                 //    c.write_seq - 1,
