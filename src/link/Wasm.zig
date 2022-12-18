@@ -1568,9 +1568,13 @@ fn allocateAtoms(wasm: *Wasm) !void {
         var atom: *Atom = entry.value_ptr.*.getFirst();
         var offset: u32 = 0;
         while (true) {
+            const symbol_loc = atom.symbolLoc();
+            if (!wasm.resolved_symbols.contains(symbol_loc)) {
+                atom = atom.next orelse break;
+                continue;
+            }
             offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
             atom.offset = offset;
-            const symbol_loc = atom.symbolLoc();
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
                 symbol_loc.getName(wasm),
                 offset,
@@ -1578,7 +1582,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
                 atom.size,
             });
             offset += atom.size;
-            try wasm.symbol_atom.put(wasm.base.allocator, atom.symbolLoc(), atom); // Update atom pointers
+            try wasm.symbol_atom.put(wasm.base.allocator, symbol_loc, atom); // Update atom pointers
             atom = atom.next orelse break;
         }
         segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
@@ -2579,14 +2583,16 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         var atom: *Atom = wasm.atoms.get(code_index).?.getFirst();
 
         // The code section must be sorted in line with the function order.
-        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(wasm.base.allocator, wasm.functions.count());
+        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(gpa, wasm.functions.count());
         defer sorted_atoms.deinit();
 
         while (true) {
-            if (!is_obj) {
-                atom.resolveRelocs(wasm);
+            if (wasm.resolved_symbols.contains(atom.symbolLoc())) {
+                if (!is_obj) {
+                    atom.resolveRelocs(wasm);
+                }
+                sorted_atoms.appendAssumeCapacity(atom);
             }
-            sorted_atoms.appendAssumeCapacity(atom);
             atom = atom.next orelse break;
         }
 
@@ -2641,6 +2647,10 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
             // fill in the offset table and the data segments
             var current_offset: u32 = 0;
             while (true) {
+                if (!wasm.resolved_symbols.contains(atom.symbolLoc())) {
+                    atom = atom.next orelse break;
+                    continue;
+                }
                 if (!is_obj) {
                     atom.resolveRelocs(wasm);
                 }
@@ -4170,15 +4180,23 @@ fn emitDataRelocations(
     try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
-/// Searches for an a matching function signature, when not found
-/// a new entry will be made. The index of the existing/new signature will be returned.
-pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
+pub fn getTypeIndex(wasm: *const Wasm, func_type: std.wasm.Type) ?u32 {
     var index: u32 = 0;
     while (index < wasm.func_types.items.len) : (index += 1) {
         if (wasm.func_types.items[index].eql(func_type)) return index;
     }
+    return null;
+}
+
+/// Searches for an a matching function signature, when not found
+/// a new entry will be made. The index of the existing/new signature will be returned.
+pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
+    if (wasm.getTypeIndex(func_type)) |index| {
+        return index;
+    }
 
     // functype does not exist.
+    const index = @intCast(u32, wasm.func_types.items.len);
     const params = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.params);
     errdefer wasm.base.allocator.free(params);
     const returns = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.returns);

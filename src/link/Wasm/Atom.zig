@@ -186,7 +186,11 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_MEMORY_ADDR_SLEB,
         .R_WASM_MEMORY_ADDR_SLEB64,
         => {
-            std.debug.assert(symbol.tag == .data and !symbol.isUndefined());
+            std.debug.assert(symbol.tag == .data);
+            if (symbol.isUndefined()) {
+                return 0;
+            }
+
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment_info = if (target_atom.file) |object_index| blk: {
