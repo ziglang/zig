@@ -110,9 +110,9 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
             var found = false;
             inline for (comptime meta.fields(HashResult)) |p| {
                 if (mem.eql(u8, p.name, param.key)) {
-                    switch (@typeInfo(p.field_type)) {
+                    switch (@typeInfo(p.type)) {
                         .Int => @field(out, p.name) = fmt.parseUnsigned(
-                            p.field_type,
+                            p.type,
                             param.value,
                             10,
                         ) catch return Error.InvalidEncoding,
@@ -161,7 +161,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.field_type) != .Optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .Optional and p.default_value == null) {
             expected_fields += 1;
         }
     }
@@ -223,7 +223,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
         {
             const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
-            if (@typeInfo(p.field_type) == .Struct) {
+            if (@typeInfo(p.type) == .Struct) {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {

@@ -280,8 +280,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
-        /// TODO rename to `type`
-        field_type: type,
+        type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
@@ -331,8 +330,6 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Enum = struct {
-        /// TODO enums should no longer have this field in type info.
-        layout: ContainerLayout,
         tag_type: type,
         fields: []const EnumField,
         decls: []const Declaration,
@@ -343,7 +340,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        field_type: type,
+        type: type,
         alignment: comptime_int,
     };
 
@@ -367,14 +364,14 @@ pub const Type = union(enum) {
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.
         return_type: ?type,
-        args: []const Param,
+        params: []const Param,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
         pub const Param = struct {
             is_generic: bool,
             is_noalias: bool,
-            arg_type: ?type,
+            type: ?type,
         };
     };
 

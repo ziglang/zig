@@ -454,7 +454,7 @@ test "global union with single field is correctly initialized" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     glbl = Foo1{
-        .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
+        .f = @typeInfo(Foo1).Union.fields[0].type{ .x = 123 },
     };
     try expect(glbl.f.x == 123);
 }

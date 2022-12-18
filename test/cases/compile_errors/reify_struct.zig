@@ -3,7 +3,7 @@ comptime {
         .layout = .Auto,
         .fields = &.{.{
             .name = "foo",
-            .field_type = u32,
+            .type = u32,
             .default_value = null,
             .is_comptime = false,
             .alignment = 4,
@@ -17,7 +17,7 @@ comptime {
         .layout = .Auto,
         .fields = &.{.{
             .name = "3",
-            .field_type = u32,
+            .type = u32,
             .default_value = null,
             .is_comptime = false,
             .alignment = 4,
@@ -31,7 +31,7 @@ comptime {
         .layout = .Auto,
         .fields = &.{.{
             .name = "0",
-            .field_type = u32,
+            .type = u32,
             .default_value = null,
             .is_comptime = true,
             .alignment = 4,
@@ -45,7 +45,7 @@ comptime {
         .layout = .Extern,
         .fields = &.{.{
             .name = "0",
-            .field_type = u32,
+            .type = u32,
             .default_value = null,
             .is_comptime = true,
             .alignment = 4,
@@ -59,7 +59,7 @@ comptime {
         .layout = .Packed,
         .fields = &.{.{
             .name = "0",
-            .field_type = u32,
+            .type = u32,
             .default_value = null,
             .is_comptime = true,
             .alignment = 4,

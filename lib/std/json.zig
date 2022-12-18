@@ -1362,7 +1362,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             if (unionInfo.tag_type) |_| {
                 var errors = error{NoUnionMembersMatched};
                 for (unionInfo.fields) |u_field| {
-                    errors = errors || ParseInternalErrorImpl(u_field.field_type, inferred_types ++ [_]type{T});
+                    errors = errors || ParseInternalErrorImpl(u_field.type, inferred_types ++ [_]type{T});
                 }
                 return errors;
             } else {
@@ -1379,7 +1379,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 MissingField,
             } || SkipValueError || TokenStream.Error;
             for (structInfo.fields) |field| {
-                errors = errors || ParseInternalErrorImpl(field.field_type, inferred_types ++ [_]type{T});
+                errors = errors || ParseInternalErrorImpl(field.type, inferred_types ++ [_]type{T});
             }
             return errors;
         },
@@ -1491,7 +1491,7 @@ fn parseInternal(
                 inline for (unionInfo.fields) |u_field| {
                     // take a copy of tokens so we can withhold mutations until success
                     var tokens_copy = tokens.*;
-                    if (parseInternal(u_field.field_type, token, &tokens_copy, options)) |value| {
+                    if (parseInternal(u_field.type, token, &tokens_copy, options)) |value| {
                         tokens.* = tokens_copy;
                         return @unionInit(T, u_field.name, value);
                     } else |err| {
@@ -1519,7 +1519,7 @@ fn parseInternal(
             errdefer {
                 inline for (structInfo.fields) |field, i| {
                     if (fields_seen[i] and !field.is_comptime) {
-                        parseFree(field.field_type, @field(r, field.name), options);
+                        parseFree(field.type, @field(r, field.name), options);
                     }
                 }
             }
@@ -1547,24 +1547,24 @@ fn parseInternal(
                                     // }
                                     if (options.duplicate_field_behavior == .UseFirst) {
                                         // unconditonally ignore value. for comptime fields, this skips check against default_value
-                                        parseFree(field.field_type, try parse(field.field_type, tokens, child_options), child_options);
+                                        parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
                                         found = true;
                                         break;
                                     } else if (options.duplicate_field_behavior == .Error) {
                                         return error.DuplicateJSONField;
                                     } else if (options.duplicate_field_behavior == .UseLast) {
                                         if (!field.is_comptime) {
-                                            parseFree(field.field_type, @field(r, field.name), child_options);
+                                            parseFree(field.type, @field(r, field.name), child_options);
                                         }
                                         fields_seen[i] = false;
                                     }
                                 }
                                 if (field.is_comptime) {
-                                    if (!try parsesTo(field.field_type, @ptrCast(*align(1) const field.field_type, field.default_value.?).*, tokens, child_options)) {
+                                    if (!try parsesTo(field.type, @ptrCast(*align(1) const field.type, field.default_value.?).*, tokens, child_options)) {
                                         return error.UnexpectedValue;
                                     }
                                 } else {
-                                    @field(r, field.name) = try parse(field.field_type, tokens, child_options);
+                                    @field(r, field.name) = try parse(field.type, tokens, child_options);
                                 }
                                 fields_seen[i] = true;
                                 found = true;
@@ -1587,7 +1587,7 @@ fn parseInternal(
                 if (!fields_seen[i]) {
                     if (field.default_value) |default_ptr| {
                         if (!field.is_comptime) {
-                            const default = @ptrCast(*align(1) const field.field_type, default_ptr).*;
+                            const default = @ptrCast(*align(1) const field.type, default_ptr).*;
                             @field(r, field.name) = default;
                         }
                     } else {
@@ -1732,7 +1732,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             if (unionInfo.tag_type) |UnionTagType| {
                 inline for (unionInfo.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        parseFree(u_field.field_type, @field(value, u_field.name), options);
+                        parseFree(u_field.type, @field(value, u_field.name), options);
                         break;
                     }
                 }
@@ -1743,7 +1743,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
                 if (!field.is_comptime) {
-                    parseFree(field.field_type, @field(value, field.name), options);
+                    parseFree(field.type, @field(value, field.name), options);
                 }
             }
         },
@@ -2270,12 +2270,12 @@ pub fn stringify(
             }
             inline for (S.fields) |Field| {
                 // don't include void fields
-                if (Field.field_type == void) continue;
+                if (Field.type == void) continue;
 
                 var emit_field = true;
 
                 // don't include optional fields that are null when emit_null_optional_fields is set to false
-                if (@typeInfo(Field.field_type) == .Optional) {
+                if (@typeInfo(Field.type) == .Optional) {
                     if (options.emit_null_optional_fields == false) {
                         if (@field(value, Field.name) == null) {
                             emit_field = false;

@@ -134,7 +134,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
                 hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
                     if (@field(tag_type, field.name) == tag) {
-                        if (field.field_type != void) {
+                        if (field.type != void) {
                             hash(hasher, @field(key, field.name), strat);
                         }
                         // TODO use a labelled break when it does not crash the compiler. cf #2908
@@ -163,14 +163,14 @@ fn typeContainsSlice(comptime K: type) bool {
         }
         if (meta.trait.is(.Struct)(K)) {
             inline for (@typeInfo(K).Struct.fields) |field| {
-                if (typeContainsSlice(field.field_type)) {
+                if (typeContainsSlice(field.type)) {
                     return true;
                 }
             }
         }
         if (meta.trait.is(.Union)(K)) {
             inline for (@typeInfo(K).Union.fields) |field| {
-                if (typeContainsSlice(field.field_type)) {
+                if (typeContainsSlice(field.type)) {
                     return true;
                 }
             }

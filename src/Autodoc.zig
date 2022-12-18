@@ -637,9 +637,9 @@ const DocData = struct {
             inline for (comptime std.meta.fields(Type)) |case| {
                 if (@field(Type, case.name) == active_tag) {
                     const current_value = @field(self, case.name);
-                    inline for (comptime std.meta.fields(case.field_type)) |f| {
+                    inline for (comptime std.meta.fields(case.type)) |f| {
                         try jsw.arrayElem();
-                        if (f.field_type == std.builtin.Type.Pointer.Size) {
+                        if (f.type == std.builtin.Type.Pointer.Size) {
                             try jsw.emitNumber(@enumToInt(@field(current_value, f.name)));
                         } else {
                             try std.json.stringify(@field(current_value, f.name), opts, w);

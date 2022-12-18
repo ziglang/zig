@@ -2270,13 +2270,13 @@ test "reIndex" {
 test "auto store_hash" {
     const HasCheapEql = AutoArrayHashMap(i32, i32);
     const HasExpensiveEql = AutoArrayHashMap([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEql.Data, .hash).field_type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEql.Data, .hash).field_type != void);
+    try testing.expect(meta.fieldInfo(HasCheapEql.Data, .hash).type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEql.Data, .hash).type != void);
 
     const HasCheapEqlUn = AutoArrayHashMapUnmanaged(i32, i32);
     const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).field_type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).field_type != void);
+    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).type != void);
 }
 
 test "sort" {

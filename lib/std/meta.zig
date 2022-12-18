@@ -371,16 +371,12 @@ test "std.meta.assumeSentinel" {
 pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.layout,
-        .Enum => |info| info.layout,
         .Union => |info| info.layout,
-        else => @compileError("Expected struct, enum or union type, found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("expected struct or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
 test "std.meta.containerLayout" {
-    const E1 = enum {
-        A,
-    };
     const S1 = struct {};
     const S2 = packed struct {};
     const S3 = extern struct {};
@@ -394,7 +390,6 @@ test "std.meta.containerLayout" {
         a: u8,
     };
 
-    try testing.expect(containerLayout(E1) == .Auto);
     try testing.expect(containerLayout(S1) == .Auto);
     try testing.expect(containerLayout(S2) == .Packed);
     try testing.expect(containerLayout(S3) == .Extern);
@@ -522,8 +517,8 @@ test "std.meta.fields" {
     try testing.expect(mem.eql(u8, e2f[0].name, "A"));
     try testing.expect(mem.eql(u8, sf[0].name, "a"));
     try testing.expect(mem.eql(u8, uf[0].name, "a"));
-    try testing.expect(comptime sf[0].field_type == u8);
-    try testing.expect(comptime uf[0].field_type == u8);
+    try testing.expect(comptime sf[0].type == u8);
+    try testing.expect(comptime uf[0].type == u8);
 }
 
 pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
@@ -557,8 +552,8 @@ test "std.meta.fieldInfo" {
     try testing.expect(mem.eql(u8, e2f.name, "A"));
     try testing.expect(mem.eql(u8, sf.name, "a"));
     try testing.expect(mem.eql(u8, uf.name, "a"));
-    try testing.expect(comptime sf.field_type == u8);
-    try testing.expect(comptime uf.field_type == u8);
+    try testing.expect(comptime sf.type == u8);
+    try testing.expect(comptime uf.type == u8);
 }
 
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
@@ -634,7 +629,6 @@ pub fn FieldEnum(comptime T: type) type {
     if (field_infos.len == 0) {
         return @Type(.{
             .Enum = .{
-                .layout = .Auto,
                 .tag_type = u0,
                 .fields = &.{},
                 .decls = &.{},
@@ -664,7 +658,6 @@ pub fn FieldEnum(comptime T: type) type {
     }
     return @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = std.math.IntFittingRange(0, field_infos.len - 1),
             .fields = &enumFields,
             .decls = &decls,
@@ -676,10 +669,6 @@ pub fn FieldEnum(comptime T: type) type {
 fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
     // TODO: https://github.com/ziglang/zig/issues/7419
     // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
-    try testing.expectEqual(
-        @typeInfo(expected).Enum.layout,
-        @typeInfo(actual).Enum.layout,
-    );
     try testing.expectEqual(
         @typeInfo(expected).Enum.tag_type,
         @typeInfo(actual).Enum.tag_type,
@@ -740,7 +729,6 @@ pub fn DeclEnum(comptime T: type) type {
     }
     return @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
             .fields = &enumDecls,
             .decls = &decls,
@@ -831,7 +819,7 @@ pub fn TagPayload(comptime U: type, comptime tag: Tag(U)) type {
 
     inline for (info.fields) |field_info| {
         if (comptime mem.eql(u8, field_info.name, @tagName(tag)))
-            return field_info.field_type;
+            return field_info.type;
     }
 
     unreachable;
@@ -1084,9 +1072,9 @@ pub fn ArgsTuple(comptime Function: type) type {
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]type = undefined;
-    inline for (function_info.args) |arg, i| {
-        const T = arg.arg_type.?;
+    var argument_field_list: [function_info.params.len]type = undefined;
+    inline for (function_info.params) |arg, i| {
+        const T = arg.type.?;
         argument_field_list[i] = T;
     }
 
@@ -1111,7 +1099,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
-            .field_type = T,
+            .type = T,
             .default_value = null,
             .is_comptime = false,
             .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
@@ -1146,8 +1134,8 @@ const TupleTester = struct {
             @compileError("Argument count mismatch");
 
         inline for (fields_list) |fld, i| {
-            if (expected[i] != fld.field_type) {
-                @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.field_type));
+            if (expected[i] != fld.type) {
+                @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.type));
             }
         }
     }

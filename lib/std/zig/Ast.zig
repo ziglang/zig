@@ -125,7 +125,7 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
     inline for (fields) |field, i| {
-        comptime assert(field.field_type == Node.Index);
+        comptime assert(field.type == Node.Index);
         @field(result, field.name) = tree.extra_data[index + i];
     }
     return result;

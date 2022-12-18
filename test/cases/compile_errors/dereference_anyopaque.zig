@@ -16,7 +16,7 @@ fn parseFree(comptime T: type, value: T, allocator: std.mem.Allocator) void {
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
                 if (!field.is_comptime)
-                    parseFree(field.field_type, undefined, allocator);
+                    parseFree(field.type, undefined, allocator);
             }
         },
         .Pointer => |ptrInfo| {

@@ -4253,7 +4253,7 @@ fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     return switch (field_index) {
         // This prong is analyzed `fields.len - 1` times with `idx` being an
         // unique comptime-known value each time.
-        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].field_type) == .Optional,
+        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }
@@ -5242,7 +5242,7 @@ const math = std.math;
 const testing = std.testing;
 
 test "fn reflection" {
-    try testing.expect(@typeInfo(@TypeOf(testing.expect)).Fn.args[0].arg_type.? == bool);
+    try testing.expect(@typeInfo(@TypeOf(testing.expect)).Fn.params[0].type.? == bool);
     try testing.expect(@typeInfo(@TypeOf(testing.tmpDir)).Fn.return_type.? == testing.TmpDir);
 
     try testing.expect(@typeInfo(@TypeOf(math.Log2Int)).Fn.is_generic);

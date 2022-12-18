@@ -238,7 +238,6 @@ fn testEnum() !void {
 
     const os_info = @typeInfo(Os);
     try expect(os_info == .Enum);
-    try expect(os_info.Enum.layout == .Auto);
     try expect(os_info.Enum.fields.len == 4);
     try expect(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
     try expect(os_info.Enum.fields[3].value == 3);
@@ -257,7 +256,7 @@ fn testUnion() !void {
     try expect(typeinfo_info.Union.layout == .Auto);
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
     try expect(typeinfo_info.Union.fields.len == 24);
-    try expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
+    try expect(typeinfo_info.Union.fields[4].type == @TypeOf(@typeInfo(u8).Int));
     try expect(typeinfo_info.Union.decls.len == 22);
 
     const TestNoTagUnion = union {
@@ -271,7 +270,7 @@ fn testUnion() !void {
     try expect(notag_union_info.Union.layout == .Auto);
     try expect(notag_union_info.Union.fields.len == 2);
     try expect(notag_union_info.Union.fields[0].alignment == @alignOf(void));
-    try expect(notag_union_info.Union.fields[1].field_type == u32);
+    try expect(notag_union_info.Union.fields[1].type == u32);
     try expect(notag_union_info.Union.fields[1].alignment == @alignOf(u32));
 
     const TestExternUnion = extern union {
@@ -281,7 +280,7 @@ fn testUnion() !void {
     const extern_union_info = @typeInfo(TestExternUnion);
     try expect(extern_union_info.Union.layout == .Extern);
     try expect(extern_union_info.Union.tag_type == null);
-    try expect(extern_union_info.Union.fields[0].field_type == *anyopaque);
+    try expect(extern_union_info.Union.fields[0].type == *anyopaque);
 }
 
 test "type info: struct info" {
@@ -319,7 +318,7 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.backing_integer == u128);
     try expect(struct_info.Struct.fields.len == 4);
     try expect(struct_info.Struct.fields[0].alignment == 0);
-    try expect(struct_info.Struct.fields[2].field_type == f32);
+    try expect(struct_info.Struct.fields[2].type == f32);
     try expect(struct_info.Struct.fields[2].default_value == null);
     try expect(@ptrCast(*align(1) const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);
@@ -365,7 +364,7 @@ fn testFunction() !void {
     try expect(fn_info.Fn.alignment > 0);
     try expect(fn_info.Fn.calling_convention == .C);
     try expect(!fn_info.Fn.is_generic);
-    try expect(fn_info.Fn.args.len == 2);
+    try expect(fn_info.Fn.params.len == 2);
     try expect(fn_info.Fn.is_var_args);
     try expect(fn_info.Fn.return_type.? == usize);
     const fn_aligned_info = @typeInfo(@TypeOf(typeInfoFooAligned));
@@ -377,31 +376,31 @@ extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize
 
 test "type info: generic function types" {
     const G1 = @typeInfo(@TypeOf(generic1));
-    try expect(G1.Fn.args.len == 1);
-    try expect(G1.Fn.args[0].is_generic == true);
-    try expect(G1.Fn.args[0].arg_type == null);
+    try expect(G1.Fn.params.len == 1);
+    try expect(G1.Fn.params[0].is_generic == true);
+    try expect(G1.Fn.params[0].type == null);
     try expect(G1.Fn.return_type == void);
 
     const G2 = @typeInfo(@TypeOf(generic2));
-    try expect(G2.Fn.args.len == 3);
-    try expect(G2.Fn.args[0].is_generic == false);
-    try expect(G2.Fn.args[0].arg_type == type);
-    try expect(G2.Fn.args[1].is_generic == true);
-    try expect(G2.Fn.args[1].arg_type == null);
-    try expect(G2.Fn.args[2].is_generic == false);
-    try expect(G2.Fn.args[2].arg_type == u8);
+    try expect(G2.Fn.params.len == 3);
+    try expect(G2.Fn.params[0].is_generic == false);
+    try expect(G2.Fn.params[0].type == type);
+    try expect(G2.Fn.params[1].is_generic == true);
+    try expect(G2.Fn.params[1].type == null);
+    try expect(G2.Fn.params[2].is_generic == false);
+    try expect(G2.Fn.params[2].type == u8);
     try expect(G2.Fn.return_type == void);
 
     const G3 = @typeInfo(@TypeOf(generic3));
-    try expect(G3.Fn.args.len == 1);
-    try expect(G3.Fn.args[0].is_generic == true);
-    try expect(G3.Fn.args[0].arg_type == null);
+    try expect(G3.Fn.params.len == 1);
+    try expect(G3.Fn.params[0].is_generic == true);
+    try expect(G3.Fn.params[0].type == null);
     try expect(G3.Fn.return_type == null);
 
     const G4 = @typeInfo(@TypeOf(generic4));
-    try expect(G4.Fn.args.len == 1);
-    try expect(G4.Fn.args[0].is_generic == true);
-    try expect(G4.Fn.args[0].arg_type == null);
+    try expect(G4.Fn.params.len == 1);
+    try expect(G4.Fn.params[0].is_generic == true);
+    try expect(G4.Fn.params[0].type == null);
     try expect(G4.Fn.return_type == null);
 }
 

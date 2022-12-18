@@ -802,7 +802,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
     const ArgsTuple = std.meta.ArgsTuple(@TypeOf(test_fn));
     const fn_args_fields = @typeInfo(ArgsTuple).Struct.fields;
-    if (fn_args_fields.len == 0 or fn_args_fields[0].field_type != std.mem.Allocator) {
+    if (fn_args_fields.len == 0 or fn_args_fields[0].type != std.mem.Allocator) {
         @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
     }
     const expected_args_tuple_len = fn_args_fields.len - 1;

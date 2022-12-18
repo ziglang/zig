@@ -1,6 +1,5 @@
 const Tag = @Type(.{
     .Enum = .{
-        .layout = .Auto,
         .tag_type = u2,
         .fields = &.{
             .{ .name = "signed", .value = 0 },
@@ -16,8 +15,8 @@ const Tagged = @Type(.{
         .layout = .Auto,
         .tag_type = Tag,
         .fields = &.{
-            .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
-            .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
+            .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
+            .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
         },
         .decls = &.{},
     },
@@ -31,6 +30,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :14:16: error: enum field(s) missing in union
+// :13:16: error: enum field(s) missing in union
 // :1:13: note: field 'arst' missing, declared here
 // :1:13: note: enum declared here

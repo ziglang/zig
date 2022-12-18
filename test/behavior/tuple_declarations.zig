@@ -20,13 +20,13 @@ test "tuple declaration type info" {
         try expect(info.is_tuple);
 
         try expectEqualStrings(info.fields[0].name, "0");
-        try expect(info.fields[0].field_type == u32);
+        try expect(info.fields[0].type == u32);
         try expect(@ptrCast(*const u32, @alignCast(@alignOf(u32), info.fields[0].default_value)).* == 1);
         try expect(info.fields[0].is_comptime);
         try expect(info.fields[0].alignment == 2);
 
         try expectEqualStrings(info.fields[1].name, "1");
-        try expect(info.fields[1].field_type == []const u8);
+        try expect(info.fields[1].type == []const u8);
         try expect(info.fields[1].default_value == null);
         try expect(!info.fields[1].is_comptime);
         try expect(info.fields[1].alignment == @alignOf([]const u8));
@@ -44,13 +44,13 @@ test "tuple declaration type info" {
         try expect(info.is_tuple);
 
         try expectEqualStrings(info.fields[0].name, "0");
-        try expect(info.fields[0].field_type == u1);
+        try expect(info.fields[0].type == u1);
 
         try expectEqualStrings(info.fields[1].name, "1");
-        try expect(info.fields[1].field_type == u30);
+        try expect(info.fields[1].type == u30);
 
         try expectEqualStrings(info.fields[2].name, "2");
-        try expect(info.fields[2].field_type == u1);
+        try expect(info.fields[2].type == u1);
     }
 }
 
