@@ -1624,6 +1624,9 @@ pub fn CreateProcessW(
             .RING2SEG_MUST_BE_MOVABLE,
             .RELOC_CHAIN_XEEDS_SEGLIM,
             .INFLOOP_IN_RELOC_CHAIN, // MAX_EXEC_ERROR in errno.cpp
+            // This one is not mapped to ENOEXEC but it is possible, for example
+            // when calling CreateProcessW on a plain text file with a .exe extension
+            .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
             else => |err| return unexpectedError(err),
         }
