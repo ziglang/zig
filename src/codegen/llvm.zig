@@ -4033,24 +4033,16 @@ pub const DeclGen = struct {
                             const final_llvm_ty = (try dg.lowerType(ptr_child_ty)).pointerType(0);
                             break :blk field_addr.constIntToPtr(final_llvm_ty);
                         }
+                        bitcast_needed = !field_ty.eql(ptr_child_ty, dg.module);
 
                         var ty_buf: Type.Payload.Pointer = undefined;
-
+                        const llvm_field_index = llvmFieldIndex(parent_ty, field_index, target, &ty_buf).?;
+                        const indices: [2]*llvm.Value = .{
+                            llvm_u32.constInt(0, .False),
+                            llvm_u32.constInt(llvm_field_index, .False),
+                        };
                         const parent_llvm_ty = try dg.lowerType(parent_ty);
-                        if (llvmFieldIndex(parent_ty, field_index, target, &ty_buf)) |llvm_field_index| {
-                            bitcast_needed = !field_ty.eql(ptr_child_ty, dg.module);
-                            const indices: [2]*llvm.Value = .{
-                                llvm_u32.constInt(0, .False),
-                                llvm_u32.constInt(llvm_field_index, .False),
-                            };
-                            break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
-                        } else {
-                            bitcast_needed = !parent_ty.eql(ptr_child_ty, dg.module);
-                            const indices: [1]*llvm.Value = .{
-                                llvm_u32.constInt(1, .False),
-                            };
-                            break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
-                        }
+                        break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                     },
                     .Pointer => {
                         assert(parent_ty.isSlice());
