@@ -1718,7 +1718,7 @@ fn mergeSections(wasm: *Wasm) !void {
             continue;
         }
 
-        const object = wasm.objects.items[sym_loc.file.?];
+        const object = &wasm.objects.items[sym_loc.file.?];
         const symbol = &object.symtable[sym_loc.index];
         if (symbol.isUndefined() or (symbol.tag != .function and symbol.tag != .global and symbol.tag != .table)) {
             // Skip undefined symbols as they go in the `import` section
@@ -1730,13 +1730,12 @@ fn mergeSections(wasm: *Wasm) !void {
         const index = symbol.index - offset;
         switch (symbol.tag) {
             .function => {
-                const original_func = object.functions[index];
                 const gop = try wasm.functions.getOrPut(
                     wasm.base.allocator,
                     .{ .file = sym_loc.file, .index = symbol.index },
                 );
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = original_func;
+                    gop.value_ptr.* = object.functions[index];
                 }
                 symbol.index = @intCast(u32, gop.index) + wasm.imported_functions_count;
             },
@@ -1784,7 +1783,7 @@ fn mergeTypes(wasm: *Wasm) !void {
 
         if (symbol.isUndefined()) {
             log.debug("Adding type from extern function '{s}'", .{sym_loc.getName(wasm)});
-            const import: *types.Import = wasm.imports.getPtr(sym_loc).?;
+            const import: *types.Import = wasm.imports.getPtr(sym_loc) orelse continue;
             const original_type = object.func_types[import.kind.function];
             import.kind.function = try wasm.putOrGetFuncType(original_type);
         } else if (!dirty.contains(symbol.index)) {
@@ -2235,22 +2234,112 @@ pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) lin
     }
 }
 
+/// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
 fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
+    const gpa = wasm.base.allocator;
+    const options = wasm.base.options;
+
+    // Used for all temporary memory allocated during flushin
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    const directory = options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{options.emit.?.sub_path});
+
+    // If there is no Zig code to compile, then we should skip flushing the output file because it
+    // will not be part of the linker line anyway.
+    const module_obj_path: ?[]const u8 = if (options.module != null) blk: {
+        assert(options.use_llvm); // `linkWithZld` should never be called when the Wasm backend is used
+        try wasm.flushModule(comp, prog_node);
+
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.intermediary_basename.? });
+        } else {
+            break :blk wasm.base.intermediary_basename.?;
         }
-    }
+    } else null;
 
     var sub_prog_node = prog_node.start("Wasm Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // ensure the error names table is populated when an error name is referenced
-    try wasm.populateErrorNameTable();
+    const is_obj = options.output_mode == .Obj;
+    const compiler_rt_path: ?[]const u8 = if (options.include_compiler_rt and !is_obj)
+        comp.compiler_rt_lib.?.full_object_path
+    else
+        null;
+    const id_symlink_basename = "zld.id";
+
+    var man: Cache.Manifest = undefined;
+    defer if (!options.disable_lld_caching) man.deinit();
+    var digest: [Cache.hex_digest_len]u8 = undefined;
+
+    // NOTE: The following section must be maintained to be equal
+    // as the section defined in `linkWithLLD`
+    if (!options.disable_lld_caching) {
+        man = comp.cache_parent.obtain();
+
+        // We are about to obtain this lock, so here we give other processes a chance first.
+        wasm.base.releaseLock();
+
+        comptime assert(Compilation.link_hash_implementation_version == 7);
+
+        for (options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
+        }
+        try man.addOptionalFile(module_obj_path);
+        try man.addOptionalFile(compiler_rt_path);
+        man.hash.addOptionalBytes(options.entry);
+        man.hash.addOptional(options.stack_size_override);
+        man.hash.add(options.import_memory);
+        man.hash.add(options.import_table);
+        man.hash.add(options.export_table);
+        man.hash.addOptional(options.initial_memory);
+        man.hash.addOptional(options.max_memory);
+        man.hash.add(options.shared_memory);
+        man.hash.addOptional(options.global_base);
+        man.hash.add(options.export_symbol_names.len);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
+        for (options.export_symbol_names) |symbol_name| {
+            man.hash.addBytes(symbol_name);
+        }
+
+        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        _ = try man.hit();
+        digest = man.final();
+
+        var prev_digest_buf: [digest.len]u8 = undefined;
+        const prev_digest: []u8 = Cache.readSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            &prev_digest_buf,
+        ) catch |err| blk: {
+            log.debug("WASM LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            // Handle this as a cache miss.
+            break :blk prev_digest_buf[0..0];
+        };
+        if (mem.eql(u8, prev_digest, &digest)) {
+            log.debug("WASM LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            // Hot diggity dog! The output binary is already there.
+            wasm.base.lock = man.toOwnedLock();
+            return;
+        }
+        log.debug("WASM LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+
+        // We are about to change the output file to be different, so we invalidate the build hash now.
+        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
+    }
 
     // The amount of sections that will be written
     var section_count: u32 = 0;
@@ -2259,17 +2348,44 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     // Index of the data section. Used to tell relocation table where the section lives.
     var data_section_index: ?u32 = null;
 
-    // Used for all temporary memory allocated during flushin
-    var arena_instance = std.heap.ArenaAllocator.init(wasm.base.allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
     // Positional arguments to the linker such as object files and static archives.
     var positionals = std.ArrayList([]const u8).init(arena);
-    try positionals.ensureUnusedCapacity(wasm.base.options.objects.len);
+    try positionals.ensureUnusedCapacity(options.objects.len);
 
-    for (wasm.base.options.objects) |object| {
-        positionals.appendAssumeCapacity(object.path);
+    // When the target os is WASI, we allow linking with WASI-LIBC
+    if (options.target.os.tag == .wasi) {
+        const is_exe_or_dyn_lib = wasm.base.options.output_mode == .Exe or
+            (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
+        if (is_exe_or_dyn_lib) {
+            const wasi_emulated_libs = wasm.base.options.wasi_emulated_libs;
+            for (wasi_emulated_libs) |crt_file| {
+                try positionals.append(try comp.get_libc_crt_file(
+                    arena,
+                    wasi_libc.emulatedLibCRFileLibName(crt_file),
+                ));
+            }
+
+            if (wasm.base.options.link_libc) {
+                try positionals.append(try comp.get_libc_crt_file(
+                    arena,
+                    wasi_libc.execModelCrtFileFullName(wasm.base.options.wasi_exec_model),
+                ));
+                try positionals.append(try comp.get_libc_crt_file(arena, "libc.a"));
+            }
+
+            if (wasm.base.options.link_libcpp) {
+                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+            }
+        }
+    }
+
+    if (module_obj_path) |path| {
+        try positionals.append(path);
+    }
+
+    for (options.objects) |object| {
+        try positionals.append(object.path);
     }
 
     for (comp.c_object_table.keys()) |c_object| {
@@ -2290,46 +2406,13 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
-    try wasm.checkUndefinedSymbols();
+    // try wasm.checkUndefinedSymbols();
 
-    // When we finish/error we reset the state of the linker
-    // So we can rebuild the binary file on each incremental update
-    defer wasm.resetState();
     try wasm.setupStart();
     try wasm.setupImports();
-    if (wasm.base.options.module) |mod| {
-        var decl_it = wasm.decls.keyIterator();
-        while (decl_it.next()) |decl_index_ptr| {
-            const decl = mod.declPtr(decl_index_ptr.*);
-            if (decl.isExtern()) continue;
-            const atom = &decl.*.link.wasm;
-            if (decl.ty.zigTypeTag() == .Fn) {
-                try wasm.parseAtom(atom, .{ .function = decl.fn_link.wasm });
-            } else if (decl.getVariable()) |variable| {
-                if (!variable.is_mutable) {
-                    try wasm.parseAtom(atom, .{ .data = .read_only });
-                } else if (variable.init.isUndefDeep()) {
-                    try wasm.parseAtom(atom, .{ .data = .uninitialized });
-                } else {
-                    try wasm.parseAtom(atom, .{ .data = .initialized });
-                }
-            } else {
-                try wasm.parseAtom(atom, .{ .data = .read_only });
-            }
-
-            // also parse atoms for a decl's locals
-            for (atom.locals.items) |*local_atom| {
-                try wasm.parseAtom(local_atom, .{ .data = .read_only });
-            }
-        }
-
-        if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(wasm.base.options.module.?);
-        }
-    }
 
     for (wasm.objects.items) |*object, object_index| {
-        try object.parseIntoAtoms(wasm.base.allocator, @intCast(u16, object_index), wasm);
+        try object.parseIntoAtoms(gpa, @intCast(u16, object_index), wasm);
     }
 
     try wasm.allocateAtoms();
@@ -2340,9 +2423,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupExports();
 
     const header_size = 5 + 1;
-    const is_obj = wasm.base.options.output_mode == .Obj;
 
-    var binary_bytes = std.ArrayList(u8).init(wasm.base.allocator);
+    var binary_bytes = std.ArrayList(u8).init(gpa);
     defer binary_bytes.deinit();
     const binary_writer = binary_bytes.writer();
 
@@ -2380,16 +2462,16 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     }
 
     // Import section
-    const import_memory = wasm.base.options.import_memory or is_obj;
-    const import_table = wasm.base.options.import_table or is_obj;
+    const import_memory = options.import_memory or is_obj;
+    const import_table = options.import_table or is_obj;
     if (wasm.imports.count() != 0 or import_memory or import_table) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         // import table is always first table so emit that first
         if (import_table) {
             const table_imp: types.Import = .{
-                .module_name = try wasm.string_table.put(wasm.base.allocator, wasm.host_name),
-                .name = try wasm.string_table.put(wasm.base.allocator, "__indirect_function_table"),
+                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
+                .name = try wasm.string_table.put(gpa, "__indirect_function_table"),
                 .kind = .{
                     .table = .{
                         .limits = .{
@@ -2413,8 +2495,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         if (import_memory) {
             const mem_name = if (is_obj) "__linear_memory" else "memory";
             const mem_imp: types.Import = .{
-                .module_name = try wasm.string_table.put(wasm.base.allocator, wasm.host_name),
-                .name = try wasm.string_table.put(wasm.base.allocator, mem_name),
+                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
+                .name = try wasm.string_table.put(gpa, mem_name),
                 .kind = .{ .memory = wasm.memories.limits },
             };
             try wasm.emitImport(binary_writer, mem_imp);
@@ -2448,7 +2530,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     }
 
     // Table section
-    const export_table = wasm.base.options.export_table;
+    const export_table = options.export_table;
     if (!import_table and wasm.function_table.count() != 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
@@ -2704,13 +2786,13 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         if (data_section_index) |data_index| {
             try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
-    } else if (!wasm.base.options.strip) {
+    } else if (!options.strip) {
         try wasm.emitNameSection(&binary_bytes, arena);
     }
 
-    if (!wasm.base.options.strip) {
+    if (!options.strip) {
         if (wasm.dwarf) |*dwarf| {
-            const mod = wasm.base.options.module.?;
+            const mod = options.module.?;
             try dwarf.writeDbgAbbrev();
             // for debug info and ranges, the address is always 0,
             // as locations are always offsets relative to 'code' section.
@@ -2719,7 +2801,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
             try dwarf.writeDbgLineHeader();
         }
 
-        var debug_bytes = std.ArrayList(u8).init(wasm.base.allocator);
+        var debug_bytes = std.ArrayList(u8).init(gpa);
         defer debug_bytes.deinit();
 
         const DebugSection = struct {
@@ -2768,6 +2850,21 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         .iov_len = binary_bytes.items.len,
     }};
     try wasm.base.file.?.writevAll(&iovec);
+
+    if (!wasm.base.options.disable_lld_caching) {
+        // Update the file with the digest. If it fails we can continue; it only
+        // means that the next invocation will have an unnecessary cache miss.
+        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+            log.warn("failed to save linking hash digest symlink: {s}", .{@errorName(err)});
+        };
+        // Again failure here only means an unnecessary cache miss.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
+        };
+        // We hang on to this lock so that the output file path can be used without
+        // other processes clobbering it.
+        wasm.base.lock = man.toOwnedLock();
+    }
 }
 
 pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -3422,7 +3519,9 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm).*;
         const name = if (symbol.isUndefined()) blk: {
-            break :blk wasm.string_table.get(wasm.imports.get(sym_loc).?.name);
+            if (symbol.tag == .data) continue;
+            const imp = wasm.imports.get(sym_loc) orelse continue;
+            break :blk wasm.string_table.get(imp.name);
         } else sym_loc.getName(wasm);
         switch (symbol.tag) {
             .function => {
