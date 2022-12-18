@@ -3254,17 +3254,16 @@ fn zirEnsureResultUsed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compile
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.ensureResultUsed(block, operand, src);
+    return sema.ensureResultUsed(block, sema.typeOf(operand), src);
 }
 
 fn ensureResultUsed(
     sema: *Sema,
     block: *Block,
-    operand: Air.Inst.Ref,
+    ty: Type,
     src: LazySrcLoc,
 ) CompileError!void {
-    const operand_ty = sema.typeOf(operand);
-    switch (operand_ty.zigTypeTag()) {
+    switch (ty.zigTypeTag()) {
         .Void, .NoReturn => return,
         .ErrorSet, .ErrorUnion => {
             const msg = msg: {
@@ -3277,7 +3276,7 @@ fn ensureResultUsed(
         },
         else => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{operand_ty.fmt(sema.mod)});
+                const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "all non-void values must be used", .{});
                 try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
@@ -6641,6 +6640,10 @@ fn analyzeCall(
                 };
             }
 
+            if (is_comptime_call and ensure_result_used) {
+                try sema.ensureResultUsed(block, fn_ret_ty, call_src);
+            }
+
             const result = result: {
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
@@ -6763,7 +6766,7 @@ fn analyzeCall(
     };
 
     if (ensure_result_used) {
-        try sema.ensureResultUsed(block, result, call_src);
+        try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
     }
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
@@ -7406,7 +7409,7 @@ fn instantiateGenericCall(
     sema.appendRefsAssumeCapacity(runtime_args);
 
     if (ensure_result_used) {
-        try sema.ensureResultUsed(block, result, call_src);
+        try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
     }
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
