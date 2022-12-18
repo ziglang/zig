@@ -1944,19 +1944,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         while (ptr[i] != 0) : (i += 1) {}
         const this_value = ptr[value_start..i :0];
 
-        const key_string_bytes = @intCast(u16, key_slice.len * 2);
-        const key_string = windows.UNICODE_STRING{
-            .Length = key_string_bytes,
-            .MaximumLength = key_string_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(key)),
-        };
-        const this_key_string_bytes = @intCast(u16, this_key.len * 2);
-        const this_key_string = windows.UNICODE_STRING{
-            .Length = this_key_string_bytes,
-            .MaximumLength = this_key_string_bytes,
-            .Buffer = this_key.ptr,
-        };
-        if (windows.ntdll.RtlEqualUnicodeString(&key_string, &this_key_string, windows.TRUE) == windows.TRUE) {
+        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
             return this_value;
         }
 

@@ -1824,6 +1824,23 @@ pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
     };
 }
 
+/// Compares two WTF16 strings using RtlEqualUnicodeString
+pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
+    const a_bytes = @intCast(u16, a.len * 2);
+    const a_string = UNICODE_STRING{
+        .Length = a_bytes,
+        .MaximumLength = a_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(a.ptr)),
+    };
+    const b_bytes = @intCast(u16, b.len * 2);
+    const b_string = UNICODE_STRING{
+        .Length = b_bytes,
+        .MaximumLength = b_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(b.ptr)),
+    };
+    return ntdll.RtlEqualUnicodeString(&a_string, &b_string, TRUE) == TRUE;
+}
+
 pub const PathSpace = struct {
     data: [PATH_MAX_WIDE:0]u16,
     len: usize,
