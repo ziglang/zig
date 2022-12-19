@@ -349,3 +349,112 @@ pub inline fn int3(x: u24) [3]u8 {
         @truncate(u8, x),
     };
 }
+
+pub const Der = struct {
+    pub const Class = enum(u2) {
+        universal,
+        application,
+        context_specific,
+        private,
+    };
+
+    pub const PC = enum(u1) {
+        primitive,
+        constructed,
+    };
+
+    pub const Identifier = packed struct(u8) {
+        tag: Tag,
+        pc: PC,
+        class: Class,
+    };
+
+    pub const Tag = enum(u5) {
+        boolean = 1,
+        integer = 2,
+        bitstring = 3,
+        null = 5,
+        object_identifier = 6,
+        sequence = 16,
+        _,
+    };
+
+    pub const Oid = enum {
+        commonName,
+        countryName,
+        localityName,
+        stateOrProvinceName,
+        organizationName,
+        organizationalUnitName,
+        sha256WithRSAEncryption,
+        sha384WithRSAEncryption,
+        sha512WithRSAEncryption,
+        sha224WithRSAEncryption,
+
+        pub const map = std.ComptimeStringMap(Oid, .{
+            .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
+            .{ &[_]u8{ 0x55, 0x04, 0x06 }, .countryName },
+            .{ &[_]u8{ 0x55, 0x04, 0x07 }, .localityName },
+            .{ &[_]u8{ 0x55, 0x04, 0x08 }, .stateOrProvinceName },
+            .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
+            .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
+            .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B }, .sha256WithRSAEncryption },
+            .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
+            .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D }, .sha512WithRSAEncryption },
+            .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0E }, .sha224WithRSAEncryption },
+        });
+    };
+
+    pub const Element = struct {
+        identifier: Identifier,
+        contents: []const u8,
+    };
+
+    pub const ParseElementError = error{CertificateHasFieldWithInvalidLength};
+
+    pub fn parseElement(bytes: []const u8, index: *usize) ParseElementError!Der.Element {
+        var i = index.*;
+        const identifier = @bitCast(Identifier, bytes[i]);
+        i += 1;
+        const size_byte = bytes[i];
+        i += 1;
+        if ((size_byte >> 7) == 0) {
+            const contents = bytes[i..][0..size_byte];
+            index.* = i + contents.len;
+            return .{
+                .identifier = identifier,
+                .contents = contents,
+            };
+        }
+
+        const len_size = @truncate(u7, size_byte);
+        if (len_size > @sizeOf(usize)) {
+            return error.CertificateHasFieldWithInvalidLength;
+        }
+
+        const end = i + len_size;
+        var long_form_size: usize = 0;
+        while (i < end) : (i += 1) {
+            long_form_size = (long_form_size << 8) | bytes[i];
+        }
+
+        const contents = bytes[i..][0..long_form_size];
+        index.* = i + contents.len;
+
+        return .{
+            .identifier = identifier,
+            .contents = contents,
+        };
+    }
+
+    pub const ParseObjectIdError = error{
+        CertificateHasUnrecognizedObjectId,
+        CertificateFieldHasWrongDataType,
+    } || ParseElementError;
+
+    pub fn parseObjectId(bytes: []const u8, index: *usize) ParseObjectIdError!Oid {
+        const oid_element = try parseElement(bytes, index);
+        if (oid_element.identifier.tag != .object_identifier) return error.CertificateFieldHasWrongDataType;
+        return Oid.map.get(oid_element.contents) orelse return error.CertificateHasUnrecognizedObjectId;
+    }
+};
