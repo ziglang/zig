@@ -287,6 +287,27 @@ test "inferred empty error set comptime catch" {
     S.foo() catch @compileError("fail");
 }
 
+test "error inference with an empty set" {
+    const S = struct {
+        const Struct = struct {
+            pub fn func() (error{})!usize {
+                return 0;
+            }
+        };
+
+        fn AnotherStruct(comptime SubStruct: type) type {
+            return struct {
+                fn anotherFunc() !void {
+                    try expect(0 == (try SubStruct.func()));
+                }
+            };
+        }
+    };
+
+    const GeneratedStruct = S.AnotherStruct(S.Struct);
+    try GeneratedStruct.anotherFunc();
+}
+
 test "error union peer type resolution" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
