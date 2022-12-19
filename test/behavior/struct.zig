@@ -1365,7 +1365,7 @@ test "fieldParentPtr of a zero-bit field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn testOneType(comptime A: type) !void {
+        fn testStruct(comptime A: type) !void {
             {
                 const a = A{ .u = 0 };
                 const b_ptr = &a.b;
@@ -1379,9 +1379,29 @@ test "fieldParentPtr of a zero-bit field" {
                 try std.testing.expectEqual(&a, a_ptr);
             }
         }
+        fn testNestedStruct(comptime A: type) !void {
+            {
+                const a = A{ .u = 0 };
+                const c_ptr = &a.b.c;
+                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                try std.testing.expectEqual(&a.b, b_ptr);
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+            {
+                var a = A{ .u = 0 };
+                const c_ptr = &a.b.c;
+                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                try std.testing.expectEqual(&a.b, b_ptr);
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+        }
         fn doTheTest() !void {
-            try testOneType(struct { b: void = {}, u: u8 });
-            try testOneType(struct { u: u8, b: void = {} });
+            try testStruct(struct { b: void = {}, u: u8 });
+            try testStruct(struct { u: u8, b: void = {} });
+            try testNestedStruct(struct { b: struct { c: void = {} } = .{}, u: u8 });
+            try testNestedStruct(struct { u: u8, b: struct { c: void = {} } = .{} });
         }
     };
     try S.doTheTest();

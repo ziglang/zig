@@ -4046,9 +4046,8 @@ pub const DeclGen = struct {
                             break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                         } else {
                             bitcast_needed = !parent_ty.eql(ptr_child_ty, dg.module);
-                            const indices: [1]*llvm.Value = .{
-                                llvm_u32.constInt(1, .False),
-                            };
+                            const llvm_index = llvm_u32.constInt(@boolToInt(parent_ty.hasRuntimeBitsIgnoreComptime()), .False);
+                            const indices: [1]*llvm.Value = .{llvm_index};
                             break :blk parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                         }
                     },
@@ -9774,8 +9773,8 @@ pub const FuncGen = struct {
                         // end of the struct. Treat our struct pointer as an array of two and get
                         // the index to the element at index `1` to get a pointer to the end of
                         // the struct.
-                        const llvm_usize = try self.dg.lowerType(Type.usize);
-                        const llvm_index = llvm_usize.constInt(1, .False);
+                        const llvm_u32 = self.dg.context.intType(32);
+                        const llvm_index = llvm_u32.constInt(@boolToInt(struct_ty.hasRuntimeBitsIgnoreComptime()), .False);
                         const indices: [1]*llvm.Value = .{llvm_index};
                         return self.builder.buildInBoundsGEP(struct_llvm_ty, struct_ptr, &indices, indices.len, "");
                     }
