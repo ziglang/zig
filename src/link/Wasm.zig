@@ -2341,13 +2341,6 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         };
     }
 
-    // The amount of sections that will be written
-    var section_count: u32 = 0;
-    // Index of the code section. Used to tell relocation table where the section lives.
-    var code_section_index: ?u32 = null;
-    // Index of the data section. Used to tell relocation table where the section lives.
-    var data_section_index: ?u32 = null;
-
     // Positional arguments to the linker such as object files and static archives.
     var positionals = std.ArrayList([]const u8).init(arena);
     try positionals.ensureUnusedCapacity(options.objects.len);
@@ -2406,7 +2399,6 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
-    // try wasm.checkUndefinedSymbols();
 
     try wasm.setupStart();
     try wasm.setupImports();
@@ -2421,435 +2413,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.mergeSections();
     try wasm.mergeTypes();
     try wasm.setupExports();
-
-    const header_size = 5 + 1;
-
-    var binary_bytes = std.ArrayList(u8).init(gpa);
-    defer binary_bytes.deinit();
-    const binary_writer = binary_bytes.writer();
-
-    // We write the magic bytes at the end so they will only be written
-    // if everything succeeded as expected. So populate with 0's for now.
-    try binary_writer.writeAll(&[_]u8{0} ** 8);
-    // (Re)set file pointer to 0
-    try wasm.base.file.?.setEndPos(0);
-    try wasm.base.file.?.seekTo(0);
-
-    // Type section
-    if (wasm.func_types.items.len != 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-        log.debug("Writing type section. Count: ({d})", .{wasm.func_types.items.len});
-        for (wasm.func_types.items) |func_type| {
-            try leb.writeULEB128(binary_writer, std.wasm.function_type);
-            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.params.len));
-            for (func_type.params) |param_ty| {
-                try leb.writeULEB128(binary_writer, std.wasm.valtype(param_ty));
-            }
-            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.returns.len));
-            for (func_type.returns) |ret_ty| {
-                try leb.writeULEB128(binary_writer, std.wasm.valtype(ret_ty));
-            }
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .type,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.func_types.items.len),
-        );
-        section_count += 1;
-    }
-
-    // Import section
-    const import_memory = options.import_memory or is_obj;
-    const import_table = options.import_table or is_obj;
-    if (wasm.imports.count() != 0 or import_memory or import_table) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        // import table is always first table so emit that first
-        if (import_table) {
-            const table_imp: types.Import = .{
-                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
-                .name = try wasm.string_table.put(gpa, "__indirect_function_table"),
-                .kind = .{
-                    .table = .{
-                        .limits = .{
-                            .min = @intCast(u32, wasm.function_table.count()),
-                            .max = null,
-                        },
-                        .reftype = .funcref,
-                    },
-                },
-            };
-            try wasm.emitImport(binary_writer, table_imp);
-        }
-
-        var it = wasm.imports.iterator();
-        while (it.next()) |entry| {
-            assert(entry.key_ptr.*.getSymbol(wasm).isUndefined());
-            const import = entry.value_ptr.*;
-            try wasm.emitImport(binary_writer, import);
-        }
-
-        if (import_memory) {
-            const mem_name = if (is_obj) "__linear_memory" else "memory";
-            const mem_imp: types.Import = .{
-                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
-                .name = try wasm.string_table.put(gpa, mem_name),
-                .kind = .{ .memory = wasm.memories.limits },
-            };
-            try wasm.emitImport(binary_writer, mem_imp);
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .import,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.imports.count() + @boolToInt(import_memory) + @boolToInt(import_table)),
-        );
-        section_count += 1;
-    }
-
-    // Function section
-    if (wasm.functions.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-        for (wasm.functions.values()) |function| {
-            try leb.writeULEB128(binary_writer, function.type_index);
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .function,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.functions.count()),
-        );
-        section_count += 1;
-    }
-
-    // Table section
-    const export_table = options.export_table;
-    if (!import_table and wasm.function_table.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        try leb.writeULEB128(binary_writer, std.wasm.reftype(.funcref));
-        try emitLimits(binary_writer, .{
-            .min = @intCast(u32, wasm.function_table.count()) + 1,
-            .max = null,
-        });
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .table,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @as(u32, 1),
-        );
-        section_count += 1;
-    }
-
-    // Memory section
-    if (!import_memory) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        try emitLimits(binary_writer, wasm.memories.limits);
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .memory,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @as(u32, 1), // wasm currently only supports 1 linear memory segment
-        );
-        section_count += 1;
-    }
-
-    // Global section (used to emit stack pointer)
-    if (wasm.wasm_globals.items.len > 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        var global_count: u32 = 0;
-        for (wasm.wasm_globals.items) |global| {
-            try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
-            try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
-            try emitInit(binary_writer, global.init);
-            global_count += 1;
-        }
-
-        for (wasm.address_globals.items) |sym_loc| {
-            const atom = wasm.symbol_atom.get(sym_loc).?;
-            try binary_writer.writeByte(std.wasm.valtype(.i32));
-            try binary_writer.writeByte(0); // immutable
-            try emitInit(binary_writer, .{
-                .i32_const = @bitCast(i32, atom.offset),
-            });
-            global_count += 1;
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .global,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, global_count),
-        );
-        section_count += 1;
-    }
-
-    // Export section
-    if (wasm.exports.items.len != 0 or export_table or !import_memory) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        for (wasm.exports.items) |exp| {
-            const name = wasm.string_table.get(exp.name);
-            try leb.writeULEB128(binary_writer, @intCast(u32, name.len));
-            try binary_writer.writeAll(name);
-            try leb.writeULEB128(binary_writer, @enumToInt(exp.kind));
-            try leb.writeULEB128(binary_writer, exp.index);
-        }
-
-        if (export_table) {
-            try leb.writeULEB128(binary_writer, @intCast(u32, "__indirect_function_table".len));
-            try binary_writer.writeAll("__indirect_function_table");
-            try binary_writer.writeByte(std.wasm.externalKind(.table));
-            try leb.writeULEB128(binary_writer, @as(u32, 0)); // function table is always the first table
-        }
-
-        if (!import_memory) {
-            try leb.writeULEB128(binary_writer, @intCast(u32, "memory".len));
-            try binary_writer.writeAll("memory");
-            try binary_writer.writeByte(std.wasm.externalKind(.memory));
-            try leb.writeULEB128(binary_writer, @as(u32, 0));
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .@"export",
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.exports.items.len) + @boolToInt(export_table) + @boolToInt(!import_memory),
-        );
-        section_count += 1;
-    }
-
-    // element section (function table)
-    if (wasm.function_table.count() > 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        var flags: u32 = 0x2; // Yes we have a table
-        try leb.writeULEB128(binary_writer, flags);
-        try leb.writeULEB128(binary_writer, @as(u32, 0)); // index of that table. TODO: Store synthetic symbols
-        try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
-        try leb.writeULEB128(binary_writer, @as(u8, 0));
-        try leb.writeULEB128(binary_writer, @intCast(u32, wasm.function_table.count()));
-        var symbol_it = wasm.function_table.keyIterator();
-        while (symbol_it.next()) |symbol_loc_ptr| {
-            try leb.writeULEB128(binary_writer, symbol_loc_ptr.*.getSymbol(wasm).index);
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .element,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @as(u32, 1),
-        );
-        section_count += 1;
-    }
-
-    // Code section
-    var code_section_size: u32 = 0;
-    if (wasm.code_section_index) |code_index| {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-        var atom: *Atom = wasm.atoms.get(code_index).?.getFirst();
-
-        // The code section must be sorted in line with the function order.
-        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(gpa, wasm.functions.count());
-        defer sorted_atoms.deinit();
-
-        while (true) {
-            if (wasm.resolved_symbols.contains(atom.symbolLoc())) {
-                if (!is_obj) {
-                    atom.resolveRelocs(wasm);
-                }
-                sorted_atoms.appendAssumeCapacity(atom);
-            }
-            atom = atom.next orelse break;
-        }
-
-        const atom_sort_fn = struct {
-            fn sort(ctx: *const Wasm, lhs: *const Atom, rhs: *const Atom) bool {
-                const lhs_sym = lhs.symbolLoc().getSymbol(ctx);
-                const rhs_sym = rhs.symbolLoc().getSymbol(ctx);
-                return lhs_sym.index < rhs_sym.index;
-            }
-        }.sort;
-
-        std.sort.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
-
-        for (sorted_atoms.items) |sorted_atom| {
-            try leb.writeULEB128(binary_writer, sorted_atom.size);
-            try binary_writer.writeAll(sorted_atom.code.items);
-        }
-
-        code_section_size = @intCast(u32, binary_bytes.items.len - header_offset - header_size);
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .code,
-            code_section_size,
-            @intCast(u32, wasm.functions.count()),
-        );
-        code_section_index = section_count;
-        section_count += 1;
-    }
-
-    // Data section
-    if (wasm.data_segments.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(&binary_bytes);
-
-        var it = wasm.data_segments.iterator();
-        var segment_count: u32 = 0;
-        while (it.next()) |entry| {
-            // do not output 'bss' section unless we import memory and therefore
-            // want to guarantee the data is zero initialized
-            if (!import_memory and std.mem.eql(u8, entry.key_ptr.*, ".bss")) continue;
-            segment_count += 1;
-            const atom_index = entry.value_ptr.*;
-            var atom: *Atom = wasm.atoms.getPtr(atom_index).?.*.getFirst();
-            const segment = wasm.segments.items[atom_index];
-
-            // flag and index to memory section (currently, there can only be 1 memory section in wasm)
-            try leb.writeULEB128(binary_writer, @as(u32, 0));
-            // offset into data section
-            try emitInit(binary_writer, .{ .i32_const = @bitCast(i32, segment.offset) });
-            try leb.writeULEB128(binary_writer, segment.size);
-
-            // fill in the offset table and the data segments
-            var current_offset: u32 = 0;
-            while (true) {
-                if (!wasm.resolved_symbols.contains(atom.symbolLoc())) {
-                    atom = atom.next orelse break;
-                    continue;
-                }
-                if (!is_obj) {
-                    atom.resolveRelocs(wasm);
-                }
-
-                // Pad with zeroes to ensure all segments are aligned
-                if (current_offset != atom.offset) {
-                    const diff = atom.offset - current_offset;
-                    try binary_writer.writeByteNTimes(0, diff);
-                    current_offset += diff;
-                }
-                assert(current_offset == atom.offset);
-                assert(atom.code.items.len == atom.size);
-                try binary_writer.writeAll(atom.code.items);
-
-                current_offset += atom.size;
-                if (atom.next) |next| {
-                    atom = next;
-                } else {
-                    // also pad with zeroes when last atom to ensure
-                    // segments are aligned.
-                    if (current_offset != segment.size) {
-                        try binary_writer.writeByteNTimes(0, segment.size - current_offset);
-                        current_offset += segment.size - current_offset;
-                    }
-                    break;
-                }
-            }
-            assert(current_offset == segment.size);
-        }
-
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .data,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, segment_count),
-        );
-        data_section_index = section_count;
-        section_count += 1;
-    }
-
-    if (is_obj) {
-        // relocations need to point to the index of a symbol in the final symbol table. To save memory,
-        // we never store all symbols in a single table, but store a location reference instead.
-        // This means that for a relocatable object file, we need to generate one and provide it to the relocation sections.
-        var symbol_table = std.AutoArrayHashMap(SymbolLoc, u32).init(arena);
-        try wasm.emitLinkSection(&binary_bytes, &symbol_table);
-        if (code_section_index) |code_index| {
-            try wasm.emitCodeRelocations(&binary_bytes, code_index, symbol_table);
-        }
-        if (data_section_index) |data_index| {
-            try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
-        }
-    } else if (!options.strip) {
-        try wasm.emitNameSection(&binary_bytes, arena);
-    }
-
-    if (!options.strip) {
-        if (wasm.dwarf) |*dwarf| {
-            const mod = options.module.?;
-            try dwarf.writeDbgAbbrev();
-            // for debug info and ranges, the address is always 0,
-            // as locations are always offsets relative to 'code' section.
-            try dwarf.writeDbgInfoHeader(mod, 0, code_section_size);
-            try dwarf.writeDbgAranges(0, code_section_size);
-            try dwarf.writeDbgLineHeader();
-        }
-
-        var debug_bytes = std.ArrayList(u8).init(gpa);
-        defer debug_bytes.deinit();
-
-        const DebugSection = struct {
-            name: []const u8,
-            index: ?u32,
-        };
-
-        const debug_sections: []const DebugSection = &.{
-            .{ .name = ".debug_info", .index = wasm.debug_info_index },
-            .{ .name = ".debug_pubtypes", .index = wasm.debug_pubtypes_index },
-            .{ .name = ".debug_abbrev", .index = wasm.debug_abbrev_index },
-            .{ .name = ".debug_line", .index = wasm.debug_line_index },
-            .{ .name = ".debug_str", .index = wasm.debug_str_index },
-            .{ .name = ".debug_pubnames", .index = wasm.debug_pubnames_index },
-            .{ .name = ".debug_loc", .index = wasm.debug_loc_index },
-            .{ .name = ".debug_ranges", .index = wasm.debug_ranges_index },
-        };
-
-        for (debug_sections) |item| {
-            if (item.index) |index| {
-                var atom = wasm.atoms.get(index).?.getFirst();
-                while (true) {
-                    atom.resolveRelocs(wasm);
-                    try debug_bytes.appendSlice(atom.code.items);
-                    atom = atom.next orelse break;
-                }
-                try emitDebugSection(&binary_bytes, debug_bytes.items, item.name);
-                debug_bytes.clearRetainingCapacity();
-            }
-        }
-
-        try emitProducerSection(&binary_bytes);
-        if (emit_features_count > 0) {
-            try emitFeaturesSection(&binary_bytes, &enabled_features, emit_features_count);
-        }
-    }
-
-    // Only when writing all sections executed properly we write the magic
-    // bytes. This allows us to easily detect what went wrong while generating
-    // the final binary.
-    mem.copy(u8, binary_bytes.items, &(std.wasm.magic ++ std.wasm.version));
-
-    // finally, write the entire binary into the file.
-    var iovec = [_]std.os.iovec_const{.{
-        .iov_base = binary_bytes.items.ptr,
-        .iov_len = binary_bytes.items.len,
-    }};
-    try wasm.base.file.?.writevAll(&iovec);
+    try wasm.writeToFile(enabled_features, emit_features_count, arena);
 
     if (!wasm.base.options.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
@@ -2883,13 +2447,6 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // ensure the error names table is populated when an error name is referenced
     try wasm.populateErrorNameTable();
-
-    // The amount of sections that will be written
-    var section_count: u32 = 0;
-    // Index of the code section. Used to tell relocation table where the section lives.
-    var code_section_index: ?u32 = null;
-    // Index of the data section. Used to tell relocation table where the section lives.
-    var data_section_index: ?u32 = null;
 
     // Used for all temporary memory allocated during flushin
     var arena_instance = std.heap.ArenaAllocator.init(wasm.base.allocator);
@@ -2970,8 +2527,24 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.mergeSections();
     try wasm.mergeTypes();
     try wasm.setupExports();
+    try wasm.writeToFile(enabled_features, emit_features_count, arena);
+}
 
+/// Writes the WebAssembly in-memory module to the file
+fn writeToFile(
+    wasm: *Wasm,
+    enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
+    feature_count: u32,
+    arena: Allocator,
+) !void {
+    // Size of each section header
     const header_size = 5 + 1;
+    // The amount of sections that will be written
+    var section_count: u32 = 0;
+    // Index of the code section. Used to tell relocation table where the section lives.
+    var code_section_index: ?u32 = null;
+    // Index of the data section. Used to tell relocation table where the section lives.
+    var data_section_index: ?u32 = null;
     const is_obj = wasm.base.options.output_mode == .Obj or (!wasm.base.options.use_llvm and wasm.base.options.use_lld);
 
     var binary_bytes = std.ArrayList(u8).init(wasm.base.allocator);
@@ -3378,8 +2951,8 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         try emitProducerSection(&binary_bytes);
-        if (emit_features_count > 0) {
-            try emitFeaturesSection(&binary_bytes, &enabled_features, emit_features_count);
+        if (feature_count > 0) {
+            try emitFeaturesSection(&binary_bytes, &enabled_features, feature_count);
         }
     }
 
