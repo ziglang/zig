@@ -810,6 +810,7 @@ const DylibCreateOpts = struct {
     dependent: bool = false,
     needed: bool = false,
     weak: bool = false,
+    is_bundle_loader: bool = false,
 };
 
 pub fn parseDylib(
@@ -839,7 +840,7 @@ pub fn parseDylib(
     defer gpa.free(contents);
 
     const dylib_id = @intCast(u16, self.dylibs.items.len);
-    var dylib = Dylib{ .weak = opts.weak };
+    var dylib = Dylib{ .weak = opts.weak, .is_bundle_loader = opts.is_bundle_loader };
 
     dylib.parseFromBinary(
         gpa,
@@ -913,6 +914,10 @@ pub fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]c
         })) continue;
 
         log.debug("unknown filetype for positional input file: '{s}'", .{file_name});
+    }
+
+    if (self.base.options.bundle) {
+        try self.parseDylib(self.base.options.bundle_loader.?, .{}, .{ .is_bundle_loader = true });
     }
 }
 
@@ -1599,9 +1604,12 @@ pub fn resolveSymbolsInDylibs(self: *MachO) !void {
                 try self.referenced_dylibs.putNoClobber(gpa, dylib_id, {});
             }
 
-            const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
+            var ordinal: isize = macho.BIND_SPECIAL_DYLIB_MAIN_EXECUTABLE;
+            if (!dylib.is_bundle_loader) {
+                ordinal = @intCast(isize, self.referenced_dylibs.getIndex(dylib_id) orelse unreachable);
+                sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
+            }
             sym.n_type |= macho.N_EXT;
-            sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
             if (dylib.weak) {
                 sym.n_desc |= macho.N_WEAK_REF;
@@ -3746,8 +3754,11 @@ fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
             header.filetype = macho.MH_EXECUTE;
         },
         .Lib => {
-            // By this point, it can only be a dylib.
-            header.filetype = macho.MH_DYLIB;
+            if (self.base.options.bundle) {
+                header.filetype = macho.MH_BUNDLE;
+            } else {
+                header.filetype = macho.MH_DYLIB;
+            }
             header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
         },
         else => unreachable,

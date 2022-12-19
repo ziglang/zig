@@ -185,6 +185,7 @@ pub const Zld = struct {
         dependent: bool = false,
         needed: bool = false,
         weak: bool = false,
+        is_bundle_loader: bool = false,
     };
 
     fn parseDylib(
@@ -214,7 +215,7 @@ pub const Zld = struct {
         defer gpa.free(contents);
 
         const dylib_id = @intCast(u16, self.dylibs.items.len);
-        var dylib = Dylib{ .weak = opts.weak };
+        var dylib = Dylib{ .weak = opts.weak, .is_bundle_loader = opts.is_bundle_loader };
 
         dylib.parseFromBinary(
             gpa,
@@ -293,6 +294,12 @@ pub const Zld = struct {
             })) continue;
 
             log.debug("unknown filetype for positional input file: '{s}'", .{file_name});
+        }
+        if (self.options.bundle) {
+            _ = try self.parseDylib(self.options.bundle_loader.?, dependent_libs, .{
+                .is_bundle_loader = true,
+                .syslibroot = syslibroot,
+            });
         }
     }
 
@@ -1094,9 +1101,12 @@ pub const Zld = struct {
                     try self.referenced_dylibs.putNoClobber(self.gpa, dylib_id, {});
                 }
 
-                const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
+                var ordinal: isize = macho.BIND_SPECIAL_DYLIB_MAIN_EXECUTABLE;
+                if (!dylib.is_bundle_loader) {
+                    ordinal = @intCast(isize, self.referenced_dylibs.getIndex(dylib_id) orelse unreachable);
+                    sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
+                }
                 sym.n_type |= macho.N_EXT;
-                sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
                 if (dylib.weak) {
                     sym.n_desc |= macho.N_WEAK_REF;
@@ -2884,8 +2894,11 @@ pub const Zld = struct {
                 header.filetype = macho.MH_EXECUTE;
             },
             .Lib => {
-                // By this point, it can only be a dylib.
-                header.filetype = macho.MH_DYLIB;
+                if (self.options.bundle) {
+                    header.filetype = macho.MH_BUNDLE;
+                } else {
+                    header.filetype = macho.MH_DYLIB;
+                }
                 header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
             },
             else => unreachable,
@@ -3978,6 +3991,15 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
             for (must_link_archives.keys()) |lib| {
                 try argv.append(try std.fmt.allocPrint(arena, "-force_load {s}", .{lib}));
+            }
+
+            if (options.bundle) {
+                try argv.append("-bundle");
+            }
+
+            if (options.bundle_loader != null) {
+                try argv.append("-bundle_loader");
+                try argv.append(options.bundle_loader.?);
             }
 
             Compilation.dump_argv(argv.items);

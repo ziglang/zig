@@ -18,6 +18,7 @@ const MachO = @import("../MachO.zig");
 
 id: ?Id = null,
 weak: bool = false,
+is_bundle_loader: bool = false,
 
 /// Parsed symbol table represented as hash map of symbols'
 /// names. We can and should defer creating *Symbols until
@@ -140,7 +141,7 @@ pub fn parseFromBinary(
 
     const header = try reader.readStruct(macho.mach_header_64);
 
-    if (header.filetype != macho.MH_DYLIB) {
+    if (!self.is_bundle_loader and header.filetype != macho.MH_DYLIB) {
         log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, header.filetype });
         return error.NotDylib;
     }

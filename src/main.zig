@@ -516,6 +516,8 @@ const usage_build_generic =
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+    \\  -bundle                        (Darwin) Produce a mach-o bundle that has file type MH_BUNDLE
+    \\  -bundle_loader [executable]    (Darwin) The executable that will be loading the bundle output file being linked
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -777,6 +779,8 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var reference_trace: ?u32 = null;
+    var bundle: bool = false;
+    var bundle_loader: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -1019,6 +1023,11 @@ fn buildOutputType(
                         linker_gc_sections = true;
                     } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                         dead_strip_dylibs = true;
+                    } else if (mem.eql(u8, arg, "-bundle")) {
+                        bundle = true;
+                    } else if (mem.eql(u8, arg, "-bundle_loader")) {
+                        const next_arg = args_iter.nextOrFatal();
+                        bundle_loader = next_arg;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--version-script")) {
@@ -3048,6 +3057,8 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .reference_trace = reference_trace,
+        .bundle = bundle,
+        .bundle_loader = bundle_loader,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

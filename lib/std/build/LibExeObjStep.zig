@@ -161,6 +161,12 @@ entitlements: ?[]const u8 = null,
 /// (Darwin) Size of the pagezero segment.
 pagezero_size: ?u64 = null,
 
+/// (Darwin) Produce a bundle
+bundle: bool = false,
+
+/// (Darwin) Executable that will be loading the bundle output file being linked
+bundle_loader: ?[]const u8 = null,
+
 /// (Darwin) Search strategy for searching system libraries. Either `paths_first` or `dylibs_first`.
 /// The former lowers to `-search_paths_first` linker option, while the latter to `-search_dylibs_first`
 /// option.
@@ -520,6 +526,11 @@ pub fn linkFrameworkWeak(self: *LibExeObjStep, framework_name: []const u8) void 
     self.frameworks.put(self.builder.dupe(framework_name), .{
         .weak = true,
     }) catch unreachable;
+}
+
+pub fn setBundle(self: *LibExeObjStep, bundle_loader: ?[]const u8) void {
+    self.bundle = true;
+    self.bundle_loader = bundle_loader;
 }
 
 /// Returns whether the library, executable, or object depends on a particular system library.
@@ -1810,6 +1821,15 @@ fn make(step: *Step) !void {
     }
 
     try zig_args.append("--enable-cache");
+
+    if (self.bundle) {
+        try zig_args.append("-bundle");
+    }
+
+    if (self.bundle_loader != null) {
+        try zig_args.append("-bundle_loader");
+        try zig_args.append(self.bundle_loader.?);
+    }
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
     // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and

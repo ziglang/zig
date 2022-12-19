@@ -185,6 +185,9 @@ astgen_wait_group: WaitGroup = .{},
 /// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
 export_symbol_names: std.ArrayListUnmanaged([]const u8) = .{},
 
+bundle: bool = false,
+bundle_loader: ?[]const u8 = null,
+
 pub const default_stack_protector_buffer_size = 4;
 pub const SemaError = Module.SemaError;
 
@@ -1036,6 +1039,8 @@ pub const InitOptions = struct {
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
+    bundle: bool = false,
+    bundle_loader: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1883,6 +1888,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_undefined_symbols = .{},
+            .bundle = options.bundle,
+            .bundle_loader = options.bundle_loader,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1934,6 +1941,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .libcxx_abi_version = options.libcxx_abi_version,
+            .bundle = options.bundle,
+            .bundle_loader = options.bundle_loader,
         };
         break :comp comp;
     };
