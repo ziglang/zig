@@ -113,6 +113,7 @@ const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const crash_report = @import("crash_report.zig");
 const build_options = @import("build_options");
+const Compilation = @import("Compilation.zig");
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -2191,18 +2192,16 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     @setCold(true);
 
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
-        const err_path = err_msg.src_loc.file_scope.fullPath(sema.mod.gpa) catch unreachable;
-        const err_source = err_msg.src_loc.file_scope.getSource(sema.mod.gpa) catch unreachable;
         if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
-        const err_span = err_msg.src_loc.span(sema.mod.gpa) catch unreachable;
-        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
-        std.debug.print("compile error during Sema:\n{s}:{d}:{d}: error: {s}\n{s}\n\n", .{
-            err_path,
-            err_loc.line + 1,
-            err_loc.column + 1,
-            err_msg.msg,
-            err_loc.source_line,
-        });
+        var arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer arena.deinit();
+        var errors = std.ArrayList(Compilation.AllErrors.Message).init(sema.gpa);
+        defer errors.deinit();
+
+        Compilation.AllErrors.add(sema.mod, &arena, &errors, err_msg.*) catch unreachable;
+
+        std.debug.print("compile error during Sema:\n", .{});
+        Compilation.AllErrors.Message.renderToStdErr(errors.items[0], .no_color);
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
 

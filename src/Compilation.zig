@@ -572,7 +572,7 @@ pub const AllErrors = struct {
         self.arena.promote(gpa).deinit();
     }
 
-    fn add(
+    pub fn add(
         module: *Module,
         arena: *std.heap.ArenaAllocator,
         errors: *std.ArrayList(Message),
