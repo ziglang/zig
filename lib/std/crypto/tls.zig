@@ -221,6 +221,12 @@ pub const CipherSuite = enum(u16) {
     _,
 };
 
+pub const CertificateType = enum(u8) {
+    X509 = 0,
+    RawPublicKey = 2,
+    _,
+};
+
 pub fn CipherParamsT(comptime AeadType: type, comptime HashType: type) type {
     return struct {
         pub const AEAD = AeadType;
@@ -237,7 +243,6 @@ pub fn CipherParamsT(comptime AeadType: type, comptime HashType: type) type {
         client_handshake_iv: [AEAD.nonce_length]u8,
         server_handshake_iv: [AEAD.nonce_length]u8,
         transcript_hash: Hash,
-        finished_digest: [Hash.digest_length]u8,
     };
 }
 
