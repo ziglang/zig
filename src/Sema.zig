@@ -24615,8 +24615,9 @@ fn coerceExtra(
                             else => break :p,
                         }
                         if (inst_info.size == .Slice) {
-                            if (dest_info.sentinel == null or inst_info.sentinel == null or
-                                !dest_info.sentinel.?.eql(inst_info.sentinel.?, dest_info.pointee_type, sema.mod))
+                            assert(dest_info.sentinel == null);
+                            if (inst_info.sentinel == null or
+                                !inst_info.sentinel.?.eql(Value.zero, dest_info.pointee_type, sema.mod))
                                 break :p;
 
                             const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);

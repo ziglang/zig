@@ -1495,3 +1495,13 @@ test "cast typed undefined to int" {
         _ = b;
     }
 }
+
+test "implicit cast from [:0]T to [*c]T" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var a: [:0]const u8 = "foo";
+    var b: [*c]const u8 = a;
+    var c = std.mem.span(b);
+    try expect(c.len == a.len);
+    try expect(c.ptr == a.ptr);
+}
