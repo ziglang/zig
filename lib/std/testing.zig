@@ -763,7 +763,7 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
 
         .Vector => |info| {
             if (info.len != @typeInfo(@TypeOf(actual)).Vector.len) {
-                std.debug.print("Vector len not the same, expected {*}, found {*}\n", .{ info.len, @typeInfo(@TypeOf(actual)).Vector.len });
+                std.debug.print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).Vector.len });
                 return error.TestExpectedEqual;
             }
             var i: usize = 0;
