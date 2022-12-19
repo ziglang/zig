@@ -653,7 +653,7 @@ pub const DeclGen = struct {
                     }
                     try writer.print("{ }", .{fmtIdent(field_info.name)});
                 } else {
-                    try dg.renderParentPtr(writer, field_ptr.container_ptr, field_info.ty);
+                    try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
                 }
             },
             .elem_ptr => {
