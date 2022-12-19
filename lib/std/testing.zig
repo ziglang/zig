@@ -670,6 +670,16 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
     return error.TestExpectedEndsWith;
 }
 
+/// This function is intended to be used only in tests. When the two values are not
+/// deeply equal, prints diagnostics to stderr to show exactly how they are not equal,
+/// then returns a test failure error.
+/// `actual` is casted to the type of `expected`.
+///
+/// Deeply equal is defined as follows:
+/// Primitive types are deeply equal if they are equal using  `==` operator.
+/// Struct values are deeply equal if their corresponding fields are deeply equal.
+/// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
+/// Pointer values are deeply equal if values they point to are deeply equal.
 pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
