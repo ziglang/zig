@@ -7,12 +7,16 @@ const Ast = std.zig.Ast;
 const Token = std.zig.Token;
 const primitives = std.zig.primitives;
 
-const indent_delta = 4;
+var indent_delta: usize = 4;
 const asm_indent_delta = 2;
 
 pub const Error = Ast.RenderError;
 
 const Ais = AutoIndentingStream(std.ArrayList(u8).Writer);
+
+pub fn setIndentDelta(new_indent_delta: usize) void {
+    indent_delta = new_indent_delta;
+}
 
 pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.

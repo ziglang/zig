@@ -60,6 +60,10 @@ pub fn render(tree: Ast, gpa: mem.Allocator) RenderError![]u8 {
     return buffer.toOwnedSlice();
 }
 
+pub fn setRenderIndentDelta(indent_delta: usize) void {
+    return @import("./render.zig").setIndentDelta(indent_delta);
+}
+
 pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
     return @import("./render.zig").renderTree(buffer, tree);
 }

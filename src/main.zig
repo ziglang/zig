@@ -4170,6 +4170,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     defer input_files.deinit();
     var excluded_files = ArrayList([]const u8).init(gpa);
     defer excluded_files.deinit();
+    var indent: usize = 0;
 
     {
         var i: usize = 0;
@@ -4202,6 +4203,12 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                     i += 1;
                     const next_arg = args[i];
                     try excluded_files.append(next_arg);
+                } else if (mem.eql(u8, arg, "--indent")) {
+                    i += 1;
+                    const next_arg = args[i];
+                    indent = std.fmt.parseInt(usize, next_arg, 10) catch {
+                        fatal("expected [number] after --indent, found '{s}'", .{next_arg});
+                    };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -4209,6 +4216,10 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 try input_files.append(arg);
             }
         }
+    }
+
+    if (indent != 0) {
+        std.zig.Ast.setRenderIndentDelta(indent);
     }
 
     if (stdin_flag) {
