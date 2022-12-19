@@ -1072,11 +1072,13 @@ pub const Value = extern union {
                     .enum_simple => Module.EnumFull.ValueMap{},
                     else => unreachable,
                 };
-                break :field_index if (values.entries.len == 0)
+                if (values.entries.len == 0) {
                     // auto-numbered enum
-                    @intCast(u32, val.toUnsignedInt(mod.getTarget()))
-                else
-                    @intCast(u32, values.getIndexContext(val, .{ .ty = ty, .mod = mod }).?);
+                    break :field_index @intCast(u32, val.toUnsignedInt(mod.getTarget()));
+                }
+                var buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = ty.intTagType(&buffer);
+                break :field_index @intCast(u32, values.getIndexContext(val, .{ .ty = int_tag_ty, .mod = mod }).?);
             },
         };
 
