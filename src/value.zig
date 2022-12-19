@@ -2915,8 +2915,16 @@ pub const Value = extern union {
             .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isVariable(mod),
             .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isVariable(mod),
             .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isVariable(mod),
-            .decl_ref => mod.declPtr(val.castTag(.decl_ref).?.data).val.isVariable(mod),
-            .decl_ref_mut => mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.isVariable(mod),
+            .decl_ref => {
+                const decl = mod.declPtr(val.castTag(.decl_ref).?.data);
+                assert(decl.has_tv);
+                return decl.val.isVariable(mod);
+            },
+            .decl_ref_mut => {
+                const decl = mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index);
+                assert(decl.has_tv);
+                return decl.val.isVariable(mod);
+            },
 
             .variable => true,
             else => false,

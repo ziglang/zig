@@ -653,7 +653,7 @@ pub const DeclGen = struct {
                     }
                     try writer.print("{ }", .{fmtIdent(field_info.name)});
                 } else {
-                    try dg.renderParentPtr(writer, field_ptr.container_ptr, field_info.ty);
+                    try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
                 }
             },
             .elem_ptr => {
@@ -5131,7 +5131,9 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
         .begin, .end => {
             try writer.writeByte('(');
             try f.writeCValue(writer, struct_ptr, .Other);
-            try writer.print(")[{}]", .{@boolToInt(field_loc == .end)});
+            try writer.print(")[{}]", .{
+                @boolToInt(field_loc == .end and struct_ty.hasRuntimeBitsIgnoreComptime()),
+            });
         },
         .field => |field| if (extra_name != .none) {
             try f.writeCValueDerefMember(writer, struct_ptr, extra_name);

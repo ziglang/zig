@@ -3291,7 +3291,7 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 /// - The delta required to align the pointer is not a multiple of the pointee's
 ///   type.
 pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
-    assert(align_to != 0 and @popCount(align_to) == 1);
+    assert(isValidAlign(align_to));
 
     const T = @TypeOf(ptr);
     const info = @typeInfo(T);
@@ -3751,6 +3751,7 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    assert(isValidAlignGeneric(T, alignment));
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
@@ -3846,7 +3847,7 @@ test "alignForward" {
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
-    if (@popCount(alignment) == 1)
+    if (isValidAlign(alignment))
         return alignBackward(i, alignment);
     assert(alignment != 0);
     return i - @mod(i, alignment);
@@ -3861,7 +3862,7 @@ pub fn alignBackward(addr: usize, alignment: usize) usize {
 /// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(@popCount(alignment) == 1);
+    assert(isValidAlignGeneric(T, alignment));
     // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
@@ -3871,11 +3872,17 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
 pub fn isValidAlign(alignment: usize) bool {
-    return @popCount(alignment) == 1;
+    return isValidAlignGeneric(usize, alignment);
+}
+
+/// Returns whether `alignment` is a valid alignment, meaning it is
+/// a positive power of 2.
+pub fn isValidAlignGeneric(comptime T: type, alignment: T) bool {
+    return alignment > 0 and std.math.isPowerOfTwo(alignment);
 }
 
 pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
-    if (@popCount(alignment) == 1)
+    if (isValidAlign(alignment))
         return isAligned(i, alignment);
     assert(alignment != 0);
     return 0 == @mod(i, alignment);

@@ -1359,23 +1359,53 @@ test "under-aligned struct field" {
     try expect(result == 1234);
 }
 
-test "address of zero-bit field is equal to address of only field" {
+test "fieldParentPtr of a zero-bit field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    {
-        const A = struct { b: void = {}, u: u8 };
-        var a = A{ .u = 0 };
-        const a_ptr = @fieldParentPtr(A, "b", &a.b);
-        try std.testing.expectEqual(&a, a_ptr);
-    }
-    {
-        const A = struct { u: u8, b: void = {} };
-        var a = A{ .u = 0 };
-        const a_ptr = @fieldParentPtr(A, "b", &a.b);
-        try std.testing.expectEqual(&a, a_ptr);
-    }
+    const S = struct {
+        fn testStruct(comptime A: type) !void {
+            {
+                const a = A{ .u = 0 };
+                const b_ptr = &a.b;
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+            {
+                var a = A{ .u = 0 };
+                const b_ptr = &a.b;
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+        }
+        fn testNestedStruct(comptime A: type) !void {
+            {
+                const a = A{ .u = 0 };
+                const c_ptr = &a.b.c;
+                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                try std.testing.expectEqual(&a.b, b_ptr);
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+            {
+                var a = A{ .u = 0 };
+                const c_ptr = &a.b.c;
+                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                try std.testing.expectEqual(&a.b, b_ptr);
+                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                try std.testing.expectEqual(&a, a_ptr);
+            }
+        }
+        fn doTheTest() !void {
+            try testStruct(struct { b: void = {}, u: u8 });
+            try testStruct(struct { u: u8, b: void = {} });
+            try testNestedStruct(struct { b: struct { c: void = {} } = .{}, u: u8 });
+            try testNestedStruct(struct { u: u8, b: struct { c: void = {} } = .{} });
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "struct field has a pointer to an aligned version of itself" {
