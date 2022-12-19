@@ -2969,7 +2969,7 @@ pub const DeclGen = struct {
 
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
-                var big_align: u32 = 0;
+                var big_align: u32 = 1;
                 var any_underaligned_fields = false;
 
                 for (struct_obj.fields.values()) |field| {
