@@ -31,16 +31,22 @@ eof: bool,
 pub fn init(stream: net.Stream, host: []const u8) !Client {
     const host_len = @intCast(u16, host.len);
 
-    const kp = crypto.dh.X25519.KeyPair.create(null) catch |err| switch (err) {
-        // Only possible to happen if the private key is all zeroes.
-        error.IdentityElement => return error.InsufficientEntropy,
-    };
-
-    // This is used both for the random bytes and for the legacy session id.
-    var random_buffer: [64]u8 = undefined;
+    var random_buffer: [128]u8 = undefined;
     crypto.random.bytes(&random_buffer);
     const hello_rand = random_buffer[0..32].*;
     const legacy_session_id = random_buffer[32..64].*;
+    const x25519_kp_seed = random_buffer[64..96].*;
+    const secp256r1_kp_seed = random_buffer[96..128].*;
+
+    const x25519_kp = crypto.dh.X25519.KeyPair.create(x25519_kp_seed) catch |err| switch (err) {
+        // Only possible to happen if the private key is all zeroes.
+        error.IdentityElement => return error.InsufficientEntropy,
+    };
+    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.create(secp256r1_kp_seed) catch |err| switch (err) {
+        // Only possible to happen if the private key is all zeroes.
+        error.IdentityElement => return error.InsufficientEntropy,
+    };
+    _ = secp256r1_kp;
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -66,14 +72,10 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
         //.secp256r1,
         .x25519,
-    })) ++ [_]u8{
-        // Extension: key_share
-        0, 51, // ExtensionType.key_share
-        0, 38, // byte length of this extension payload
-        0, 36, // byte length of client_shares
-        0x00, 0x1D, // NamedGroup.x25519
-        0, 32, // byte length of key_exchange
-    } ++ kp.public_key ++
+    })) ++ tls.extension(
+        .key_share,
+        array(1, int2(@enumToInt(tls.NamedGroup.x25519)) ++ array(1, x25519_kp.public_key)),
+    ) ++
         int2(@enumToInt(tls.ExtensionType.server_name)) ++
         int2(host_len + 5) ++ // byte length of this extension payload
         int2(host_len + 3) ++ // server_name_list byte count
@@ -230,7 +232,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                 }
 
                 const shared_key = crypto.dh.X25519.scalarmult(
-                    kp.secret_key,
+                    x25519_kp.secret_key,
                     x25519_server_pub_key.*,
                 ) catch return error.TlsDecryptFailure;
 
