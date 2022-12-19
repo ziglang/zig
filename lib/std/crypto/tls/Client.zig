@@ -36,9 +36,11 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
         error.IdentityElement => return error.InsufficientEntropy,
     };
 
-    // random (u32)
-    var rand_buf: [32]u8 = undefined;
-    crypto.random.bytes(&rand_buf);
+    // This is used both for the random bytes and for the legacy session id.
+    var random_buffer: [64]u8 = undefined;
+    crypto.random.bytes(&random_buffer);
+    const hello_rand = random_buffer[0..32].*;
+    const legacy_session_id = random_buffer[32..64].*;
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -86,8 +88,8 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
 
     const client_hello =
         int2(@enumToInt(tls.ProtocolVersion.tls_1_2)) ++
-        rand_buf ++
-        [1]u8{0} ++
+        hello_rand ++
+        [1]u8{32} ++ legacy_session_id ++
         cipher_suites ++
         int2(legacy_compression_methods) ++
         extensions_header;
@@ -152,46 +154,55 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                 }
                 const length = mem.readIntBig(u24, frag[1..4]);
                 if (4 + length != frag.len) return error.TlsBadLength;
-                const hello = frag[4..];
-                const legacy_version = mem.readIntBig(u16, hello[0..2]);
-                const random = hello[2..34].*;
+                var i: usize = 4;
+                const legacy_version = mem.readIntBig(u16, frag[i..][0..2]);
+                i += 2;
+                const random = frag[i..][0..32].*;
+                i += 32;
                 if (mem.eql(u8, &random, &tls.hello_retry_request_sequence)) {
                     @panic("TODO handle HelloRetryRequest");
                 }
-                const legacy_session_id_echo_len = hello[34];
-                if (legacy_session_id_echo_len != 0) return error.TlsIllegalParameter;
-                const cipher_suite_int = mem.readIntBig(u16, hello[35..37]);
+                const legacy_session_id_echo_len = frag[i];
+                i += 1;
+                if (legacy_session_id_echo_len != 32) return error.TlsIllegalParameter;
+                const legacy_session_id_echo = frag[i..][0..32];
+                if (!mem.eql(u8, legacy_session_id_echo, &legacy_session_id))
+                    return error.TlsIllegalParameter;
+                i += 32;
+                const cipher_suite_int = mem.readIntBig(u16, frag[i..][0..2]);
+                i += 2;
                 const cipher_suite_tag = @intToEnum(CipherSuite, cipher_suite_int);
                 std.debug.print("server wants cipher suite {any}\n", .{cipher_suite_tag});
-                const legacy_compression_method = hello[37];
+                const legacy_compression_method = frag[i];
+                i += 1;
                 _ = legacy_compression_method;
-                const extensions_size = mem.readIntBig(u16, hello[38..40]);
-                if (40 + extensions_size != hello.len) return error.TlsBadLength;
-                var i: usize = 40;
+                const extensions_size = mem.readIntBig(u16, frag[i..][0..2]);
+                i += 2;
+                if (i + extensions_size != frag.len) return error.TlsBadLength;
                 var supported_version: u16 = 0;
                 var opt_x25519_server_pub_key: ?*[32]u8 = null;
-                while (i < hello.len) {
-                    const et = mem.readIntBig(u16, hello[i..][0..2]);
+                while (i < frag.len) {
+                    const et = mem.readIntBig(u16, frag[i..][0..2]);
                     i += 2;
-                    const ext_size = mem.readIntBig(u16, hello[i..][0..2]);
+                    const ext_size = mem.readIntBig(u16, frag[i..][0..2]);
                     i += 2;
                     const next_i = i + ext_size;
-                    if (next_i > hello.len) return error.TlsBadLength;
+                    if (next_i > frag.len) return error.TlsBadLength;
                     switch (et) {
                         @enumToInt(tls.ExtensionType.supported_versions) => {
                             if (supported_version != 0) return error.TlsIllegalParameter;
-                            supported_version = mem.readIntBig(u16, hello[i..][0..2]);
+                            supported_version = mem.readIntBig(u16, frag[i..][0..2]);
                         },
                         @enumToInt(tls.ExtensionType.key_share) => {
                             if (opt_x25519_server_pub_key != null) return error.TlsIllegalParameter;
-                            const named_group = mem.readIntBig(u16, hello[i..][0..2]);
+                            const named_group = mem.readIntBig(u16, frag[i..][0..2]);
                             i += 2;
                             switch (named_group) {
                                 @enumToInt(tls.NamedGroup.x25519) => {
-                                    const key_size = mem.readIntBig(u16, hello[i..][0..2]);
+                                    const key_size = mem.readIntBig(u16, frag[i..][0..2]);
                                     i += 2;
                                     if (key_size != 32) return error.TlsBadLength;
-                                    opt_x25519_server_pub_key = hello[i..][0..32];
+                                    opt_x25519_server_pub_key = frag[i..][0..32];
                                 },
                                 else => {
                                     std.debug.print("named group: {x}\n", .{named_group});
