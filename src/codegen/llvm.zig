@@ -4125,7 +4125,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
         if (bitcast_needed) {
-            return llvm_ptr.constBitCast((try dg.lowerType(ptr_child_ty)).pointerType(0));
+            return llvm_ptr.constBitCast((try dg.lowerPtrElemTy(ptr_child_ty)).pointerType(0));
         } else {
             return llvm_ptr;
         }
