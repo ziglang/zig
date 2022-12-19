@@ -796,17 +796,11 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
             try expectEqual(expectedTag, actualTag);
 
             // we only reach this loop if the tags are equal
-            inline for (std.meta.fields(@TypeOf(actual))) |fld| {
-                if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
-                    try expectEqualDeep(@field(expected, fld.name), @field(actual, fld.name));
-                    return;
+            switch (expected) {
+                inline else => |val, tag| {
+                    try expectEqualDeep(val, @field(actual, @tagName(tag)));
                 }
             }
-
-            // we iterate over *all* union fields
-            // => we should never get here as the loop above is
-            //    including all possible values.
-            unreachable;
         },
 
         .Optional => {
