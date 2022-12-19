@@ -310,3 +310,37 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     Hmac.create(&result, message, &key);
     return result;
 }
+
+pub inline fn extension(comptime et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
+    return int2(@enumToInt(et)) ++ array(1, bytes);
+}
+
+pub inline fn array(comptime elem_size: comptime_int, bytes: anytype) [2 + bytes.len]u8 {
+    comptime assert(bytes.len % elem_size == 0);
+    return int2(bytes.len) ++ bytes;
+}
+
+pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeOf(E) * tags.len]u8 {
+    assert(@sizeOf(E) == 2);
+    var result: [tags.len * 2]u8 = undefined;
+    for (tags) |elem, i| {
+        result[i * 2] = @truncate(u8, @enumToInt(elem) >> 8);
+        result[i * 2 + 1] = @truncate(u8, @enumToInt(elem));
+    }
+    return array(2, result);
+}
+
+pub inline fn int2(x: u16) [2]u8 {
+    return .{
+        @truncate(u8, x >> 8),
+        @truncate(u8, x),
+    };
+}
+
+pub inline fn int3(x: u24) [3]u8 {
+    return .{
+        @truncate(u8, x >> 16),
+        @truncate(u8, x >> 8),
+        @truncate(u8, x),
+    };
+}

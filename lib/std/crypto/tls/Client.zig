@@ -13,6 +13,10 @@ const HandshakeType = tls.HandshakeType;
 const CipherParams = tls.CipherParams;
 const max_ciphertext_len = tls.max_ciphertext_len;
 const hkdfExpandLabel = tls.hkdfExpandLabel;
+const int2 = tls.int2;
+const int3 = tls.int3;
+const array = tls.array;
+const enum_array = tls.enum_array;
 
 application_cipher: ApplicationCipher,
 read_seq: u64,
@@ -25,6 +29,8 @@ eof: bool,
 
 /// `host` is only borrowed during this function call.
 pub fn init(stream: net.Stream, host: []const u8) !Client {
+    const host_len = @intCast(u16, host.len);
+
     const kp = crypto.dh.X25519.KeyPair.create(null) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
@@ -34,92 +40,70 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
     var rand_buf: [32]u8 = undefined;
     crypto.random.bytes(&rand_buf);
 
-    const extensions_header = [_]u8{
-        // Extensions byte length
-        undefined, undefined,
-
-        // Extension: supported_versions (only TLS 1.3)
-        0, 43, // ExtensionType.supported_versions
-        0x00, 0x05, // byte length of this extension payload
-        0x04, // byte length of supported versions
+    const extensions_payload =
+        tls.extension(.supported_versions, [_]u8{
+        0x02, // byte length of supported versions
         0x03, 0x04, // TLS 1.3
-        0x03, 0x03, // TLS 1.2
-
-        // Extension: signature_algorithms
-        0, 13, // ExtensionType.signature_algorithms
-        0x00, 0x22, // byte length of this extension payload
-        0x00, 0x20, // byte length of signature algorithms list
-        0x04, 0x01, // rsa_pkcs1_sha256
-        0x05, 0x01, // rsa_pkcs1_sha384
-        0x06, 0x01, // rsa_pkcs1_sha512
-        0x04, 0x03, // ecdsa_secp256r1_sha256
-        0x05, 0x03, // ecdsa_secp384r1_sha384
-        0x06, 0x03, // ecdsa_secp521r1_sha512
-        0x08, 0x04, // rsa_pss_rsae_sha256
-        0x08, 0x05, // rsa_pss_rsae_sha384
-        0x08, 0x06, // rsa_pss_rsae_sha512
-        0x08, 0x07, // ed25519
-        0x08, 0x08, // ed448
-        0x08, 0x09, // rsa_pss_pss_sha256
-        0x08, 0x0a, // rsa_pss_pss_sha384
-        0x08, 0x0b, // rsa_pss_pss_sha512
-        0x02, 0x01, // rsa_pkcs1_sha1
-        0x02, 0x03, // ecdsa_sha1
-
-        // Extension: supported_groups
-        0, 10, // ExtensionType.supported_groups
-        0x00, 0x0c, // byte length of this extension payload
-        0x00, 0x0a, // byte length of supported groups list
-        0x00, 0x17, // secp256r1
-        0x00, 0x18, // secp384r1
-        0x00, 0x19, // secp521r1
-        0x00, 0x1D, // x25519
-        0x00, 0x1E, // x448
-
+    }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
+        .rsa_pkcs1_sha256,
+        .rsa_pkcs1_sha384,
+        .rsa_pkcs1_sha512,
+        .ecdsa_secp256r1_sha256,
+        .ecdsa_secp384r1_sha384,
+        .ecdsa_secp521r1_sha512,
+        .rsa_pss_rsae_sha256,
+        .rsa_pss_rsae_sha384,
+        .rsa_pss_rsae_sha512,
+        .ed25519,
+        .ed448,
+        .rsa_pss_pss_sha256,
+        .rsa_pss_pss_sha384,
+        .rsa_pss_pss_sha512,
+        .rsa_pkcs1_sha1,
+        .ecdsa_sha1,
+    })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
+        //.secp256r1,
+        .x25519,
+    })) ++ [_]u8{
         // Extension: key_share
         0, 51, // ExtensionType.key_share
         0, 38, // byte length of this extension payload
         0, 36, // byte length of client_shares
         0x00, 0x1D, // NamedGroup.x25519
         0, 32, // byte length of key_exchange
-    } ++ kp.public_key ++ [_]u8{
+    } ++ kp.public_key ++
+        int2(@enumToInt(tls.ExtensionType.server_name)) ++
+        int2(host_len + 5) ++ // byte length of this extension payload
+        int2(host_len + 3) ++ // server_name_list byte count
+        [1]u8{0x00} ++ // name_type
+        int2(host_len);
 
-        // Extension: server_name
-        0, 0, // ExtensionType.server_name
-        undefined, undefined, // byte length of this extension payload
-        undefined, undefined, // server_name_list byte count
-        0x00, // name_type
-        undefined, undefined, // host name len
-    };
+    const extensions_header =
+        int2(@intCast(u16, extensions_payload.len + host_len)) ++
+        extensions_payload;
 
-    var hello_header = [_]u8{
+    const legacy_compression_methods = 0x0100;
+
+    const client_hello =
+        int2(@enumToInt(tls.ProtocolVersion.tls_1_2)) ++
+        rand_buf ++
+        [1]u8{0} ++
+        cipher_suites ++
+        int2(legacy_compression_methods) ++
+        extensions_header;
+
+    const handshake =
+        [_]u8{@enumToInt(HandshakeType.client_hello)} ++
+        int3(@intCast(u24, client_hello.len + host_len)) ++
+        client_hello;
+
+    const hello_header = [_]u8{
         // Plaintext header
         @enumToInt(ContentType.handshake),
         0x03, 0x01, // legacy_record_version
-        undefined,                              undefined, // Plaintext fragment length (u16)
-
-        // Handshake header
-        @enumToInt(HandshakeType.client_hello),
-        undefined, undefined, undefined, // handshake length (u24)
-
-        // ClientHello
-        0x03, 0x03, // legacy_version
-    } ++ rand_buf ++ [1]u8{0} ++
-        int2(cipher_suites.len) ++ cipher_suites ++
-        [_]u8{
-        0x01, 0x00, // legacy_compression_methods
-    } ++ extensions_header;
-
-    mem.writeIntBig(u16, hello_header[3..][0..2], @intCast(u16, hello_header.len - 5 + host.len));
-    mem.writeIntBig(u24, hello_header[6..][0..3], @intCast(u24, hello_header.len - 9 + host.len));
-    mem.writeIntBig(
-        u16,
-        hello_header[hello_header.len - extensions_header.len ..][0..2],
-        @intCast(u16, extensions_header.len - 2 + host.len),
-    );
-    mem.writeIntBig(u16, hello_header[hello_header.len - 7 ..][0..2], @intCast(u16, 5 + host.len));
-    mem.writeIntBig(u16, hello_header[hello_header.len - 5 ..][0..2], @intCast(u16, 3 + host.len));
-    mem.writeIntBig(u16, hello_header[hello_header.len - 2 ..][0..2], @intCast(u16, 0 + host.len));
+    } ++
+        int2(@intCast(u16, handshake.len + host_len)) ++
+        handshake;
 
     {
         var iovecs = [_]std.os.iovec_const{
@@ -699,13 +683,6 @@ inline fn big(x: anytype) @TypeOf(x) {
     };
 }
 
-inline fn int2(x: u16) [2]u8 {
-    return .{
-        @truncate(u8, x >> 8),
-        @truncate(u8, x),
-    };
-}
-
 /// The priority order here is chosen based on what crypto algorithms Zig has
 /// available in the standard library as well as what is faster. Following are
 /// a few data points on the relative performance of these algorithms.
@@ -727,9 +704,10 @@ inline fn int2(x: u16) [2]u8 {
 ///        aegis-256:        461 MiB/s
 ///       aes128-gcm:        138 MiB/s
 ///       aes256-gcm:        120 MiB/s
-const cipher_suites =
-    int2(@enumToInt(tls.CipherSuite.AEGIS_128L_SHA256)) ++
-    int2(@enumToInt(tls.CipherSuite.AEGIS_256_SHA384)) ++
-    int2(@enumToInt(tls.CipherSuite.AES_128_GCM_SHA256)) ++
-    int2(@enumToInt(tls.CipherSuite.AES_256_GCM_SHA384)) ++
-    int2(@enumToInt(tls.CipherSuite.CHACHA20_POLY1305_SHA256));
+const cipher_suites = enum_array(tls.CipherSuite, &.{
+    .AEGIS_128L_SHA256,
+    .AEGIS_256_SHA384,
+    .AES_128_GCM_SHA256,
+    .AES_256_GCM_SHA384,
+    .CHACHA20_POLY1305_SHA256,
+});
