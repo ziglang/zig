@@ -173,8 +173,8 @@ typedef char bool;
 #define memory_order_acq_rel __ATOMIC_ACQ_REL
 #define memory_order_seq_cst __ATOMIC_SEQ_CST
 #define zig_atomic(type) type
-#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, types) __atomic_compare_exchange_n(obj, &(expected), desired, false, succ, fail)
-#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, types) __atomic_compare_exchange_n(obj, &(expected), desired, true , succ, fail)
+#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, type) __atomic_compare_exchange_n(obj, &(expected), desired, false, succ, fail)
+#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, type) __atomic_compare_exchange_n(obj, &(expected), desired, true , succ, fail)
 #define zig_atomicrmw_xchg(obj, arg, order, type) __atomic_exchange_n(obj, arg, order)
 #define  zig_atomicrmw_add(obj, arg, order, type) __atomic_fetch_add (obj, arg, order)
 #define  zig_atomicrmw_sub(obj, arg, order, type) __atomic_fetch_sub (obj, arg, order)
