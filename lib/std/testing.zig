@@ -680,6 +680,8 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// Struct values are deeply equal if their corresponding fields are deeply equal.
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
+///
+/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
 pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
@@ -718,16 +720,26 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
 
         .Pointer => |pointer| {
             switch (pointer.size) {
-                .C => {
+                // We have no idea what is behind those pointers, so the best we can do is `==` check.
+                .C, .Many => {
                     if (actual != expected) {
                         std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
                 .One => {
-                    try expectEqualDeep(expected.*, actual.*);
+                    // Length of those pointers are runtime value, so the best we can do is `==` check.
+                    switch (@typeInfo(pointer.child)) {
+                        .Fn, .Opaque => {
+                            if (actual != expected) {
+                                std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
+                                return error.TestExpectedEqual;
+                            }
+                        },
+                        else => try expectEqualDeep(expected.*, actual.*),
+                    }
                 },
-                .Many, .Slice => {
+                .Slice => {
                     if (expected.len != actual.len) {
                         std.debug.print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;
@@ -735,7 +747,7 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
                     var i: usize = 0;
                     while (i < expected.len) : (i += 1) {
                         expectEqualDeep(expected[i], actual[i]) catch |e| {
-                            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{
+                            std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
                                 i, expected[i], actual[i],
                             });
                             return e;
@@ -753,7 +765,7 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
             var i: usize = 0;
             while (i < expected.len) : (i += 1) {
                 expectEqualDeep(expected[i], actual[i]) catch |e| {
-                    std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{
+                    std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return e;
@@ -769,7 +781,7 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 expectEqualDeep(expected[i], actual[i]) catch |e| {
-                    std.debug.print("index {} incorrect. expected {}, found {}\n", .{
+                    std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return e;
@@ -779,7 +791,10 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
 
         .Struct => |structType| {
             inline for (structType.fields) |field| {
-                try expectEqualDeep(@field(expected, field.name), @field(actual, field.name));
+                expectEqualDeep(@field(expected, field.name), @field(actual, field.name)) catch |e| {
+                    std.debug.print("Field {s} incorrect. expected {any}, found {any}\n", .{ field.name, @field(expected, field.name), @field(actual, field.name) });
+                    return e;
+                };
             }
         },
 
@@ -799,7 +814,7 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
             switch (expected) {
                 inline else => |val, tag| {
                     try expectEqualDeep(val, @field(actual, @tagName(tag)));
-                }
+                },
             }
         },
 
@@ -824,12 +839,12 @@ pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
                 if (actual) |actual_payload| {
                     try expectEqualDeep(expected_payload, actual_payload);
                 } else |actual_err| {
-                    std.debug.print("expected {any}, found {}\n", .{ expected_payload, actual_err });
+                    std.debug.print("expected {any}, found {any}\n", .{ expected_payload, actual_err });
                     return error.TestExpectedEqual;
                 }
             } else |expected_err| {
                 if (actual) |actual_payload| {
-                    std.debug.print("expected {}, found {any}\n", .{ expected_err, actual_payload });
+                    std.debug.print("expected {any}, found {any}\n", .{ expected_err, actual_payload });
                     return error.TestExpectedEqual;
                 } else |actual_err| {
                     try expectEqualDeep(expected_err, actual_err);
@@ -843,6 +858,31 @@ test "expectEqualDeep primitive type" {
     try expectEqualDeep(1, 1);
     try expectEqualDeep(true, true);
     try expectEqualDeep(1.5, 1.5);
+    try expectEqualDeep(u8, u8);
+    try expectEqualDeep(error.Bad, error.Bad);
+
+    // optional
+    {
+        const foo: ?u32 = 1;
+        const bar: ?u32 = 1;
+        try expectEqualDeep(foo, bar);
+        try expectEqualDeep(?u32, ?u32);
+    }
+    // function type
+    {
+        const fnType = struct {
+            fn foo() void {
+                unreachable;
+            }
+        }.foo;
+        try expectEqualDeep(fnType, fnType);
+    }
+}
+
+test "expectEqualDeep pointer" {
+    const a = 1;
+    const b = 1;
+    try expectEqualDeep(&a, &b);
 }
 
 test "expectEqualDeep composite type" {
@@ -858,6 +898,22 @@ test "expectEqualDeep composite type" {
 
     // vector
     try expectEqualDeep(@splat(4, @as(u32, 4)), @splat(4, @as(u32, 4)));
+
+    // nested array
+    {
+        const a = [2][2]f32{
+            [_]f32{ 1.0, 0.0 },
+            [_]f32{ 0.0, 1.0 },
+        };
+
+        const b = [2][2]f32{
+            [_]f32{ 1.0, 0.0 },
+            [_]f32{ 0.0, 1.0 },
+        };
+
+        try expectEqualDeep(a, b);
+        try expectEqualDeep(&a, &b);
+    }
 }
 
 test "expectEqualDeep bad case" {
