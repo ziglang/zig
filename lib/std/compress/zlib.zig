@@ -107,21 +107,21 @@ fn testReader(data: []const u8, expected: []const u8) !void {
 // https://tools.ietf.org/rfc/rfc1951.txt length=36944 bytes
 // SHA256=5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009
 test "compressed data" {
-    const rfc1951_txt = @embedFile("rfc1951.txt");
+    const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
     // Compressed with compression level = 0
     try testReader(
-        @embedFile("rfc1951.txt.z.0"),
+        @embedFile("testdata/rfc1951.txt.z.0"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9
     try testReader(
-        @embedFile("rfc1951.txt.z.9"),
+        @embedFile("testdata/rfc1951.txt.z.9"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9 and fixed Huffman codes
     try testReader(
-        @embedFile("rfc1951.txt.fixed.z.9"),
+        @embedFile("testdata/rfc1951.txt.fixed.z.9"),
         rfc1951_txt,
     );
 }
