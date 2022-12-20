@@ -423,9 +423,40 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const opcode = emit.mir.instructions.items(.secondary)[inst];
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(0xFC);
+    try leb128.writeULEB128(writer, opcode);
     switch (@intToEnum(std.wasm.PrefixedOpcode, opcode)) {
-        .memory_fill => try emit.emitMemFill(),
+        // bulk-memory opcodes
+        .data_drop => {
+            const segment = emit.mir.extra[extra_index + 1];
+            try leb128.writeULEB128(writer, segment);
+        },
+        .memory_init => {
+            const segment = emit.mir.extra[extra_index + 1];
+            try leb128.writeULEB128(writer, segment);
+            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+        },
+        .memory_fill => {
+            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+        },
+        .memory_copy => {
+            try leb128.writeULEB128(writer, @as(u32, 0)); // dst memory index
+            try leb128.writeULEB128(writer, @as(u32, 0)); // src memory index
+        },
+
+        // nontrapping-float-to-int-conversion opcodes
+        .i32_trunc_sat_f32_s,
+        .i32_trunc_sat_f32_u,
+        .i32_trunc_sat_f64_s,
+        .i32_trunc_sat_f64_u,
+        .i64_trunc_sat_f32_s,
+        .i64_trunc_sat_f32_u,
+        .i64_trunc_sat_f64_s,
+        .i64_trunc_sat_f64_u,
+        => {}, // opcode already written
         else => |tag| return emit.fail("TODO: Implement extension instruction: {s}\n", .{@tagName(tag)}),
     }
 }

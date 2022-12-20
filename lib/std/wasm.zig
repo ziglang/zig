@@ -215,7 +215,9 @@ test "Wasm - opcodes" {
 }
 
 /// Opcodes that require a prefix `0xFC`
-pub const PrefixedOpcode = enum(u8) {
+/// Each opcode represents a varuint32, meaning
+/// they are encoded as leb128 in binary.
+pub const PrefixedOpcode = enum(u32) {
     i32_trunc_sat_f32_s = 0x00,
     i32_trunc_sat_f32_u = 0x01,
     i32_trunc_sat_f64_s = 0x02,

@@ -905,7 +905,9 @@ fn addTag(func: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
 }
 
 fn addExtended(func: *CodeGen, opcode: wasm.PrefixedOpcode) error{OutOfMemory}!void {
-    try func.addInst(.{ .tag = .extended, .secondary = @enumToInt(opcode), .data = .{ .tag = {} } });
+    const extra_index = @intCast(u32, func.mir_extra.items.len);
+    try func.mir_extra.append(func.gpa, @enumToInt(opcode));
+    try func.addInst(.{ .tag = .extended, .data = .{ .payload = extra_index } });
 }
 
 fn addLabel(func: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
