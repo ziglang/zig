@@ -228,6 +228,23 @@ test "zig fmt: top-level enum missing 'const name ='" {
     , &[_]Error{.expected_token});
 }
 
+test "zig fmt: top-level container missing 'const name ='" {
+    // somehow testCanonical() causes these to be interpreted as
+    // .container_field which safely leads to std.Ast.zig firstToken() on L562.
+    // but zls and zig interpret as .container_decl (i think) and both crash
+    // on L621. this can be observed by placing either of the following
+    // contents in a file and running `zig test` on that file or opening that
+    // file with zls.
+    try testCanonical(
+        \\union {}
+        \\
+    );
+    try testCanonical(
+        \\struct {}
+        \\
+    );
+}
+
 test "zig fmt: top-level bare asterisk+identifier" {
     try testCanonical(
         \\*x
