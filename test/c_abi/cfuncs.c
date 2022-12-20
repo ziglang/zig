@@ -742,6 +742,19 @@ SmallVec c_ret_small_vec(void) {
     return (SmallVec){3, 4};
 }
 
+typedef size_t MediumVec __attribute__((vector_size(4 * sizeof(size_t))));
+
+void c_medium_vec(MediumVec vec) {
+    assert_or_panic(vec[0] == 1);
+    assert_or_panic(vec[1] == 2);
+    assert_or_panic(vec[2] == 3);
+    assert_or_panic(vec[3] == 4);
+}
+
+MediumVec c_ret_medium_vec(void) {
+    return (MediumVec){5, 6, 7, 8};
+}
+
 typedef size_t BigVec __attribute__((vector_size(8 * sizeof(size_t))));
 
 void c_big_vec(BigVec vec) {

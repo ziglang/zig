@@ -5973,7 +5973,7 @@ pub const FuncGen = struct {
                         const shift_amt = containing_int.typeOf().constInt(bit_offset, .False);
                         const shifted_value = self.builder.buildLShr(containing_int, shift_amt, "");
                         const elem_llvm_ty = try self.dg.lowerType(field_ty);
-                        if (field_ty.zigTypeTag() == .Float) {
+                        if (field_ty.zigTypeTag() == .Float or field_ty.zigTypeTag() == .Vector) {
                             const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
                             const same_size_int = self.context.intType(elem_bits);
                             const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
@@ -5996,7 +5996,7 @@ pub const FuncGen = struct {
                     assert(struct_ty.containerLayout() == .Packed);
                     const containing_int = struct_llvm_val;
                     const elem_llvm_ty = try self.dg.lowerType(field_ty);
-                    if (field_ty.zigTypeTag() == .Float) {
+                    if (field_ty.zigTypeTag() == .Float or field_ty.zigTypeTag() == .Vector) {
                         const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
                         const same_size_int = self.context.intType(elem_bits);
                         const truncated_int = self.builder.buildTrunc(containing_int, same_size_int, "");
@@ -9896,7 +9896,7 @@ pub const FuncGen = struct {
             return result_ptr;
         }
 
-        if (info.pointee_type.zigTypeTag() == .Float) {
+        if (info.pointee_type.zigTypeTag() == .Float or info.pointee_type.zigTypeTag() == .Vector) {
             const same_size_int = self.context.intType(elem_bits);
             const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
             return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");

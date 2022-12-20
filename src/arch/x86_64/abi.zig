@@ -143,7 +143,8 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                         .integer, .integer, .integer, .integer,
                         .integer, .integer, .integer, .integer,
                     };
-                    if (has_avx512 and bit_size <= 256) return .{
+                    const has_avx = target.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx));
+                    if (has_avx and bit_size <= 256) return .{
                         .integer, .integer, .integer, .integer,
                         .none,    .none,    .none,    .none,
                     };

@@ -344,3 +344,40 @@ test "inline call doesn't re-evaluate non generic struct" {
     try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
     comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
+
+test "Enum constructed by @Type passed as generic argument" {
+    const S = struct {
+        const E = std.meta.FieldEnum(struct {
+            prev_pos: bool,
+            pos: bool,
+            vel: bool,
+            damp_vel: bool,
+            acc: bool,
+            rgba: bool,
+            prev_scale: bool,
+            scale: bool,
+            prev_rotation: bool,
+            rotation: bool,
+            angular_vel: bool,
+            alive: bool,
+        });
+        fn foo(comptime a: E, b: u32) !void {
+            try expect(@enumToInt(a) == b);
+        }
+    };
+    inline for (@typeInfo(S.E).Enum.fields) |_, i| {
+        try S.foo(@intToEnum(S.E, i), i);
+    }
+}
+
+test "generic function with generic function parameter" {
+    const S = struct {
+        fn f(comptime a: fn (anytype) anyerror!void, b: anytype) anyerror!void {
+            try a(b);
+        }
+        fn g(a: anytype) anyerror!void {
+            try expect(a == 123);
+        }
+    };
+    try S.f(S.g, 123);
+}

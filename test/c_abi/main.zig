@@ -801,6 +801,23 @@ test "small simd vector" {
     try expect(x[1] == 4);
 }
 
+const MediumVec = @Vector(4, usize);
+
+extern fn c_medium_vec(MediumVec) void;
+extern fn c_ret_medium_vec() MediumVec;
+
+test "medium simd vector" {
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    c_medium_vec(.{ 1, 2, 3, 4 });
+
+    var x = c_ret_medium_vec();
+    try expect(x[0] == 5);
+    try expect(x[1] == 6);
+    try expect(x[2] == 7);
+    try expect(x[3] == 8);
+}
+
 const BigVec = @Vector(8, usize);
 
 extern fn c_big_vec(BigVec) void;
