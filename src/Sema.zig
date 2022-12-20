@@ -335,6 +335,7 @@ pub const Block = struct {
     /// It is shared among all the blocks in an inline or comptime called
     /// function.
     pub const Inlining = struct {
+        func: ?*Module.Fn,
         comptime_result: Air.Inst.Ref,
         merges: Merges,
     };
@@ -6428,7 +6429,6 @@ fn analyzeCall(
             }),
             else => unreachable,
         };
-        if (!is_comptime_call and module_fn.state == .sema_failure) return error.AnalysisFail;
         if (func_ty_info.is_var_args) {
             return sema.fail(block, call_src, "{s} call of variadic function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
@@ -6448,6 +6448,7 @@ fn analyzeCall(
         // This one is shared among sub-blocks within the same callee, but not
         // shared among the entire inline/comptime call stack.
         var inlining: Block.Inlining = .{
+            .func = null,
             .comptime_result = undefined,
             .merges = .{
                 .results = .{},
@@ -6534,6 +6535,7 @@ fn analyzeCall(
         const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
         try sema.inst_map.ensureSpaceForInstructions(sema.gpa, fn_info.param_body);
 
+        var has_comptime_args = false;
         var arg_i: usize = 0;
         for (fn_info.param_body) |inst| {
             sema.analyzeInlineCallArg(
@@ -6549,6 +6551,7 @@ fn analyzeCall(
                 memoized_call_key,
                 func_ty_info.param_types,
                 func,
+                &has_comptime_args,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
@@ -6566,12 +6569,26 @@ fn analyzeCall(
                         memoized_call_key,
                         func_ty_info.param_types,
                         func,
+                        &has_comptime_args,
                     );
                     unreachable;
                 },
                 else => |e| return e,
             };
         }
+
+        if (!has_comptime_args and module_fn.state == .sema_failure) return error.AnalysisFail;
+
+        const recursive_msg = "inline call is recursive";
+        var head = if (!has_comptime_args) block else null;
+        while (head) |some| {
+            const parent_inlining = some.inlining orelse break;
+            if (parent_inlining.func == module_fn) {
+                return sema.fail(block, call_src, recursive_msg, .{});
+            }
+            head = some.parent;
+        }
+        if (!has_comptime_args) inlining.func = module_fn;
 
         // In case it is a generic function with an expression for the return type that depends
         // on parameters, we must now do the same for the return type as we just did with
@@ -6657,6 +6674,7 @@ fn analyzeCall(
                     error.ComptimeReturn => break :result inlining.comptime_result,
                     error.AnalysisFail => {
                         const err_msg = sema.err orelse return err;
+                        if (std.mem.eql(u8, err_msg.msg, recursive_msg)) return err;
                         try sema.errNote(block, call_src, err_msg, "called from here", .{});
                         err_msg.clearTrace(sema.gpa);
                         return err;
@@ -6814,8 +6832,13 @@ fn analyzeInlineCallArg(
     memoized_call_key: Module.MemoizedCall.Key,
     raw_param_types: []const Type,
     func_inst: Air.Inst.Ref,
+    has_comptime_args: *bool,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
+    switch (zir_tags[inst]) {
+        .param_comptime, .param_anytype_comptime => has_comptime_args.* = true,
+        else => {},
+    }
     switch (zir_tags[inst]) {
         .param, .param_comptime => {
             // Evaluate the parameter type expression now that previous ones have
@@ -6870,14 +6893,12 @@ fn analyzeInlineCallArg(
                     .ty = param_ty,
                     .val = arg_val,
                 };
-            } else if (zir_tags[inst] == .param_comptime or try sema.typeRequiresComptime(param_ty)) {
-                sema.inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
-            } else if (try sema.resolveMaybeUndefVal(casted_arg)) |val| {
-                // We have a comptime value but we need a runtime value to preserve inlining semantics,
-                const wrapped = try sema.addConstant(param_ty, try Value.Tag.runtime_value.create(sema.arena, val));
-                sema.inst_map.putAssumeCapacityNoClobber(inst, wrapped);
             } else {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
+            }
+
+            if (try sema.resolveMaybeUndefVal(casted_arg)) |_| {
+                has_comptime_args.* = true;
             }
 
             arg_i.* += 1;
@@ -6886,7 +6907,6 @@ fn analyzeInlineCallArg(
             // No coercion needed.
             const uncasted_arg = uncasted_args[arg_i.*];
             new_fn_info.param_types[arg_i.*] = sema.typeOf(uncasted_arg);
-            const param_ty = sema.typeOf(uncasted_arg);
 
             if (is_comptime_call) {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
@@ -6912,14 +6932,12 @@ fn analyzeInlineCallArg(
                     .ty = sema.typeOf(uncasted_arg),
                     .val = arg_val,
                 };
-            } else if (zir_tags[inst] == .param_anytype_comptime or try sema.typeRequiresComptime(param_ty)) {
-                sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
-            } else if (try sema.resolveMaybeUndefVal(uncasted_arg)) |val| {
-                // We have a comptime value but we need a runtime value to preserve inlining semantics,
-                const wrapped = try sema.addConstant(param_ty, try Value.Tag.runtime_value.create(sema.arena, val));
-                sema.inst_map.putAssumeCapacityNoClobber(inst, wrapped);
             } else {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
+            }
+
+            if (try sema.resolveMaybeUndefVal(uncasted_arg)) |_| {
+                has_comptime_args.* = true;
             }
 
             arg_i.* += 1;
