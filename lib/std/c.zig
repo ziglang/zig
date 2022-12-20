@@ -371,7 +371,6 @@ pub extern "c" fn pthread_rwlock_trywrlock(rwl: *c.pthread_rwlock_t) callconv(.C
 pub extern "c" fn pthread_rwlock_unlock(rwl: *c.pthread_rwlock_t) callconv(.C) c.E;
 
 pub const pthread_t = *opaque {};
-pub const pthread_key_t = *opaque {};
 pub const FILE = opaque {};
 
 pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*anyopaque;
