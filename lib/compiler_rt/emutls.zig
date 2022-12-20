@@ -86,12 +86,10 @@ const ObjectArray = struct {
     /// create a new ObjectArray with n slots. must call deinit() to deallocate.
     pub fn init(n: usize) *ObjectArray {
         var array = simple_allocator.alloc(ObjectArray);
-        errdefer simple_allocator.free(array);
 
         array.* = ObjectArray{
             .slots = simple_allocator.allocSlice(?ObjectPointer, n),
         };
-        errdefer simple_allocator.free(array.slots);
 
         for (array.slots) |*object| {
             object.* = null;
