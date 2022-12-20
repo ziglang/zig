@@ -7256,6 +7256,7 @@ fn instantiateGenericCall(
         child_block.error_return_trace_index = error_return_trace_index;
 
         const new_func_inst = child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst) catch |err| {
+            if (err == error.GenericPoison) return error.GenericPoison;
             // TODO look up the compile error that happened here and attach a note to it
             // pointing here, at the generic instantiation callsite.
             if (sema.owner_func) |owner_func| {
@@ -8864,6 +8865,11 @@ fn zirParam(
         };
         switch (err) {
             error.GenericPoison => {
+                if (sema.inst_map.get(inst)) |_| {
+                    // A generic function is about to evaluate to another generic function.
+                    // Return an error instead.
+                    return error.GenericPoison;
+                }
                 // The type is not available until the generic instantiation.
                 // We result the param instruction with a poison value and
                 // insert an anytype parameter.
@@ -8880,6 +8886,11 @@ fn zirParam(
     };
     const is_comptime = sema.typeRequiresComptime(param_ty) catch |err| switch (err) {
         error.GenericPoison => {
+            if (sema.inst_map.get(inst)) |_| {
+                // A generic function is about to evaluate to another generic function.
+                // Return an error instead.
+                return error.GenericPoison;
+            }
             // The type is not available until the generic instantiation.
             // We result the param instruction with a poison value and
             // insert an anytype parameter.

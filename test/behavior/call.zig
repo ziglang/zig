@@ -369,3 +369,15 @@ test "Enum constructed by @Type passed as generic argument" {
         try S.foo(@intToEnum(S.E, i), i);
     }
 }
+
+test "generic function with generic function parameter" {
+    const S = struct {
+        fn f(comptime a: fn (anytype) anyerror!void, b: anytype) anyerror!void {
+            try a(b);
+        }
+        fn g(a: anytype) anyerror!void {
+            try expect(a == 123);
+        }
+    };
+    try S.f(S.g, 123);
+}
