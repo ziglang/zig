@@ -1,5 +1,6 @@
 const std = @import("../../std.zig");
 const tls = std.crypto.tls;
+const Der = std.crypto.Der;
 const Client = @This();
 const net = std.net;
 const mem = std.mem;
@@ -28,7 +29,7 @@ partially_read_len: u15,
 eof: bool,
 
 /// `host` is only borrowed during this function call.
-pub fn init(stream: net.Stream, host: []const u8) !Client {
+pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []const u8) !Client {
     const host_len = @intCast(u16, host.len);
 
     var random_buffer: [128]u8 = undefined;
@@ -392,7 +393,7 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                                     switch (cipher_params) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
-                                    var hs_i: usize = 0;
+                                    var hs_i: u32 = 0;
                                     const cert_req_ctx_len = handshake[hs_i];
                                     hs_i += 1;
                                     if (cert_req_ctx_len != 0) return error.TlsIllegalParameter;
@@ -404,75 +405,47 @@ pub fn init(stream: net.Stream, host: []const u8) !Client {
                                         hs_i += 3;
                                         const end_cert = hs_i + cert_size;
 
-                                        const certificate = try tls.Der.parseElement(handshake, &hs_i);
+                                        const certificate = try Der.parseElement(handshake, hs_i);
+                                        const tbs_certificate = try Der.parseElement(handshake, certificate.start);
+
+                                        const version = try Der.parseElement(handshake, tbs_certificate.start);
+                                        if (@bitCast(u8, version.identifier) != 0xa0 or
+                                            !mem.eql(u8, handshake[version.start..version.end], "\x02\x01\x02"))
                                         {
-                                            var cert_i: usize = 0;
-                                            const tbs_certificate = try tls.Der.parseElement(certificate.contents, &cert_i);
-                                            {
-                                                var tbs_i: usize = 0;
-                                                const version = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const serial_number = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const signature = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const issuer = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const validity = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const subject = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const subject_pub_key = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-                                                const extensions = try tls.Der.parseElement(tbs_certificate.contents, &tbs_i);
-
-                                                // RFC 5280, section 4.1.2.3:
-                                                // "This field MUST contain the same algorithm identifier as
-                                                // the signatureAlgorithm field in the sequence Certificate."
-                                                _ = signature;
-
-                                                _ = issuer;
-                                                _ = validity;
-
-                                                std.debug.print("version: {any} '{}'\n", .{
-                                                    version.identifier, std.fmt.fmtSliceHexLower(version.contents),
-                                                });
-
-                                                std.debug.print("serial_number: {any} {}\n", .{
-                                                    serial_number.identifier,
-                                                    std.fmt.fmtSliceHexLower(serial_number.contents),
-                                                });
-
-                                                std.debug.print("subject: {any} {}\n", .{
-                                                    subject.identifier,
-                                                    std.fmt.fmtSliceHexLower(subject.contents),
-                                                });
-
-                                                std.debug.print("subject pub key: {any} {}\n", .{
-                                                    subject_pub_key.identifier,
-                                                    std.fmt.fmtSliceHexLower(subject_pub_key.contents),
-                                                });
-
-                                                std.debug.print("extensions: {any} {}\n", .{
-                                                    extensions.identifier,
-                                                    std.fmt.fmtSliceHexLower(extensions.contents),
-                                                });
-                                            }
-                                            const signature_algorithm = try tls.Der.parseElement(certificate.contents, &cert_i);
-                                            const signature_value = try tls.Der.parseElement(certificate.contents, &cert_i);
-
-                                            {
-                                                var sa_i: usize = 0;
-                                                const algorithm = try tls.Der.parseObjectId(signature_algorithm.contents, &sa_i);
-                                                std.debug.print("cert has this signature algorithm: {any}\n", .{algorithm});
-                                                //const parameters = try tls.Der.parseElement(signature_algorithm.contents, &sa_i);
-                                            }
-
-                                            std.debug.print("signature_value: {any} {d} bytes\n", .{
-                                                signature_value.identifier, signature_value.contents.len,
-                                            });
+                                            return error.UnsupportedCertificateVersion;
                                         }
+
+                                        const serial_number = try Der.parseElement(handshake, version.end);
+                                        // RFC 5280, section 4.1.2.3:
+                                        // "This field MUST contain the same algorithm identifier as
+                                        // the signatureAlgorithm field in the sequence Certificate."
+                                        const signature = try Der.parseElement(handshake, serial_number.end);
+                                        const issuer = try Der.parseElement(handshake, signature.end);
+                                        const validity = try Der.parseElement(handshake, issuer.end);
+                                        const subject = try Der.parseElement(handshake, validity.end);
+                                        const subject_pub_key = try Der.parseElement(handshake, subject.end);
+                                        const extensions = try Der.parseElement(handshake, subject_pub_key.end);
+                                        _ = extensions;
+
+                                        const signature_algorithm = try Der.parseElement(handshake, tbs_certificate.end);
+                                        const signature_value = try Der.parseElement(handshake, signature_algorithm.end);
+                                        _ = signature_value;
+
+                                        const algorithm_elem = try Der.parseElement(handshake, signature_algorithm.start);
+                                        const algorithm = try Der.parseObjectId(handshake, algorithm_elem);
+                                        std.debug.print("cert has this signature algorithm: {any}\n", .{algorithm});
+                                        //const parameters = try Der.parseElement(signature_algorithm.contents, &sa_i);
 
                                         hs_i = end_cert;
                                         const total_ext_size = mem.readIntBig(u16, handshake[hs_i..][0..2]);
                                         hs_i += 2;
                                         hs_i += total_ext_size;
 
-                                        std.debug.print("received certificate of size {d} bytes with {d} bytes of extensions\n", .{
-                                            cert_size, total_ext_size,
+                                        const issuer_bytes = handshake[issuer.start..issuer.end];
+                                        const ca_cert = ca_bundle.find(issuer_bytes);
+
+                                        std.debug.print("received certificate of size {d} bytes with {d} bytes of extensions. ca_found={any}\n", .{
+                                            cert_size, total_ext_size, ca_cert != null,
                                         });
                                     }
                                 },

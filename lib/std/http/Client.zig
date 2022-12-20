@@ -7,6 +7,7 @@ const Client = @This();
 allocator: std.mem.Allocator,
 headers: std.ArrayListUnmanaged(u8) = .{},
 active_requests: usize = 0,
+ca_bundle: std.crypto.CertificateBundle = .{},
 
 pub const Request = struct {
     client: *Client,
@@ -102,7 +103,7 @@ pub fn request(client: *Client, options: Request.Options) !Request {
     switch (options.protocol) {
         .http => {},
         .https => {
-            req.tls_client = try std.crypto.tls.Client.init(req.stream, options.host);
+            req.tls_client = try std.crypto.tls.Client.init(req.stream, client.ca_bundle, options.host);
         },
     }
 
