@@ -89,8 +89,8 @@ pub fn zlibStreamReader(allocator: mem.Allocator, reader: anytype) !ZlibStreamRe
 }
 
 pub const CompressionLevel = enum(u2) {
-    fastest = 0,
-    fast = 1,
+    no_compression = 0,
+    fastest = 1,
     default = 2,
     maximum = 3,
 };
@@ -124,8 +124,8 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
             const FLG = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5) | FCHECK;
 
             const compression_level: deflate.Compression = switch (options.level) {
-                .fastest => .no_compression,
-                .fast => .best_speed,
+                .no_compression => .no_compression,
+                .fastest => .best_speed,
                 .default => .default_compression,
                 .maximum => .best_compression,
             };
@@ -198,6 +198,7 @@ fn testWriter(data: []const u8, expected: []const u8) !void {
 
     // Write and compress all data
     try zlib_stream.writer().writeAll(data);
+    try zlib_stream.close();
 
     // Check against the reference
     try testing.expectEqualSlices(u8, expected, out_stream.items);
