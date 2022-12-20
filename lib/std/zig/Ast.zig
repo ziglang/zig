@@ -634,8 +634,8 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             return switch (token_tags[main_token]) {
                 .asterisk,
                 .asterisk_asterisk,
-                => switch (token_tags[main_token - 1]) {
-                    .l_bracket => main_token - 1,
+                => switch (token_tags[main_token -| 1]) {
+                    .l_bracket => main_token -| 1,
                     else => main_token,
                 },
                 .l_bracket => main_token,
@@ -2015,7 +2015,7 @@ fn fullPtrType(tree: Ast, info: full.PtrType.Components) full.PtrType {
         .asterisk_asterisk,
         => switch (token_tags[info.main_token + 1]) {
             .r_bracket, .colon => .Many,
-            .identifier => if (token_tags[info.main_token - 1] == .l_bracket) Size.C else .One,
+            .identifier => if (token_tags[info.main_token -| 1] == .l_bracket) Size.C else .One,
             else => .One,
         },
         .l_bracket => Size.Slice,
@@ -2060,6 +2060,9 @@ fn fullContainerDecl(tree: Ast, info: full.ContainerDecl.Components) full.Contai
         .ast = info,
         .layout_token = null,
     };
+
+    if (info.main_token == 0) return result;
+
     switch (token_tags[info.main_token - 1]) {
         .keyword_extern, .keyword_packed => result.layout_token = info.main_token - 1,
         else => {},
