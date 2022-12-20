@@ -1912,3 +1912,90 @@ pub const LoadCommandIterator = struct {
         return cmd;
     }
 };
+
+pub const compact_unwind_encoding_t = u32;
+
+// Relocatable object files: __LD,__compact_unwind
+
+pub const compact_unwind_entry = extern struct {
+    rangeStart: u64,
+    rangeLength: u32,
+    compactUnwindEncoding: u32,
+    personalityFunction: u64,
+    lsda: u64,
+};
+
+// Final linked images: __TEXT,__unwind_info
+// The __TEXT,__unwind_info section is laid out for an efficient two level lookup.
+// The header of the section contains a coarse index that maps function address
+// to the page (4096 byte block) containing the unwind info for that function.
+
+pub const UNWIND_SECTION_VERSION = 1;
+pub const UNWIND_SECOND_LEVEL_REGULAR = 2;
+pub const UNWIND_SECOND_LEVEL_COMPRESSED = 3;
+
+pub const unwind_info_section_header = extern struct {
+    /// UNWIND_SECTION_VERSION
+    version: u32 = UNWIND_SECTION_VERSION,
+    commonEncodingsArraySectionOffset: u32,
+    commonEncodingsArrayCount: u32,
+    personalityArraySectionOffset: u32,
+    personalityArrayCount: u32,
+    indexSectionOffset: u32,
+    indexCount: u32,
+    // compact_unwind_encoding_t[]
+    // uint32_t personalities[]
+    // unwind_info_section_header_index_entry[]
+    // unwind_info_section_header_lsda_index_entry[]
+};
+
+pub const unwind_info_section_header_index_entry = extern struct {
+    functionOffset: u32,
+
+    /// section offset to start of regular or compress page
+    secondLevelPagesSectionOffset: u32,
+
+    /// section offset to start of lsda_index array for this range
+    lsdaIndexArraySectionOffset: u32,
+};
+
+pub const unwind_info_section_header_lsda_index_entry = extern struct {
+    functionOffset: u32,
+    lsdaOffset: u32,
+};
+
+// There are two kinds of second level index pages: regular and compressed.
+// A compressed page can hold up to 1021 entries, but it cannot be used if
+// too many different encoding types are used. The regular page holds 511
+// entries.
+
+pub const unwind_info_regular_second_level_entry = extern struct {
+    functionOffset: u32,
+    encoding: compact_unwind_encoding_t,
+};
+
+pub const unwind_info_regular_second_level_page_header = extern struct {
+    /// UNWIND_SECOND_LEVEL_REGULAR
+    kind: u32 = UNWIND_SECOND_LEVEL_REGULAR,
+
+    entryPageOffset: u16,
+    entryCount: u16,
+    // entry array
+};
+
+pub const unwind_info_compressed_second_level_page_header = extern struct {
+    /// UNWIND_SECOND_LEVEL_COMPRESSED
+    kind: u32 = UNWIND_SECOND_LEVEL_COMPRESSED,
+
+    entryPageOffset: u16,
+    entryCount: u16,
+    encodingsPageOffset: u16,
+    encodingsCount: u16,
+    // 32bit entry array
+    // encodings array
+};
+
+pub const UnwindInfoCompressedEntry = packed struct(u32) {
+    funcOffset: u24,
+    encodingIndex: u8,
+};
