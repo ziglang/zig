@@ -2,7 +2,8 @@
 //! these are "Certificate Authorities" used to validate SSL certificates.
 //! This data structure stores certificates in DER-encoded form, all of them
 //! concatenated together in the `bytes` array. The `map` field contains an
-//! index from the DER-encoded subject name to the index within `bytes`.
+//! index from the DER-encoded subject name to the index of the containing
+//! certificate within `bytes`.
 
 map: std.HashMapUnmanaged(Key, u32, MapContext, std.hash_map.default_max_load_percentage) = .{},
 bytes: std.ArrayListUnmanaged(u8) = .{},
@@ -105,7 +106,12 @@ pub fn addCertsFromFile(
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
         const k = try key(cb, decoded_start);
-        try cb.map.putContext(gpa, k, decoded_start, .{ .cb = cb });
+        const gop = try cb.map.getOrPutContext(gpa, k, .{ .cb = cb });
+        if (gop.found_existing) {
+            cb.bytes.items.len = decoded_start;
+        } else {
+            gop.value_ptr.* = decoded_start;
+        }
     }
 }
 
