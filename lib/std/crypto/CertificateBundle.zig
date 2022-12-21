@@ -448,7 +448,9 @@ const MapContext = struct {
     }
 };
 
-test {
+test "scan for OS-provided certificates" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var bundle: CertificateBundle = .{};
     defer bundle.deinit(std.testing.allocator);
 
