@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("common.zig");
 const shr = std.math.shr;
 const shl = std.math.shl;
@@ -10,7 +11,10 @@ comptime {
     @export(__umodei4, .{ .name = "__umodei4", .linkage = common.linkage });
 }
 
+// Uses Knuth's Algorithm D, 4.3.1, p. 272.
 fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
+    @setRuntimeSafety(builtin.is_test);
+
     if (q) |q_| std.mem.set(u32, q_[0..], 0);
     if (r) |r_| std.mem.set(u32, r_[0..], 0);
 
@@ -61,13 +65,13 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
             }
             break;
         }
-        var carry: i64 = 0;
+        var carry: u64 = 0;
         i = 0;
         while (i <= n) : (i += 1) {
             const p = qhat * vn[i];
             const t = un[i + j] - carry - @truncate(u32, p);
             un[i + j] = @truncate(u32, @bitCast(u64, t));
-            carry = @intCast(i64, p >> 32) - @intCast(i64, t >> 32);
+            carry = @intCast(u64, p >> 32) - @intCast(u64, t >> 32);
         }
         const t = un[j + n + 1] - carry;
         un[j + n + 1] = @truncate(u32, @bitCast(u64, t));
@@ -98,21 +102,23 @@ pub fn __udivei4(r_q: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var q = r_q[0 .. bits / 32];
-    _ = divmod(q, null, u, v) catch unreachable;
+    @call(.always_inline, divmod, .{q, null, u, v}) catch unreachable;
 }
 
 pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usize) callconv(.C) void {
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var r = r_p[0 .. bits / 32];
-    _ = divmod(null, r, u, v) catch unreachable;
+    @call(.always_inline, divmod, .{null, r, u, v}) catch unreachable;
 }
 
 test "__udivei4/__umodei4" {
+    const RndGen = std.rand.DefaultPrng;
+    var rnd = RndGen.init(42);
     var i: usize = 100000;
     while (i > 0) : (i -= 1) {
-        const u = std.crypto.random.int(u1000);
-        const v = 1 + std.crypto.random.int(u1200);
+        const u = rnd.random().int(u1000);
+        const v = 1 + rnd.random().int(u1200);
         const q = u / v;
         const r = u % v;
         const z = q * v + r;
