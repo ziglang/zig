@@ -97,6 +97,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
 }
 
 pub fn __udivei4(r_q: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usize) callconv(.C) void {
+    @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var q = r_q[0 .. bits / 32];
@@ -104,6 +105,7 @@ pub fn __udivei4(r_q: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
 }
 
 pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usize) callconv(.C) void {
+    @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var r = r_p[0 .. bits / 32];
