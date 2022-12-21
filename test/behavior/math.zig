@@ -532,6 +532,19 @@ fn testUnsignedNegationWrappingEval(x: u16) !void {
     try expect(neg == maxInt(u16));
 }
 
+test "negation wrapping" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(u1, 1), negateWrap(u1, 1));
+}
+
+fn negateWrap(comptime T: type, x: T) T {
+    // This is specifically testing a safety-checked add, so
+    // special case minInt(T) which would overflow otherwise.
+    return if (x == minInt(T)) minInt(T) else ~x + 1;
+}
+
 test "unsigned 64-bit division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
