@@ -375,8 +375,6 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "pthread"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "crypt"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "util"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "xnet"))
@@ -384,6 +382,11 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "resolv"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dl"))
+            return true;
+    }
+
+    if (target.abi.isMusl() or target.os.tag.isDarwin()) {
+        if (eqlIgnoreCase(ignore_case, name, "crypt"))
             return true;
     }
 
