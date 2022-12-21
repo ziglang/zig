@@ -1244,7 +1244,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
             var size: i32 = 0;
             const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
             for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
-                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(i32, size, @intCast(i32, iov.iov_len), &size)) {
+                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(size, @intCast(i32, iov.iov_len))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;

@@ -1860,9 +1860,7 @@ fn writeHeader(self: *Coff) !void {
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
-    // TODO https://github.com/ziglang/zig/issues/1284
-    return math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
-        math.maxInt(@TypeOf(actual_size));
+    return actual_size +| (actual_size / ideal_factor);
 }
 
 fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {

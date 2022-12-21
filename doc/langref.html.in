@@ -5413,14 +5413,14 @@ pub fn parseU64(buf: []const u8, radix: u8) !u64 {
         }
 
         // x *= radix
-        if (@mulWithOverflow(u64, x, radix, &x)) {
-            return error.Overflow;
-        }
+        var ov = @mulWithOverflow(x, radix);
+        if (ov[1] != 0) return error.OverFlow;
+        
 
         // x += digit
-        if (@addWithOverflow(u64, x, digit, &x)) {
-            return error.Overflow;
-        }
+        ov = @addWithOverflow(ov[0], digit);
+        if (ov[1] != 0) return error.OverFlow;
+        x = ov[0];
     }
 
     return x;
@@ -5832,14 +5832,16 @@ test "merge error sets" {
 {#code_begin|test|inferred_error_sets#}
 // With an inferred error set
 pub fn add_inferred(comptime T: type, a: T, b: T) !T {
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 // With an explicit error set
 pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 const Error = error {
@@ -7632,11 +7634,9 @@ test "global assembly" {
       </p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
-      <pre>{#syntax#}@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@addWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a + b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a + b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
@@ -8695,11 +8695,9 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@mulWithOverflow#}
-      <pre>{#syntax#}@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@mulWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a * b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a * b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
 
@@ -8973,15 +8971,13 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shlWithOverflow#}
-      <pre>{#syntax#}@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@shlWithOverflow(a: anytype, shift_amt: Log2T) struct { @TypeOf(a), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a << b{#endsyntax#}. If overflow or underflow occurs,
-                 stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                         If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a << b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(@TypeOf(a)).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -9323,11 +9319,9 @@ fn doTheTest() !void {
       {#header_close#}
 
       {#header_open|@subWithOverflow#}
-      <pre>{#syntax#}@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@subWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a - b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a - b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
 
@@ -9774,11 +9768,11 @@ const print = @import("std").debug.print;
 pub fn main() void {
     var byte: u8 = 255;
 
-    var result: u8 = undefined;
-    if (@addWithOverflow(u8, byte, 10, &result)) {
-        print("overflowed result: {}\n", .{result});
+    const ov = @addWithOverflow(byte, 10);
+    if (ov[1] != 0) {
+        print("overflowed result: {}\n", .{ov[0]});
     } else {
-        print("result: {}\n", .{result});
+        print("result: {}\n", .{ov[0]});
     }
 }
       {#code_end#}

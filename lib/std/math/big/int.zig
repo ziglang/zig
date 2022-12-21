@@ -74,42 +74,40 @@ pub fn calcTwosCompLimbCount(bit_count: usize) usize {
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     @setRuntimeSafety(debug_safety);
-    var r1: Limb = undefined;
 
-    // r1 = a + *carry
-    const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
+    // ov1[0] = a + *carry
+    const ov1 = @addWithOverflow(a, carry.*);
 
     // r2 = b * c
     const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
     const r2 = @truncate(Limb, bc);
     const c2 = @truncate(Limb, bc >> limb_bits);
 
-    // r1 = r1 + r2
-    const c3: Limb = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
+    // ov2[0] = ov1[0] + r2
+    const ov2 = @addWithOverflow(ov1[0], r2);
 
     // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
     // c2 is at least <= maxInt(Limb) - 2.
-    carry.* = c1 + c2 + c3;
+    carry.* = ov1[1] + c2 + ov2[1];
 
-    return r1;
+    return ov2[0];
 }
 
 /// a - b * c - *carry, sets carry to the overflow bits
 fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
-    // r1 = a - *carry
-    var r1: Limb = undefined;
-    const c1: Limb = @boolToInt(@subWithOverflow(Limb, a, carry.*, &r1));
+    // ov1[0] = a - *carry
+    const ov1 = @subWithOverflow(a, carry.*);
 
     // r2 = b * c
     const bc = @as(DoubleLimb, std.math.mulWide(Limb, b, c));
     const r2 = @truncate(Limb, bc);
     const c2 = @truncate(Limb, bc >> limb_bits);
 
-    // r1 = r1 - r2
-    const c3: Limb = @boolToInt(@subWithOverflow(Limb, r1, r2, &r1));
-    carry.* = c1 + c2 + c3;
+    // ov2[0] = ov1[0] - r2
+    const ov2 = @subWithOverflow(ov1[0], r2);
+    carry.* = ov1[1] + c2 + ov2[1];
 
-    return r1;
+    return ov2[0];
 }
 
 /// Used to indicate either limit of a 2s-complement integer.
@@ -673,7 +671,9 @@ pub const Mutable = struct {
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
 
         if (a.limbs.len == 1 and b.limbs.len == 1) {
-            if (!@mulWithOverflow(Limb, a.limbs[0], b.limbs[0], &rma.limbs[0])) {
+            const ov = @mulWithOverflow(a.limbs[0], b.limbs[0]);
+            rma.limbs[0] = ov[0];
+            if (ov[1] == 0) {
                 rma.len = 1;
                 rma.positive = (a.positive == b.positive);
                 return;
@@ -1836,7 +1836,11 @@ pub const Mutable = struct {
             bit_index += @bitSizeOf(Limb);
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                limb = ov[0];
+                carry = ov[1];
+            }
             x.limbs[limb_index] = limb;
         }
 
@@ -1853,7 +1857,11 @@ pub const Mutable = struct {
             };
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!positive) assert(!@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                assert(ov[1] == 0);
+                limb = ov[0];
+            }
             x.limbs[limb_index] = limb;
 
             limb_index += 1;
@@ -2000,7 +2008,9 @@ pub const Const = struct {
 
             // All but the most significant limb.
             for (self.limbs[0 .. self.limbs.len - 1]) |limb| {
-                carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &add_res));
+                const ov = @addWithOverflow(~limb, carry);
+                add_res = ov[0];
+                carry = ov[1];
                 sum += @popCount(add_res);
                 remaining_bits -= limb_bits; // Asserted not to undeflow by fitsInTwosComp
             }
@@ -2294,7 +2304,11 @@ pub const Const = struct {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!x.positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!x.positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                limb = ov[0];
+                carry = ov[1];
+            }
 
             // Write one Limb of bits
             mem.writePackedInt(Limb, bytes, bit_index + bit_offset, limb, endian);
@@ -2306,7 +2320,7 @@ pub const Const = struct {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!x.positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
+            if (!x.positive) limb = ~limb +% carry;
 
             // Write all remaining bits
             mem.writeVarPackedInt(bytes, bit_index + bit_offset, bit_count - bit_index, limb, endian);
@@ -3360,14 +3374,17 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
     var carry: Limb = 0;
 
     while (i < a.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@addWithOverflow(Limb, r[i], a[i], &r[i]));
-        c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
-        carry = c;
+        const ov1 = @addWithOverflow(r[i], a[i]);
+        r[i] = ov1[0];
+        const ov2 = @addWithOverflow(r[i], carry);
+        r[i] = ov2[0];
+        carry = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while ((carry != 0) and i < r.len) : (i += 1) {
-        carry = @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
+        const ov = @addWithOverflow(r[i], carry);
+        r[i] = ov[0];
+        carry = ov[1];
     }
 }
 
@@ -3435,7 +3452,9 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
 
             j = 0;
             while ((carry != 0) and (j < a_hi.len)) : (j += 1) {
-                carry = @boolToInt(@addWithOverflow(Limb, a_hi[j], carry, &a_hi[j]));
+                const ov = @addWithOverflow(a_hi[j], carry);
+                a_hi[j] = ov[0];
+                carry = ov[1];
             }
 
             return carry != 0;
@@ -3449,7 +3468,9 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
 
             j = 0;
             while ((borrow != 0) and (j < a_hi.len)) : (j += 1) {
-                borrow = @boolToInt(@subWithOverflow(Limb, a_hi[j], borrow, &a_hi[j]));
+                const ov = @subWithOverflow(a_hi[j], borrow);
+                a_hi[j] = ov[0];
+                borrow = ov[1];
             }
 
             return borrow != 0;
@@ -3482,14 +3503,17 @@ fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     var borrow: Limb = 0;
 
     while (i < b.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@subWithOverflow(Limb, a[i], b[i], &r[i]));
-        c += @boolToInt(@subWithOverflow(Limb, r[i], borrow, &r[i]));
-        borrow = c;
+        const ov1 = @subWithOverflow(a[i], b[i]);
+        r[i] = ov1[0];
+        const ov2 = @subWithOverflow(r[i], borrow);
+        r[i] = ov2[0];
+        borrow = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while (i < a.len) : (i += 1) {
-        borrow = @boolToInt(@subWithOverflow(Limb, a[i], borrow, &r[i]));
+        const ov = @subWithOverflow(a[i], borrow);
+        r[i] = ov[0];
+        borrow = ov[1];
     }
 
     return borrow;
@@ -3512,14 +3536,17 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     var carry: Limb = 0;
 
     while (i < b.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@addWithOverflow(Limb, a[i], b[i], &r[i]));
-        c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
-        carry = c;
+        const ov1 = @addWithOverflow(a[i], b[i]);
+        r[i] = ov1[0];
+        const ov2 = @addWithOverflow(r[i], carry);
+        r[i] = ov2[0];
+        carry = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while (i < a.len) : (i += 1) {
-        carry = @boolToInt(@addWithOverflow(Limb, a[i], carry, &r[i]));
+        const ov = @addWithOverflow(a[i], carry);
+        r[i] = ov[0];
+        carry = ov[1];
     }
 
     return carry;
@@ -3685,11 +3712,11 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            r[i] = a_limb & ~b[i];
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @addWithOverflow(ov1[0] & ~b[i], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         // In order for r_carry to be nonzero at this point, ~b[i] would need to be
@@ -3702,7 +3729,9 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         // Note, if a_borrow is zero we do not need to compute anything for
         // the higher limbs so we can early return here.
         while (i < a.len and a_borrow == 1) : (i += 1) {
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
+            const ov = @subWithOverflow(a[i], a_borrow);
+            r[i] = ov[0];
+            a_borrow = ov[1];
         }
 
         assert(a_borrow == 0); // a was 0.
@@ -3721,11 +3750,11 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = ~a[i] & b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov1[1];
+            const ov2 = @addWithOverflow(~a[i] & ov1[0], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3752,14 +3781,13 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = a_limb & b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov2[1];
+            const ov3 = @addWithOverflow(ov1[0] & ov2[0], r_carry);
+            r[i] = ov3[0];
+            r_carry = ov3[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3811,9 +3839,9 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var a_borrow: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-            r[i] = ~a_limb & b[i];
+            const ov = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov[1];
+            r[i] = ~ov[0] & b[i];
         }
 
         // With b = 0 we have ~(a - 1) & 0 = 0, so the upper bytes are zero.
@@ -3830,9 +3858,9 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var b_borrow: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &a_limb));
-            r[i] = a[i] & ~a_limb;
+            const ov = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov[1];
+            r[i] = a[i] & ~ov[0];
         }
 
         assert(b_borrow == 0); // b was 0
@@ -3855,14 +3883,13 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = a_limb | b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov2[1];
+            const ov3 = @addWithOverflow(ov1[0] | ov2[0], r_carry);
+            r[i] = ov3[0];
+            r_carry = ov3[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3870,8 +3897,11 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 
         // With b = 0 and b_borrow = 0 we get (-a - 1) | (-0 - 0) = (-a - 1) | 0 = -a - 1.
         while (i < a.len) : (i += 1) {
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @addWithOverflow(ov1[0], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         assert(a_borrow == 0); // a was 0.
@@ -3917,19 +3947,21 @@ fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
     var r_carry = @boolToInt(a_positive != b_positive);
 
     while (i < b.len) : (i += 1) {
-        var a_limb: Limb = undefined;
-        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-        var b_limb: Limb = undefined;
-        b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-        r[i] = a_limb ^ b_limb;
-        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        const ov1 = @subWithOverflow(a[i], a_borrow);
+        a_borrow = ov1[1];
+        const ov2 = @subWithOverflow(b[i], b_borrow);
+        b_borrow = ov2[1];
+        const ov3 = @addWithOverflow(ov1[0] ^ ov2[0], r_carry);
+        r[i] = ov3[0];
+        r_carry = ov3[1];
     }
 
     while (i < a.len) : (i += 1) {
-        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
-        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        const ov1 = @subWithOverflow(a[i], a_borrow);
+        a_borrow = ov1[1];
+        const ov2 = @addWithOverflow(ov1[0], r_carry);
+        r[i] = ov2[0];
+        r_carry = ov2[1];
     }
 
     // If both inputs don't share the same sign, an extra limb is required.
@@ -4021,7 +4053,9 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
         llsquareBasecase(tmp2, tmp1[0..llnormalize(tmp1)]);
         mem.swap([]Limb, &tmp1, &tmp2);
         // Multiply by a
-        if (@shlWithOverflow(u32, exp, 1, &exp)) {
+        const ov = @shlWithOverflow(exp, 1);
+        exp = ov[0];
+        if (ov[1] != 0) {
             mem.set(Limb, tmp2, 0);
             llmulacc(.add, null, tmp2, tmp1[0..llnormalize(tmp1)], a);
             mem.swap([]Limb, &tmp1, &tmp2);

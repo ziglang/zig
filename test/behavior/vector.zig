@@ -963,35 +963,31 @@ test "@addWithOverflow" {
     const S = struct {
         fn doTheTest() !void {
             {
-                var result: @Vector(4, u8) = undefined;
                 var lhs = @Vector(4, u8){ 250, 250, 250, 250 };
                 var rhs = @Vector(4, u8){ 0, 5, 6, 10 };
-                var overflow = @addWithOverflow(@Vector(4, u8), lhs, rhs, &result);
-                var expected: @Vector(4, bool) = .{ false, false, true, true };
+                var overflow = @addWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
                 try expectEqual(expected, overflow);
             }
             {
-                var result: @Vector(4, i8) = undefined;
                 var lhs = @Vector(4, i8){ -125, -125, 125, 125 };
                 var rhs = @Vector(4, i8){ -3, -4, 2, 3 };
-                var overflow = @addWithOverflow(@Vector(4, i8), lhs, rhs, &result);
-                var expected: @Vector(4, bool) = .{ false, true, false, true };
+                var overflow = @addWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
-                var result: @Vector(4, u1) = undefined;
                 var lhs = @Vector(4, u1){ 0, 0, 1, 1 };
                 var rhs = @Vector(4, u1){ 0, 1, 0, 1 };
-                var overflow = @addWithOverflow(@Vector(4, u1), lhs, rhs, &result);
-                var expected: @Vector(4, bool) = .{ false, false, false, true };
+                var overflow = @addWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(4, u1) = .{ 0, 0, 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
-                var result: @Vector(4, u0) = undefined;
                 var lhs = @Vector(4, u0){ 0, 0, 0, 0 };
                 var rhs = @Vector(4, u0){ 0, 0, 0, 0 };
-                var overflow = @addWithOverflow(@Vector(4, u0), lhs, rhs, &result);
-                var expected: @Vector(4, bool) = .{ false, false, false, false };
+                var overflow = @addWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(4, u1) = .{ 0, 0, 0, 0 };
                 try expectEqual(expected, overflow);
             }
         }
@@ -1010,19 +1006,17 @@ test "@subWithOverflow" {
     const S = struct {
         fn doTheTest() !void {
             {
-                var result: @Vector(2, u8) = undefined;
                 var lhs = @Vector(2, u8){ 5, 5 };
                 var rhs = @Vector(2, u8){ 5, 6 };
-                var overflow = @subWithOverflow(@Vector(2, u8), lhs, rhs, &result);
-                var expected: @Vector(2, bool) = .{ false, true };
+                var overflow = @subWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(2, u1) = .{ 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
-                var result: @Vector(4, i8) = undefined;
                 var lhs = @Vector(4, i8){ -120, -120, 120, 120 };
                 var rhs = @Vector(4, i8){ 8, 9, -7, -8 };
-                var overflow = @subWithOverflow(@Vector(4, i8), lhs, rhs, &result);
-                var expected: @Vector(4, bool) = .{ false, true, false, true };
+                var overflow = @subWithOverflow(lhs, rhs)[1];
+                var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
                 try expectEqual(expected, overflow);
             }
         }
@@ -1040,11 +1034,10 @@ test "@mulWithOverflow" {
 
     const S = struct {
         fn doTheTest() !void {
-            var result: @Vector(4, u8) = undefined;
             var lhs = @Vector(4, u8){ 10, 10, 10, 10 };
             var rhs = @Vector(4, u8){ 25, 26, 0, 30 };
-            var overflow = @mulWithOverflow(@Vector(4, u8), lhs, rhs, &result);
-            var expected: @Vector(4, bool) = .{ false, true, false, true };
+            var overflow = @mulWithOverflow(lhs, rhs)[1];
+            var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
             try expectEqual(expected, overflow);
         }
     };
@@ -1062,11 +1055,10 @@ test "@shlWithOverflow" {
 
     const S = struct {
         fn doTheTest() !void {
-            var result: @Vector(4, u8) = undefined;
             var lhs = @Vector(4, u8){ 0, 1, 8, 255 };
             var rhs = @Vector(4, u3){ 7, 7, 7, 7 };
-            var overflow = @shlWithOverflow(@Vector(4, u8), lhs, rhs, &result);
-            var expected: @Vector(4, bool) = .{ false, false, true, true };
+            var overflow = @shlWithOverflow(lhs, rhs)[1];
+            var expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
             try expectEqual(expected, overflow);
         }
     };

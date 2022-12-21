@@ -489,18 +489,11 @@ test "comptime bitwise operators" {
 
 test "comptime shlWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
-    const ct_shifted: u64 = comptime amt: {
-        var amt = @as(u64, 0);
-        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
-        break :amt amt;
-    };
-
-    const rt_shifted: u64 = amt: {
-        var amt = @as(u64, 0);
-        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
-        break :amt amt;
-    };
+    const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
+    var a = ~@as(u64, 0);
+    const rt_shifted = @shlWithOverflow(a, 16)[0];
 
     try expect(ct_shifted == rt_shifted);
 }
