@@ -11,7 +11,7 @@ const ApplicationCipher = tls.ApplicationCipher;
 const CipherSuite = tls.CipherSuite;
 const ContentType = tls.ContentType;
 const HandshakeType = tls.HandshakeType;
-const CipherParams = tls.CipherParams;
+const HandshakeCipher = tls.HandshakeCipher;
 const max_ciphertext_len = tls.max_ciphertext_len;
 const hkdfExpandLabel = tls.hkdfExpandLabel;
 const int2 = tls.int2;
@@ -117,7 +117,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
 
     const client_hello_bytes1 = plaintext_header[5..];
 
-    var cipher_params: CipherParams = undefined;
+    var handshake_cipher: HandshakeCipher = undefined;
 
     var handshake_buf: [8000]u8 = undefined;
     var len: usize = 0;
@@ -243,8 +243,8 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                     .AEGIS_256_SHA384,
                     .AEGIS_128L_SHA256,
                     => |tag| {
-                        const P = std.meta.TagPayloadByName(CipherParams, @tagName(tag));
-                        cipher_params = @unionInit(CipherParams, @tagName(tag), .{
+                        const P = std.meta.TagPayloadByName(HandshakeCipher, @tagName(tag));
+                        handshake_cipher = @unionInit(HandshakeCipher, @tagName(tag), .{
                             .handshake_secret = undefined,
                             .master_secret = undefined,
                             .client_handshake_key = undefined,
@@ -255,7 +255,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                             .server_handshake_iv = undefined,
                             .transcript_hash = P.Hash.init(.{}),
                         });
-                        const p = &@field(cipher_params, @tagName(tag));
+                        const p = &@field(handshake_cipher, @tagName(tag));
                         p.transcript_hash.update(client_hello_bytes1); // Client Hello part 1
                         p.transcript_hash.update(host); // Client Hello part 2
                         p.transcript_hash.update(frag); // Server Hello
@@ -329,7 +329,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
             },
             .application_data => {
                 var cleartext_buf: [8000]u8 = undefined;
-                const cleartext = switch (cipher_params) {
+                const cleartext = switch (handshake_cipher) {
                     inline else => |*p| c: {
                         const P = @TypeOf(p.*);
                         const ciphertext_len = record_size - P.AEAD.tag_length;
@@ -366,7 +366,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                             const handshake = cleartext[ct_i..next_handshake_i];
                             switch (handshake_type) {
                                 @enumToInt(HandshakeType.encrypted_extensions) => {
-                                    switch (cipher_params) {
+                                    switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
                                     const total_ext_size = mem.readIntBig(u16, handshake[0..2]);
@@ -390,7 +390,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                     }
                                 },
                                 @enumToInt(HandshakeType.certificate) => cert: {
-                                    switch (cipher_params) {
+                                    switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
                                     if (validated_cert) break :cert;
@@ -445,7 +445,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                     }
                                 },
                                 @enumToInt(HandshakeType.certificate_verify) => {
-                                    switch (cipher_params) {
+                                    switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
                                     std.debug.print("ignoring certificate_verify\n", .{});
@@ -458,7 +458,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                         0x00, 0x01, // length
                                         0x01,
                                     };
-                                    const app_cipher = switch (cipher_params) {
+                                    const app_cipher = switch (handshake_cipher) {
                                         inline else => |*p, tag| c: {
                                             const P = @TypeOf(p.*);
                                             const finished_digest = p.transcript_hash.peek();
