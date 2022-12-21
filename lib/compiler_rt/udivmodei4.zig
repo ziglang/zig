@@ -101,7 +101,7 @@ pub fn __udivei4(r_q: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var q = r_q[0 .. bits / 32];
-    @call(.always_inline, divmod, .{q, null, u, v}) catch unreachable;
+    @call(.always_inline, divmod, .{ q, null, u, v }) catch unreachable;
 }
 
 pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usize) callconv(.C) void {
@@ -109,7 +109,7 @@ pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
     var r = r_p[0 .. bits / 32];
-    @call(.always_inline, divmod, .{null, r, u, v}) catch unreachable;
+    @call(.always_inline, divmod, .{ null, r, u, v }) catch unreachable;
 }
 
 test "__udivei4/__umodei4" {
