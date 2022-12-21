@@ -154,7 +154,7 @@ pub const list = list: {
             "@addWithOverflow",
             .{
                 .tag = .add_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{
@@ -636,7 +636,7 @@ pub const list = list: {
             "@mulWithOverflow",
             .{
                 .tag = .mul_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{
@@ -741,7 +741,7 @@ pub const list = list: {
             "@shlWithOverflow",
             .{
                 .tag = .shl_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{
@@ -889,7 +889,7 @@ pub const list = list: {
             "@subWithOverflow",
             .{
                 .tag = .sub_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{

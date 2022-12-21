@@ -971,7 +971,6 @@ fn analyzeBodyInner(
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
-            .overflow_arithmetic_ptr      => try sema.zirOverflowArithmeticPtr(block, inst),
             .ref                          => try sema.zirRef(block, inst),
             .ret_err_value_code           => try sema.zirRetErrValueCode(inst),
             .shr                          => try sema.zirShr(block, inst, .shr),
@@ -993,7 +992,6 @@ fn analyzeBodyInner(
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
             .typeof                       => try sema.zirTypeof(block, inst),
             .typeof_builtin               => try sema.zirTypeofBuiltin(block, inst),
-            .log2_int_type                => try sema.zirLog2IntType(block, inst),
             .typeof_log2_int_type         => try sema.zirTypeofLog2IntType(block, inst),
             .xor                          => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty            => try sema.zirStructInitEmpty(block, inst),
@@ -11762,7 +11760,7 @@ fn zirShl(
                 if (scalar_ty.zigTypeTag() == .ComptimeInt) {
                     break :val shifted.wrapped_result;
                 }
-                if (shifted.overflowed.compareAllWithZero(.eq)) {
+                if (shifted.overflow_bit.compareAllWithZero(.eq)) {
                     break :val shifted.wrapped_result;
                 }
                 return sema.fail(block, src, "operation caused overflow", .{});
@@ -13783,24 +13781,37 @@ fn zirOverflowArithmetic(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const extra = sema.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
 
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
 
-    const lhs = try sema.resolveInst(extra.lhs);
-    const rhs = try sema.resolveInst(extra.rhs);
-    const ptr = try sema.resolveInst(extra.ptr);
+    const uncasted_lhs = try sema.resolveInst(extra.lhs);
+    const uncasted_rhs = try sema.resolveInst(extra.rhs);
 
-    const lhs_ty = sema.typeOf(lhs);
-    const rhs_ty = sema.typeOf(rhs);
+    const lhs_ty = sema.typeOf(uncasted_lhs);
+    const rhs_ty = sema.typeOf(uncasted_rhs);
     const mod = sema.mod;
 
-    // Note, the types of lhs/rhs (also for shifting)/ptr are already correct as ensured by astgen.
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    const dest_ty = lhs_ty;
+
+    const instructions = &[_]Air.Inst.Ref{ uncasted_lhs, uncasted_rhs };
+    const dest_ty = if (zir_tag == .shl_with_overflow)
+        lhs_ty
+    else
+        try sema.resolvePeerTypes(block, src, instructions, .{
+            .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        });
+
+    const rhs_dest_ty = if (zir_tag == .shl_with_overflow)
+        try sema.log2IntType(block, lhs_ty, src)
+    else
+        dest_ty;
+
+    const lhs = try sema.coerce(block, dest_ty, uncasted_lhs, lhs_src);
+    const rhs = try sema.coerce(block, rhs_dest_ty, uncasted_rhs, rhs_src);
+
     if (dest_ty.scalarType().zigTypeTag() != .Int) {
         return sema.fail(block, src, "expected vector of integers or integer tag type, found '{}'", .{dest_ty.fmt(mod)});
     }
@@ -13809,14 +13820,11 @@ fn zirOverflowArithmetic(
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
 
     const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
-    // TODO: Remove and use `ov_ty` instead.
-    //       This is a temporary type used until overflow arithmetic properly returns `u1` instead of `bool`.
-    const overflowed_ty = if (dest_ty.zigTypeTag() == .Vector) try Type.vector(sema.arena, dest_ty.vectorLen(), Type.bool) else Type.bool;
 
-    const result: struct {
-        /// TODO: Rename to `overflow_bit` and make of type `u1`.
-        overflowed: Air.Inst.Ref,
-        wrapped: Air.Inst.Ref,
+    var result: struct {
+        inst: Air.Inst.Ref = .none,
+        wrapped: Value = Value.initTag(.unreachable_value),
+        overflow_bit: Value,
     } = result: {
         switch (zir_tag) {
             .add_with_overflow => {
@@ -13825,24 +13833,22 @@ fn zirOverflowArithmetic(
                 // Otherwise, if either of the argument is undefined, undefined is returned.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef() and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = rhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef() and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
                     if (maybe_rhs_val) |rhs_val| {
                         if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                            break :result .{ .overflowed = try sema.addConstUndef(overflowed_ty), .wrapped = try sema.addConstUndef(dest_ty) };
+                            break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                         }
 
                         const result = try sema.intAddWithOverflow(lhs_val, rhs_val, dest_ty);
-                        const overflowed = try sema.addConstant(overflowed_ty, result.overflowed);
-                        const wrapped = try sema.addConstant(dest_ty, result.wrapped_result);
-                        break :result .{ .overflowed = overflowed, .wrapped = wrapped };
+                        break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
                     }
                 }
             },
@@ -13851,18 +13857,16 @@ fn zirOverflowArithmetic(
                 // Otherwise, if either result is undefined, both results are undefined.
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef()) {
-                        break :result .{ .overflowed = try sema.addConstUndef(overflowed_ty), .wrapped = try sema.addConstUndef(dest_ty) };
+                        break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                     } else if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                        break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
                     } else if (maybe_lhs_val) |lhs_val| {
                         if (lhs_val.isUndef()) {
-                            break :result .{ .overflowed = try sema.addConstUndef(overflowed_ty), .wrapped = try sema.addConstUndef(dest_ty) };
+                            break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                         }
 
                         const result = try sema.intSubWithOverflow(lhs_val, rhs_val, dest_ty);
-                        const overflowed = try sema.addConstant(overflowed_ty, result.overflowed);
-                        const wrapped = try sema.addConstant(dest_ty, result.wrapped_result);
-                        break :result .{ .overflowed = overflowed, .wrapped = wrapped };
+                        break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
                     }
                 }
             },
@@ -13873,9 +13877,9 @@ fn zirOverflowArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
-                        } else if (try sema.compareAll(lhs_val, .eq, Value.one, dest_ty)) {
-                            break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = rhs };
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                        } else if (try sema.compareAll(lhs_val, .eq, try maybeRepeated(sema, dest_ty, Value.one), dest_ty)) {
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
                         }
                     }
                 }
@@ -13883,9 +13887,9 @@ fn zirOverflowArithmetic(
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef()) {
                         if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = rhs };
-                        } else if (try sema.compareAll(rhs_val, .eq, Value.one, dest_ty)) {
-                            break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
+                        } else if (try sema.compareAll(rhs_val, .eq, try maybeRepeated(sema, dest_ty, Value.one), dest_ty)) {
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
                         }
                     }
                 }
@@ -13893,13 +13897,11 @@ fn zirOverflowArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (maybe_rhs_val) |rhs_val| {
                         if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                            break :result .{ .overflowed = try sema.addConstUndef(overflowed_ty), .wrapped = try sema.addConstUndef(dest_ty) };
+                            break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                         }
 
                         const result = try lhs_val.intMulWithOverflow(rhs_val, dest_ty, sema.arena, mod);
-                        const overflowed = try sema.addConstant(overflowed_ty, result.overflowed);
-                        const wrapped = try sema.addConstant(dest_ty, result.wrapped_result);
-                        break :result .{ .overflowed = overflowed, .wrapped = wrapped };
+                        break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
                     }
                 }
             },
@@ -13909,24 +13911,22 @@ fn zirOverflowArithmetic(
                 // Oterhwise if either of the arguments is undefined, both results are undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef() and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef() and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflowed = try sema.addBool(overflowed_ty, false), .wrapped = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
                     if (maybe_rhs_val) |rhs_val| {
                         if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                            break :result .{ .overflowed = try sema.addConstUndef(overflowed_ty), .wrapped = try sema.addConstUndef(dest_ty) };
+                            break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                         }
 
                         const result = try lhs_val.shlWithOverflow(rhs_val, dest_ty, sema.arena, sema.mod);
-                        const overflowed = try sema.addConstant(overflowed_ty, result.overflowed);
-                        const wrapped = try sema.addConstant(dest_ty, result.wrapped_result);
-                        break :result .{ .overflowed = overflowed, .wrapped = wrapped };
+                        break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
                     }
                 }
             },
@@ -13944,7 +13944,7 @@ fn zirOverflowArithmetic(
         const runtime_src = if (maybe_lhs_val == null) lhs_src else rhs_src;
         try sema.requireRuntimeBlock(block, src, runtime_src);
 
-        const tuple = try block.addInst(.{
+        return block.addInst(.{
             .tag = air_tag,
             .data = .{ .ty_pl = .{
                 .ty = try block.sema.addType(tuple_ty),
@@ -13954,16 +13954,32 @@ fn zirOverflowArithmetic(
                 }),
             } },
         });
-
-        const wrapped = try sema.tupleFieldValByIndex(block, src, tuple, 0, tuple_ty);
-        try sema.storePtr2(block, src, ptr, ptr_src, wrapped, src, .store);
-
-        const overflow_bit = try sema.tupleFieldValByIndex(block, src, tuple, 1, tuple_ty);
-        return block.addBitCast(overflowed_ty, overflow_bit);
     };
 
-    try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
-    return result.overflowed;
+    if (result.inst != .none) {
+        if (try sema.resolveMaybeUndefVal(result.inst)) |some| {
+            result.wrapped = some;
+            result.inst = .none;
+        }
+    }
+
+    if (result.inst == .none) {
+        const values = try sema.arena.alloc(Value, 2);
+        values[0] = result.wrapped;
+        values[1] = result.overflow_bit;
+        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
+        return sema.addConstant(tuple_ty, tuple_val);
+    }
+
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, 2);
+    element_refs[0] = result.inst;
+    element_refs[1] = try sema.addConstant(tuple_ty.structFieldType(1), result.overflow_bit);
+    return block.addAggregateInit(tuple_ty, element_refs);
+}
+
+fn maybeRepeated(sema: *Sema, ty: Type, val: Value) !Value {
+    if (ty.zigTypeTag() != .Vector) return val;
+    return Value.Tag.repeated.create(sema.arena, val);
 }
 
 fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
@@ -16211,14 +16227,6 @@ fn zirTypeofLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     return sema.addType(res_ty);
 }
 
-fn zirLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const operand = try sema.resolveType(block, src, inst_data.operand);
-    const res_ty = try sema.log2IntType(block, operand, src);
-    return sema.addType(res_ty);
-}
-
 fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) CompileError!Type {
     switch (operand.zigTypeTag()) {
         .ComptimeInt => return Type.comptime_int,
@@ -17037,24 +17045,6 @@ fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
         .add, .sub, .mul, .div, .div_exact, .div_trunc, .div_floor, .mod, .rem, .mod_rem => true,
         else => false,
     };
-}
-
-fn zirOverflowArithmeticPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const elem_ty_src = inst_data.src();
-    const elem_type = try sema.resolveType(block, elem_ty_src, inst_data.operand);
-    const ty = try Type.ptr(sema.arena, sema.mod, .{
-        .pointee_type = elem_type,
-        .@"addrspace" = .generic,
-        .mutable = true,
-        .@"allowzero" = false,
-        .@"volatile" = false,
-        .size = .One,
-    });
-    return sema.addType(ty);
 }
 
 fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -32613,11 +32603,11 @@ fn intSubWithOverflow(
             const lhs_elem = lhs.elemValueBuffer(sema.mod, i, &lhs_buf);
             const rhs_elem = rhs.elemValueBuffer(sema.mod, i, &rhs_buf);
             const of_math_result = try sema.intSubWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType());
-            overflowed_data[i] = of_math_result.overflowed;
+            overflowed_data[i] = of_math_result.overflow_bit;
             scalar.* = of_math_result.wrapped_result;
         }
         return Value.OverflowArithmeticResult{
-            .overflowed = try Value.Tag.aggregate.create(sema.arena, overflowed_data),
+            .overflow_bit = try Value.Tag.aggregate.create(sema.arena, overflowed_data),
             .wrapped_result = try Value.Tag.aggregate.create(sema.arena, result_data),
         };
     }
@@ -32645,7 +32635,7 @@ fn intSubWithOverflowScalar(
     const overflowed = result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
     const wrapped_result = try Value.fromBigInt(sema.arena, result_bigint.toConst());
     return Value.OverflowArithmeticResult{
-        .overflowed = Value.makeBool(overflowed),
+        .overflow_bit = Value.boolToInt(overflowed),
         .wrapped_result = wrapped_result,
     };
 }
@@ -32964,11 +32954,11 @@ fn intAddWithOverflow(
             const lhs_elem = lhs.elemValueBuffer(sema.mod, i, &lhs_buf);
             const rhs_elem = rhs.elemValueBuffer(sema.mod, i, &rhs_buf);
             const of_math_result = try sema.intAddWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType());
-            overflowed_data[i] = of_math_result.overflowed;
+            overflowed_data[i] = of_math_result.overflow_bit;
             scalar.* = of_math_result.wrapped_result;
         }
         return Value.OverflowArithmeticResult{
-            .overflowed = try Value.Tag.aggregate.create(sema.arena, overflowed_data),
+            .overflow_bit = try Value.Tag.aggregate.create(sema.arena, overflowed_data),
             .wrapped_result = try Value.Tag.aggregate.create(sema.arena, result_data),
         };
     }
@@ -32996,7 +32986,7 @@ fn intAddWithOverflowScalar(
     const overflowed = result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
     const result = try Value.fromBigInt(sema.arena, result_bigint.toConst());
     return Value.OverflowArithmeticResult{
-        .overflowed = Value.makeBool(overflowed),
+        .overflow_bit = Value.boolToInt(overflowed),
         .wrapped_result = result,
     };
 }

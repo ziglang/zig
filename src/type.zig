@@ -3123,6 +3123,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
+                    if (!(field_ty.hasRuntimeBits())) continue;
 
                     switch (try field_ty.abiAlignmentAdvanced(target, strat)) {
                         .scalar => |field_align| big_align = @max(big_align, field_align),
