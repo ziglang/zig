@@ -3591,6 +3591,10 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
 }
 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
+    const inst_ty = f.air.typeOfIndex(inst);
+    if (inst_ty.tag() != .bool)
+        return try airUnBuiltinCall(f, inst, "not", .Bits);
+
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
 
     if (f.liveness.isUnused(inst)) {
@@ -3602,11 +3606,10 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ty_op.operand});
 
     const writer = f.object.writer();
-    const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
-    try writer.writeByte(if (inst_ty.tag() == .bool) '!' else '~');
+    try writer.writeByte('!');
     try f.writeCValue(writer, op, .Other);
     try writer.writeAll(";\n");
 
