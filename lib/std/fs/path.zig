@@ -460,7 +460,7 @@ pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..".
+/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
 /// The result does not have a trailing path separator.
 /// Each drive has its own current working directory.
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
@@ -637,7 +637,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..".
+/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
 /// The result does not have a trailing path separator.
 /// This function does not perform any syscalls. Executing this series of path
 /// lookups on the actual filesystem may produce different results due to
