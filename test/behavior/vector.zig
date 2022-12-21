@@ -1128,8 +1128,19 @@ test "byte vector initialized in inline function" {
 }
 
 test "byte vector initialized in inline function" {
-    // TODO https://github.com/ziglang/zig/issues/13279
-    if (true) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
+        builtin.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx512f)))
+    {
+        // TODO https://github.com/ziglang/zig/issues/13279
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         fn boolx4(e0: bool, e1: bool, e2: bool, e3: bool) @Vector(4, bool) {
