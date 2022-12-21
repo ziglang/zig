@@ -13,8 +13,6 @@ comptime {
 
 // Uses Knuth's Algorithm D, 4.3.1, p. 272.
 fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
-    @setRuntimeSafety(builtin.is_test);
-
     if (q) |q_| std.mem.set(u32, q_[0..], 0);
     if (r) |r_| std.mem.set(u32, r_[0..], 0);
 
