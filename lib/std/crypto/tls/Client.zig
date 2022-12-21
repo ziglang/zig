@@ -53,15 +53,12 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
         0x02, // byte length of supported versions
         0x03, 0x04, // TLS 1.3
     }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
-        .rsa_pkcs1_sha256,
-        .rsa_pkcs1_sha384,
-        .rsa_pkcs1_sha512,
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
         .ecdsa_secp521r1_sha512,
-        .rsa_pss_rsae_sha256,
-        .rsa_pss_rsae_sha384,
-        .rsa_pss_rsae_sha512,
+        .rsa_pkcs1_sha256,
+        .rsa_pkcs1_sha384,
+        .rsa_pkcs1_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
         .secp256r1,
@@ -420,33 +417,32 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                         // "This field MUST contain the same algorithm identifier as
                                         // the signatureAlgorithm field in the sequence Certificate."
                                         const signature = try Der.parseElement(handshake, serial_number.end);
-                                        const issuer = try Der.parseElement(handshake, signature.end);
-                                        const validity = try Der.parseElement(handshake, issuer.end);
-                                        const subject = try Der.parseElement(handshake, validity.end);
-                                        const subject_pub_key = try Der.parseElement(handshake, subject.end);
-                                        const extensions = try Der.parseElement(handshake, subject_pub_key.end);
-                                        _ = extensions;
+                                        const issuer_elem = try Der.parseElement(handshake, signature.end);
 
-                                        const signature_algorithm = try Der.parseElement(handshake, tbs_certificate.end);
-                                        const signature_value = try Der.parseElement(handshake, signature_algorithm.end);
-                                        _ = signature_value;
-
-                                        const algorithm_elem = try Der.parseElement(handshake, signature_algorithm.start);
-                                        const algorithm = try Der.parseObjectId(handshake, algorithm_elem);
-                                        std.debug.print("cert has this signature algorithm: {any}\n", .{algorithm});
-                                        //const parameters = try Der.parseElement(signature_algorithm.contents, &sa_i);
+                                        const issuer_bytes = handshake[issuer_elem.start..issuer_elem.end];
+                                        if (ca_bundle.find(issuer_bytes)) |ca_cert_i| {
+                                            const Certificate = crypto.CertificateBundle.Certificate;
+                                            const subject: Certificate = .{
+                                                .buffer = handshake,
+                                                .index = hs_i,
+                                            };
+                                            const issuer: Certificate = .{
+                                                .buffer = ca_bundle.bytes.items,
+                                                .index = ca_cert_i,
+                                            };
+                                            if (subject.verify(issuer)) |_| {
+                                                std.debug.print("found a root CA cert matching issuer. verification success!\n", .{});
+                                            } else |err| {
+                                                std.debug.print("found a root CA cert matching issuer. verification failure: {s}\n", .{
+                                                    @errorName(err),
+                                                });
+                                            }
+                                        }
 
                                         hs_i = end_cert;
                                         const total_ext_size = mem.readIntBig(u16, handshake[hs_i..][0..2]);
                                         hs_i += 2;
                                         hs_i += total_ext_size;
-
-                                        const issuer_bytes = handshake[issuer.start..issuer.end];
-                                        const ca_cert = ca_bundle.find(issuer_bytes);
-
-                                        std.debug.print("received certificate of size {d} bytes with {d} bytes of extensions. ca_found={any}\n", .{
-                                            cert_size, total_ext_size, ca_cert != null,
-                                        });
                                     }
                                 },
                                 @enumToInt(HandshakeType.certificate_verify) => {
