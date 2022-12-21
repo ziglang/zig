@@ -556,6 +556,32 @@ test "std.meta.fieldInfo" {
     try testing.expect(comptime uf.type == u8);
 }
 
+pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
+    if (@typeInfo(T) != .Struct and @typeInfo(T) != .Union) {
+        @compileError("Expected struct or union, found '" ++ @typeName(T) ++ "'");
+    }
+
+    return fieldInfo(T, field).type;
+}
+
+test "std.meta.FieldType" {
+    const S = struct {
+        a: u8,
+        b: u16,
+    };
+
+    const U = union {
+        c: u32,
+        d: *const u8,
+    };
+
+    try testing.expect(FieldType(S, .a) == u8);
+    try testing.expect(FieldType(S, .b) == u16);
+
+    try testing.expect(FieldType(U, .c) == u32);
+    try testing.expect(FieldType(U, .d) == *const u8);
+}
+
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
     comptime {
         const fieldInfos = fields(T);
