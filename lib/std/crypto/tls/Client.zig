@@ -18,6 +18,7 @@ const int2 = tls.int2;
 const int3 = tls.int3;
 const array = tls.array;
 const enum_array = tls.enum_array;
+const Certificate = crypto.CertificateBundle.Certificate;
 
 application_cipher: ApplicationCipher,
 read_seq: u64,
@@ -298,6 +299,8 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
     };
 
     var read_seq: u64 = 0;
+    var validated_cert = false;
+    var is_subsequent_cert = false;
 
     while (true) {
         const end_hdr = i + 5;
@@ -386,10 +389,11 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                         hs_i = next_ext_i;
                                     }
                                 },
-                                @enumToInt(HandshakeType.certificate) => {
+                                @enumToInt(HandshakeType.certificate) => cert: {
                                     switch (cipher_params) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
+                                    if (validated_cert) break :cert;
                                     var hs_i: u32 = 0;
                                     const cert_req_ctx_len = handshake[hs_i];
                                     hs_i += 1;
@@ -402,41 +406,36 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                         hs_i += 3;
                                         const end_cert = hs_i + cert_size;
 
-                                        const certificate = try Der.parseElement(handshake, hs_i);
-                                        const tbs_certificate = try Der.parseElement(handshake, certificate.start);
-
-                                        const version = try Der.parseElement(handshake, tbs_certificate.start);
-                                        if (@bitCast(u8, version.identifier) != 0xa0 or
-                                            !mem.eql(u8, handshake[version.start..version.end], "\x02\x01\x02"))
-                                        {
-                                            return error.UnsupportedCertificateVersion;
+                                        const subject_cert: Certificate = .{
+                                            .buffer = handshake,
+                                            .index = hs_i,
+                                        };
+                                        const subject = try subject_cert.parse();
+                                        if (!is_subsequent_cert) {
+                                            is_subsequent_cert = true;
+                                            if (mem.eql(u8, subject.common_name, host)) {
+                                                std.debug.print("exact host match\n", .{});
+                                            } else if (mem.startsWith(u8, subject.common_name, "*.") and
+                                                mem.eql(u8, subject.common_name[2..], host))
+                                            {
+                                                std.debug.print("wildcard host match\n", .{});
+                                            } else {
+                                                std.debug.print("host does not match\n", .{});
+                                                return error.TlsCertificateInvalidHost;
+                                            }
                                         }
 
-                                        const serial_number = try Der.parseElement(handshake, version.end);
-                                        // RFC 5280, section 4.1.2.3:
-                                        // "This field MUST contain the same algorithm identifier as
-                                        // the signatureAlgorithm field in the sequence Certificate."
-                                        const signature = try Der.parseElement(handshake, serial_number.end);
-                                        const issuer_elem = try Der.parseElement(handshake, signature.end);
-
-                                        const issuer_bytes = handshake[issuer_elem.start..issuer_elem.end];
-                                        if (ca_bundle.find(issuer_bytes)) |ca_cert_i| {
-                                            const Certificate = crypto.CertificateBundle.Certificate;
-                                            const subject: Certificate = .{
-                                                .buffer = handshake,
-                                                .index = hs_i,
-                                            };
-                                            const issuer: Certificate = .{
-                                                .buffer = ca_bundle.bytes.items,
-                                                .index = ca_cert_i,
-                                            };
-                                            if (subject.verify(issuer)) |_| {
-                                                std.debug.print("found a root CA cert matching issuer. verification success!\n", .{});
-                                            } else |err| {
-                                                std.debug.print("found a root CA cert matching issuer. verification failure: {s}\n", .{
-                                                    @errorName(err),
-                                                });
-                                            }
+                                        if (ca_bundle.verify(subject)) |_| {
+                                            std.debug.print("found a root CA cert matching issuer. verification success!\n", .{});
+                                            validated_cert = true;
+                                            break :cert;
+                                        } else |err| {
+                                            std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
+                                                @errorName(err),
+                                            });
+                                            // TODO handle a certificate
+                                            // signing chain that ends in a
+                                            // root-validated one.
                                         }
 
                                         hs_i = end_cert;
