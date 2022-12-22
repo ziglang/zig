@@ -291,3 +291,11 @@ pub extern "ntdll" fn RtlQueryRegistryValues(
     Context: ?*anyopaque,
     Environment: ?*anyopaque,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtProtectVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: *PVOID,
+    NumberOfBytesToProtect: *ULONG,
+    NewAccessProtection: ULONG,
+    OldAccessProtection: *ULONG,
+) callconv(WINAPI) NTSTATUS;
