@@ -1,35 +1,39 @@
 const std = @import("../std.zig");
 const io = std.io;
+const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 
 pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
         unbuffered_reader: ReaderType,
-        fifo: FifoType = FifoType.init(),
+        buf: [buffer_size]u8 = undefined,
+        start: usize = 0,
+        end: usize = 0,
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
 
         const Self = @This();
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
 
         pub fn read(self: *Self, dest: []u8) Error!usize {
             var dest_index: usize = 0;
+
             while (dest_index < dest.len) {
-                const written = self.fifo.read(dest[dest_index..]);
+                const written = std.math.min(dest.len - dest_index, self.end - self.start);
+                std.mem.copy(u8, dest[dest_index..], self.buf[self.start .. self.start + written]);
                 if (written == 0) {
-                    // fifo empty, fill it
-                    const writable = self.fifo.writableSlice(0);
-                    assert(writable.len > 0);
-                    const n = try self.unbuffered_reader.read(writable);
+                    // buf empty, fill it
+                    const n = try self.unbuffered_reader.read(self.buf[0..]);
                     if (n == 0) {
                         // reading from the unbuffered stream returned nothing
                         // so we have nothing left to read.
                         return dest_index;
                     }
-                    self.fifo.update(n);
+                    self.start = 0;
+                    self.end = n;
                 }
+                self.start += written;
                 dest_index += written;
             }
             return dest.len;
