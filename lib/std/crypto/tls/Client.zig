@@ -1,6 +1,5 @@
 const std = @import("../../std.zig");
 const tls = std.crypto.tls;
-const Der = std.crypto.Der;
 const Client = @This();
 const net = std.net;
 const mem = std.mem;
@@ -18,7 +17,7 @@ const int2 = tls.int2;
 const int3 = tls.int3;
 const array = tls.array;
 const enum_array = tls.enum_array;
-const Certificate = crypto.CertificateBundle.Certificate;
+const Certificate = crypto.Certificate;
 
 application_cipher: ApplicationCipher,
 read_seq: u64,
@@ -30,7 +29,7 @@ partially_read_len: u15,
 eof: bool,
 
 /// `host` is only borrowed during this function call.
-pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []const u8) !Client {
+pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
     const host_len = @intCast(u16, host.len);
 
     var random_buffer: [128]u8 = undefined;
@@ -298,9 +297,19 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
         break :i end;
     };
 
+    // This is used for two purposes:
+    // * Detect whether a certificate is the first one presented, in which case
+    //   we need to verify the host name.
+    // * Flip back and forth between the two cleartext buffers in order to keep
+    //   the previous certificate in memory so that it can be verified by the
+    //   next one.
+    var cert_index: usize = 0;
     var read_seq: u64 = 0;
-    var validated_cert = false;
-    var is_subsequent_cert = false;
+    var prev_cert: Certificate.Parsed = undefined;
+    // Set to true once a trust chain has been established from the first
+    // certificate to a root CA.
+    var cert_verification_done = false;
+    var cleartext_bufs: [2][8000]u8 = undefined;
 
     while (true) {
         const end_hdr = i + 5;
@@ -328,7 +337,8 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                 if (handshake_buf[i] != 0x01) return error.TlsUnexpectedMessage;
             },
             .application_data => {
-                var cleartext_buf: [8000]u8 = undefined;
+                const cleartext_buf = &cleartext_bufs[cert_index % 2];
+
                 const cleartext = switch (handshake_cipher) {
                     inline else => |*p| c: {
                         const P = @TypeOf(p.*);
@@ -393,7 +403,7 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                     switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
-                                    if (validated_cert) break :cert;
+                                    if (cert_verification_done) break :cert;
                                     var hs_i: u32 = 0;
                                     const cert_req_ctx_len = handshake[hs_i];
                                     hs_i += 1;
@@ -411,12 +421,22 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
                                             .index = hs_i,
                                         };
                                         const subject = try subject_cert.parse();
-                                        if (!is_subsequent_cert) {
-                                            is_subsequent_cert = true;
-                                            if (mem.eql(u8, subject.common_name, host)) {
+                                        if (cert_index > 0) {
+                                            if (prev_cert.verify(subject)) |_| {
+                                                std.debug.print("previous certificate verified\n", .{});
+                                            } else |err| {
+                                                std.debug.print("unable to validate previous cert: {s}\n", .{
+                                                    @errorName(err),
+                                                });
+                                            }
+                                        } else {
+                                            // Verify the host on the first certificate.
+                                            const common_name = subject.commonName();
+                                            if (mem.eql(u8, common_name, host)) {
                                                 std.debug.print("exact host match\n", .{});
-                                            } else if (mem.startsWith(u8, subject.common_name, "*.") and
-                                                mem.eql(u8, subject.common_name[2..], host))
+                                            } else if (mem.startsWith(u8, common_name, "*.") and
+                                                (mem.endsWith(u8, host, common_name[1..]) or
+                                                mem.eql(u8, common_name[2..], host)))
                                             {
                                                 std.debug.print("wildcard host match\n", .{});
                                             } else {
@@ -427,16 +447,16 @@ pub fn init(stream: net.Stream, ca_bundle: crypto.CertificateBundle, host: []con
 
                                         if (ca_bundle.verify(subject)) |_| {
                                             std.debug.print("found a root CA cert matching issuer. verification success!\n", .{});
-                                            validated_cert = true;
+                                            cert_verification_done = true;
                                             break :cert;
                                         } else |err| {
                                             std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
                                                 @errorName(err),
                                             });
-                                            // TODO handle a certificate
-                                            // signing chain that ends in a
-                                            // root-validated one.
                                         }
+
+                                        prev_cert = subject;
+                                        cert_index += 1;
 
                                         hs_i = end_cert;
                                         const total_ext_size = mem.readIntBig(u16, handshake[hs_i..][0..2]);

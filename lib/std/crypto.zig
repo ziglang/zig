@@ -177,8 +177,8 @@ const std = @import("std.zig");
 pub const errors = @import("crypto/errors.zig");
 
 pub const tls = @import("crypto/tls.zig");
-pub const Der = @import("crypto/Der.zig");
-pub const CertificateBundle = @import("crypto/CertificateBundle.zig");
+pub const der = @import("crypto/der.zig");
+pub const Certificate = @import("crypto/Certificate.zig");
 
 test {
     _ = aead.aegis.Aegis128L;
@@ -269,8 +269,8 @@ test {
     _ = random;
     _ = errors;
     _ = tls;
-    _ = Der;
-    _ = CertificateBundle;
+    _ = der;
+    _ = Certificate;
 }
 
 test "CSPRNG" {

@@ -99,8 +99,14 @@ pub const Oid = enum {
 
 pub const Element = struct {
     identifier: Identifier,
-    start: u32,
-    end: u32,
+    slice: Slice,
+
+    pub const Slice = struct {
+        start: u32,
+        end: u32,
+
+        pub const empty: Slice = .{ .start = 0, .end = 0 };
+    };
 };
 
 pub const ParseElementError = error{CertificateHasFieldWithInvalidLength};
@@ -114,8 +120,10 @@ pub fn parseElement(bytes: []const u8, index: u32) ParseElementError!Element {
     if ((size_byte >> 7) == 0) {
         return .{
             .identifier = identifier,
-            .start = i,
-            .end = i + size_byte,
+            .slice = .{
+                .start = i,
+                .end = i + size_byte,
+            },
         };
     }
 
@@ -132,8 +140,10 @@ pub fn parseElement(bytes: []const u8, index: u32) ParseElementError!Element {
 
     return .{
         .identifier = identifier,
-        .start = i,
-        .end = i + long_form_size,
+        .slice = .{
+            .start = i,
+            .end = i + long_form_size,
+        },
     };
 }
 
@@ -145,9 +155,9 @@ pub const ParseObjectIdError = error{
 pub fn parseObjectId(bytes: []const u8, element: Element) ParseObjectIdError!Oid {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
-    return Oid.map.get(bytes[element.start..element.end]) orelse
+    return Oid.map.get(bytes[element.slice.start..element.slice.end]) orelse
         return error.CertificateHasUnrecognizedObjectId;
 }
 
 const std = @import("../std.zig");
-const Der = @This();
+const der = @This();

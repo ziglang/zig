@@ -7,7 +7,7 @@ const Client = @This();
 allocator: std.mem.Allocator,
 headers: std.ArrayListUnmanaged(u8) = .{},
 active_requests: usize = 0,
-ca_bundle: std.crypto.CertificateBundle = .{},
+ca_bundle: std.crypto.Certificate.Bundle = .{},
 
 pub const Request = struct {
     client: *Client,
