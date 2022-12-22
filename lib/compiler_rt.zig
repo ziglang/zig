@@ -112,6 +112,7 @@ comptime {
     _ = @import("compiler_rt/modti3.zig");
     _ = @import("compiler_rt/multi3.zig");
     _ = @import("compiler_rt/udivti3.zig");
+    _ = @import("compiler_rt/udivmodei4.zig");
     _ = @import("compiler_rt/udivmodti4.zig");
     _ = @import("compiler_rt/umodti3.zig");
 
