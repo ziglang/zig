@@ -159,7 +159,7 @@ pub fn build(b: *Builder) !void {
     exe.setTarget(target);
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
-    compile_step.dependOn(&exe.install_step.?.step);
+    compile_step.dependOn(&exe.step);
 
     if (!skip_stage2_tests) {
         test_step.dependOn(&exe.step);
