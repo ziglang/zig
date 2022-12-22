@@ -2240,7 +2240,7 @@ zig_msvc_atomics(i64, 64)
     }
 
 zig_msvc_flt_atomics(f32, u32, )
-zig_msvc_flt_atomics(f64, u64, 32)
+zig_msvc_flt_atomics(f64, u64, 64)
 
 #if _M_IX86
 static inline void* zig_msvc_atomicrmw_xchg_p32(void** obj, zig_u32* arg) {
