@@ -4226,12 +4226,30 @@ pub const MProtectError = error{
 /// `memory.len` must be page-aligned.
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
     assert(mem.isAligned(memory.len, mem.page_size));
-    switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
-        .SUCCESS => return,
-        .INVAL => unreachable,
-        .ACCES => return error.AccessDenied,
-        .NOMEM => return error.OutOfMemory,
-        else => |err| return unexpectedErrno(err),
+    if (builtin.os.tag == .windows) {
+        const win_prot: windows.DWORD = switch (@truncate(u3, protection)) {
+            0b000 => windows.PAGE_NOACCESS,
+            0b001 => windows.PAGE_READONLY,
+            0b010 => unreachable, // +w -r not allowed
+            0b011 => windows.PAGE_READWRITE,
+            0b100 => windows.PAGE_EXECUTE,
+            0b101 => windows.PAGE_EXECUTE_READ,
+            0b110 => unreachable, // +w -r not allowed
+            0b111 => windows.PAGE_EXECUTE_READWRITE,
+        };
+        var old: windows.DWORD = undefined;
+        windows.VirtualProtect(memory.ptr, memory.len, win_prot, &old) catch |err| switch (err) {
+            error.InvalidAddress => return error.AccessDenied,
+            error.Unexpected => return error.Unexpected,
+        };
+    } else {
+        switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
+            .SUCCESS => return,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .NOMEM => return error.OutOfMemory,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }
 

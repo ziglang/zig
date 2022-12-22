@@ -1499,6 +1499,22 @@ pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
+pub const VirtualProtectError = error{
+    InvalidAddress,
+    Unexpected,
+};
+
+pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, lpflOldProtect: *DWORD) VirtualProtectError!void {
+    // ntdll takes an extra level of indirection here
+    var addr = lpAddress;
+    var size = dwSize;
+    switch (ntdll.NtProtectVirtualMemory(self_process_handle, &addr, &size, flNewProtect, lpflOldProtect)) {
+        .SUCCESS => {},
+        .INVALID_ADDRESS => return error.InvalidAddress,
+        else => |st| return unexpectedStatus(st),
+    }
+}
+
 pub const VirtualQueryError = error{Unexpected};
 
 pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
