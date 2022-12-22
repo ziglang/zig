@@ -308,8 +308,23 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
     var prev_cert: Certificate.Parsed = undefined;
     // Set to true once a trust chain has been established from the first
     // certificate to a root CA.
-    var cert_verification_done = false;
+    const HandshakeState = enum {
+        /// In this state we expect only an encrypted_extensions message.
+        encrypted_extensions,
+        /// In this state we expect certificate messages.
+        certificate,
+        /// In this state we expect certificate or certificate_verify messages.
+        /// certificate messages are ignored since the trust chain is already
+        /// established.
+        trust_chain_established,
+        /// In this state, we expect only the finished message.
+        finished,
+    };
+    var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
+    var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
+    var main_cert_pub_key_buf: [128]u8 = undefined;
+    var main_cert_pub_key_len: u8 = undefined;
 
     while (true) {
         const end_hdr = i + 5;
@@ -376,6 +391,8 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                             const handshake = cleartext[ct_i..next_handshake_i];
                             switch (handshake_type) {
                                 @enumToInt(HandshakeType.encrypted_extensions) => {
+                                    if (handshake_state != .encrypted_extensions) return error.TlsUnexpectedMessage;
+                                    handshake_state = .certificate;
                                     switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
@@ -403,7 +420,11 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                     switch (handshake_cipher) {
                                         inline else => |*p| p.transcript_hash.update(wrapped_handshake),
                                     }
-                                    if (cert_verification_done) break :cert;
+                                    switch (handshake_state) {
+                                        .certificate => {},
+                                        .trust_chain_established => break :cert,
+                                        else => return error.TlsUnexpectedMessage,
+                                    }
                                     var hs_i: u32 = 0;
                                     const cert_req_ctx_len = handshake[hs_i];
                                     hs_i += 1;
@@ -421,38 +442,41 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             .index = hs_i,
                                         };
                                         const subject = try subject_cert.parse();
-                                        if (cert_index > 0) {
-                                            if (prev_cert.verify(subject)) |_| {
-                                                std.debug.print("previous certificate verified\n", .{});
-                                            } else |err| {
+                                        if (cert_index == 0) {
+                                            // Verify the host on the first certificate.
+                                            if (!hostMatchesCommonName(host, subject.commonName())) {
+                                                return error.TlsCertificateHostMismatch;
+                                            }
+
+                                            // Keep track of the public key for
+                                            // the certificate_verify message
+                                            // later.
+                                            main_cert_pub_key_algo = subject.pub_key_algo;
+                                            const pub_key = subject.pubKey();
+                                            if (pub_key.len > main_cert_pub_key_buf.len)
+                                                return error.CertificatePublicKeyInvalid;
+                                            @memcpy(&main_cert_pub_key_buf, pub_key.ptr, pub_key.len);
+                                            main_cert_pub_key_len = @intCast(@TypeOf(main_cert_pub_key_len), pub_key.len);
+                                        } else {
+                                            prev_cert.verify(subject) catch |err| {
                                                 std.debug.print("unable to validate previous cert: {s}\n", .{
                                                     @errorName(err),
                                                 });
-                                            }
-                                        } else {
-                                            // Verify the host on the first certificate.
-                                            const common_name = subject.commonName();
-                                            if (mem.eql(u8, common_name, host)) {
-                                                std.debug.print("exact host match\n", .{});
-                                            } else if (mem.startsWith(u8, common_name, "*.") and
-                                                (mem.endsWith(u8, host, common_name[1..]) or
-                                                mem.eql(u8, common_name[2..], host)))
-                                            {
-                                                std.debug.print("wildcard host match\n", .{});
-                                            } else {
-                                                std.debug.print("host does not match\n", .{});
-                                                return error.TlsCertificateInvalidHost;
-                                            }
+                                                return err;
+                                            };
                                         }
 
                                         if (ca_bundle.verify(subject)) |_| {
-                                            std.debug.print("found a root CA cert matching issuer. verification success!\n", .{});
-                                            cert_verification_done = true;
+                                            handshake_state = .trust_chain_established;
                                             break :cert;
-                                        } else |err| {
-                                            std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
-                                                @errorName(err),
-                                            });
+                                        } else |err| switch (err) {
+                                            error.IssuerNotFound => {},
+                                            else => |e| {
+                                                std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
+                                                    @errorName(e),
+                                                });
+                                                return e;
+                                            },
                                         }
 
                                         prev_cert = subject;
@@ -465,12 +489,46 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                     }
                                 },
                                 @enumToInt(HandshakeType.certificate_verify) => {
-                                    switch (handshake_cipher) {
-                                        inline else => |*p| p.transcript_hash.update(wrapped_handshake),
+                                    switch (handshake_state) {
+                                        .trust_chain_established => handshake_state = .finished,
+                                        .certificate => return error.TlsCertificateNotVerified,
+                                        else => return error.TlsUnexpectedMessage,
                                     }
-                                    std.debug.print("ignoring certificate_verify\n", .{});
+
+                                    const algorithm = @intToEnum(tls.SignatureScheme, mem.readIntBig(u16, handshake[0..2]));
+                                    const sig_len = mem.readIntBig(u16, handshake[2..4]);
+                                    if (4 + sig_len > handshake.len) return error.TlsBadLength;
+                                    const encoded_sig = handshake[4..][0..sig_len];
+                                    const max_digest_len = 64;
+                                    var verify_buffer =
+                                        ([1]u8{0x20} ** 64) ++
+                                        "TLS 1.3, server CertificateVerify\x00".* ++
+                                        ([1]u8{undefined} ** max_digest_len);
+
+                                    const verify_bytes = switch (handshake_cipher) {
+                                        inline else => |*p| v: {
+                                            const transcript_digest = p.transcript_hash.peek();
+                                            verify_buffer[verify_buffer.len - max_digest_len ..][0..transcript_digest.len].* = transcript_digest;
+                                            p.transcript_hash.update(wrapped_handshake);
+                                            break :v verify_buffer[0 .. verify_buffer.len - max_digest_len + transcript_digest.len];
+                                        },
+                                    };
+                                    const main_cert_pub_key = main_cert_pub_key_buf[0..main_cert_pub_key_len];
+
+                                    switch (algorithm) {
+                                        .ecdsa_secp256r1_sha256 => {
+                                            if (main_cert_pub_key_algo != .X9_62_id_ecPublicKey)
+                                                return error.TlsBadSignatureAlgorithm;
+                                            const P256 = std.crypto.sign.ecdsa.EcdsaP256Sha256;
+                                            const sig = try P256.Signature.fromDer(encoded_sig);
+                                            const key = try P256.PublicKey.fromSec1(main_cert_pub_key);
+                                            try sig.verify(verify_bytes, key);
+                                        },
+                                        else => return error.TlsBadSignatureAlgorithm,
+                                    }
                                 },
                                 @enumToInt(HandshakeType.finished) => {
+                                    if (handshake_state != .finished) return error.TlsUnexpectedMessage;
                                     // This message is to trick buggy proxies into behaving correctly.
                                     const client_change_cipher_spec_msg = [_]u8{
                                         @enumToInt(ContentType.change_cipher_spec),
@@ -760,6 +818,26 @@ fn finishRead(c: *Client, frag: []const u8, in: usize, out: usize) usize {
     mem.copy(u8, &c.partially_read_buffer, saved_buf);
     c.partially_read_len = @intCast(u15, saved_buf.len);
     return out;
+}
+
+fn hostMatchesCommonName(host: []const u8, common_name: []const u8) bool {
+    if (mem.eql(u8, common_name, host)) {
+        return true; // exact match
+    }
+
+    if (mem.startsWith(u8, common_name, "*.")) {
+        // wildcard certificate, matches any subdomain
+        if (mem.endsWith(u8, host, common_name[1..])) {
+            // The host has a subdomain, but the important part matches.
+            return true;
+        }
+        if (mem.eql(u8, common_name[2..], host)) {
+            // The host has no subdomain and matches exactly.
+            return true;
+        }
+    }
+
+    return false;
 }
 
 const builtin = @import("builtin");

@@ -9,6 +9,10 @@ pub const Algorithm = enum {
     sha256WithRSAEncryption,
     sha384WithRSAEncryption,
     sha512WithRSAEncryption,
+    ecdsa_with_SHA224,
+    ecdsa_with_SHA256,
+    ecdsa_with_SHA384,
+    ecdsa_with_SHA512,
 
     pub const map = std.ComptimeStringMap(Algorithm, .{
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
@@ -16,15 +20,19 @@ pub const Algorithm = enum {
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D }, .sha512WithRSAEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0E }, .sha224WithRSAEncryption },
+        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01 }, .ecdsa_with_SHA224 },
+        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 }, .ecdsa_with_SHA256 },
+        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03 }, .ecdsa_with_SHA384 },
+        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04 }, .ecdsa_with_SHA512 },
     });
 
     pub fn Hash(comptime algorithm: Algorithm) type {
         return switch (algorithm) {
             .sha1WithRSAEncryption => crypto.hash.Sha1,
-            .sha224WithRSAEncryption => crypto.hash.sha2.Sha224,
-            .sha256WithRSAEncryption => crypto.hash.sha2.Sha256,
-            .sha384WithRSAEncryption => crypto.hash.sha2.Sha384,
-            .sha512WithRSAEncryption => crypto.hash.sha2.Sha512,
+            .ecdsa_with_SHA224, .sha224WithRSAEncryption => crypto.hash.sha2.Sha224,
+            .ecdsa_with_SHA256, .sha256WithRSAEncryption => crypto.hash.sha2.Sha256,
+            .ecdsa_with_SHA384, .sha384WithRSAEncryption => crypto.hash.sha2.Sha384,
+            .ecdsa_with_SHA512, .sha512WithRSAEncryption => crypto.hash.sha2.Sha512,
         };
     }
 };
@@ -125,6 +133,13 @@ pub const Parsed = struct {
                 parsed_issuer.pub_key_algo,
                 parsed_issuer.pubKey(),
             ),
+            .ecdsa_with_SHA224,
+            .ecdsa_with_SHA256,
+            .ecdsa_with_SHA384,
+            .ecdsa_with_SHA512,
+            => {
+                return error.CertificateSignatureAlgorithmUnsupported;
+            },
         }
     }
 };
@@ -205,8 +220,11 @@ pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
 pub fn parseAlgorithm(bytes: []const u8, element: der.Element) !Algorithm {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
-    return Algorithm.map.get(bytes[element.slice.start..element.slice.end]) orelse
+    const oid_bytes = bytes[element.slice.start..element.slice.end];
+    return Algorithm.map.get(oid_bytes) orelse {
+        //std.debug.print("oid bytes: {}\n", .{std.fmt.fmtSliceHexLower(oid_bytes)});
         return error.CertificateHasUnrecognizedAlgorithm;
+    };
 }
 
 pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) !AlgorithmCategory {
