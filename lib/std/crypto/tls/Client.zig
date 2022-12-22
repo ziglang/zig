@@ -583,15 +583,16 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             });
                                         },
                                     };
-                                    std.debug.print("remaining bytes: {d}\n", .{len - end});
-                                    return .{
+                                    var client: Client = .{
                                         .application_cipher = app_cipher,
                                         .read_seq = 0,
                                         .write_seq = 0,
                                         .partially_read_buffer = undefined,
-                                        .partially_read_len = 0,
+                                        .partially_read_len = @intCast(u15, len - end),
                                         .eof = false,
                                     };
+                                    mem.copy(u8, &client.partially_read_buffer, handshake_buf[len..end]);
+                                    return client;
                                 },
                                 else => {
                                     return error.TlsUnexpectedMessage;
