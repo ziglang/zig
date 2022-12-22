@@ -31,11 +31,6 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
     git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
-# Fix files that have their gitattributes changed
-git rm -rf lib
-git restore --staged lib
-git checkout lib
-
 Write-Output "Building from source..."
 Remove-Item -Path 'build-release' -Recurse -Force -ErrorAction Ignore
 New-Item -Path 'build-release' -ItemType Directory
