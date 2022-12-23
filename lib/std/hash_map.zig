@@ -831,8 +831,8 @@ pub fn HashMapUnmanaged(
                 inline while (vec_size >= 1) : (vec_size /= 2) {
                     while ((cap - it.index) >= vec_size) {
                         const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
-                        const last_bits = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                        const mask = @bitCast(meta.Int(.unsigned, vec_size), last_bits);
+                        const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                        const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
                         if (mask == 0) {
                             metadata += vec_size;
                             it.index += vec_size;
@@ -869,8 +869,8 @@ pub fn HashMapUnmanaged(
                     inline while (vec_size >= 1) : (vec_size /= 2) {
                         while (self.len >= vec_size) {
                             const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
-                            const last_bits = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                            const mask = @bitCast(meta.Int(.unsigned, vec_size), last_bits);
+                            const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                            const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
                             if (mask == 0) {
                                 self.len -= vec_size;
                                 self.metadata += vec_size;
@@ -886,16 +886,6 @@ pub fn HashMapUnmanaged(
                             }
                         }
                     }
-                    // while (self.len > 0) {
-                    //     self.len -= 1;
-                    //     const used = self.metadata[0].isUsed();
-                    //     const item = &self.items[0];
-                    //     self.metadata += 1;
-                    //     self.items += 1;
-                    //     if (used) {
-                    //         return item;
-                    //     }
-                    // }
                     return null;
                 }
             };
