@@ -44,12 +44,20 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
     cb.* = undefined;
 }
 
-/// Empties the set of certificates and then scans the host operating system
+/// Clears the set of certificates and then scans the host operating system
 /// file system standard locations for certificates.
+/// For operating systems that do not have standard CA installations to be
+/// found, this function clears the set of certificates.
 pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
-        else => @compileError("it is unknown where the root CA certificates live on this OS"),
+        .windows => {
+            // TODO
+        },
+        .macos => {
+            // TODO
+        },
+        else => {},
     }
 }
 
@@ -100,6 +108,8 @@ pub fn addCertsFromFile(
     const begin_marker = "-----BEGIN CERTIFICATE-----";
     const end_marker = "-----END CERTIFICATE-----";
 
+    const now_sec = std.time.timestamp();
+
     var start_index: usize = 0;
     while (mem.indexOfPos(u8, encoded_bytes, start_index, begin_marker)) |begin_marker_start| {
         const cert_start = begin_marker_start + begin_marker.len;
@@ -110,29 +120,26 @@ pub fn addCertsFromFile(
         const decoded_start = @intCast(u32, cb.bytes.items.len);
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
-        const k = try cb.key(decoded_start);
-        const gop = try cb.map.getOrPutContext(gpa, k, .{ .cb = cb });
+        // Even though we could only partially parse the certificate to find
+        // the subject name, we pre-parse all of them to make sure and only
+        // include in the bundle ones that we know will parse. This way we can
+        // use `catch unreachable` later.
+        const parsed_cert = try Certificate.parse(.{
+            .buffer = cb.bytes.items,
+            .index = decoded_start,
+        });
+        if (now_sec > parsed_cert.validity.not_after) {
+            // Ignore expired cert.
+            cb.bytes.items.len = decoded_start;
+            continue;
+        }
+        const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
         if (gop.found_existing) {
             cb.bytes.items.len = decoded_start;
         } else {
             gop.value_ptr.* = decoded_start;
         }
     }
-}
-
-pub fn key(cb: Bundle, bytes_index: u32) !der.Element.Slice {
-    const bytes = cb.bytes.items;
-    const certificate = try der.parseElement(bytes, bytes_index);
-    const tbs_certificate = try der.parseElement(bytes, certificate.slice.start);
-    const version = try der.parseElement(bytes, tbs_certificate.slice.start);
-    try Certificate.checkVersion(bytes, version);
-    const serial_number = try der.parseElement(bytes, version.slice.end);
-    const signature = try der.parseElement(bytes, serial_number.slice.end);
-    const issuer = try der.parseElement(bytes, signature.slice.end);
-    const validity = try der.parseElement(bytes, issuer.slice.end);
-    const subject = try der.parseElement(bytes, validity.slice.end);
-
-    return subject.slice;
 }
 
 const builtin = @import("builtin");

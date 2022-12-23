@@ -79,6 +79,12 @@ pub const Parsed = struct {
     pub_key_algo: AlgorithmCategory,
     pub_key_slice: Slice,
     message_slice: Slice,
+    validity: Validity,
+
+    pub const Validity = struct {
+        not_before: u64,
+        not_after: u64,
+    };
 
     pub const Slice = der.Element.Slice;
 
@@ -110,6 +116,8 @@ pub const Parsed = struct {
         return p.slice(p.message_slice);
     }
 
+    /// This function checks the time validity for the subject only. Checking
+    /// the issuer's time validity is out of scope.
     pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed) !void {
         // Check that the subject's issuer name matches the issuer's
         // subject name.
@@ -117,8 +125,11 @@ pub const Parsed = struct {
             return error.CertificateIssuerMismatch;
         }
 
-        // TODO check the time validity for the subject
-        // TODO check the time validity for the issuer
+        const now_sec = std.time.timestamp();
+        if (now_sec < parsed_subject.validity.not_before)
+            return error.CertificateNotYetValid;
+        if (now_sec > parsed_subject.validity.not_after)
+            return error.CertificateExpired;
 
         switch (parsed_subject.signature_algorithm) {
             inline .sha1WithRSAEncryption,
@@ -157,6 +168,10 @@ pub fn parse(cert: Certificate) !Parsed {
     const tbs_signature = try der.parseElement(cert_bytes, serial_number.slice.end);
     const issuer = try der.parseElement(cert_bytes, tbs_signature.slice.end);
     const validity = try der.parseElement(cert_bytes, issuer.slice.end);
+    const not_before = try der.parseElement(cert_bytes, validity.slice.start);
+    const not_before_utc = try parseTime(cert, not_before);
+    const not_after = try der.parseElement(cert_bytes, not_before.slice.end);
+    const not_after_utc = try parseTime(cert, not_after);
     const subject = try der.parseElement(cert_bytes, validity.slice.end);
 
     const pub_key_info = try der.parseElement(cert_bytes, subject.slice.end);
@@ -198,6 +213,10 @@ pub fn parse(cert: Certificate) !Parsed {
         .message_slice = .{ .start = certificate.slice.start, .end = tbs_certificate.slice.end },
         .pub_key_algo = pub_key_algo,
         .pub_key_slice = pub_key,
+        .validity = .{
+            .not_before = not_before_utc,
+            .not_after = not_after_utc,
+        },
     };
 }
 
@@ -208,13 +227,140 @@ pub fn verify(subject: Certificate, issuer: Certificate) !void {
 }
 
 pub fn contents(cert: Certificate, elem: der.Element) []const u8 {
-    return cert.buffer[elem.start..elem.end];
+    return cert.buffer[elem.slice.start..elem.slice.end];
 }
 
 pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
     if (elem.identifier.tag != .bitstring) return error.CertificateFieldHasWrongDataType;
     if (cert.buffer[elem.slice.start] != 0) return error.CertificateHasInvalidBitString;
     return .{ .start = elem.slice.start + 1, .end = elem.slice.end };
+}
+
+/// Returns number of seconds since epoch.
+pub fn parseTime(cert: Certificate, elem: der.Element) !u64 {
+    const bytes = cert.contents(elem);
+    switch (elem.identifier.tag) {
+        .utc_time => {
+            // Example: "YYMMDD000000Z"
+            if (bytes.len != 13)
+                return error.CertificateTimeInvalid;
+            if (bytes[12] != 'Z')
+                return error.CertificateTimeInvalid;
+
+            return Date.toSeconds(.{
+                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2].*, 0, 99),
+                .month = try parseTimeDigits(bytes[2..4].*, 1, 12),
+                .day = try parseTimeDigits(bytes[4..6].*, 1, 31),
+                .hour = try parseTimeDigits(bytes[6..8].*, 0, 23),
+                .minute = try parseTimeDigits(bytes[8..10].*, 0, 59),
+                .second = try parseTimeDigits(bytes[10..12].*, 0, 59),
+            });
+        },
+        .generalized_time => {
+            // Examples:
+            // "19920521000000Z"
+            // "19920622123421Z"
+            // "19920722132100.3Z"
+            if (bytes.len < 15)
+                return error.CertificateTimeInvalid;
+            return Date.toSeconds(.{
+                .year = try parseYear4(bytes[0..4]),
+                .month = try parseTimeDigits(bytes[4..6].*, 1, 12),
+                .day = try parseTimeDigits(bytes[6..8].*, 1, 31),
+                .hour = try parseTimeDigits(bytes[8..10].*, 0, 23),
+                .minute = try parseTimeDigits(bytes[10..12].*, 0, 59),
+                .second = try parseTimeDigits(bytes[12..14].*, 0, 59),
+            });
+        },
+        else => return error.CertificateFieldHasWrongDataType,
+    }
+}
+
+const Date = struct {
+    /// example: 1999
+    year: u16,
+    /// range: 1 to 12
+    month: u8,
+    /// range: 1 to 31
+    day: u8,
+    /// range: 0 to 59
+    hour: u8,
+    /// range: 0 to 59
+    minute: u8,
+    /// range: 0 to 59
+    second: u8,
+
+    /// Convert to number of seconds since epoch.
+    pub fn toSeconds(date: Date) u64 {
+        var sec: u64 = 0;
+
+        {
+            var year: u16 = 1970;
+            while (year < date.year) : (year += 1) {
+                const days: u64 = std.time.epoch.getDaysInYear(year);
+                sec += days * std.time.epoch.secs_per_day;
+            }
+        }
+
+        {
+            const is_leap = std.time.epoch.isLeapYear(date.year);
+            var month: u4 = 1;
+            while (month < date.month) : (month += 1) {
+                const days: u64 = std.time.epoch.getDaysInMonth(
+                    @intToEnum(std.time.epoch.YearLeapKind, @boolToInt(is_leap)),
+                    @intToEnum(std.time.epoch.Month, month),
+                );
+                sec += days * std.time.epoch.secs_per_day;
+            }
+        }
+
+        sec += (date.day - 1) * @as(u64, std.time.epoch.secs_per_day);
+        sec += date.hour * @as(u64, 60 * 60);
+        sec += date.minute * @as(u64, 60);
+        sec += date.second;
+
+        return sec;
+    }
+};
+
+pub fn parseTimeDigits(nn: @Vector(2, u8), min: u8, max: u8) !u8 {
+    const zero: @Vector(2, u8) = .{ '0', '0' };
+    const mm: @Vector(2, u8) = .{ 10, 1 };
+    const result = @reduce(.Add, (nn -% zero) *% mm);
+    if (result < min) return error.CertificateTimeInvalid;
+    if (result > max) return error.CertificateTimeInvalid;
+    return result;
+}
+
+test parseTimeDigits {
+    const expectEqual = std.testing.expectEqual;
+    try expectEqual(@as(u8, 0), try parseTimeDigits("00".*, 0, 99));
+    try expectEqual(@as(u8, 99), try parseTimeDigits("99".*, 0, 99));
+    try expectEqual(@as(u8, 42), try parseTimeDigits("42".*, 0, 99));
+
+    const expectError = std.testing.expectError;
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13".*, 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00".*, 1, 12));
+}
+
+pub fn parseYear4(text: *const [4]u8) !u16 {
+    const nnnn: @Vector(4, u16) = .{ text[0], text[1], text[2], text[3] };
+    const zero: @Vector(4, u16) = .{ '0', '0', '0', '0' };
+    const mmmm: @Vector(4, u16) = .{ 1000, 100, 10, 1 };
+    const result = @reduce(.Add, (nnnn -% zero) *% mmmm);
+    if (result > 9999) return error.CertificateTimeInvalid;
+    return result;
+}
+
+test parseYear4 {
+    const expectEqual = std.testing.expectEqual;
+    try expectEqual(@as(u16, 0), try parseYear4("0000"));
+    try expectEqual(@as(u16, 9999), try parseYear4("9999"));
+    try expectEqual(@as(u16, 1988), try parseYear4("1988"));
+
+    const expectError = std.testing.expectError;
+    try expectError(error.CertificateTimeInvalid, parseYear4("999b"));
+    try expectError(error.CertificateTimeInvalid, parseYear4("crap"));
 }
 
 pub fn parseAlgorithm(bytes: []const u8, element: der.Element) !Algorithm {
@@ -241,7 +387,13 @@ pub fn parseAttribute(bytes: []const u8, element: der.Element) !Attribute {
         return error.CertificateHasUnrecognizedAlgorithm;
 }
 
-fn verifyRsa(comptime Hash: type, message: []const u8, sig: []const u8, pub_key_algo: AlgorithmCategory, pub_key: []const u8) !void {
+fn verifyRsa(
+    comptime Hash: type,
+    message: []const u8,
+    sig: []const u8,
+    pub_key_algo: AlgorithmCategory,
+    pub_key: []const u8,
+) !void {
     if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
     const pub_key_seq = try der.parseElement(pub_key, 0);
     if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
@@ -327,6 +479,10 @@ const crypto = std.crypto;
 const mem = std.mem;
 const der = std.crypto.der;
 const Certificate = @This();
+
+test {
+    _ = Bundle;
+}
 
 /// TODO: replace this with Frank's upcoming RSA implementation. the verify
 /// function won't have the possibility of failure - it will either identify a
