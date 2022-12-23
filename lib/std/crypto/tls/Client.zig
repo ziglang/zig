@@ -470,7 +470,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             handshake_state = .trust_chain_established;
                                             break :cert;
                                         } else |err| switch (err) {
-                                            error.IssuerNotFound => {},
+                                            error.CertificateIssuerNotFound => {},
                                             else => |e| {
                                                 std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
                                                     @errorName(e),

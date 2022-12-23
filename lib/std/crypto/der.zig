@@ -111,7 +111,7 @@ pub const Element = struct {
     };
 };
 
-pub const ParseElementError = error{CertificateHasFieldWithInvalidLength};
+pub const ParseElementError = error{CertificateFieldHasInvalidLength};
 
 pub fn parseElement(bytes: []const u8, index: u32) ParseElementError!Element {
     var i = index;
@@ -131,7 +131,7 @@ pub fn parseElement(bytes: []const u8, index: u32) ParseElementError!Element {
 
     const len_size = @truncate(u7, size_byte);
     if (len_size > @sizeOf(u32)) {
-        return error.CertificateHasFieldWithInvalidLength;
+        return error.CertificateFieldHasInvalidLength;
     }
 
     const end_i = i + len_size;

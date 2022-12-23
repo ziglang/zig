@@ -116,9 +116,23 @@ pub const Parsed = struct {
         return p.slice(p.message_slice);
     }
 
+    pub const VerifyError = error{
+        CertificateIssuerMismatch,
+        CertificateNotYetValid,
+        CertificateExpired,
+        CertificateSignatureAlgorithmUnsupported,
+        CertificateSignatureAlgorithmMismatch,
+        CertificateFieldHasInvalidLength,
+        CertificateFieldHasWrongDataType,
+        CertificatePublicKeyInvalid,
+        CertificateSignatureInvalidLength,
+        CertificateSignatureInvalid,
+        CertificateSignatureUnsupportedBitCount,
+    };
+
     /// This function checks the time validity for the subject only. Checking
     /// the issuer's time validity is out of scope.
-    pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed) !void {
+    pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed) VerifyError!void {
         // Check that the subject's issuer name matches the issuer's
         // subject name.
         if (!mem.eql(u8, parsed_subject.issuer(), parsed_issuer.subject())) {
@@ -452,11 +466,19 @@ fn verifyRsa(
                 hash_der ++
                 msg_hashed;
 
-            const public_key = try rsa.PublicKey.fromBytes(exponent, modulus, rsa.poop);
-            const em_dec = try rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key, rsa.poop);
+            const public_key = rsa.PublicKey.fromBytes(exponent, modulus, rsa.poop) catch |err| switch (err) {
+                error.OutOfMemory => @panic("TODO don't heap allocate"),
+            };
+            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key, rsa.poop) catch |err| switch (err) {
+                error.OutOfMemory => @panic("TODO don't heap allocate"),
+
+                error.MessageTooLong => unreachable,
+                error.NegativeIntoUnsigned => @panic("TODO make RSA not emit this error"),
+                error.TargetTooSmall => @panic("TODO make RSA not emit this error"),
+                error.BufferTooSmall => @panic("TODO make RSA not emit this error"),
+            };
 
             if (!mem.eql(u8, &em, &em_dec)) {
-                try std.testing.expectEqualSlices(u8, &em, &em_dec);
                 return error.CertificateSignatureInvalid;
             }
         },

@@ -9,13 +9,19 @@
 map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .{},
 bytes: std.ArrayListUnmanaged(u8) = .{},
 
-pub fn verify(cb: Bundle, subject: Certificate.Parsed) !void {
-    const bytes_index = cb.find(subject.issuer()) orelse return error.IssuerNotFound;
+pub const VerifyError = Certificate.Parsed.VerifyError || error{
+    CertificateIssuerNotFound,
+};
+
+pub fn verify(cb: Bundle, subject: Certificate.Parsed) VerifyError!void {
+    const bytes_index = cb.find(subject.issuer()) orelse return error.CertificateIssuerNotFound;
     const issuer_cert: Certificate = .{
         .buffer = cb.bytes.items,
         .index = bytes_index,
     };
-    const issuer = try issuer_cert.parse();
+    // Every certificate in the bundle is pre-parsed before adding it, ensuring
+    // that parsing will succeed here.
+    const issuer = issuer_cert.parse() catch unreachable;
     try subject.verify(issuer);
 }
 
