@@ -817,26 +817,36 @@ pub fn HashMapUnmanaged(
             hm: *const Self,
             index: Size = 0,
 
+            const used_mask = @bitCast(u8, Metadata{
+                .used = 1,
+                .fingerprint = 0,
+            });
             pub fn next(it: *Iterator) ?Entry {
                 assert(it.index <= it.hm.capacity());
                 if (it.hm.size == 0) return null;
 
                 const cap = it.hm.capacity();
-                const end = it.hm.metadata.? + cap;
                 var metadata = it.hm.metadata.? + it.index;
-
-                while (metadata != end) : ({
-                    metadata += 1;
-                    it.index += 1;
-                }) {
-                    if (metadata[0].isUsed()) {
-                        const key = &it.hm.keys()[it.index];
-                        const value = &it.hm.values()[it.index];
-                        it.index += 1;
-                        return Entry{ .key_ptr = key, .value_ptr = value };
+                comptime var vec_size: u8 = 16;
+                inline while (vec_size >= 1) : (vec_size /= 2) {
+                    while ((cap - it.index) >= vec_size) {
+                        const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
+                        const last_bits = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                        const mask = @bitCast(meta.Int(.unsigned, vec_size), last_bits);
+                        if (mask == 0) {
+                            metadata += vec_size;
+                            it.index += vec_size;
+                            continue;
+                        } else {
+                            const idx = @ctz(mask);
+                            const key = &it.hm.keys()[it.index + idx];
+                            const value = &it.hm.values()[it.index + idx];
+                            metadata += idx + 1;
+                            it.index += idx + 1;
+                            return Entry{ .key_ptr = key, .value_ptr = value };
+                        }
                     }
                 }
-
                 return null;
             }
         };
@@ -845,22 +855,47 @@ pub fn HashMapUnmanaged(
         pub const ValueIterator = FieldIterator(V);
 
         fn FieldIterator(comptime T: type) type {
+            const used_mask = @bitCast(u8, Metadata{
+                .used = 1,
+                .fingerprint = 0,
+            });
             return struct {
                 len: usize,
                 metadata: [*]const Metadata,
                 items: [*]T,
 
                 pub fn next(self: *@This()) ?*T {
-                    while (self.len > 0) {
-                        self.len -= 1;
-                        const used = self.metadata[0].isUsed();
-                        const item = &self.items[0];
-                        self.metadata += 1;
-                        self.items += 1;
-                        if (used) {
-                            return item;
+                    comptime var vec_size: usize = 16;
+                    inline while (vec_size >= 1) : (vec_size /= 2) {
+                        while (self.len >= vec_size) {
+                            const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
+                            const last_bits = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                            const mask = @bitCast(meta.Int(.unsigned, vec_size), last_bits);
+                            if (mask == 0) {
+                                self.len -= vec_size;
+                                self.metadata += vec_size;
+                                self.items += vec_size;
+                                continue;
+                            } else {
+                                const idx = @ctz(mask);
+                                self.len -= idx + 1;
+                                const item = &self.items[idx];
+                                self.metadata += idx + 1;
+                                self.items += idx + 1;
+                                return item;
+                            }
                         }
                     }
+                    // while (self.len > 0) {
+                    //     self.len -= 1;
+                    //     const used = self.metadata[0].isUsed();
+                    //     const item = &self.items[0];
+                    //     self.metadata += 1;
+                    //     self.items += 1;
+                    //     if (used) {
+                    //         return item;
+                    //     }
+                    // }
                     return null;
                 }
             };
