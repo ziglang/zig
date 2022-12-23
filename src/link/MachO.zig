@@ -574,11 +574,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         var codesig = CodeSignature.init(self.page_size);
         codesig.code_directory.ident = self.base.options.emit.?.sub_path;
         if (self.base.options.entitlements) |path| {
-            try codesig.addEntitlements(arena, path);
+            try codesig.addEntitlements(self.base.allocator, path);
         }
         try self.writeCodeSignaturePadding(&codesig);
         break :blk codesig;
     } else null;
+    defer if (codesig) |*csig| csig.deinit(self.base.allocator);
 
     // Write load commands
     var lc_buffer = std.ArrayList(u8).init(arena);

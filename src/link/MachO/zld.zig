@@ -4115,11 +4115,12 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             var codesig = CodeSignature.init(page_size);
             codesig.code_directory.ident = fs.path.basename(full_out_path);
             if (options.entitlements) |path| {
-                try codesig.addEntitlements(arena, path);
+                try codesig.addEntitlements(zld.gpa, path);
             }
             try zld.writeCodeSignaturePadding(&codesig);
             break :blk codesig;
         } else null;
+        defer if (codesig) |*csig| csig.deinit(zld.gpa);
 
         // Write load commands
         var lc_buffer = std.ArrayList(u8).init(arena);
