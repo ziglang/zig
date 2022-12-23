@@ -558,6 +558,28 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.writeLinkeditSegmentData();
 
+    const target = self.base.options.target;
+    const requires_codesig = blk: {
+        if (self.base.options.entitlements) |_| break :blk true;
+        if (target.cpu.arch == .aarch64 and (target.os.tag == .macos or target.abi == .simulator))
+            break :blk true;
+        break :blk false;
+    };
+    var codesig: ?CodeSignature = if (requires_codesig) blk: {
+        // Preallocate space for the code signature.
+        // We need to do this at this stage so that we have the load commands with proper values
+        // written out to the file.
+        // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+        // where the code signature goes into.
+        var codesig = CodeSignature.init(self.page_size);
+        codesig.code_directory.ident = self.base.options.emit.?.sub_path;
+        if (self.base.options.entitlements) |path| {
+            try codesig.addEntitlements(arena, path);
+        }
+        try self.writeCodeSignaturePadding(&codesig);
+        break :blk codesig;
+    } else null;
+
     // Write load commands
     var lc_buffer = std.ArrayList(u8).init(arena);
     const lc_writer = lc_buffer.writer();
@@ -606,28 +628,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try load_commands.writeLoadDylibLCs(self.dylibs.items, self.referenced_dylibs.keys(), lc_writer);
 
-    const target = self.base.options.target;
-    const requires_codesig = blk: {
-        if (self.base.options.entitlements) |_| break :blk true;
-        if (target.cpu.arch == .aarch64 and (target.os.tag == .macos or target.abi == .simulator))
-            break :blk true;
-        break :blk false;
-    };
-    var codesig: ?CodeSignature = if (requires_codesig) blk: {
-        // Preallocate space for the code signature.
-        // We need to do this at this stage so that we have the load commands with proper values
-        // written out to the file.
-        // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-        // where the code signature goes into.
-        var codesig = CodeSignature.init(self.page_size);
-        codesig.code_directory.ident = self.base.options.emit.?.sub_path;
-        if (self.base.options.entitlements) |path| {
-            try codesig.addEntitlements(arena, path);
-        }
-        try self.writeCodeSignaturePadding(&codesig);
+    if (requires_codesig) {
         try lc_writer.writeStruct(self.codesig_cmd);
-        break :blk codesig;
-    } else null;
+    }
 
     try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
 
