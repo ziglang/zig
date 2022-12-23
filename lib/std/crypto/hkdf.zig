@@ -22,7 +22,7 @@ pub fn Hkdf(comptime Hmac: type) type {
 
         /// Derive a subkey from a master key `prk` and a subkey description `ctx`.
         pub fn expand(out: []u8, ctx: []const u8, prk: [Hmac.mac_length]u8) void {
-            assert(out.len < Hmac.mac_length * 255); // output size is too large for the Hkdf construction
+            assert(out.len <= Hmac.mac_length * 255); // output size is too large for the Hkdf construction
             var i: usize = 0;
             var counter = [1]u8{1};
             while (i + Hmac.mac_length <= out.len) : (i += Hmac.mac_length) {
@@ -33,7 +33,8 @@ pub fn Hkdf(comptime Hmac: type) type {
                 st.update(ctx);
                 st.update(&counter);
                 st.final(out[i..][0..Hmac.mac_length]);
-                counter[0] += 1;
+                counter[0] +%= 1;
+                assert(counter[0] != 1);
             }
             const left = out.len % Hmac.mac_length;
             if (left > 0) {
