@@ -177,7 +177,6 @@ const std = @import("std.zig");
 pub const errors = @import("crypto/errors.zig");
 
 pub const tls = @import("crypto/tls.zig");
-pub const der = @import("crypto/der.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
 
 test {
@@ -269,7 +268,6 @@ test {
     _ = random;
     _ = errors;
     _ = tls;
-    _ = der;
     _ = Certificate;
 }
 

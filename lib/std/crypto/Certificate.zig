@@ -499,8 +499,90 @@ pub fn checkVersion(bytes: []const u8, version: der.Element) !void {
 const std = @import("../std.zig");
 const crypto = std.crypto;
 const mem = std.mem;
-const der = std.crypto.der;
 const Certificate = @This();
+
+pub const der = struct {
+    pub const Class = enum(u2) {
+        universal,
+        application,
+        context_specific,
+        private,
+    };
+
+    pub const PC = enum(u1) {
+        primitive,
+        constructed,
+    };
+
+    pub const Identifier = packed struct(u8) {
+        tag: Tag,
+        pc: PC,
+        class: Class,
+    };
+
+    pub const Tag = enum(u5) {
+        boolean = 1,
+        integer = 2,
+        bitstring = 3,
+        null = 5,
+        object_identifier = 6,
+        sequence = 16,
+        sequence_of = 17,
+        utc_time = 23,
+        generalized_time = 24,
+        _,
+    };
+
+    pub const Element = struct {
+        identifier: Identifier,
+        slice: Slice,
+
+        pub const Slice = struct {
+            start: u32,
+            end: u32,
+
+            pub const empty: Slice = .{ .start = 0, .end = 0 };
+        };
+    };
+
+    pub const ParseElementError = error{CertificateFieldHasInvalidLength};
+
+    pub fn parseElement(bytes: []const u8, index: u32) ParseElementError!Element {
+        var i = index;
+        const identifier = @bitCast(Identifier, bytes[i]);
+        i += 1;
+        const size_byte = bytes[i];
+        i += 1;
+        if ((size_byte >> 7) == 0) {
+            return .{
+                .identifier = identifier,
+                .slice = .{
+                    .start = i,
+                    .end = i + size_byte,
+                },
+            };
+        }
+
+        const len_size = @truncate(u7, size_byte);
+        if (len_size > @sizeOf(u32)) {
+            return error.CertificateFieldHasInvalidLength;
+        }
+
+        const end_i = i + len_size;
+        var long_form_size: u32 = 0;
+        while (i < end_i) : (i += 1) {
+            long_form_size = (long_form_size << 8) | bytes[i];
+        }
+
+        return .{
+            .identifier = identifier,
+            .slice = .{
+                .start = i,
+                .end = i + long_form_size,
+            },
+        };
+    }
+};
 
 test {
     _ = Bundle;

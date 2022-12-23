@@ -154,8 +154,8 @@ const fs = std.fs;
 const mem = std.mem;
 const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
-const der = std.crypto.der;
 const Certificate = std.crypto.Certificate;
+const der = Certificate.der;
 const Bundle = @This();
 
 const base64 = std.base64.standard.decoderWithIgnore(" \t\r\n");
