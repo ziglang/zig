@@ -618,7 +618,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .tagged_union_enum_tag_trailing,
         => {
             const main_token = main_tokens[n];
-            switch (token_tags[main_token - 1]) {
+            switch (token_tags[main_token -| 1]) {
                 .keyword_packed, .keyword_extern => end_offset += 1,
                 else => {},
             }
