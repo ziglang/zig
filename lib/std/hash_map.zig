@@ -827,22 +827,37 @@ pub fn HashMapUnmanaged(
 
                 const cap = it.hm.capacity();
                 var metadata = it.hm.metadata.? + it.index;
-                comptime var vec_size: u8 = 16;
-                inline while (vec_size >= 1) : (vec_size /= 2) {
-                    while ((cap - it.index) >= vec_size) {
-                        const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
-                        const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                        const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
-                        if (mask == 0) {
-                            metadata += vec_size;
-                            it.index += vec_size;
-                            continue;
-                        } else {
-                            const idx = @ctz(mask);
-                            const key = &it.hm.keys()[it.index + idx];
-                            const value = &it.hm.values()[it.index + idx];
-                            metadata += idx + 1;
-                            it.index += idx + 1;
+                if (builtin.zig_backend != .stage2_c) {
+                    comptime var vec_size: u8 = 16;
+                    inline while (vec_size >= 1) : (vec_size /= 2) {
+                        while ((cap - it.index) >= vec_size) {
+                            const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
+                            const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                            const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
+                            if (mask == 0) {
+                                metadata += vec_size;
+                                it.index += vec_size;
+                                continue;
+                            } else {
+                                const idx = @ctz(mask);
+                                const key = &it.hm.keys()[it.index + idx];
+                                const value = &it.hm.values()[it.index + idx];
+                                metadata += idx + 1;
+                                it.index += idx + 1;
+                                return Entry{ .key_ptr = key, .value_ptr = value };
+                            }
+                        }
+                    }
+                } else {
+                    const end = it.hm.metadata.? + cap;
+                    while (metadata != end) : ({
+                        metadata += 1;
+                        it.index += 1;
+                    }) {
+                        if (metadata[0].isUsed()) {
+                            const key = &it.hm.keys()[it.index];
+                            const value = &it.hm.values()[it.index];
+                            it.index += 1;
                             return Entry{ .key_ptr = key, .value_ptr = value };
                         }
                     }
@@ -865,23 +880,36 @@ pub fn HashMapUnmanaged(
                 items: [*]T,
 
                 pub fn next(self: *@This()) ?*T {
-                    comptime var vec_size: usize = 16;
-                    inline while (vec_size >= 1) : (vec_size /= 2) {
-                        while (self.len >= vec_size) {
-                            const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
-                            const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                            const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
-                            if (mask == 0) {
-                                self.len -= vec_size;
-                                self.metadata += vec_size;
-                                self.items += vec_size;
-                                continue;
-                            } else {
-                                const idx = @ctz(mask);
-                                self.len -= idx + 1;
-                                const item = &self.items[idx];
-                                self.metadata += idx + 1;
-                                self.items += idx + 1;
+                    if (builtin.zig_backend != .stage2_c) {
+                        comptime var vec_size: usize = 16;
+                        inline while (vec_size >= 1) : (vec_size /= 2) {
+                            while (self.len >= vec_size) {
+                                const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
+                                const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
+                                const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
+                                if (mask == 0) {
+                                    self.len -= vec_size;
+                                    self.metadata += vec_size;
+                                    self.items += vec_size;
+                                    continue;
+                                } else {
+                                    const idx = @ctz(mask);
+                                    self.len -= idx + 1;
+                                    const item = &self.items[idx];
+                                    self.metadata += idx + 1;
+                                    self.items += idx + 1;
+                                    return item;
+                                }
+                            }
+                        }
+                    } else {
+                        while (self.len > 0) {
+                            self.len -= 1;
+                            const used = self.metadata[0].isUsed();
+                            const item = &self.items[0];
+                            self.metadata += 1;
+                            self.items += 1;
+                            if (used) {
                                 return item;
                             }
                         }
