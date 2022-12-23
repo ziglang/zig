@@ -126,22 +126,28 @@ const Action = struct {
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
     fn computeCmp(act: Action, gpa: Allocator, global_vars: anytype) !bool {
-        var op_stack = std.ArrayList(enum { add }).init(gpa);
+        var op_stack = std.ArrayList(enum { add, sub, mod }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
         var it = mem.tokenize(u8, act.phrase, " ");
         while (it.next()) |next| {
             if (mem.eql(u8, next, "+")) {
                 try op_stack.append(.add);
+            } else if (mem.eql(u8, next, "-")) {
+                try op_stack.append(.sub);
+            } else if (mem.eql(u8, next, "%")) {
+                try op_stack.append(.mod);
             } else {
-                const val = global_vars.get(next) orelse {
-                    std.debug.print(
-                        \\
-                        \\========= Variable was not extracted: ===========
-                        \\{s}
-                        \\
-                    , .{next});
-                    return error.UnknownVariable;
+                const val = std.fmt.parseInt(u64, next, 0) catch blk: {
+                    break :blk global_vars.get(next) orelse {
+                        std.debug.print(
+                            \\
+                            \\========= Variable was not extracted: ===========
+                            \\{s}
+                            \\
+                        , .{next});
+                        return error.UnknownVariable;
+                    };
                 };
                 try values.append(val);
             }
@@ -155,7 +161,14 @@ const Action = struct {
                 .add => {
                     reduced += other;
                 },
+                .sub => {
+                    reduced -= other;
+                },
+                .mod => {
+                    reduced %= other;
+                },
             }
+            op_i += 1;
         }
 
         const exp_value = switch (act.expected.?.value) {
@@ -575,6 +588,86 @@ const MachODumper = struct {
                 const uuid = lc.cast(macho.uuid_command).?;
                 try writer.writeByte('\n');
                 try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+            },
+
+            .DATA_IN_CODE,
+            .FUNCTION_STARTS,
+            .CODE_SIGNATURE,
+            => {
+                const llc = lc.cast(macho.linkedit_data_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\dataoff {x}
+                    \\datasize {x}
+                , .{ llc.dataoff, llc.datasize });
+            },
+
+            .DYLD_INFO_ONLY => {
+                const dlc = lc.cast(macho.dyld_info_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\rebaseoff {x}
+                    \\rebasesize {x}
+                    \\bindoff {x}
+                    \\bindsize {x}
+                    \\weakbindoff {x}
+                    \\weakbindsize {x}
+                    \\lazybindoff {x}
+                    \\lazybindsize {x}
+                    \\exportoff {x}
+                    \\exportsize {x}
+                , .{
+                    dlc.rebase_off,
+                    dlc.rebase_size,
+                    dlc.bind_off,
+                    dlc.bind_size,
+                    dlc.weak_bind_off,
+                    dlc.weak_bind_size,
+                    dlc.lazy_bind_off,
+                    dlc.lazy_bind_size,
+                    dlc.export_off,
+                    dlc.export_size,
+                });
+            },
+
+            .SYMTAB => {
+                const slc = lc.cast(macho.symtab_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\symoff {x}
+                    \\nsyms {x}
+                    \\stroff {x}
+                    \\strsize {x}
+                , .{
+                    slc.symoff,
+                    slc.nsyms,
+                    slc.stroff,
+                    slc.strsize,
+                });
+            },
+
+            .DYSYMTAB => {
+                const dlc = lc.cast(macho.dysymtab_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\ilocalsym {x}
+                    \\nlocalsym {x}
+                    \\iextdefsym {x}
+                    \\nextdefsym {x}
+                    \\iundefsym {x}
+                    \\nundefsym {x}
+                    \\indirectsymoff {x}
+                    \\nindirectsyms {x}
+                , .{
+                    dlc.ilocalsym,
+                    dlc.nlocalsym,
+                    dlc.iextdefsym,
+                    dlc.nextdefsym,
+                    dlc.iundefsym,
+                    dlc.nundefsym,
+                    dlc.indirectsymoff,
+                    dlc.nindirectsyms,
+                });
             },
 
             else => {},

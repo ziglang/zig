@@ -4100,6 +4100,28 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             }
         }
 
+        // Write code signature padding if required
+        const requires_codesig = blk: {
+            if (options.entitlements) |_| break :blk true;
+            if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) break :blk true;
+            break :blk false;
+        };
+        var codesig: ?CodeSignature = if (requires_codesig) blk: {
+            // Preallocate space for the code signature.
+            // We need to do this at this stage so that we have the load commands with proper values
+            // written out to the file.
+            // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+            // where the code signature goes into.
+            var codesig = CodeSignature.init(page_size);
+            codesig.code_directory.ident = fs.path.basename(full_out_path);
+            if (options.entitlements) |path| {
+                try codesig.addEntitlements(zld.gpa, path);
+            }
+            try zld.writeCodeSignaturePadding(&codesig);
+            break :blk codesig;
+        } else null;
+        defer if (codesig) |*csig| csig.deinit(zld.gpa);
+
         // Write load commands
         var lc_buffer = std.ArrayList(u8).init(arena);
         const lc_writer = lc_buffer.writer();
@@ -4142,29 +4164,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), lc_writer);
 
-        const requires_codesig = blk: {
-            if (options.entitlements) |_| break :blk true;
-            if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) break :blk true;
-            break :blk false;
-        };
         var codesig_cmd_offset: ?u32 = null;
-        var codesig: ?CodeSignature = if (requires_codesig) blk: {
-            // Preallocate space for the code signature.
-            // We need to do this at this stage so that we have the load commands with proper values
-            // written out to the file.
-            // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-            // where the code signature goes into.
-            var codesig = CodeSignature.init(page_size);
-            codesig.code_directory.ident = fs.path.basename(full_out_path);
-            if (options.entitlements) |path| {
-                try codesig.addEntitlements(gpa, path);
-            }
-            try zld.writeCodeSignaturePadding(&codesig);
+        if (requires_codesig) {
             codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
             try lc_writer.writeStruct(zld.codesig_cmd);
-            break :blk codesig;
-        } else null;
-        defer if (codesig) |*csig| csig.deinit(gpa);
+        }
 
         const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
