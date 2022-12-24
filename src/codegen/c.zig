@@ -1066,7 +1066,10 @@ pub const DeclGen = struct {
                             var index: usize = 0;
                             while (index < ai.len) : (index += 1) {
                                 const elem_val = try val.elemValue(dg.module, arena_allocator, index);
-                                const elem_val_u8 = @intCast(u8, elem_val.toUnsignedInt(target));
+                                const elem_val_u8 = if (elem_val.isUndef())
+                                    undefPattern(u8)
+                                else
+                                    @intCast(u8, elem_val.toUnsignedInt(target));
                                 try writeStringLiteralChar(writer, elem_val_u8);
                             }
                             if (ai.sentinel) |s| {

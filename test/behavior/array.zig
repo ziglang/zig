@@ -45,6 +45,42 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array concat with undefined" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    {
+        var array = "hello".* ++ @as([5]u8, undefined);
+        array[5..10].* = "world".*;
+        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+    }
+    {
+        var array = @as([5]u8, undefined) ++ "world".*;
+        array[0..5].* = "hello".*;
+        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+    }
+}
+
+test "array concat with tuple" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const array: [2]u8 = .{ 1, 2 };
+    {
+        const seq = array ++ .{ 3, 4 };
+        try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &seq);
+    }
+    {
+        const seq = .{ 3, 4 } ++ array;
+        try std.testing.expectEqualSlices(u8, &.{ 3, 4, 1, 2 }, &seq);
+    }
+}
+
+test "array init with concat" {
+    const a = 'a';
+    var i: [4]u8 = [2]u8{ a, 'b' } ++ [2]u8{ 'c', 'd' };
+    try expect(std.mem.eql(u8, &i, "abcd"));
+}
+
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
