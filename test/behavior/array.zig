@@ -45,6 +45,19 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array concat with undefined" {
+    {
+        var array = "hello".* ++ @as([5]u8, undefined);
+        array[5..10].* = "world".*;
+        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+    }
+    {
+        var array = @as([5]u8, undefined) ++ "world".*;
+        array[0..5].* = "hello".*;
+        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+    }
+}
+
 test "array concat with tuple" {
     const array: [2]u8 = .{ 1, 2 };
     {

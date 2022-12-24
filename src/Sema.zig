@@ -12262,8 +12262,16 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         break :p null;
     };
 
-    const runtime_src = if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| rs: {
-        if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
+    const runtime_src = if (switch (lhs_ty.zigTypeTag()) {
+        .Array, .Struct => try sema.resolveMaybeUndefVal(lhs),
+        .Pointer => try sema.resolveDefinedValue(block, lhs_src, lhs),
+        else => unreachable,
+    }) |lhs_val| rs: {
+        if (switch (rhs_ty.zigTypeTag()) {
+            .Array, .Struct => try sema.resolveMaybeUndefVal(rhs),
+            .Pointer => try sema.resolveDefinedValue(block, rhs_src, rhs),
+            else => unreachable,
+        }) |rhs_val| {
             const lhs_sub_val = if (lhs_ty.isSinglePointer())
                 (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).?
             else
