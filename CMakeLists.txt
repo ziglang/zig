@@ -158,6 +158,31 @@ if(APPLE AND ZIG_STATIC)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" AND ZIG_STATIC)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-licudata")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-licuuc")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-llzma")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lmd")
+
+    find_library(ICUDATA NAMES libicudata.a NAMES_PER_DIR
+      PATHS
+        /usr/local/lib)
+    find_library(ICUUC NAMES libicuuc.a NAMES_PER_DIR
+      PATHS
+        /usr/local/lib)
+    find_library(LZMA NAMES liblzma.a NAMES_PER_DIR
+      PATHS
+        /usr/lib)
+    find_library(MD NAMES libmd.a NAMES_PER_DIR
+      PATHS
+        /usr/lib)
+
+    list(APPEND LLVM_LIBRARIES "${ICUDATA}")
+    list(APPEND LLVM_LIBRARIES "${ICUUC}")
+    list(APPEND LLVM_LIBRARIES "${LZMA}")
+    list(APPEND LLVM_LIBRARIES "${MD}")
+endif()
+
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zigcpp")
 
 # Handle multi-config builds and place each into a common lib. The VS generator
