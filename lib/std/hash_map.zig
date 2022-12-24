@@ -831,7 +831,7 @@ pub fn HashMapUnmanaged(
                     // https://github.com/ziglang/zig/issues/13782
                     (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
                 {
-                    comptime var vec_size: u8 = 16;
+                    comptime var vec_size: u8 = std.simd.suggestVectorSize(u8);
                     inline while (vec_size >= 1) : (vec_size /= 2) {
                         while ((cap - it.index) >= vec_size) {
                             const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
@@ -887,7 +887,7 @@ pub fn HashMapUnmanaged(
                         // https://github.com/ziglang/zig/issues/13782
                         (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
                     {
-                        comptime var vec_size: usize = 16;
+                        comptime var vec_size: usize = std.simd.suggestVectorSize(u16);
                         inline while (vec_size >= 1) : (vec_size /= 2) {
                             while (self.len >= vec_size) {
                                 const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
