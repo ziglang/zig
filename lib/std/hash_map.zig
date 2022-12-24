@@ -817,10 +817,6 @@ pub fn HashMapUnmanaged(
             hm: *const Self,
             index: Size = 0,
 
-            const used_mask = @bitCast(u8, Metadata{
-                .used = 1,
-                .fingerprint = 0,
-            });
             pub fn next(it: *Iterator) ?Entry {
                 assert(it.index <= it.hm.capacity());
                 if (it.hm.size == 0) return null;
@@ -831,18 +827,19 @@ pub fn HashMapUnmanaged(
                     // https://github.com/ziglang/zig/issues/13782
                     (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
                 {
-                    comptime var vec_size: u8 = std.simd.suggestVectorSize(u8);
+                    comptime var vec_size: u32 = @as(u32, std.simd.suggestVectorSize(u8) orelse 1);
                     inline while (vec_size >= 1) : (vec_size /= 2) {
-                        while ((cap - it.index) >= vec_size) {
-                            const metadata_vec = @bitCast(@Vector(vec_size, u8), metadata[0..vec_size].*);
-                            const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                            const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
-                            if (mask == 0) {
-                                metadata += vec_size;
-                                it.index += vec_size;
-                                continue;
-                            } else {
-                                const idx = @ctz(mask);
+                        while ((cap - it.index) >= vec_size) : ({
+                            metadata += vec_size;
+                            it.index += vec_size;
+                        }) {
+                            const metadata_vec = @bitCast(@Vector(vec_size, i8), metadata[0..vec_size].*);
+                            const zeros_u8 = @splat(vec_size, @as(u8, 0));
+                            const zeros_i8 = @splat(vec_size, @as(i8, 0));
+                            // select the first index where the metadata has the used bit set
+                            const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
+                            const idx: u32 = @intCast(u32, @reduce(.Min, sel));
+                            if (idx < vec_size) {
                                 const key = &it.hm.keys()[it.index + idx];
                                 const value = &it.hm.values()[it.index + idx];
                                 metadata += idx + 1;
@@ -873,10 +870,6 @@ pub fn HashMapUnmanaged(
         pub const ValueIterator = FieldIterator(V);
 
         fn FieldIterator(comptime T: type) type {
-            const used_mask = @bitCast(u8, Metadata{
-                .used = 1,
-                .fingerprint = 0,
-            });
             return struct {
                 len: usize,
                 metadata: [*]const Metadata,
@@ -887,19 +880,20 @@ pub fn HashMapUnmanaged(
                         // https://github.com/ziglang/zig/issues/13782
                         (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
                     {
-                        comptime var vec_size: usize = std.simd.suggestVectorSize(u16);
+                        comptime var vec_size: usize = std.simd.suggestVectorSize(u16) orelse 1;
                         inline while (vec_size >= 1) : (vec_size /= 2) {
-                            while (self.len >= vec_size) {
-                                const metadata_vec = @bitCast(@Vector(vec_size, u8), self.metadata[0..vec_size].*);
-                                const used_bits_vec = (metadata_vec & @splat(vec_size, used_mask)) == @splat(vec_size, used_mask);
-                                const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
-                                if (mask == 0) {
-                                    self.len -= vec_size;
-                                    self.metadata += vec_size;
-                                    self.items += vec_size;
-                                    continue;
-                                } else {
-                                    const idx = @ctz(mask);
+                            while (self.len >= vec_size) : ({
+                                self.len -= vec_size;
+                                self.metadata += vec_size;
+                                self.items += vec_size;
+                            }) {
+                                const metadata_vec = @bitCast(@Vector(vec_size, i8), self.metadata[0..vec_size].*);
+                                const zeros_u8 = @splat(vec_size, @as(u8, 0));
+                                const zeros_i8 = @splat(vec_size, @as(i8, 0));
+                                // select the first index where the metadata has the used bit set
+                                const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
+                                const idx: u32 = @intCast(u32, @reduce(.Min, sel));
+                                if (idx < vec_size) {
                                     self.len -= idx + 1;
                                     const item = &self.items[idx];
                                     self.metadata += idx + 1;
