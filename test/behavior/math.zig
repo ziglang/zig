@@ -632,10 +632,25 @@ test "128-bit multiplication" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    var a: i128 = 3;
-    var b: i128 = 2;
-    var c = a * b;
-    try expect(c == 6);
+    {
+        var a: i128 = 3;
+        var b: i128 = 2;
+        var c = a * b;
+        try expect(c == 6);
+
+        a = -3;
+        b = 2;
+        c = a * b;
+        try expect(c == -6);
+    }
+
+    {
+        var a: u128 = 0xffffffffffffffff;
+        var b: u128 = 100;
+        var c = a * b;
+        try expect(c == 0x63ffffffffffffff9c);
+    }
+
 }
 
 test "@addWithOverflow" {

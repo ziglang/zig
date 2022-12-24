@@ -1465,6 +1465,11 @@ static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs) {
 static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs); // TODO
 #endif
 
+zig_extern zig_i128 __multi3(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_mul_i128(zig_i128 lhs, zig_i128 rhs) {
+    return __multi3(lhs, rhs);
+}
+
 static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_mul_u128(lhs, rhs), bits);
 }
