@@ -46,6 +46,8 @@ fn getArrayLen(a: []const u32) usize {
 }
 
 test "array concat with undefined" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     {
         var array = "hello".* ++ @as([5]u8, undefined);
         array[5..10].* = "world".*;
@@ -59,6 +61,9 @@ test "array concat with undefined" {
 }
 
 test "array concat with tuple" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const array: [2]u8 = .{ 1, 2 };
     {
         const seq = array ++ .{ 3, 4 };
