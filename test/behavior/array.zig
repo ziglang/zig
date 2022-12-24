@@ -45,6 +45,24 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array concat with tuple" {
+    const array: [2]u8 = .{ 1, 2 };
+    {
+        const seq = array ++ .{ 3, 4 };
+        try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &seq);
+    }
+    {
+        const seq = .{ 3, 4 } ++ array;
+        try std.testing.expectEqualSlices(u8, &.{ 3, 4, 1, 2 }, &seq);
+    }
+}
+
+test "array init with concat" {
+    const a = 'a';
+    var i: [4]u8 = [2]u8{ a, 'b' } ++ [2]u8{ 'c', 'd' };
+    try expect(std.mem.eql(u8, &i, "abcd"));
+}
+
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

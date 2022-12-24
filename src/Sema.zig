@@ -12178,17 +12178,21 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const rhs_ty = sema.typeOf(rhs);
     const src = inst_data.src();
 
-    if (lhs_ty.isTuple() and rhs_ty.isTuple()) {
+    const lhs_is_tuple = lhs_ty.isTuple();
+    const rhs_is_tuple = rhs_ty.isTuple();
+    if (lhs_is_tuple and rhs_is_tuple) {
         return sema.analyzeTupleCat(block, inst_data.src_node, lhs, rhs);
     }
 
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs) orelse {
+    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs, rhs_ty) orelse lhs_info: {
+        if (lhs_is_tuple) break :lhs_info @as(Type.ArrayInfo, undefined);
         return sema.fail(block, lhs_src, "expected indexable; found '{}'", .{lhs_ty.fmt(sema.mod)});
     };
-    const rhs_info = try sema.getArrayCatInfo(block, rhs_src, rhs) orelse {
+    const rhs_info = try sema.getArrayCatInfo(block, rhs_src, rhs, lhs_ty) orelse {
+        assert(!rhs_is_tuple);
         return sema.fail(block, rhs_src, "expected indexable; found '{}'", .{rhs_ty.fmt(sema.mod)});
     };
 
@@ -12274,18 +12278,24 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const element_vals = try sema.arena.alloc(Value, final_len_including_sent);
             var elem_i: usize = 0;
             while (elem_i < lhs_len) : (elem_i += 1) {
-                const elem_val = try lhs_sub_val.elemValue(sema.mod, sema.arena, elem_i);
-                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const lhs_elem_i = elem_i;
+                const elem_ty = if (lhs_is_tuple) lhs_ty.structFieldType(lhs_elem_i) else lhs_info.elem_type;
+                const elem_default_val = if (lhs_is_tuple) lhs_ty.structFieldDefaultValue(lhs_elem_i) else Value.initTag(.unreachable_value);
+                const elem_val = if (elem_default_val.tag() == .unreachable_value) try lhs_sub_val.elemValue(sema.mod, sema.arena, lhs_elem_i) else elem_default_val;
+                const elem_val_inst = try sema.addConstant(elem_ty, elem_val);
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
-                element_vals[elem_i] = coereced_elem_val;
+                const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coerced_elem_val;
             }
             while (elem_i < result_len) : (elem_i += 1) {
-                const elem_val = try rhs_sub_val.elemValue(sema.mod, sema.arena, elem_i - lhs_len);
-                const elem_val_inst = try sema.addConstant(lhs_info.elem_type, elem_val);
+                const rhs_elem_i = elem_i - lhs_len;
+                const elem_ty = if (rhs_is_tuple) rhs_ty.structFieldType(rhs_elem_i) else rhs_info.elem_type;
+                const elem_default_val = if (rhs_is_tuple) rhs_ty.structFieldDefaultValue(rhs_elem_i) else Value.initTag(.unreachable_value);
+                const elem_val = if (elem_default_val.tag() == .unreachable_value) try rhs_sub_val.elemValue(sema.mod, sema.arena, rhs_elem_i) else elem_default_val;
+                const elem_val_inst = try sema.addConstant(elem_ty, elem_val);
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coereced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
-                element_vals[elem_i] = coereced_elem_val;
+                const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
+                element_vals[elem_i] = coerced_elem_val;
             }
             if (res_sent_val) |sent_val| {
                 element_vals[result_len] = sent_val;
@@ -12350,7 +12360,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return block.addAggregateInit(result_ty, element_refs);
 }
 
-fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) !?Type.ArrayInfo {
+fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref, peer_ty: Type) !?Type.ArrayInfo {
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
         .Array => return operand_ty.arrayInfo(),
@@ -12374,6 +12384,16 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
                     }
                 },
                 .C => {},
+            }
+        },
+        .Struct => {
+            if (operand_ty.isTuple() and peer_ty.isIndexable()) {
+                assert(!peer_ty.isTuple());
+                return .{
+                    .elem_type = peer_ty.elemType2(),
+                    .sentinel = null,
+                    .len = operand_ty.arrayLen(),
+                };
             }
         },
         else => {},
@@ -12470,7 +12490,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     // Analyze the lhs first, to catch the case that someone tried to do exponentiation
-    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs) orelse {
+    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs, lhs_ty) orelse {
         const msg = msg: {
             const msg = try sema.errMsg(block, lhs_src, "expected indexable; found '{}'", .{lhs_ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
