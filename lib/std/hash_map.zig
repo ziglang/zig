@@ -834,11 +834,19 @@ pub fn HashMapUnmanaged(
                             it.index += vec_size;
                         }) {
                             const metadata_vec = @bitCast(@Vector(vec_size, i8), metadata[0..vec_size].*);
-                            const zeros_u8 = @splat(vec_size, @as(u8, 0));
-                            const zeros_i8 = @splat(vec_size, @as(i8, 0));
                             // select the first index where the metadata has the used bit set
-                            const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
-                            const idx: u32 = @intCast(u32, @reduce(.Min, sel));
+                            const idx: u32 = blk: {
+                                if (comptime builtin.cpu.arch == .x86_64) {
+                                    const used_bits_vec = metadata_vec < @splat(vec_size, @as(i8, 0));
+                                    const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
+                                    break :blk @as(u32, @ctz(mask));
+                                } else {
+                                    const zeros_u8 = @splat(vec_size, @as(u8, 0));
+                                    const zeros_i8 = @splat(vec_size, @as(i8, 0));
+                                    const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
+                                    break :blk @intCast(u32, @reduce(.Min, sel));
+                                }
+                            };
                             if (idx < vec_size) {
                                 const key = &it.hm.keys()[it.index + idx];
                                 const value = &it.hm.values()[it.index + idx];
@@ -888,11 +896,19 @@ pub fn HashMapUnmanaged(
                                 self.items += vec_size;
                             }) {
                                 const metadata_vec = @bitCast(@Vector(vec_size, i8), self.metadata[0..vec_size].*);
-                                const zeros_u8 = @splat(vec_size, @as(u8, 0));
-                                const zeros_i8 = @splat(vec_size, @as(i8, 0));
                                 // select the first index where the metadata has the used bit set
-                                const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
-                                const idx: u32 = @intCast(u32, @reduce(.Min, sel));
+                                const idx: u32 = blk: {
+                                    if (comptime builtin.cpu.arch == .x86_64) {
+                                        const used_bits_vec = metadata_vec < @splat(vec_size, @as(i8, 0));
+                                        const mask = @bitCast(meta.Int(.unsigned, vec_size), used_bits_vec);
+                                        break :blk @as(u32, @ctz(mask));
+                                    } else {
+                                        const zeros_u8 = @splat(vec_size, @as(u8, 0));
+                                        const zeros_i8 = @splat(vec_size, @as(i8, 0));
+                                        const sel = @select(u8, metadata_vec >= zeros_i8, ~zeros_u8, std.simd.iota(u8, vec_size));
+                                        break :blk @intCast(u32, @reduce(.Min, sel));
+                                    }
+                                };
                                 if (idx < vec_size) {
                                     self.len -= idx + 1;
                                     const item = &self.items[idx];
