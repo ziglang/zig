@@ -286,6 +286,9 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         bit_offset: u3,
         len: usize,
 
+        /// The integer type of the packed slice.
+        pub const Child = Int;
+
         /// Calculates the number of bytes required to store a desired count
         /// of `Int`s.
         pub fn bytesRequired(int_count: usize) usize {
