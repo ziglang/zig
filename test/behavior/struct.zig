@@ -1419,3 +1419,16 @@ test "struct field has a pointer to an aligned version of itself" {
 
     try expect(&e == e.next);
 }
+
+test "struct only referenced from optional parameter/return" {
+    const S = struct {
+        fn f(_: ?struct { x: u8 }) void {}
+        fn g() ?struct { x: u8 } {
+            return null;
+        }
+    };
+
+    const fp: *const anyopaque = &S.f;
+    const gp: *const anyopaque = &S.g;
+    try expect(fp != gp);
+}
