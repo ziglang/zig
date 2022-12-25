@@ -208,6 +208,9 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         /// The number of elements in the packed array.
         comptime len: usize = int_count,
 
+        /// The integer type of the packed array.
+        pub const Child = Int;
+
         /// Initialize a packed array using an unpacked array
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
