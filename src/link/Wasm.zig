@@ -3461,8 +3461,10 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         } else if (wasm.base.options.entry == null) {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
         }
+        if (wasm.base.options.import_symbols) {
+            try argv.appendSlice(&[_][]const u8{"--allow-undefined"});
+        }
         try argv.appendSlice(&[_][]const u8{
-            "--allow-undefined",
             "-o",
             full_out_path,
         });
