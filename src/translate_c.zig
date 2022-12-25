@@ -1071,6 +1071,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
+    var record_layout: ast.Payload.RecordLayout = .@"extern";
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
@@ -1096,12 +1097,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             const field_loc = field_decl.getLocation();
             const field_qt = field_decl.getType();
 
-            if (field_decl.isBitField()) {
-                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk Tag.opaque_literal.init();
-            }
-
             var is_anon = false;
             var field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
             if (field_decl.isAnonymousStructOrUnion() or field_name.len == 0) {
@@ -1122,14 +1117,26 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 try functions.append(flexible_array_fn);
                 continue;
             }
-            const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
-                error.UnsupportedType => {
-                    try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                    try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
-                    break :blk Tag.opaque_literal.init();
-                },
-                else => |e| return e,
-            };
+            
+            if (field_decl.isBitField()) record_layout = .@"packed";
+            const field_type = if (field_decl.isBitField())
+                transQualTypeBitField(c, scope, field_qt, field_loc) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield '{s}'' with invalid type", .{container_kind_name, field_name});
+                        break :blk Tag.opaque_literal.init();
+                    },
+                    else => |e| return e,
+                }
+            else
+                transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
+                        break :blk Tag.opaque_literal.init();
+                    },
+                    else => |e| return e,
+                };
 
             const alignment = if (has_flexible_array and field_decl.getFieldIndex() == 0)
                 @intCast(c_uint, record_alignment)
@@ -1151,7 +1158,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
             .data = .{
-                .layout = .@"extern",
+                .layout = record_layout,
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
                 .functions = try c.arena.dupe(Node, functions.items),
                 .variables = &.{},
@@ -4200,6 +4207,38 @@ fn transQualTypeInitialized(
 
 fn transQualType(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
     return transType(c, scope, qt.getTypePtr(), source_loc);
+}
+
+/// get the size of bitfield in BITS
+fn bitFieldSize(qt: clang.QualType) usize {
+    return std.debug.panic("TODO: hook up clang to get bitsize of field: {}", .{qt});
+}
+
+/// (according to C99 https://en.cppreference.com/w/c/language/bit_field)
+/// implementation-defined detail:
+/// `int` is treated as `signed int`
+fn transQualTypeBitField(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node  {
+    _ = scope;
+    const ty = qt.getTypePtr();
+    switch (ty.getTypeClass()) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
+                .Bool => "bool",
+                .UInt => blk: {
+                    break :blk try std.fmt.allocPrint("u{}", .{bitFieldSize(qt)});
+                },
+                .Int => blk: {
+                    break :blk try std.fmt.allocPrint("i{}", .{bitFieldSize(qt)});
+                },
+                else => return fail(c, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
+            });
+        },
+        else => {
+            const type_name = try c.str(ty.getTypeClassName());
+            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
+        },
+    }
 }
 
 /// Produces a Zig AST node by translating a Clang QualType, respecting the width, but modifying the signed-ness.

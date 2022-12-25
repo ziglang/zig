@@ -562,10 +562,12 @@ pub const Payload = struct {
         type: Node,
     };
 
+    pub const RecordLayout = enum { @"packed", @"extern", none };
+
     pub const Record = struct {
         base: Payload,
         data: struct {
-            layout: enum { @"packed", @"extern", none },
+            layout: RecordLayout,
             fields: []Field,
             functions: []Node,
             variables: []Node,
