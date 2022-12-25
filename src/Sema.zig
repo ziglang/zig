@@ -29155,6 +29155,18 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
             const payload_ty = ty.errorUnionPayload();
             return sema.resolveTypeLayout(payload_ty);
         },
+        .Fn => {
+            const info = ty.fnInfo();
+            if (info.is_generic) {
+                // Resolving of generic function types is defeerred to when
+                // the function is instantiated.
+                return;
+            }
+            for (info.param_types) |param_ty| {
+                try sema.resolveTypeLayout(param_ty);
+            }
+            try sema.resolveTypeLayout(info.return_type);
+        },
         else => {},
     }
 }
