@@ -20328,8 +20328,13 @@ fn resolveExportOptions(
     const linkage_val = try sema.resolveConstValue(block, linkage_src, linkage_operand, "linkage of exported value must be comptime-known");
     const linkage = linkage_val.toEnum(std.builtin.GlobalLinkage);
 
-    const section = try sema.fieldVal(block, src, options, "section", section_src);
-    const section_val = try sema.resolveConstValue(block, section_src, section, "linksection of exported value must be comptime-known");
+    const section_operand = try sema.fieldVal(block, src, options, "section", section_src);
+    const section_opt_val = try sema.resolveConstValue(block, section_src, section_operand, "linksection of exported value must be comptime-known");
+    const section_ty = Type.initTag(.const_slice_u8);
+    const section = if (section_opt_val.optionalValue()) |section_val|
+        try section_val.toAllocatedBytes(section_ty, sema.arena, sema.mod)
+    else
+        null;
 
     const visibility_operand = try sema.fieldVal(block, src, options, "visibility", visibility_src);
     const visibility_val = try sema.resolveConstValue(block, visibility_src, visibility_operand, "visibility of exported value must be comptime-known");
@@ -20345,14 +20350,10 @@ fn resolveExportOptions(
         });
     }
 
-    if (!section_val.isNull()) {
-        return sema.fail(block, section_src, "TODO: implement exporting with linksection", .{});
-    }
-
     return std.builtin.ExportOptions{
         .name = name,
         .linkage = linkage,
-        .section = null, // TODO
+        .section = section,
         .visibility = visibility,
     };
 }
