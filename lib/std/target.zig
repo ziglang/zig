@@ -626,7 +626,7 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
-                .dxcontainer => @panic("TODO what's the extension for these?"),
+                .dxcontainer => ".dxil",
             };
         }
 
