@@ -29119,6 +29119,12 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!void {
             const field_ptr = val.castTag(.comptime_field_ptr).?.data;
             return sema.resolveLazyValue(field_ptr.field_val);
         },
+        .eu_payload,
+        .opt_payload,
+        => {
+            const sub_val = val.cast(Value.Payload.SubValue).?.data;
+            return sema.resolveLazyValue(sub_val);
+        },
         .@"union" => {
             const union_val = val.castTag(.@"union").?.data;
             return sema.resolveLazyValue(union_val.val);
@@ -29158,7 +29164,7 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
         .Fn => {
             const info = ty.fnInfo();
             if (info.is_generic) {
-                // Resolving of generic function types is defeerred to when
+                // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
@@ -29612,7 +29618,7 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
         .Fn => {
             const info = ty.fnInfo();
             if (info.is_generic) {
-                // Resolving of generic function types is defeerred to when
+                // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
