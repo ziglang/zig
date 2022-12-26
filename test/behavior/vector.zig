@@ -1261,3 +1261,19 @@ test "store packed vector element" {
     v[0] = 0;
     try expectEqual(@Vector(4, u1){ 0, 1, 1, 1 }, v);
 }
+
+test "store to vector in slice" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+	var v = [_]@Vector(3, f32){
+		.{ 1, 1, 1 },
+		.{ 0, 0, 0 },
+	};
+	var s: []@Vector(3, f32) = &v;
+	var i: usize = 1;
+	s[i] = s[0];
+	try expectEqual(v[1], v[0]);
+}

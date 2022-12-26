@@ -33069,7 +33069,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         host_size: u16 = 0,
         alignment: u32 = 0,
         vector_index: VI = .none,
-    } = if (parent_ty.tag() == .vector) blk: {
+    } = if (parent_ty.tag() == .vector and ptr_info.size == .One) blk: {
         const elem_bits = elem_ty.bitSize(target);
         if (elem_bits == 0) break :blk .{};
         const is_packed = elem_bits < 8 or !std.math.isPowerOfTwo(elem_bits);
