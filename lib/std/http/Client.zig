@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const http = std.http;
 const net = std.net;
 const Client = @This();
+const Url = std.Url;
 
 allocator: std.mem.Allocator,
 headers: std.ArrayListUnmanaged(u8) = .{},
@@ -19,14 +20,7 @@ pub const Request = struct {
     pub const Protocol = enum { http, https };
 
     pub const Options = struct {
-        family: Family = .any,
-        protocol: Protocol = .https,
         method: http.Method = .GET,
-        host: []const u8 = "localhost",
-        path: []const u8 = "/",
-        port: u16 = 0,
-
-        pub const Family = enum { any, ip4, ip6 };
     };
 
     pub fn deinit(req: *Request) void {
@@ -90,20 +84,27 @@ pub fn deinit(client: *Client) void {
     client.* = undefined;
 }
 
-pub fn request(client: *Client, options: Request.Options) !Request {
+pub fn request(client: *Client, url: Url, options: Request.Options) !Request {
+    const protocol = std.meta.stringToEnum(Request.Protocol, url.scheme) orelse
+        return error.UnsupportedUrlScheme;
+    const port: u16 = url.port orelse switch (protocol) {
+        .http => 80,
+        .https => 443,
+    };
+
     var req: Request = .{
         .client = client,
-        .stream = try net.tcpConnectToHost(client.allocator, options.host, options.port),
-        .protocol = options.protocol,
+        .stream = try net.tcpConnectToHost(client.allocator, url.host, port),
+        .protocol = protocol,
         .tls_client = undefined,
     };
     client.active_requests += 1;
     errdefer req.deinit();
 
-    switch (options.protocol) {
+    switch (protocol) {
         .http => {},
         .https => {
-            req.tls_client = try std.crypto.tls.Client.init(req.stream, client.ca_bundle, options.host);
+            req.tls_client = try std.crypto.tls.Client.init(req.stream, client.ca_bundle, url.host);
         },
     }
 
@@ -111,19 +112,19 @@ pub fn request(client: *Client, options: Request.Options) !Request {
         client.allocator,
         @tagName(options.method).len +
             1 +
-            options.path.len +
+            url.path.len +
             " HTTP/1.1\r\nHost: ".len +
-            options.host.len +
+            url.host.len +
             "\r\nUpgrade-Insecure-Requests: 1\r\n".len +
             client.headers.items.len +
             2, // for the \r\n at the end of headers
     );
     req.headers.appendSliceAssumeCapacity(@tagName(options.method));
     req.headers.appendSliceAssumeCapacity(" ");
-    req.headers.appendSliceAssumeCapacity(options.path);
+    req.headers.appendSliceAssumeCapacity(url.path);
     req.headers.appendSliceAssumeCapacity(" HTTP/1.1\r\nHost: ");
-    req.headers.appendSliceAssumeCapacity(options.host);
-    switch (options.protocol) {
+    req.headers.appendSliceAssumeCapacity(url.host);
+    switch (protocol) {
         .https => req.headers.appendSliceAssumeCapacity("\r\nUpgrade-Insecure-Requests: 1\r\n"),
         .http => req.headers.appendSliceAssumeCapacity("\r\n"),
     }

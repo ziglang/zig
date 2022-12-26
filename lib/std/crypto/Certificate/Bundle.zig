@@ -105,7 +105,9 @@ pub fn addCertsFromFile(
     // This is possible by computing the decoded length and reserving the space
     // for the decoded bytes first.
     const decoded_size_upper_bound = size / 4 * 3;
-    try cb.bytes.ensureUnusedCapacity(gpa, decoded_size_upper_bound + size);
+    const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
+        return error.CertificateAuthorityBundleTooBig;
+    try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
     const end_reserved = cb.bytes.items.len + decoded_size_upper_bound;
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
