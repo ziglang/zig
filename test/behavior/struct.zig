@@ -1420,15 +1420,34 @@ test "struct field has a pointer to an aligned version of itself" {
     try expect(&e == e.next);
 }
 
-test "struct only referenced from optional parameter/return" {
+test "struct has only one reference" {
     const S = struct {
-        fn f(_: ?struct { x: u8 }) void {}
-        fn g() ?struct { x: u8 } {
+        fn optionalStructParam(_: ?struct { x: u8 }) void {}
+        fn errorUnionStructParam(_: error{}!struct { x: u8 }) void {}
+        fn optionalStructReturn() ?struct { x: u8 } {
             return null;
+        }
+        fn errorUnionStructReturn() error{Foo}!struct { x: u8 } {
+            return error.Foo;
+        }
+        fn optionalComptimeIntParam(comptime x: ?comptime_int) comptime_int {
+            return x.?;
+        }
+        fn errorUnionComptimeIntParam(comptime x: error{}!comptime_int) comptime_int {
+            return x catch unreachable;
         }
     };
 
-    const fp: *const anyopaque = &S.f;
-    const gp: *const anyopaque = &S.g;
-    try expect(fp != gp);
+    const optional_struct_param: *const anyopaque = &S.optionalStructParam;
+    const error_union_struct_param: *const anyopaque = &S.errorUnionStructParam;
+    try expect(optional_struct_param != error_union_struct_param);
+
+    const optional_struct_return: *const anyopaque = &S.optionalStructReturn;
+    const error_union_struct_return: *const anyopaque = &S.errorUnionStructReturn;
+    try expect(optional_struct_return != error_union_struct_return);
+
+    try expectEqual(@alignOf(struct {}), S.optionalComptimeIntParam(@alignOf(struct {})));
+    try expectEqual(@alignOf(struct { x: u8 }), S.errorUnionComptimeIntParam(@alignOf(struct { x: u8 })));
+    try expectEqual(@sizeOf(struct { x: u16 }), S.optionalComptimeIntParam(@sizeOf(struct { x: u16 })));
+    try expectEqual(@sizeOf(struct { x: u32 }), S.errorUnionComptimeIntParam(@sizeOf(struct { x: u32 })));
 }
