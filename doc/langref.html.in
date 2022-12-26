@@ -3633,9 +3633,8 @@ const Value = enum(u2) {
     one,
     two,
 };
-
 // Now you can cast between u2 and Value.
-// The ordinal value starts from 0, counting up for each member.
+// The ordinal value starts from 0, counting up by 1 from the previous member.
 test "enum ordinal value" {
     try expect(@enumToInt(Value.zero) == 0);
     try expect(@enumToInt(Value.one) == 1);
@@ -3652,6 +3651,22 @@ test "set enum ordinal value" {
     try expect(@enumToInt(Value2.hundred) == 100);
     try expect(@enumToInt(Value2.thousand) == 1000);
     try expect(@enumToInt(Value2.million) == 1000000);
+}
+
+// You can also override only some values.
+const Value3 = enum(u4) {
+    a,
+    b = 8,
+    c,
+    d = 4,
+    e,
+};
+test "enum implicit ordinal values and overridden values" {
+    try expect(@enumToInt(Value3.a) == 0);
+    try expect(@enumToInt(Value3.b) == 8);
+    try expect(@enumToInt(Value3.c) == 9);
+    try expect(@enumToInt(Value3.d) == 4);
+    try expect(@enumToInt(Value3.e) == 5);
 }
 
 // Enums can have methods, the same as structs and unions.
