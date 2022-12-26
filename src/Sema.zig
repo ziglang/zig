@@ -29747,7 +29747,7 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
         .Fn => {
             const info = ty.fnInfo();
             if (info.is_generic) {
-                // Resolving of generic function types is defeerred to when
+                // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
@@ -30201,7 +30201,7 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
         .Fn => {
             const info = ty.fnInfo();
             if (info.is_generic) {
-                // Resolving of generic function types is defeerred to when
+                // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
