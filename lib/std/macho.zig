@@ -1931,8 +1931,6 @@ pub const compact_unwind_entry = extern struct {
 // to the page (4096 byte block) containing the unwind info for that function.
 
 pub const UNWIND_SECTION_VERSION = 1;
-pub const UNWIND_SECOND_LEVEL_REGULAR = 2;
-pub const UNWIND_SECOND_LEVEL_COMPRESSED = 3;
 
 pub const unwind_info_section_header = extern struct {
     /// UNWIND_SECTION_VERSION
@@ -1974,9 +1972,15 @@ pub const unwind_info_regular_second_level_entry = extern struct {
     encoding: compact_unwind_encoding_t,
 };
 
+pub const UNWIND_SECOND_LEVEL = enum(u32) {
+    REGULAR = 2,
+    COMPRESSED = 3,
+    _,
+};
+
 pub const unwind_info_regular_second_level_page_header = extern struct {
     /// UNWIND_SECOND_LEVEL_REGULAR
-    kind: u32 = UNWIND_SECOND_LEVEL_REGULAR,
+    kind: UNWIND_SECOND_LEVEL = .REGULAR,
 
     entryPageOffset: u16,
     entryCount: u16,
@@ -1985,7 +1989,7 @@ pub const unwind_info_regular_second_level_page_header = extern struct {
 
 pub const unwind_info_compressed_second_level_page_header = extern struct {
     /// UNWIND_SECOND_LEVEL_COMPRESSED
-    kind: u32 = UNWIND_SECOND_LEVEL_COMPRESSED,
+    kind: UNWIND_SECOND_LEVEL = .COMPRESSED,
 
     entryPageOffset: u16,
     entryCount: u16,
@@ -1995,7 +1999,101 @@ pub const unwind_info_compressed_second_level_page_header = extern struct {
     // encodings array
 };
 
-pub const UnwindInfoCompressedEntry = packed struct(u32) {
+pub const UnwindInfoCompressedEntry = packed struct {
     funcOffset: u24,
     encodingIndex: u8,
+};
+
+// TODO add corresponding x86_64 tagged union
+pub const UnwindEncodingArm64 = union(enum) {
+    frame: Frame,
+    frameless: Frameless,
+    dwarf: Dwarf,
+
+    pub const Frame = packed struct {
+        x_reg_pairs: packed struct {
+            x19_x20: u1,
+            x21_x22: u1,
+            x23_x24: u1,
+            x25_x26: u1,
+            x27_x28: u1,
+        },
+        d_reg_pairs: packed struct {
+            d8_d9: u1,
+            d10_d11: u1,
+            d12_d13: u1,
+            d14_d15: u1,
+        },
+        unused: u15,
+        mode: Mode = .frame,
+        personality_index: u2,
+        has_lsda: u1,
+        start: u1,
+    };
+
+    pub const Frameless = packed struct {
+        unused: u12 = 0,
+        stack_size: u12,
+        mode: Mode = .frameless,
+        personality_index: u2,
+        has_lsda: u1,
+        start: u1,
+    };
+
+    pub const Dwarf = packed struct {
+        section_offset: u24,
+        mode: Mode = .dwarf,
+        personality_index: u2,
+        has_lsda: u1,
+        start: u1,
+    };
+
+    pub const Mode = enum(u4) {
+        frameless = 0x2,
+        dwarf = 0x3,
+        frame = 0x4,
+        _,
+    };
+
+    pub const mode_mask: u32 = 0x0F000000;
+
+    pub fn fromU32(enc: u32) !UnwindEncodingArm64 {
+        const m = (enc & mode_mask) >> 24;
+        return switch (@intToEnum(Mode, m)) {
+            .frame => .{ .frame = @bitCast(Frame, enc) },
+            .frameless => .{ .frameless = @bitCast(Frameless, enc) },
+            .dwarf => .{ .dwarf = @bitCast(Dwarf, enc) },
+            else => return error.UnknownEncoding,
+        };
+    }
+
+    pub fn toU32(enc: UnwindEncodingArm64) u32 {
+        return switch (enc) {
+            inline else => |x| @bitCast(u32, x),
+        };
+    }
+
+    pub fn start(enc: UnwindEncodingArm64) bool {
+        return switch (enc) {
+            inline else => |x| x.start == 0b1,
+        };
+    }
+
+    pub fn hasLsda(enc: UnwindEncodingArm64) bool {
+        return switch (enc) {
+            inline else => |x| x.has_lsda == 0b1,
+        };
+    }
+
+    pub fn personalityIndex(enc: UnwindEncodingArm64) u2 {
+        return switch (enc) {
+            inline else => |x| x.personality_index,
+        };
+    }
+
+    pub fn mode(enc: UnwindEncodingArm64) Mode {
+        return switch (enc) {
+            inline else => |x| x.mode,
+        };
+    }
 };
