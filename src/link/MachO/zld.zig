@@ -2178,25 +2178,34 @@ pub const Zld = struct {
         try self.collectExportData(&trie);
 
         const link_seg = self.getLinkeditSegmentPtr();
-        const rebase_off = mem.alignForwardGeneric(u64, link_seg.fileoff, @alignOf(u64));
-        assert(rebase_off == link_seg.fileoff);
+        assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
+        const rebase_off = link_seg.fileoff;
         const rebase_size = try bind.rebaseInfoSize(rebase_pointers.items);
-        log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size });
+        const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
+        log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
-        const bind_off = mem.alignForwardGeneric(u64, rebase_off + rebase_size, @alignOf(u64));
+        const bind_off = rebase_off + rebase_size_aligned;
         const bind_size = try bind.bindInfoSize(bind_pointers.items);
-        log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size });
+        const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
+        log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
-        const lazy_bind_off = mem.alignForwardGeneric(u64, bind_off + bind_size, @alignOf(u64));
+        const lazy_bind_off = bind_off + bind_size_aligned;
         const lazy_bind_size = try bind.lazyBindInfoSize(lazy_bind_pointers.items);
-        log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + lazy_bind_size });
+        const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
+        log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
+            lazy_bind_off,
+            lazy_bind_off + lazy_bind_size_aligned,
+        });
 
-        const export_off = mem.alignForwardGeneric(u64, lazy_bind_off + lazy_bind_size, @alignOf(u64));
+        const export_off = lazy_bind_off + lazy_bind_size_aligned;
         const export_size = trie.size;
-        log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
+        const export_size_aligned = mem.alignForwardGeneric(u64, export_size, @alignOf(u64));
+        log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size_aligned });
 
-        const needed_size = math.cast(usize, export_off + export_size - rebase_off) orelse return error.Overflow;
+        const needed_size = math.cast(usize, export_off + export_size_aligned - rebase_off) orelse
+            return error.Overflow;
         link_seg.filesize = needed_size;
+        assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
         var buffer = try gpa.alloc(u8, needed_size);
         defer gpa.free(buffer);
@@ -2228,13 +2237,13 @@ pub const Zld = struct {
         try self.populateLazyBindOffsetsInStubHelper(buffer[offset..][0..size]);
 
         self.dyld_info_cmd.rebase_off = @intCast(u32, rebase_off);
-        self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size);
+        self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size_aligned);
         self.dyld_info_cmd.bind_off = @intCast(u32, bind_off);
-        self.dyld_info_cmd.bind_size = @intCast(u32, bind_size);
+        self.dyld_info_cmd.bind_size = @intCast(u32, bind_size_aligned);
         self.dyld_info_cmd.lazy_bind_off = @intCast(u32, lazy_bind_off);
-        self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size);
+        self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size_aligned);
         self.dyld_info_cmd.export_off = @intCast(u32, export_off);
-        self.dyld_info_cmd.export_size = @intCast(u32, export_size);
+        self.dyld_info_cmd.export_size = @intCast(u32, export_size_aligned);
     }
 
     fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
