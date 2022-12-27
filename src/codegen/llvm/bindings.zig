@@ -287,9 +287,6 @@ pub const Type = opaque {
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *Type) *Value;
 
-    pub const pointerType = LLVMPointerType;
-    extern fn LLVMPointerType(ElementType: *Type, AddressSpace: c_uint) *Type;
-
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) *Type;
 
