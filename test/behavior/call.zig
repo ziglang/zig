@@ -381,3 +381,17 @@ test "generic function with generic function parameter" {
     };
     try S.f(S.g, 123);
 }
+
+test "recursive inline call with comptime known argument" {
+    const S = struct {
+        inline fn foo(x: i32) i32 {
+            if (x <= 0) {
+                return 0;
+            } else {
+                return x * 2 + foo(x - 1);
+            }
+        }
+    };
+
+    try expect(S.foo(4) == 20);
+}

@@ -3361,6 +3361,10 @@ pub const DeclGen = struct {
                     const llvm_type = try dg.lowerType(tv.ty);
                     return llvm_type.constNull();
                 },
+                .opt_payload => {
+                    const payload = tv.val.castTag(.opt_payload).?.data;
+                    return dg.lowerParentPtr(payload, tv.ty);
+                },
                 else => |tag| return dg.todo("implement const of pointer type '{}' ({})", .{
                     tv.ty.fmtDebug(), tag,
                 }),

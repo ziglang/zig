@@ -240,10 +240,10 @@ const Parser = struct {
     /// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
     /// ContainerDeclarations
     ///     <- TestDecl ContainerDeclarations
-    ///      / TopLevelComptime ContainerDeclarations
-    ///      / KEYWORD_pub? TopLevelDecl ContainerDeclarations
+    ///      / ComptimeDecl ContainerDeclarations
+    ///      / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
     ///      /
-    /// TopLevelComptime <- KEYWORD_comptime Block
+    /// ComptimeDecl <- KEYWORD_comptime Block
     fn parseContainerMembers(p: *Parser) !Members {
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -622,7 +622,7 @@ const Parser = struct {
         };
     }
 
-    /// TopLevelDecl
+    /// Decl
     ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
     ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
     ///      / KEYWORD_usingnamespace Expr SEMICOLON
