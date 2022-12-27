@@ -32,13 +32,23 @@ pub fn build(b: *Builder) void {
     check_exe.checkNext("exportoff {exportoff}");
     check_exe.checkNext("exportsize {exportsize}");
 
+    check_exe.checkStart("cmd FUNCTION_STARTS");
+    check_exe.checkNext("dataoff {fstartoff}");
+    check_exe.checkNext("datasize {fstartsize}");
+
+    check_exe.checkStart("cmd DATA_IN_CODE");
+    check_exe.checkNext("dataoff {diceoff}");
+    check_exe.checkNext("datasize {dicesize}");
+
     check_exe.checkStart("cmd SYMTAB");
     check_exe.checkNext("symoff {symoff}");
+    check_exe.checkNext("nsyms {symnsyms}");
     check_exe.checkNext("stroff {stroff}");
     check_exe.checkNext("strsize {strsize}");
 
     check_exe.checkStart("cmd DYSYMTAB");
     check_exe.checkNext("indirectsymoff {dysymoff}");
+    check_exe.checkNext("nindirectsyms {dysymnsyms}");
 
     switch (builtin.cpu.arch) {
         .aarch64 => {
@@ -50,42 +60,51 @@ pub fn build(b: *Builder) void {
         else => unreachable,
     }
 
-    // Next check: DYLD_INFO_ONLY subsections are in order: rebase < bind < lazy < export
-    check_exe.checkComputeCompare("rebaseoff ", .{ .op = .lt, .value = .{ .variable = "bindoff" } });
-    check_exe.checkComputeCompare("bindoff", .{ .op = .lt, .value = .{ .variable = "lazybindoff" } });
-    check_exe.checkComputeCompare("lazybindoff", .{ .op = .lt, .value = .{ .variable = "exportoff" } });
+    // DYLD_INFO_ONLY subsections are in order: rebase < bind < lazy < export,
+    // and there are no gaps between them
+    check_exe.checkComputeCompare("rebaseoff rebasesize +", .{ .op = .eq, .value = .{ .variable = "bindoff" } });
+    check_exe.checkComputeCompare("bindoff bindsize +", .{ .op = .eq, .value = .{ .variable = "lazybindoff" } });
+    check_exe.checkComputeCompare("lazybindoff lazybindsize +", .{ .op = .eq, .value = .{ .variable = "exportoff" } });
 
-    // Next check: DYLD_INFO_ONLY subsections do not overlap
-    check_exe.checkComputeCompare("rebaseoff rebasesize +", .{ .op = .lte, .value = .{ .variable = "bindoff" } });
-    check_exe.checkComputeCompare("bindoff bindsize +", .{ .op = .lte, .value = .{ .variable = "lazybindoff" } });
-    check_exe.checkComputeCompare("lazybindoff lazybindsize +", .{ .op = .lte, .value = .{ .variable = "exportoff" } });
+    // FUNCTION_STARTS directly follows DYLD_INFO_ONLY (no gap)
+    check_exe.checkComputeCompare("exportoff exportsize +", .{ .op = .eq, .value = .{ .variable = "fstartoff" } });
 
-    // Next check: we maintain order: symtab < dysymtab < strtab
-    check_exe.checkComputeCompare("symoff", .{ .op = .lt, .value = .{ .variable = "dysymoff" } });
-    check_exe.checkComputeCompare("dysymoff", .{ .op = .lt, .value = .{ .variable = "stroff" } });
+    // DATA_IN_CODE directly follows FUNCTION_STARTS (no gap)
+    check_exe.checkComputeCompare("fstartoff fstartsize +", .{ .op = .eq, .value = .{ .variable = "diceoff" } });
 
-    // Next check: all LINKEDIT sections apart from CODE_SIGNATURE are 8-bytes aligned
+    // SYMTAB directly follows DATA_IN_CODE (no gap)
+    check_exe.checkComputeCompare("diceoff dicesize +", .{ .op = .eq, .value = .{ .variable = "symoff" } });
+
+    // DYSYMTAB directly follows SYMTAB (no gap)
+    check_exe.checkComputeCompare("symnsyms 16 symoff * +", .{ .op = .eq, .value = .{ .variable = "dysymoff" } });
+
+    // STRTAB follows DYSYMTAB with possible gap
+    check_exe.checkComputeCompare("dysymnsyms 4 dysymoff * +", .{ .op = .lte, .value = .{ .variable = "stroff" } });
+
+    // all LINKEDIT sections apart from CODE_SIGNATURE are 8-bytes aligned
     check_exe.checkComputeCompare("rebaseoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("bindoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("lazybindoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("exportoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check_exe.checkComputeCompare("fstartoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check_exe.checkComputeCompare("diceoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("symoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("stroff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check_exe.checkComputeCompare("dysymoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
 
     switch (builtin.cpu.arch) {
         .aarch64 => {
-            // Next check: LINKEDIT segment does not extend beyond, or does not include, CODE_SIGNATURE data
+            // LINKEDIT segment does not extend beyond, or does not include, CODE_SIGNATURE data
             check_exe.checkComputeCompare("fileoff filesz codesigoff codesigsize + - -", .{
                 .op = .eq,
                 .value = .{ .literal = 0 },
             });
 
-            // Next check: CODE_SIGNATURE data offset is 16-bytes aligned
+            // CODE_SIGNATURE data offset is 16-bytes aligned
             check_exe.checkComputeCompare("codesigoff 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
         },
         .x86_64 => {
-            // Next check: LINKEDIT segment does not extend beyond, or does not include, strtab data
+            // LINKEDIT segment does not extend beyond, or does not include, strtab data
             check_exe.checkComputeCompare("fileoff filesz stroff strsize + - -", .{
                 .op = .eq,
                 .value = .{ .literal = 0 },

@@ -126,7 +126,7 @@ const Action = struct {
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
     fn computeCmp(act: Action, gpa: Allocator, global_vars: anytype) !bool {
-        var op_stack = std.ArrayList(enum { add, sub, mod }).init(gpa);
+        var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
         var it = mem.tokenize(u8, act.phrase, " ");
@@ -137,6 +137,8 @@ const Action = struct {
                 try op_stack.append(.sub);
             } else if (mem.eql(u8, next, "%")) {
                 try op_stack.append(.mod);
+            } else if (mem.eql(u8, next, "*")) {
+                try op_stack.append(.mul);
             } else {
                 const val = std.fmt.parseInt(u64, next, 0) catch blk: {
                     break :blk global_vars.get(next) orelse {
@@ -166,6 +168,9 @@ const Action = struct {
                 },
                 .mod => {
                     reduced %= other;
+                },
+                .mul => {
+                    reduced *= other;
                 },
             }
             op_i += 1;
