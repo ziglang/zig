@@ -3616,7 +3616,7 @@ fn writeStrtab(self: *MachO) !void {
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
-    const buffer = try gpa.alloc(u8, needed_size_aligned);
+    const buffer = try gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
     defer gpa.free(buffer);
     mem.set(u8, buffer, 0);
     mem.copy(u8, buffer, self.strtab.buffer.items);
@@ -3653,7 +3653,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
 
     var buf = std.ArrayList(u8).init(gpa);
     defer buf.deinit();
-    try buf.ensureTotalCapacity(needed_size_aligned);
+    try buf.ensureTotalCapacity(math.cast(usize, needed_size_aligned) orelse return error.Overflow);
     const writer = buf.writer();
 
     if (self.stubs_section_index) |sect_id| {
@@ -3692,7 +3692,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
         }
     }
 
-    const padding = needed_size_aligned - needed_size;
+    const padding = math.cast(usize, needed_size_aligned - needed_size) orelse return error.Overflow;
     if (padding > 0) {
         buf.appendNTimesAssumeCapacity(0, padding);
     }
