@@ -12094,7 +12094,9 @@ FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpa
 
 VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
 
-ContainerField <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+ContainerField
+     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+      / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
@@ -12479,8 +12481,8 @@ string_char
     <- char_escape
      / [^\\"\n]
 
-container_doc_comment <- ('//!' [^\n]* [ \n]*)+
-doc_comment <- ('///' [^\n]* [ \n]*)+ skip
+container_doc_comment <- ('//!' [^\n]* [ \n]* skip)+
+doc_comment <- ('///' [^\n]* [ \n]* skip)+
 line_comment <- '//' ![!/][^\n]* / '////' [^\n]*
 line_string <- ("\\\\" [^\n]* [ \n]*)+
 skip <- ([ \n] / line_comment)*

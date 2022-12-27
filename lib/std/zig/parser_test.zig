@@ -1,7 +1,9 @@
 test "zig fmt: tuple struct" {
     try testCanonical(
         \\const T = struct {
-        \\    comptime u32,
+        \\    /// doc comment on tuple field
+        \\    comptime comptime u32,
+        \\    /// another doc comment on tuple field
         \\    *u32 = 1,
         \\    // needs to be wrapped in parentheses to not be parsed as a function decl
         \\    (fn () void) align(1),
@@ -4236,6 +4238,18 @@ test "zig fmt: remove newlines surrounding doc comment within container decl" {
         \\};
         \\
     );
+}
+
+test "zig fmt: comptime before comptime field" {
+    try testError(
+        \\const Foo = struct {
+        \\    a: i32,
+        \\    comptime comptime b: i32 = 1234,
+        \\};
+        \\
+    , &[_]Error{
+        .expected_comma_after_field,
+    });
 }
 
 test "zig fmt: invalid else branch statement" {

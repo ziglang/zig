@@ -559,8 +559,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .container_field,
         => {
             const name_token = main_tokens[n];
-            if (token_tags[name_token + 1] != .colon) return name_token - end_offset;
-            if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
+            if (token_tags[name_token] != .keyword_comptime and name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
                 end_offset += 1;
             }
             return name_token - end_offset;

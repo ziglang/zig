@@ -313,7 +313,6 @@ const Parser = struct {
                         trailing = false;
                     },
                     else => {
-                        p.tok_i += 1;
                         const identifier = p.tok_i;
                         defer last_field = identifier;
                         const container_field = p.expectContainerField() catch |err| switch (err) {
