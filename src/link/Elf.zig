@@ -3032,9 +3032,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
 }
 
 fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
-    // TODO https://github.com/ziglang/zig/issues/1284
-    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
-        std.math.maxInt(@TypeOf(actual_size));
+    return actual_size +| (actual_size / ideal_factor);
 }
 
 // Provide a blueprint of csu (c-runtime startup) objects for supported

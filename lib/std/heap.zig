@@ -789,7 +789,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     const large_align: usize = mem.page_size / 2;
 
     var align_mask: usize = undefined;
-    _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)), &align_mask);
+    align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));

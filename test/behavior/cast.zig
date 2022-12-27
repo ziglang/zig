@@ -1505,3 +1505,16 @@ test "implicit cast from [:0]T to [*c]T" {
     try expect(c.len == a.len);
     try expect(c.ptr == a.ptr);
 }
+
+test "bitcast packed struct with u0" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = packed struct(u2) { a: u0, b: u2 };
+    const s = @bitCast(S, @as(u2, 2));
+    try expect(s.a == 0);
+    try expect(s.b == 2);
+    const i = @bitCast(u2, s);
+    try expect(i == 2);
+}

@@ -1378,6 +1378,7 @@ pub const Value = extern union {
                 var enum_buffer: Payload.U64 = undefined;
                 const int_val = val.enumToInt(ty, &enum_buffer);
 
+                if (abi_size == 0) return;
                 if (abi_size <= @sizeOf(u64)) {
                     const int: u64 = switch (int_val.tag()) {
                         .zero => 0,
@@ -1571,6 +1572,7 @@ pub const Value = extern union {
                 const abi_size = @intCast(usize, ty.abiSize(target));
 
                 const bits = int_info.bits;
+                if (bits == 0) return Value.zero;
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
                     .signed => return Value.Tag.int_i64.create(arena, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
                     .unsigned => return Value.Tag.int_u64.create(arena, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
@@ -3259,8 +3261,7 @@ pub const Value = extern union {
     }
 
     pub const OverflowArithmeticResult = struct {
-        /// TODO: Rename to `overflow_bit` and make of type `u1`.
-        overflowed: Value,
+        overflow_bit: Value,
         wrapped_result: Value,
     };
 
@@ -3395,11 +3396,11 @@ pub const Value = extern union {
                 const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
                 const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
                 const of_math_result = try intMulWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType(), arena, target);
-                overflowed_data[i] = of_math_result.overflowed;
+                overflowed_data[i] = of_math_result.overflow_bit;
                 scalar.* = of_math_result.wrapped_result;
             }
             return OverflowArithmeticResult{
-                .overflowed = try Value.Tag.aggregate.create(arena, overflowed_data),
+                .overflow_bit = try Value.Tag.aggregate.create(arena, overflowed_data),
                 .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
             };
         }
@@ -3436,7 +3437,7 @@ pub const Value = extern union {
         }
 
         return OverflowArithmeticResult{
-            .overflowed = makeBool(overflowed),
+            .overflow_bit = boolToInt(overflowed),
             .wrapped_result = try fromBigInt(arena, result_bigint.toConst()),
         };
     }
@@ -4141,11 +4142,11 @@ pub const Value = extern union {
                 const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
                 const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
                 const of_math_result = try shlWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType(), allocator, target);
-                overflowed_data[i] = of_math_result.overflowed;
+                overflowed_data[i] = of_math_result.overflow_bit;
                 scalar.* = of_math_result.wrapped_result;
             }
             return OverflowArithmeticResult{
-                .overflowed = try Value.Tag.aggregate.create(allocator, overflowed_data),
+                .overflow_bit = try Value.Tag.aggregate.create(allocator, overflowed_data),
                 .wrapped_result = try Value.Tag.aggregate.create(allocator, result_data),
             };
         }
@@ -4178,7 +4179,7 @@ pub const Value = extern union {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflowed = makeBool(overflowed),
+            .overflow_bit = boolToInt(overflowed),
             .wrapped_result = try fromBigInt(allocator, result_bigint.toConst()),
         };
     }
@@ -5490,6 +5491,10 @@ pub const Value = extern union {
 
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
+    }
+
+    pub fn boolToInt(x: bool) Value {
+        return if (x) Value.one else Value.zero;
     }
 
     pub const RuntimeIndex = enum(u32) {

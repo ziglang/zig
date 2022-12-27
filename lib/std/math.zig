@@ -468,21 +468,26 @@ test "clamp" {
 
 /// Returns the product of a and b. Returns an error on overflow.
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a * b;
+    const ov = @mulWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns the sum of a and b. Returns an error on overflow.
 pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a + b;
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a - b;
+    const ov = @subWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 pub fn negate(x: anytype) !@TypeOf(x) {
@@ -492,8 +497,10 @@ pub fn negate(x: anytype) !@TypeOf(x) {
 /// Shifts a left by shift_amt. Returns an error on overflow. shift_amt
 /// is unsigned.
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
-    var answer: T = undefined;
-    return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a << shift_amt;
+    const ov = @shlWithOverflow(a, shift_amt);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Shifts left. Overflowed bits are truncated.

@@ -246,7 +246,9 @@ pub inline fn __builtin_constant_p(expr: anytype) c_int {
     return @boolToInt(false);
 }
 pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: *@TypeOf(a, b)) c_int {
-    return @boolToInt(@mulWithOverflow(@TypeOf(a, b), a, b, result));
+    const res = @mulWithOverflow(a, b);
+    result.* = res[0];
+    return res[1];
 }
 
 // __builtin_alloca_with_align is not currently implemented.

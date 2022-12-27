@@ -44,10 +44,10 @@ pub const NonMontgomeryDomainFieldElement = [6]u64;
 inline fn addcarryxU64(out1: *u64, out2: *u1, arg1: u1, arg2: u64, arg3: u64) void {
     @setRuntimeSafety(mode == .Debug);
 
-    var t: u64 = undefined;
-    const carry1 = @addWithOverflow(u64, arg2, arg3, &t);
-    const carry2 = @addWithOverflow(u64, t, arg1, out1);
-    out2.* = @boolToInt(carry1) | @boolToInt(carry2);
+    const ov1 = @addWithOverflow(arg2, arg3);
+    const ov2 = @addWithOverflow(ov1[0], arg1);
+    out1.* = ov2[0];
+    out2.* = ov1[1] | ov2[1];
 }
 
 /// The function subborrowxU64 is a subtraction with borrow.
@@ -66,10 +66,10 @@ inline fn addcarryxU64(out1: *u64, out2: *u1, arg1: u1, arg2: u64, arg3: u64) vo
 inline fn subborrowxU64(out1: *u64, out2: *u1, arg1: u1, arg2: u64, arg3: u64) void {
     @setRuntimeSafety(mode == .Debug);
 
-    var t: u64 = undefined;
-    const carry1 = @subWithOverflow(u64, arg2, arg3, &t);
-    const carry2 = @subWithOverflow(u64, t, arg1, out1);
-    out2.* = @boolToInt(carry1) | @boolToInt(carry2);
+    const ov1 = @subWithOverflow(arg2, arg3);
+    const ov2 = @subWithOverflow(ov1[0], arg1);
+    out1.* = ov2[0];
+    out2.* = ov1[1] | ov2[1];
 }
 
 /// The function mulxU64 is a multiplication, returning the full double-width result.

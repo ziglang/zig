@@ -1510,26 +1510,6 @@ fn walkInstruction(
 
         //     return operand;
         // },
-        .overflow_arithmetic_ptr => {
-            const un_node = data[inst_index].un_node;
-
-            const elem_type_ref = try self.walkRef(file, parent_scope, parent_src, un_node.operand, false);
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{
-                .Pointer = .{
-                    .size = .One,
-                    .child = elem_type_ref.expr,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .is_allowzero = false,
-                },
-            });
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .type = type_slot_index },
-            };
-        },
         .ptr_type => {
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
