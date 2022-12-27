@@ -1928,6 +1928,7 @@ pub const Object = struct {
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
                     if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
+                        assert(struct_obj.haveLayout());
                         const info = struct_obj.backing_int_ty.intInfo(target);
                         const dwarf_encoding: c_uint = switch (info.signedness) {
                             .signed => DW.ATE.signed,
@@ -2931,6 +2932,7 @@ pub const DeclGen = struct {
                 const struct_obj = t.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
+                    assert(struct_obj.haveLayout());
                     const int_llvm_ty = try dg.lowerType(struct_obj.backing_int_ty);
                     gop.value_ptr.* = int_llvm_ty;
                     return int_llvm_ty;
@@ -3632,6 +3634,7 @@ pub const DeclGen = struct {
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
+                    assert(struct_obj.haveLayout());
                     const big_bits = struct_obj.backing_int_ty.bitSize(target);
                     const int_llvm_ty = dg.context.intType(@intCast(c_uint, big_bits));
                     const fields = struct_obj.fields.values();
@@ -9152,6 +9155,7 @@ pub const FuncGen = struct {
             .Struct => {
                 if (result_ty.containerLayout() == .Packed) {
                     const struct_obj = result_ty.castTag(.@"struct").?.data;
+                    assert(struct_obj.haveLayout());
                     const big_bits = struct_obj.backing_int_ty.bitSize(target);
                     const int_llvm_ty = self.context.intType(@intCast(c_uint, big_bits));
                     const fields = struct_obj.fields.values();
