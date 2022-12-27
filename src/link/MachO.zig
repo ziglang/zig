@@ -3606,17 +3606,25 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
 }
 
 fn writeStrtab(self: *MachO) !void {
+    const gpa = self.base.allocator;
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = self.strtab.buffer.items.len;
-    seg.filesize = offset + needed_size - seg.fileoff;
+    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
-    log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
-    try self.base.file.?.pwriteAll(self.strtab.buffer.items, offset);
+    const buffer = try gpa.alloc(u8, needed_size_aligned);
+    defer gpa.free(buffer);
+    mem.set(u8, buffer, 0);
+    mem.copy(u8, buffer, self.strtab.buffer.items);
+
+    try self.base.file.?.pwriteAll(buffer, offset);
 
     self.symtab_cmd.stroff = @intCast(u32, offset);
-    self.symtab_cmd.strsize = @intCast(u32, needed_size);
+    self.symtab_cmd.strsize = @intCast(u32, needed_size_aligned);
 }
 
 const SymtabCtx = struct {
