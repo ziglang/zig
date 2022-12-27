@@ -182,7 +182,10 @@ fn rawCAlloc(
     _ = ret_addr;
     assert(log2_ptr_align <= comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t)));
     // TODO: change the language to make @ptrCast also do alignment cast
-    const ptr = @alignCast(@alignOf(std.c.max_align_t), c.malloc(len));
+    // aligned_alloc has undefined behavior if the length is not a multiple
+    // of the allignment.
+    const adjustedLen = if (len % @alignOf(std.c.max_align_t) == 0) len else (len + (@alignOf(std.c.max_align_t) - (len % @alignOf(std.c.max_align_t))));
+    const ptr = @alignCast(@alignOf(std.c.max_align_t), c.aligned_alloc(@alignOf(std.c.max_align_t), adjustedLen));
     return @ptrCast(?[*]align(@alignOf(std.c.max_align_t)) u8, ptr);
 }
 
