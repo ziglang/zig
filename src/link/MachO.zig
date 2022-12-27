@@ -3578,13 +3578,11 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     const nsyms = nlocals + nexports + nimports;
 
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(
-        u64,
-        seg.fileoff + seg.filesize,
-        @alignOf(macho.nlist_64),
-    );
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = nsyms * @sizeOf(macho.nlist_64);
     seg.filesize = offset + needed_size - seg.fileoff;
+    assert(mem.isAlignedGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64)));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -3637,15 +3635,17 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const iundefsym = iextdefsym + ctx.nextdefsym;
 
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = nindirectsyms * @sizeOf(u32);
-    seg.filesize = offset + needed_size - seg.fileoff;
+    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
-    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
     var buf = std.ArrayList(u8).init(gpa);
     defer buf.deinit();
-    try buf.ensureTotalCapacity(needed_size);
+    try buf.ensureTotalCapacity(needed_size_aligned);
     const writer = buf.writer();
 
     if (self.stubs_section_index) |sect_id| {
@@ -3684,7 +3684,12 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
         }
     }
 
-    assert(buf.items.len == needed_size);
+    const padding = needed_size_aligned - needed_size;
+    if (padding > 0) {
+        buf.appendNTimesAssumeCapacity(0, padding);
+    }
+
+    assert(buf.items.len == needed_size_aligned);
     try self.base.file.?.pwriteAll(buf.items, offset);
 
     self.dysymtab_cmd.nlocalsym = ctx.nlocalsym;
