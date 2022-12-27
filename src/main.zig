@@ -2073,6 +2073,8 @@ fn buildOutputType(
                     }
                     if (mem.eql(u8, "dynamic_lookup", linker_args.items[i])) {
                         linker_allow_shlib_undefined = true;
+                    } else if (mem.eql(u8, "error", linker_args.items[i])) {
+                        linker_allow_shlib_undefined = false;
                     } else {
                         fatal("unsupported -undefined option '{s}'", .{linker_args.items[i]});
                     }
