@@ -889,3 +889,16 @@ test "field access of anyerror results in smaller error set" {
     try expect(@TypeOf(E2.A) == E2);
     try expect(@TypeOf(@field(anyerror, "NotFound")) == error{NotFound});
 }
+
+test "optional error union return type" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() ?anyerror!u32 {
+            var x: u32 = 1234;
+            return @as(anyerror!u32, x);
+        }
+    };
+    try expect(1234 == try S.foo().?);
+}
