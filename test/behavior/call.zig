@@ -107,7 +107,6 @@ test "result location of function call argument through runtime condition and st
 }
 
 test "function call with 40 arguments" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {

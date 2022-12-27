@@ -11,7 +11,6 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     comptime try expect(@alignOf(Foo) != maxInt(usize));
     if (native_arch == .x86_64) {
         comptime try expect(@alignOf(Foo) == 4);
