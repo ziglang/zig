@@ -1048,11 +1048,11 @@ pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
 pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
     const cwd = try process.getCwdAlloc(allocator);
     defer allocator.free(cwd);
-    const resolved_from = try resolveWindows(allocator, &[_][]const u8{cwd, from});
+    const resolved_from = try resolveWindows(allocator, &[_][]const u8{ cwd, from });
     defer allocator.free(resolved_from);
 
     var clean_up_resolved_to = true;
-    const resolved_to = try resolveWindows(allocator, &[_][]const u8{cwd, to});
+    const resolved_to = try resolveWindows(allocator, &[_][]const u8{ cwd, to });
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
     const parsed_from = windowsParsePath(resolved_from);
@@ -1121,9 +1121,9 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
 pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
     const cwd = try process.getCwdAlloc(allocator);
     defer allocator.free(cwd);
-    const resolved_from = try resolvePosix(allocator, &[_][]const u8{cwd, from});
+    const resolved_from = try resolvePosix(allocator, &[_][]const u8{ cwd, from });
     defer allocator.free(resolved_from);
-    const resolved_to = try resolvePosix(allocator, &[_][]const u8{cwd, to});
+    const resolved_to = try resolvePosix(allocator, &[_][]const u8{ cwd, to });
     defer allocator.free(resolved_to);
 
     var from_it = mem.tokenize(u8, resolved_from, "/");
