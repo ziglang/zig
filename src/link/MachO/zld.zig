@@ -2412,16 +2412,23 @@ pub const Zld = struct {
         }
 
         const link_seg = self.getLinkeditSegmentPtr();
-        const offset = mem.alignForwardGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64));
+        const offset = link_seg.fileoff + link_seg.filesize;
+        assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = buffer.items.len;
-        link_seg.filesize = offset + needed_size - link_seg.fileoff;
+        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const padding = needed_size_aligned - needed_size;
+        if (padding > 0) {
+            try buffer.ensureUnusedCapacity(padding);
+            buffer.appendNTimesAssumeCapacity(0, padding);
+        }
+        link_seg.filesize = offset + needed_size_aligned - link_seg.fileoff;
 
-        log.debug("writing function starts info from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+        log.debug("writing function starts info from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
         try self.file.pwriteAll(buffer.items, offset);
 
         self.function_starts_cmd.dataoff = @intCast(u32, offset);
-        self.function_starts_cmd.datasize = @intCast(u32, needed_size);
+        self.function_starts_cmd.datasize = @intCast(u32, needed_size_aligned);
     }
 
     fn filterDataInCode(
@@ -2486,16 +2493,23 @@ pub const Zld = struct {
         }
 
         const seg = self.getLinkeditSegmentPtr();
-        const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+        const offset = seg.fileoff + seg.filesize;
+        assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = out_dice.items.len * @sizeOf(macho.data_in_code_entry);
-        seg.filesize = offset + needed_size - seg.fileoff;
+        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
-        log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+        const buffer = try self.gpa.alloc(u8, needed_size_aligned);
+        defer self.gpa.free(buffer);
+        mem.set(u8, buffer, 0);
+        mem.copy(u8, buffer, mem.sliceAsBytes(out_dice.items));
 
-        try self.file.pwriteAll(mem.sliceAsBytes(out_dice.items), offset);
+        log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
+
+        try self.file.pwriteAll(buffer, offset);
 
         self.data_in_code_cmd.dataoff = @intCast(u32, offset);
-        self.data_in_code_cmd.datasize = @intCast(u32, needed_size);
+        self.data_in_code_cmd.datasize = @intCast(u32, needed_size_aligned);
     }
 
     fn writeSymtabs(self: *Zld) !void {
