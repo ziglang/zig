@@ -73,7 +73,6 @@ fn foo(x: ?i32) ?bool {
 test "test null runtime" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testTestNullRuntime(null);
@@ -85,7 +84,6 @@ fn testTestNullRuntime(x: ?i32) !void {
 
 test "optional void" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try optionalVoidImpl();
@@ -109,7 +107,6 @@ const Empty = struct {};
 
 test "optional struct{}" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     _ = try optionalEmptyStructImpl();
@@ -135,7 +132,6 @@ test "null with default unwrap" {
 }
 
 test "optional pointer to 0 bit type null value at runtime" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const EmptyStruct = struct {};
