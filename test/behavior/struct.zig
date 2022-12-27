@@ -1430,6 +1430,12 @@ test "struct has only one reference" {
         fn errorUnionStructReturn() error{Foo}!struct { x: u8 } {
             return error.Foo;
         }
+
+        fn pointerPackedStruct(_: *packed struct { x: u8 }) void {}
+        fn nestedPointerPackedStruct(_: struct { x: *packed struct { x: u8 } }) void {}
+        fn pointerNestedPackedStruct(_: *struct { x: packed struct { x: u8 } }) void {}
+        fn pointerNestedPointerPackedStruct(_: *struct { x: *packed struct { x: u8 } }) void {}
+
         fn optionalComptimeIntParam(comptime x: ?comptime_int) comptime_int {
             return x.?;
         }
@@ -1445,6 +1451,14 @@ test "struct has only one reference" {
     const optional_struct_return: *const anyopaque = &S.optionalStructReturn;
     const error_union_struct_return: *const anyopaque = &S.errorUnionStructReturn;
     try expect(optional_struct_return != error_union_struct_return);
+
+    const pointer_packed_struct: *const anyopaque = &S.pointerPackedStruct;
+    const nested_pointer_packed_struct: *const anyopaque = &S.nestedPointerPackedStruct;
+    try expect(pointer_packed_struct != nested_pointer_packed_struct);
+
+    const pointer_nested_packed_struct: *const anyopaque = &S.pointerNestedPackedStruct;
+    const pointer_nested_pointer_packed_struct: *const anyopaque = &S.pointerNestedPointerPackedStruct;
+    try expect(pointer_nested_packed_struct != pointer_nested_pointer_packed_struct);
 
     try expectEqual(@alignOf(struct {}), S.optionalComptimeIntParam(@alignOf(struct {})));
     try expectEqual(@alignOf(struct { x: u8 }), S.errorUnionComptimeIntParam(@alignOf(struct { x: u8 })));
