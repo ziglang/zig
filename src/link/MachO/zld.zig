@@ -2727,7 +2727,8 @@ pub const Zld = struct {
                 conformUuid(&self.uuid_cmd.uuid);
             },
             else => {
-                const max_file_end = self.symtab_cmd.stroff + self.symtab_cmd.strsize;
+                // We set the max file size to the actual strtab buffer length to exclude any strtab padding.
+                const max_file_end = @intCast(u32, self.symtab_cmd.stroff + self.strtab.buffer.items.len);
 
                 const FileSubsection = struct {
                     start: u32,

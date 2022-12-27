@@ -5,9 +5,9 @@ const LibExeObjectStep = std.build.LibExeObjStep;
 pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
-    testUuid(b, test_step, .ReleaseSafe, "eb1203019e453d808d4f1e71053af9af");
-    testUuid(b, test_step, .ReleaseFast, "eb1203019e453d808d4f1e71053af9af");
-    testUuid(b, test_step, .ReleaseSmall, "eb1203019e453d808d4f1e71053af9af");
+    testUuid(b, test_step, .ReleaseSafe, "46b333df88f5314686fc0cba3b939ca8");
+    testUuid(b, test_step, .ReleaseFast, "46b333df88f5314686fc0cba3b939ca8");
+    testUuid(b, test_step, .ReleaseSmall, "46b333df88f5314686fc0cba3b939ca8");
 }
 
 fn testUuid(b: *Builder, test_step: *std.build.Step, mode: std.builtin.Mode, comptime exp: []const u8) void {
