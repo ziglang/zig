@@ -166,6 +166,12 @@ test "@ctz vectors" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // This regressed with LLVM 14:
+        // https://github.com/ziglang/zig/issues/12013
+        return error.SkipZigTest;
+    }
+
     try testCtzVectors();
     comptime try testCtzVectors();
 }
