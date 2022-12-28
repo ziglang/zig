@@ -227,6 +227,12 @@ pub const CertificateType = enum(u8) {
     _,
 };
 
+pub const KeyUpdateRequest = enum(u8) {
+    update_not_requested = 0,
+    update_requested = 1,
+    _,
+};
+
 pub fn HandshakeCipherT(comptime AeadType: type, comptime HashType: type) type {
     return struct {
         pub const AEAD = AeadType;
@@ -261,6 +267,8 @@ pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type) type
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
+        client_secret: [Hash.digest_length]u8,
+        server_secret: [Hash.digest_length]u8,
         client_key: [AEAD.key_length]u8,
         server_key: [AEAD.key_length]u8,
         client_iv: [AEAD.nonce_length]u8,
