@@ -74,6 +74,7 @@ pub const HandshakeType = enum(u8) {
     finished = 20,
     key_update = 24,
     message_hash = 254,
+    _,
 };
 
 pub const ExtensionType = enum(u16) {
@@ -121,6 +122,8 @@ pub const ExtensionType = enum(u16) {
     signature_algorithms_cert = 50,
     /// RFC 8446
     key_share = 51,
+
+    _,
 };
 
 pub const AlertLevel = enum(u8) {
