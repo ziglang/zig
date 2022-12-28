@@ -201,7 +201,10 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
     const decl = mod.declPtr(decl_index);
     const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope());
     if (fn_map_res.found_existing) {
-        try fn_map_res.value_ptr.functions.put(gpa, decl_index, out);
+        if (try fn_map_res.value_ptr.functions.fetchPut(gpa, decl_index, out)) |old_entry| {
+            gpa.free(old_entry.value.code);
+            gpa.free(old_entry.value.lineinfo);
+        }
     } else {
         const file = decl.getFileScope();
         const arena = self.path_arena.allocator();
@@ -408,9 +411,11 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
             return;
         },
     };
-    var duped_code = try self.base.allocator.dupe(u8, code);
-    errdefer self.base.allocator.free(duped_code);
-    try self.data_decl_table.put(self.base.allocator, decl_index, duped_code);
+    try self.data_decl_table.ensureUnusedCapacity(self.base.allocator, 1);
+    const duped_code = try self.base.allocator.dupe(u8, code);
+    if (self.data_decl_table.fetchPutAssumeCapacity(decl_index, duped_code)) |old_entry| {
+        self.base.allocator.free(old_entry.value);
+    }
     return self.updateFinish(decl);
 }
 /// called at the end of update{Decl,Func}
@@ -743,14 +748,19 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     if (is_fn) {
         var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope()).?;
         var submap = symidx_and_submap.functions;
-        _ = submap.swapRemove(decl_index);
+        if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
+            self.base.allocator.free(removed_entry.value.code);
+            self.base.allocator.free(removed_entry.value.lineinfo);
+        }
         if (submap.count() == 0) {
             self.syms.items[symidx_and_submap.sym_index] = aout.Sym.undefined_symbol;
             self.syms_index_free_list.append(self.base.allocator, symidx_and_submap.sym_index) catch {};
             submap.deinit(self.base.allocator);
         }
     } else {
-        _ = self.data_decl_table.swapRemove(decl_index);
+        if (self.data_decl_table.fetchSwapRemove(decl_index)) |removed_entry| {
+            self.base.allocator.free(removed_entry.value);
+        }
     }
     if (decl.link.plan9.got_index) |i| {
         // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length

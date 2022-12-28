@@ -289,6 +289,7 @@ pub fn deinit(self: *Coff) void {
 
     self.unresolved.deinit(gpa);
     self.locals_free_list.deinit(gpa);
+    self.globals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got_entries.deinit(gpa);
     self.got_entries_free_list.deinit(gpa);
@@ -1150,8 +1151,10 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
 }
 
 fn freeRelocationsForAtom(self: *Coff, atom: *Atom) void {
-    _ = self.relocs.remove(atom);
-    _ = self.base_relocs.remove(atom);
+    var removed_relocs = self.relocs.fetchRemove(atom);
+    if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
+    var removed_base_relocs = self.base_relocs.fetchRemove(atom);
+    if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(self.base.allocator);
 }
 
 fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
@@ -1489,9 +1492,8 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     gop.value_ptr.* = sym_loc;
 
     const gpa = self.base.allocator;
-    const sym_name = try gpa.dupe(u8, name);
     const sym = self.getSymbolPtr(sym_loc);
-    try self.setSymbolName(sym, sym_name);
+    try self.setSymbolName(sym, name);
     sym.storage_class = .EXTERNAL;
 
     try self.unresolved.putNoClobber(gpa, global_index, true);

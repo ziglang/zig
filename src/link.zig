@@ -223,7 +223,9 @@ pub const Options = struct {
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
+        self.frameworks = .{};
         self.system_libs = .{};
+        self.force_undefined_symbols = .{};
         return copied_state;
     }
 };
@@ -624,7 +626,9 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
+        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
+        base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
                 if (build_options.only_c) unreachable;
