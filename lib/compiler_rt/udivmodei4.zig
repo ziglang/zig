@@ -129,6 +129,8 @@ pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
 }
 
 test "__udivei4/__umodei4" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const RndGen = std.rand.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: usize = 10000;
