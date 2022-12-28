@@ -10,15 +10,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage });
-    @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage });
-    @export(sincos, .{ .name = "sincos", .linkage = common.linkage });
-    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
+    @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(sincos, .{ .name = "sincos", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sincosq, .{ .name = "sincosf128", .linkage = common.linkage });
+        @export(sincosq, .{ .name = "sincosf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sincosq, .{ .name = "sincosq", .linkage = common.linkage });
-    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
+    @export(sincosq, .{ .name = "sincosq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {

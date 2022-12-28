@@ -10,20 +10,20 @@ comptime {
     if (builtin.os.tag == .windows) {
         switch (arch) {
             .x86 => {
-                @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage });
+                @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
             },
             .x86_64 => {
                 // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
                 // that LLVM expects compiler-rt to have.
-                @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = common.linkage });
+                @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
             },
             else => {},
         }
         if (arch.isAARCH64()) {
-            @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage });
+            @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
         }
     } else {
-        @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage });
+        @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
