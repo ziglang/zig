@@ -323,8 +323,8 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
     var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
     var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
-    var main_cert_pub_key_buf: [128]u8 = undefined;
-    var main_cert_pub_key_len: u8 = undefined;
+    var main_cert_pub_key_buf: [300]u8 = undefined;
+    var main_cert_pub_key_len: u16 = undefined;
 
     while (true) {
         const end_hdr = i + 5;
@@ -503,7 +503,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                     var verify_buffer =
                                         ([1]u8{0x20} ** 64) ++
                                         "TLS 1.3, server CertificateVerify\x00".* ++
-                                        ([1]u8{undefined} ** max_digest_len);
+                                        @as([max_digest_len]u8, undefined);
 
                                     const verify_bytes = switch (handshake_cipher) {
                                         inline else => |*p| v: {
@@ -524,7 +524,15 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             const key = try P256.PublicKey.fromSec1(main_cert_pub_key);
                                             try sig.verify(verify_bytes, key);
                                         },
-                                        else => return error.TlsBadSignatureAlgorithm,
+                                        .rsa_pss_rsae_sha256 => {
+                                            @panic("TODO signature algorithm: rsa_pss_rsae_sha256");
+                                        },
+                                        else => {
+                                            //std.debug.print("signature algorithm: {any}\n", .{
+                                            //    algorithm,
+                                            //});
+                                            return error.TlsBadSignatureAlgorithm;
+                                        },
                                     }
                                 },
                                 @enumToInt(HandshakeType.finished) => {
@@ -557,7 +565,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                                 @enumToInt(ContentType.application_data),
                                                 0x03, 0x03, // legacy protocol version
                                                 0, wrapped_len, // byte length of encrypted record
-                                            } ++ ([1]u8{undefined} ** wrapped_len);
+                                            } ++ @as([wrapped_len]u8, undefined);
 
                                             const ad = finished_msg[0..5];
                                             const ciphertext = finished_msg[5..][0..out_cleartext.len];

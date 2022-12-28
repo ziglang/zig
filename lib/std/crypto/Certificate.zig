@@ -56,6 +56,8 @@ pub const Attribute = enum {
     organizationName,
     organizationalUnitName,
     organizationIdentifier,
+    subject_alt_name,
+    pkcs9_emailAddress,
 
     pub const map = std.ComptimeStringMap(Attribute, .{
         .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
@@ -66,6 +68,8 @@ pub const Attribute = enum {
         .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
         .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
         .{ &[_]u8{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
+        .{ &[_]u8{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
+        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
     });
 };
 
@@ -74,6 +78,7 @@ pub const Parsed = struct {
     issuer_slice: Slice,
     subject_slice: Slice,
     common_name_slice: Slice,
+    subject_alt_name_slice: Slice,
     signature_slice: Slice,
     signature_algorithm: Algorithm,
     pub_key_algo: AlgorithmCategory,
@@ -102,6 +107,10 @@ pub const Parsed = struct {
 
     pub fn commonName(p: Parsed) []const u8 {
         return p.slice(p.common_name_slice);
+    }
+
+    pub fn subjectAltName(p: Parsed) []const u8 {
+        return p.slice(p.subject_alt_name_slice);
     }
 
     pub fn signature(p: Parsed) []const u8 {
@@ -195,20 +204,33 @@ pub fn parse(cert: Certificate) !Parsed {
     const pub_key_elem = try der.parseElement(cert_bytes, pub_key_signature_algorithm.slice.end);
     const pub_key = try parseBitString(cert, pub_key_elem);
 
-    const rdn = try der.parseElement(cert_bytes, subject.slice.start);
-    const atav = try der.parseElement(cert_bytes, rdn.slice.start);
-
     var common_name = der.Element.Slice.empty;
-    var atav_i = atav.slice.start;
-    while (atav_i < atav.slice.end) {
-        const ty_elem = try der.parseElement(cert_bytes, atav_i);
-        const ty = try parseAttribute(cert_bytes, ty_elem);
-        const val = try der.parseElement(cert_bytes, ty_elem.slice.end);
-        switch (ty) {
-            .commonName => common_name = val.slice,
-            else => {},
+    var subject_alt_name = der.Element.Slice.empty;
+    var name_i = subject.slice.start;
+    //std.debug.print("subject name:\n", .{});
+    while (name_i < subject.slice.end) {
+        const rdn = try der.parseElement(cert_bytes, name_i);
+        var rdn_i = rdn.slice.start;
+        while (rdn_i < rdn.slice.end) {
+            const atav = try der.parseElement(cert_bytes, rdn_i);
+            var atav_i = atav.slice.start;
+            while (atav_i < atav.slice.end) {
+                const ty_elem = try der.parseElement(cert_bytes, atav_i);
+                const ty = try parseAttribute(cert_bytes, ty_elem);
+                const val = try der.parseElement(cert_bytes, ty_elem.slice.end);
+                //std.debug.print(" {s}: '{s}'\n", .{
+                //    @tagName(ty), cert_bytes[val.slice.start..val.slice.end],
+                //});
+                switch (ty) {
+                    .commonName => common_name = val.slice,
+                    .subject_alt_name => subject_alt_name = val.slice,
+                    else => {},
+                }
+                atav_i = val.slice.end;
+            }
+            rdn_i = atav.slice.end;
         }
-        atav_i = val.slice.end;
+        name_i = rdn.slice.end;
     }
 
     const sig_algo = try der.parseElement(cert_bytes, tbs_certificate.slice.end);
@@ -220,6 +242,7 @@ pub fn parse(cert: Certificate) !Parsed {
     return .{
         .certificate = cert,
         .common_name_slice = common_name,
+        .subject_alt_name_slice = subject_alt_name,
         .issuer_slice = issuer.slice,
         .subject_slice = subject.slice,
         .signature_slice = signature,
@@ -397,8 +420,11 @@ pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) !Algorith
 pub fn parseAttribute(bytes: []const u8, element: der.Element) !Attribute {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
-    return Attribute.map.get(bytes[element.slice.start..element.slice.end]) orelse
-        return error.CertificateHasUnrecognizedAlgorithm;
+    const oid_bytes = bytes[element.slice.start..element.slice.end];
+    return Attribute.map.get(oid_bytes) orelse {
+        //std.debug.print("attr: {}\n", .{std.fmt.fmtSliceHexLower(oid_bytes)});
+        return error.CertificateHasUnrecognizedAttribute;
+    };
 }
 
 fn verifyRsa(
