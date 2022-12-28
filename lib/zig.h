@@ -6,6 +6,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if _MSC_VER
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+
 #if !defined(__cplusplus) && __STDC_VERSION__ <= 201710L
 #if __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
@@ -188,7 +194,6 @@ typedef char bool;
 #define    zig_atomic_load(obj,      order, type) __atomic_load_n    (obj,      order)
 #define zig_fence(order) __atomic_thread_fence(order)
 #elif _MSC_VER && (_M_IX86 || _M_X64)
-#include <intrin.h>
 #define memory_order_relaxed 0
 #define memory_order_consume 1
 #define memory_order_acquire 2
@@ -1367,6 +1372,11 @@ static inline zig_i128 zig_sub_i128(zig_i128 lhs, zig_i128 rhs) {
     return res;
 }
 
+zig_extern zig_i128 __multi3(zig_i128 lhs, zig_i128 rhs);
+static zig_i128 zig_mul_i128(zig_i128 lhs, zig_i128 rhs) {
+    return __multi3(lhs, rhs);
+}
+
 zig_extern zig_u128 __udivti3(zig_u128 lhs, zig_u128 rhs);
 static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs) {
     return __udivti3(lhs, rhs);
@@ -1390,6 +1400,10 @@ static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 rem = zig_rem_i128(lhs, rhs);
     return zig_add_i128(rem, (((lhs.hi ^ rhs.hi) & rem.hi) < zig_as_i64(0) ? rhs : zig_as_i128(0, 0)));
+}
+
+static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
+    return zig_sub_i128(zig_div_trunc_i128(lhs, rhs), zig_as_i128(0, zig_cmp_i128(zig_and_i128(zig_xor_i128(lhs, rhs), zig_rem_i128(lhs, rhs)), zig_as_i128(0, 0)) < zig_as_i32(0)));
 }
 
 #endif /* zig_has_int128 */
@@ -1464,11 +1478,6 @@ static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs) {
 #else
 static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs); // TODO
 #endif
-
-zig_extern zig_i128 __multi3(zig_i128 lhs, zig_i128 rhs);
-static zig_i128 zig_mul_i128(zig_i128 lhs, zig_i128 rhs) {
-    return __multi3(lhs, rhs);
-}
 
 static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_mul_u128(lhs, rhs), bits);
@@ -2118,7 +2127,6 @@ zig_float_builtins(f128)
 zig_float_builtins(c_longdouble)
 
 #if _MSC_VER && (_M_IX86 || _M_X64)
-#include <intrin.h>
 
 // TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64
 
@@ -2338,3 +2346,29 @@ zig_msvc_atomics_128op(u128, min)
 zig_msvc_atomics_128op(u128, max)
 
 #endif
+
+/* ========================= Special Case Intrinsics ========================= */
+
+static inline void zig_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u32* ebx, zig_u32* ecx, zig_u32* edx) {
+#if _MSC_VER
+    zig_u32 cpu_info[4];
+    __cpuidex(cpu_info, leaf_id, subid);
+    *eax = cpu_info[0];
+    *ebx = cpu_info[1];
+    *ecx = cpu_info[2];
+    *edx = cpu_info[3];
+#else
+    __cpuid_count(leaf_id, subid, eax, ebx, ecx, edx);
+#endif
+}
+
+static inline zig_u32 zig_get_xcr0() {
+#if _MSC_VER
+    return (zig_u32)_xgetbv(0);
+#else
+    zig_u32 eax;
+    zig_u32 edx;
+    __asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+    return eax;
+#endif
+}

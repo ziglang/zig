@@ -746,9 +746,9 @@ pub const DeclGen = struct {
                     var int_pl = Type.Payload.Bits{ .base = .{ .tag = .int_signed }, .data = bits };
                     const int_ty = Type.initPayload(&int_pl.base);
 
-                    try writer.writeByte('(');
-                    try dg.renderTypecast(writer, ty);
-                    try writer.writeAll(")zig_as_");
+                    try writer.writeAll("zig_cast_");
+                    try dg.renderTypeForBuiltinFnName(writer, ty);
+                    try writer.writeAll(" zig_as_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     switch (bits) {
@@ -3616,16 +3616,14 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = ");
 
     const needs_lo = operand_int_info.bits > 64 and dest_bits <= 64;
-    if (!needs_lo or dest_c_bits != 64 or dest_int_info.signedness != operand_int_info.signedness) {
-        try writer.writeByte('(');
-        try f.renderTypecast(writer, inst_ty);
-        try writer.writeByte(')');
-    }
-
     if (needs_lo) {
         try writer.writeAll("zig_lo_");
         try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
         try writer.writeByte('(');
+    } else if (dest_c_bits <= 64) {
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeByte(')');
     }
 
     if (dest_bits >= 8 and std.math.isPowerOfTwo(dest_bits)) {
@@ -3640,11 +3638,11 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
                 std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
 
             const mask_val = try inst_ty.maxInt(stack.get(), target);
-
-            // TODO: This needs to use _and_ to do this to support > 64 bits and !zig_has_int128
+            try writer.writeAll("zig_and_");
+            try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
             try writer.writeByte('(');
-            try f.writeCValue(writer, operand, .Other);
-            try writer.print(" & {x})", .{try f.fmtIntLiteral(inst_ty, mask_val)});
+            try f.writeCValue(writer, operand, .FunctionArgument);
+            try writer.print(", {x})", .{try f.fmtIntLiteral(operand_ty, mask_val)});
         },
         .signed => {
             const c_bits = toCIntBits(operand_int_info.bits) orelse
@@ -3655,10 +3653,24 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             };
             const shift_val = Value.initPayload(&shift_pl.base);
 
-            // TODO: This needs to use shl and shr to do this to support > 64 bits and !zig_has_int128
-            try writer.print("((int{d}_t)((uint{0d}_t)", .{c_bits});
-            try f.writeCValue(writer, operand, .Other);
-            try writer.print(" << {}) >> {0})", .{try f.fmtIntLiteral(Type.u8, shift_val)});
+            try writer.writeAll("zig_shr_");
+            try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+            if (c_bits == 128) {
+                try writer.print("(zig_bitcast_i{d}(", .{c_bits});
+            } else {
+                try writer.print("((int{d}_t)", .{c_bits});
+            }
+            try writer.print("zig_shl_u{d}(", .{c_bits});
+            if (c_bits == 128) {
+                try writer.print("zig_bitcast_u{d}(", .{c_bits});
+            } else {
+                try writer.print("(uint{d}_t)", .{c_bits});
+            }
+            try f.writeCValue(writer, operand, .FunctionArgument);
+            if (c_bits == 128) try writer.writeByte(')');
+            try writer.print(", {})", .{ try f.fmtIntLiteral(Type.u8, shift_val) });
+            if (c_bits == 128) try writer.writeByte(')');
+            try writer.print(", {})", .{ try f.fmtIntLiteral(Type.u8, shift_val) });
         },
     }
 
