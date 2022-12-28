@@ -270,3 +270,15 @@ test "comptime @ptrCast a subset of an array, then write through it" {
         std.mem.copy(u8, buff[4..], "abcdef");
     }
 }
+
+test "@ptrCast undefined value at comptime" {
+    const S = struct {
+        fn transmute(comptime T: type, comptime U: type, value: T) U {
+            return @ptrCast(*const U, &value).*;
+        }
+    };
+    comptime {
+        var x = S.transmute([]u8, i32, undefined);
+        _ = x;
+    }
+}

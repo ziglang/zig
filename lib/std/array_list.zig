@@ -1604,3 +1604,20 @@ test "std.ArrayList(u0)" {
     }
     try testing.expectEqual(count, 3);
 }
+
+test "std.ArrayList(?u32).popOrNull()" {
+    const a = testing.allocator;
+
+    var list = ArrayList(?u32).init(a);
+    defer list.deinit();
+
+    try list.append(null);
+    try list.append(1);
+    try list.append(2);
+    try testing.expectEqual(list.items.len, 3);
+
+    try testing.expect(list.popOrNull().? == @as(u32, 2));
+    try testing.expect(list.popOrNull().? == @as(u32, 1));
+    try testing.expect(list.popOrNull().? == null);
+    try testing.expect(list.popOrNull() == null);
+}

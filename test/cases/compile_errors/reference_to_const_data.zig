@@ -18,6 +18,10 @@ export fn qux() void {
     var ptr = &S{.x=1,.y=2};
     ptr.x = 2;
 }
+export fn quux() void {
+    var x = &@returnAddress();
+    x.* = 6;
+}
 
 // error
 // backend=stage2
@@ -27,3 +31,4 @@ export fn qux() void {
 // :7:8: error: cannot assign to constant
 // :11:8: error: cannot assign to constant
 // :19:8: error: cannot assign to constant
+// :23:6: error: cannot assign to constant

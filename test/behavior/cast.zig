@@ -1518,3 +1518,13 @@ test "bitcast packed struct with u0" {
     const i = @bitCast(u2, s);
     try expect(i == 2);
 }
+
+test "optional pointer coerced to optional allowzero pointer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var p: ?*u32 = undefined;
+    var q: ?*allowzero u32 = undefined;
+    p = @intToPtr(*u32, 4);
+    q = p;
+    try expect(@ptrToInt(q.?) == 4);
+}
