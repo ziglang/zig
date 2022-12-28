@@ -725,8 +725,11 @@ pub fn writeAll(c: *Client, stream: net.Stream, bytes: []const u8) !void {
 
 /// Returns number of bytes that have been read, which are now populated inside
 /// `buffer`. A return value of zero bytes does not necessarily mean end of
-/// stream.
+/// stream. Instead, the `eof` flag is set upon end of stream. The `eof` flag
+/// may be set after any call to `read`, including when greater than zero bytes
+/// are returned, and this function asserts that `eof` is `false`.
 pub fn read(c: *Client, stream: net.Stream, buffer: []u8) !usize {
+    assert(!c.eof);
     const prev_len = c.partially_read_len;
     var in_buf: [max_ciphertext_len * 4]u8 = undefined;
     mem.copy(u8, &in_buf, c.partially_read_buffer[0..prev_len]);
@@ -738,8 +741,8 @@ pub fn read(c: *Client, stream: net.Stream, buffer: []u8) !usize {
     const actual_read_len = try stream.read(ask_slice);
     const frag = in_buf[0 .. prev_len + actual_read_len];
     if (frag.len == 0) {
-        c.eof = true;
-        return 0;
+        // This is either a truncation attack, or a bug in the server.
+        return error.TlsConnectionTruncated;
     }
     var in: usize = 0;
     var out: usize = 0;

@@ -66,13 +66,11 @@ pub const Request = struct {
         var index: usize = 0;
         while (index < len) {
             const amt = try req.read(buffer[index..]);
-            if (amt == 0) {
-                switch (req.protocol) {
-                    .http => break,
-                    .https => if (req.tls_client.eof) break,
-                }
-            }
             index += amt;
+            switch (req.protocol) {
+                .http => if (amt == 0) break,
+                .https => if (req.tls_client.eof) break,
+            }
         }
         return index;
     }
