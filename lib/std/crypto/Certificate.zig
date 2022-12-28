@@ -56,7 +56,6 @@ pub const Attribute = enum {
     organizationName,
     organizationalUnitName,
     organizationIdentifier,
-    subject_alt_name,
     pkcs9_emailAddress,
 
     pub const map = std.ComptimeStringMap(Attribute, .{
@@ -68,7 +67,6 @@ pub const Attribute = enum {
         .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
         .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
         .{ &[_]u8{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
     });
 };
@@ -78,7 +76,6 @@ pub const Parsed = struct {
     issuer_slice: Slice,
     subject_slice: Slice,
     common_name_slice: Slice,
-    subject_alt_name_slice: Slice,
     signature_slice: Slice,
     signature_algorithm: Algorithm,
     pub_key_algo: AlgorithmCategory,
@@ -107,10 +104,6 @@ pub const Parsed = struct {
 
     pub fn commonName(p: Parsed) []const u8 {
         return p.slice(p.common_name_slice);
-    }
-
-    pub fn subjectAltName(p: Parsed) []const u8 {
-        return p.slice(p.subject_alt_name_slice);
     }
 
     pub fn signature(p: Parsed) []const u8 {
@@ -205,7 +198,6 @@ pub fn parse(cert: Certificate) !Parsed {
     const pub_key = try parseBitString(cert, pub_key_elem);
 
     var common_name = der.Element.Slice.empty;
-    var subject_alt_name = der.Element.Slice.empty;
     var name_i = subject.slice.start;
     //std.debug.print("subject name:\n", .{});
     while (name_i < subject.slice.end) {
@@ -223,7 +215,6 @@ pub fn parse(cert: Certificate) !Parsed {
                 //});
                 switch (ty) {
                     .commonName => common_name = val.slice,
-                    .subject_alt_name => subject_alt_name = val.slice,
                     else => {},
                 }
                 atav_i = val.slice.end;
@@ -242,7 +233,6 @@ pub fn parse(cert: Certificate) !Parsed {
     return .{
         .certificate = cert,
         .common_name_slice = common_name,
-        .subject_alt_name_slice = subject_alt_name,
         .issuer_slice = issuer.slice,
         .subject_slice = subject.slice,
         .signature_slice = signature,
