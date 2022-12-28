@@ -31581,34 +31581,8 @@ fn containerFieldNode(
     @setCold(true);
     const enum_node = decl.relativeToNodeIndex(node_offset);
     const node_tags = tree.nodes.items(.tag);
-    var buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const container_decl = switch (node_tags[enum_node]) {
-        .root => tree.containerDeclRoot(),
-
-        .container_decl,
-        .container_decl_trailing,
-        => tree.containerDecl(enum_node),
-
-        .container_decl_two,
-        .container_decl_two_trailing,
-        => tree.containerDeclTwo(&buffer, enum_node),
-
-        .container_decl_arg,
-        .container_decl_arg_trailing,
-        => tree.containerDeclArg(enum_node),
-
-        .tagged_union,
-        .tagged_union_trailing,
-        => tree.taggedUnion(enum_node),
-        .tagged_union_two,
-        .tagged_union_two_trailing,
-        => tree.taggedUnionTwo(&buffer, enum_node),
-        .tagged_union_enum_tag,
-        .tagged_union_enum_tag_trailing,
-        => tree.taggedUnionEnumTag(enum_node),
-
-        else => return null,
-    };
+    var buf: [2]std.zig.Ast.Node.Index = undefined;
+    const container_decl = tree.fullContainerDecl(&buf, enum_node) orelse return null;
     var it_index: usize = 0;
     for (container_decl.ast.members) |member_node| {
         switch (node_tags[member_node]) {

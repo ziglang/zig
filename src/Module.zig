@@ -1040,34 +1040,13 @@ pub const Struct = struct {
             return s.srcLoc(mod);
         };
         const node = owner_decl.relativeToNodeIndex(0);
-        const node_tags = tree.nodes.items(.tag);
-        switch (node_tags[node]) {
-            .container_decl,
-            .container_decl_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
-            .container_decl_two, .container_decl_two_trailing => {
-                var buffer: [2]Ast.Node.Index = undefined;
-                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
-            },
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
 
-            .tagged_union,
-            .tagged_union_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
-            .tagged_union_two, .tagged_union_two_trailing => {
-                var buffer: [2]Ast.Node.Index = undefined;
-                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
-            },
-            .tagged_union_enum_tag,
-            .tagged_union_enum_tag_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
-
-            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
-
+        var buf: [2]Ast.Node.Index = undefined;
+        if(tree.fullContainerDecl(&buf, node)) |container_decl| {
+            return queryFieldSrc(tree.*, query, file, container_decl);
+        } else {
             // This struct was generated using @Type
-            else => return s.srcLoc(mod),
+            return s.srcLoc(mod);
         }
     }
 
@@ -1272,30 +1251,13 @@ pub const Union = struct {
             return u.srcLoc(mod);
         };
         const node = owner_decl.relativeToNodeIndex(0);
-        const node_tags = tree.nodes.items(.tag);
+
         var buf: [2]Ast.Node.Index = undefined;
-        switch (node_tags[node]) {
-            .container_decl,
-            .container_decl_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
-            .container_decl_two, .container_decl_two_trailing => {
-                var buffer: [2]Ast.Node.Index = undefined;
-                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
-            },
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
-            .tagged_union,
-            .tagged_union_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
-            .tagged_union_two,
-            .tagged_union_two_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buf, node)),
-            .tagged_union_enum_tag,
-            .tagged_union_enum_tag_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
+            return queryFieldSrc(tree.*, query, file, container_decl);
+        } else {
             // This union was generated using @Type
-            else => return u.srcLoc(mod),
+            return u.srcLoc(mod);
         }
     }
 
@@ -2261,10 +2223,10 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
-                    .global_var_decl => tree.globalVarDecl(node),
-                    .local_var_decl => tree.localVarDecl(node),
-                    .simple_var_decl => tree.simpleVarDecl(node),
-                    .aligned_var_decl => tree.alignedVarDecl(node),
+                    .global_var_decl,
+                    .local_var_decl,
+                    .simple_var_decl,
+                    .aligned_var_decl, => tree.fullVarDecl(node).?,
                     .@"usingnamespace" => {
                         const node_data = tree.nodes.items(.data);
                         return nodeToSpan(tree, node_data[node].lhs);
@@ -2282,53 +2244,25 @@ pub const SrcLoc = struct {
             .node_offset_var_decl_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const node_tags = tree.nodes.items(.tag);
-                const full: Ast.full.VarDecl = switch (node_tags[node]) {
-                    .global_var_decl => tree.globalVarDecl(node),
-                    .local_var_decl => tree.localVarDecl(node),
-                    .simple_var_decl => tree.simpleVarDecl(node),
-                    .aligned_var_decl => tree.alignedVarDecl(node),
-                    else => unreachable,
-                };
+                const full = tree.fullVarDecl(node).?;
                 return nodeToSpan(tree, full.ast.align_node);
             },
             .node_offset_var_decl_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const node_tags = tree.nodes.items(.tag);
-                const full: Ast.full.VarDecl = switch (node_tags[node]) {
-                    .global_var_decl => tree.globalVarDecl(node),
-                    .local_var_decl => tree.localVarDecl(node),
-                    .simple_var_decl => tree.simpleVarDecl(node),
-                    .aligned_var_decl => tree.alignedVarDecl(node),
-                    else => unreachable,
-                };
+                const full = tree.fullVarDecl(node).?;
                 return nodeToSpan(tree, full.ast.section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const node_tags = tree.nodes.items(.tag);
-                const full: Ast.full.VarDecl = switch (node_tags[node]) {
-                    .global_var_decl => tree.globalVarDecl(node),
-                    .local_var_decl => tree.localVarDecl(node),
-                    .simple_var_decl => tree.simpleVarDecl(node),
-                    .aligned_var_decl => tree.alignedVarDecl(node),
-                    else => unreachable,
-                };
+                const full = tree.fullVarDecl(node).?;
                 return nodeToSpan(tree, full.ast.addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const node_tags = tree.nodes.items(.tag);
-                const full: Ast.full.VarDecl = switch (node_tags[node]) {
-                    .global_var_decl => tree.globalVarDecl(node),
-                    .local_var_decl => tree.localVarDecl(node),
-                    .simple_var_decl => tree.simpleVarDecl(node),
-                    .aligned_var_decl => tree.alignedVarDecl(node),
-                    else => unreachable,
-                };
+                const full = tree.fullVarDecl(node).?;
                 return nodeToSpan(tree, full.ast.init_node);
             },
             .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
@@ -2349,14 +2283,8 @@ pub const SrcLoc = struct {
             .node_offset_slice_sentinel,
             => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const full = switch (node_tags[node]) {
-                    .slice_open => tree.sliceOpen(node),
-                    .slice => tree.slice(node),
-                    .slice_sentinel => tree.sliceSentinel(node),
-                    else => unreachable,
-                };
+                const full = tree.fullSlice(node).?;
                 const part_node = switch (src_loc.lazy) {
                     .node_offset_slice_ptr => full.ast.sliced,
                     .node_offset_slice_start => full.ast.start,
@@ -2368,24 +2296,9 @@ pub const SrcLoc = struct {
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .call_one,
-                    .call_one_comma,
-                    .async_call_one,
-                    .async_call_one_comma,
-                    => tree.callOne(&params, node),
-
-                    .call,
-                    .call_comma,
-                    .async_call,
-                    .async_call_comma,
-                    => tree.callFull(node),
-
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullCall(&buf, node).?;
                 return nodeToSpan(tree, full.ast.fn_expr);
             },
             .node_offset_field_name => |node_off| {
@@ -2408,24 +2321,14 @@ pub const SrcLoc = struct {
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const full = switch (node_tags[node]) {
-                    .asm_simple => tree.asmSimple(node),
-                    .@"asm" => tree.asmFull(node),
-                    else => unreachable,
-                };
+                const full = tree.fullAsm(node).?;
                 return nodeToSpan(tree, full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const full = switch (node_tags[node]) {
-                    .asm_simple => tree.asmSimple(node),
-                    .@"asm" => tree.asmFull(node),
-                    else => unreachable,
-                };
+                const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
                 return nodeToSpan(tree, node_datas[asm_output].lhs);
@@ -2436,13 +2339,15 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
-                    .if_simple => tree.ifSimple(node).ast.cond_expr,
-                    .@"if" => tree.ifFull(node).ast.cond_expr,
-                    .while_simple => tree.whileSimple(node).ast.cond_expr,
-                    .while_cont => tree.whileCont(node).ast.cond_expr,
-                    .@"while" => tree.whileFull(node).ast.cond_expr,
-                    .for_simple => tree.forSimple(node).ast.cond_expr,
-                    .@"for" => tree.forFull(node).ast.cond_expr,
+                    .if_simple,
+                    .@"if", => tree.fullIf(node).?.ast.cond_expr,
+                    
+                    .while_simple,
+                    .while_cont,
+                    .@"while",
+                    .for_simple,
+                    .@"for", => tree.fullWhile(node).?.ast.cond_expr,
+
                     .@"orelse" => node,
                     .@"catch" => node,
                     else => unreachable,
@@ -2478,11 +2383,7 @@ pub const SrcLoc = struct {
                 const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
-                    const case = switch (node_tags[case_node]) {
-                        .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
-                        .switch_case, .switch_case_inline => tree.switchCase(case_node),
-                        else => unreachable,
-                    };
+                    const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
                         node_tags[case.ast.values[0]] == .identifier and
@@ -2502,11 +2403,7 @@ pub const SrcLoc = struct {
                 const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
-                    const case = switch (node_tags[case_node]) {
-                        .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
-                        .switch_case, .switch_case_inline => tree.switchCase(case_node),
-                        else => unreachable,
-                    };
+                    const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
                         node_tags[case.ast.values[0]] == .identifier and
@@ -2523,12 +2420,7 @@ pub const SrcLoc = struct {
             .node_offset_switch_prong_capture => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const case_node = src_loc.declRelativeToNodeIndex(node_off);
-                const node_tags = tree.nodes.items(.tag);
-                const case = switch (node_tags[case_node]) {
-                    .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
-                    .switch_case, .switch_case_inline => tree.switchCase(case_node),
-                    else => unreachable,
-                };
+                const case = tree.fullSwitchCase(case_node).?;
                 const start_tok = case.payload_token.?;
                 const token_tags = tree.tokens.items(.tag);
                 const end_tok = switch (token_tags[start_tok]) {
@@ -2542,116 +2434,38 @@ pub const SrcLoc = struct {
             },
             .node_offset_fn_type_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
-                    .fn_proto_multi => tree.fnProtoMulti(node),
-                    .fn_proto_one => tree.fnProtoOne(&params, node),
-                    .fn_proto => tree.fnProto(node),
-                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
-                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
-                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
-                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
-                        .fn_proto => tree.fnProto(node_datas[node].lhs),
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, node).?;
                 return nodeToSpan(tree, full.ast.align_expr);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
-                    .fn_proto_multi => tree.fnProtoMulti(node),
-                    .fn_proto_one => tree.fnProtoOne(&params, node),
-                    .fn_proto => tree.fnProto(node),
-                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
-                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
-                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
-                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
-                        .fn_proto => tree.fnProto(node_datas[node].lhs),
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, node).?;
                 return nodeToSpan(tree, full.ast.addrspace_expr);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
-                    .fn_proto_multi => tree.fnProtoMulti(node),
-                    .fn_proto_one => tree.fnProtoOne(&params, node),
-                    .fn_proto => tree.fnProto(node),
-                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
-                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
-                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
-                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
-                        .fn_proto => tree.fnProto(node_datas[node].lhs),
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, node).?;
                 return nodeToSpan(tree, full.ast.section_expr);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
-                    .fn_proto_multi => tree.fnProtoMulti(node),
-                    .fn_proto_one => tree.fnProtoOne(&params, node),
-                    .fn_proto => tree.fnProto(node),
-                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
-                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
-                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
-                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
-                        .fn_proto => tree.fnProto(node_datas[node].lhs),
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, node).?;
                 return nodeToSpan(tree, full.ast.callconv_expr);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
-                    .fn_proto_multi => tree.fnProtoMulti(node),
-                    .fn_proto_one => tree.fnProtoOne(&params, node),
-                    .fn_proto => tree.fnProto(node),
-                    .fn_decl => blk: {
-                        const fn_proto = node_datas[node].lhs;
-                        break :blk switch (node_tags[fn_proto]) {
-                            .fn_proto_simple => tree.fnProtoSimple(&params, fn_proto),
-                            .fn_proto_multi => tree.fnProtoMulti(fn_proto),
-                            .fn_proto_one => tree.fnProtoOne(&params, fn_proto),
-                            .fn_proto => tree.fnProto(fn_proto),
-                            else => unreachable,
-                        };
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, node).?;
                 return nodeToSpan(tree, full.ast.return_type);
             },
             .node_offset_param => |node_off| {
@@ -2699,27 +2513,9 @@ pub const SrcLoc = struct {
 
             .node_offset_lib_name => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]Ast.Node.Index = undefined;
-                const full = switch (node_tags[parent_node]) {
-                    .fn_proto_simple => tree.fnProtoSimple(&params, parent_node),
-                    .fn_proto_multi => tree.fnProtoMulti(parent_node),
-                    .fn_proto_one => tree.fnProtoOne(&params, parent_node),
-                    .fn_proto => tree.fnProto(parent_node),
-                    .fn_decl => blk: {
-                        const fn_proto = node_datas[parent_node].lhs;
-                        break :blk switch (node_tags[fn_proto]) {
-                            .fn_proto_simple => tree.fnProtoSimple(&params, fn_proto),
-                            .fn_proto_multi => tree.fnProtoMulti(fn_proto),
-                            .fn_proto_one => tree.fnProtoOne(&params, fn_proto),
-                            .fn_proto => tree.fnProto(fn_proto),
-                            else => unreachable,
-                        };
-                    },
-                    else => unreachable,
-                };
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, parent_node).?;
                 const tok_index = full.lib_name.?;
                 const start = tree.tokens.items(.start)[tok_index];
                 const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
@@ -2728,38 +2524,23 @@ pub const SrcLoc = struct {
 
             .node_offset_array_type_len => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
-                    .array_type => tree.arrayType(parent_node),
-                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullArrayType(parent_node).?;
                 return nodeToSpan(tree, full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
-                    .array_type => tree.arrayType(parent_node),
-                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullArrayType(parent_node).?;
                 return nodeToSpan(tree, full.ast.sentinel);
             },
             .node_offset_array_type_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
-                    .array_type => tree.arrayType(parent_node),
-                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullArrayType(parent_node).?;
                 return nodeToSpan(tree, full.ast.elem_type);
             },
             .node_offset_un_op => |node_off| {
@@ -2771,86 +2552,44 @@ pub const SrcLoc = struct {
             },
             .node_offset_ptr_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.child_type);
             },
             .node_offset_ptr_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.sentinel);
             },
             .node_offset_ptr_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.align_node);
             },
             .node_offset_ptr_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.addrspace_node);
             },
             .node_offset_ptr_bitoffset => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.bit_range_start);
             },
             .node_offset_ptr_hostsize => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
-                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
-                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
-                    .ptr_type => tree.ptrType(parent_node),
-                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullPtrType(parent_node).?;
                 return nodeToSpan(tree, full.ast.bit_range_end);
             },
             .node_offset_container_tag => |node_off| {
@@ -2890,17 +2629,10 @@ pub const SrcLoc = struct {
             },
             .node_offset_init_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 var buf: [2]Ast.Node.Index = undefined;
-                const full: Ast.full.ArrayInit = switch (node_tags[parent_node]) {
-                    .array_init_one, .array_init_one_comma => tree.arrayInitOne(buf[0..1], parent_node),
-                    .array_init_dot_two, .array_init_dot_two_comma => tree.arrayInitDotTwo(&buf, parent_node),
-                    .array_init_dot, .array_init_dot_comma => tree.arrayInitDot(parent_node),
-                    .array_init, .array_init_comma => tree.arrayInit(parent_node),
-                    else => unreachable,
-                };
+                const full = tree.fullArrayInit(&buf, parent_node).?;
                 return nodeToSpan(tree, full.ast.type_expr);
             },
             .node_offset_store_ptr => |node_off| {
@@ -6057,11 +5789,7 @@ pub const SwitchProngSrc = union(enum) {
         var multi_i: u32 = 0;
         var scalar_i: u32 = 0;
         for (case_nodes) |case_node| {
-            const case = switch (node_tags[case_node]) {
-                .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
-                .switch_case, .switch_case_inline => tree.switchCase(case_node),
-                else => unreachable,
-            };
+            const case = tree.fullSwitchCase(case_node).?;
             if (case.ast.values.len == 0)
                 continue;
             if (case.ast.values.len == 1 and
@@ -6183,15 +5911,9 @@ fn queryFieldSrc(
     file_scope: *File,
     container_decl: Ast.full.ContainerDecl,
 ) SrcLoc {
-    const node_tags = tree.nodes.items(.tag);
     var field_index: usize = 0;
     for (container_decl.ast.members) |member_node| {
-        const field = switch (node_tags[member_node]) {
-            .container_field_init => tree.containerFieldInit(member_node),
-            .container_field_align => tree.containerFieldAlign(member_node),
-            .container_field => tree.containerField(member_node),
-            else => continue,
-        };
+        const field = tree.fullContainerField(member_node) orelse continue;
         if (field_index == query.index) {
             return switch (query.range) {
                 .name => .{
@@ -6235,24 +5957,9 @@ pub fn paramSrc(
         });
         return LazySrcLoc.nodeOffset(0);
     };
-    const node_datas = tree.nodes.items(.data);
-    const node_tags = tree.nodes.items(.tag);
     const node = decl.relativeToNodeIndex(func_node_offset);
-    var params: [1]Ast.Node.Index = undefined;
-    const full = switch (node_tags[node]) {
-        .fn_proto_simple => tree.fnProtoSimple(&params, node),
-        .fn_proto_multi => tree.fnProtoMulti(node),
-        .fn_proto_one => tree.fnProtoOne(&params, node),
-        .fn_proto => tree.fnProto(node),
-        .fn_decl => switch (node_tags[node_datas[node].lhs]) {
-            .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
-            .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
-            .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
-            .fn_proto => tree.fnProto(node_datas[node].lhs),
-            else => unreachable,
-        },
-        else => unreachable,
-    };
+    var buf: [1]Ast.Node.Index = undefined;
+    const full = tree.fullFnProto(&buf, node).?;
     var it = full.iterate(tree);
     var i: usize = 0;
     while (it.next()) |param| : (i += 1) {
@@ -6318,18 +6025,6 @@ pub fn initSrc(
     const node_tags = tree.nodes.items(.tag);
     const node = decl.relativeToNodeIndex(init_node_offset);
     var buf: [2]Ast.Node.Index = undefined;
-    const full = switch (node_tags[node]) {
-        .array_init_one, .array_init_one_comma => tree.arrayInitOne(buf[0..1], node).ast.elements,
-        .array_init_dot_two, .array_init_dot_two_comma => tree.arrayInitDotTwo(&buf, node).ast.elements,
-        .array_init_dot, .array_init_dot_comma => tree.arrayInitDot(node).ast.elements,
-        .array_init, .array_init_comma => tree.arrayInit(node).ast.elements,
-
-        .struct_init_one, .struct_init_one_comma => tree.structInitOne(buf[0..1], node).ast.fields,
-        .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, node).ast.fields,
-        .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(node).ast.fields,
-        .struct_init, .struct_init_comma => tree.structInit(node).ast.fields,
-        else => return LazySrcLoc.nodeOffset(init_node_offset),
-    };
     switch (node_tags[node]) {
         .array_init_one,
         .array_init_one_comma,
@@ -6338,8 +6033,10 @@ pub fn initSrc(
         .array_init_dot,
         .array_init_dot_comma,
         .array_init,
-        .array_init_comma,
-        => return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index])),
+        .array_init_comma, => {
+            const full = tree.fullArrayInit(&buf, node).?.ast.elements;
+            return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index]));
+        },
         .struct_init_one,
         .struct_init_one_comma,
         .struct_init_dot_two,
@@ -6347,9 +6044,11 @@ pub fn initSrc(
         .struct_init_dot,
         .struct_init_dot_comma,
         .struct_init,
-        .struct_init_comma,
-        => return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) },
-        else => unreachable,
+        .struct_init_comma, => {
+            const full = tree.fullStructInit(&buf, node).?.ast.fields;
+            return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) };
+        },
+        else => return LazySrcLoc.nodeOffset(init_node_offset),
     }
 }
 
@@ -6382,13 +6081,7 @@ pub fn optionsSrc(gpa: Allocator, decl: *Decl, base_src: LazySrcLoc, wanted: []c
         else => unreachable,
     };
     var buf: [2]std.zig.Ast.Node.Index = undefined;
-    const init_nodes = switch (node_tags[arg_node]) {
-        .struct_init_one, .struct_init_one_comma => tree.structInitOne(buf[0..1], arg_node).ast.fields,
-        .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, arg_node).ast.fields,
-        .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(arg_node).ast.fields,
-        .struct_init, .struct_init_comma => tree.structInit(arg_node).ast.fields,
-        else => return base_src,
-    };
+    const init_nodes = if (tree.fullStructInit(&buf, arg_node)) |struct_init| struct_init.ast.fields else return base_src;
     for (init_nodes) |init_node| {
         // . IDENTIFIER = init_node
         const name_token = tree.firstToken(init_node) - 2;
