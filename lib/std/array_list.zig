@@ -468,6 +468,20 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn unusedCapacitySlice(self: Self) Slice {
             return self.allocatedSlice()[self.items.len..];
         }
+
+        /// Return the last element from the list.
+        /// Asserts the list has at least one item.
+        pub fn getLast(self: *Self) T {
+            const val = self.items[self.items.len - 1];
+            return val;
+        }
+
+        /// Return the last element from the list, or
+        /// return `null` if list is empty.
+        pub fn getLastOrNull(self: *Self) ?T {
+            if (self.items.len == 0) return null;
+            return self.getLast();
+        }
     };
 }
 
@@ -912,6 +926,20 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// modification of `self.items.len`.
         pub fn unusedCapacitySlice(self: Self) Slice {
             return self.allocatedSlice()[self.items.len..];
+        }
+
+        /// Return the last element from the list.
+        /// Asserts the list has at least one item.
+        pub fn getLast(self: *Self) T {
+            const val = self.items[self.items.len - 1];
+            return val;
+        }
+
+        /// Return the last element from the list, or
+        /// return `null` if list is empty.
+        pub fn getLastOrNull(self: *Self) ?T {
+            if (self.items.len == 0) return null;
+            return self.getLast();
         }
     };
 }
