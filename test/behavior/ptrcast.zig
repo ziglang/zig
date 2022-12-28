@@ -257,3 +257,16 @@ test "@ptrCast slice to slice" {
     try expect(buf[1] == 42);
     try expect(alias.len == 4);
 }
+
+test "comptime @ptrCast a subset of an array, then write through it" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    comptime {
+        var buff: [16]u8 align(4) = undefined;
+        const len_bytes = @ptrCast(*u32, &buff);
+        len_bytes.* = 16;
+        std.mem.copy(u8, buff[4..], "abcdef");
+    }
+}
