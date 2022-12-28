@@ -2576,10 +2576,14 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 fn freeRelocationsForAtom(self: *MachO, atom: *Atom) void {
-    _ = self.relocs.remove(atom);
-    _ = self.rebases.remove(atom);
-    _ = self.bindings.remove(atom);
-    _ = self.lazy_bindings.remove(atom);
+    var removed_relocs = self.relocs.fetchRemove(atom);
+    if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
+    var removed_rebases = self.rebases.fetchRemove(atom);
+    if (removed_rebases) |*rebases| rebases.value.deinit(self.base.allocator);
+    var removed_bindings = self.bindings.fetchRemove(atom);
+    if (removed_bindings) |*bindings| bindings.value.deinit(self.base.allocator);
+    var removed_lazy_bindings = self.lazy_bindings.fetchRemove(atom);
+    if (removed_lazy_bindings) |*lazy_bindings| lazy_bindings.value.deinit(self.base.allocator);
 }
 
 fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
