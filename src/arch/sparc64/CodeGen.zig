@@ -1765,6 +1765,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+    // TODO: remove @memset(ptr, undefined, size) calls
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const extra = self.air.extraData(Air.Bin, pl_op.payload);
 

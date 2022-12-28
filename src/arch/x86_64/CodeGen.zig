@@ -7950,6 +7950,12 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
     defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
     const src_val = try self.resolveInst(extra.lhs);
+    const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
+    // Ensure @memset(dst, undefined, size) is optimized out in each backend to allow each
+    // optimizer to use this information as they wish.
+    if (val_is_undef and !self.wantSafety()) {
+        return;
+    }
     const src_val_lock: ?RegisterLock = switch (src_val) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,

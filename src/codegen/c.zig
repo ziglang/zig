@@ -6377,6 +6377,19 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const value = try f.resolveInst(extra.lhs);
     const len = try f.resolveInst(extra.rhs);
 
+    const val_is_undef = if (f.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
+    // Ensure @memset(dst, undefined, size) is optimized out in each backend to allow each
+    // optimizer to use this information as they wish.
+    if (val_is_undef) {
+        const wants_safety = switch (f.object.dg.module.comp.bin_file.options.optimize_mode) {
+            .ReleaseSmall, .ReleaseFast => false,
+            .Debug, .ReleaseSafe => true,
+        };
+        if (!wants_safety) {
+            return CValue.none;
+        }
+    }
+
     const writer = f.object.writer();
     if (dest_ty.isVolatilePtr()) {
         var u8_ptr_pl = dest_ty.ptrInfo();

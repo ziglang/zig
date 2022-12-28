@@ -4417,6 +4417,19 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const ptr = try func.resolveInst(pl_op.operand);
     const value = try func.resolveInst(bin_op.lhs);
+    const value_is_undef = if (func.air.value(bin_op.lhs)) |val| val.isUndefDeep() else false;
+    // Ensure @memset(dst, undefined, size) is optimized out in each backend to allow each
+    // optimizer to use this information as they wish.
+    if (value_is_undef) {
+        const wants_safety = switch (func.bin_file.base.options.optimize_mode) {
+            .ReleaseSmall, .ReleaseFast => false,
+            .Debug, .ReleaseSafe => true,
+        };
+        if (!wants_safety) {
+            return;
+        }
+    }
+
     const len = try func.resolveInst(bin_op.rhs);
     try func.memset(ptr, len, value);
 

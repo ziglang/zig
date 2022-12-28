@@ -21856,6 +21856,12 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr = try sema.coerce(block, dest_ptr_ty, uncasted_dest_ptr, dest_src);
 
     const value = try sema.coerce(block, Type.u8, try sema.resolveInst(extra.byte), value_src);
+    const value_is_undef = if (try sema.resolveMaybeUndefVal(value)) |val| val.isUndefDeep() else false;
+    // Storing undefined to a volatile pointer is almost always a bug
+    if (value_is_undef and dest_ptr_ty.isVolatilePtr()) {
+        const msg = try sema.errMsg(block, src, "storing an undefined value to a volatile pointer is not allowed", .{});
+        return sema.failWithOwnedErrorMsg(msg);
+    }
     const len = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.byte_count), len_src);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {

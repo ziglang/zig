@@ -5976,6 +5976,7 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+    // TODO: remove @memset(ptr, undefined, size) calls
     _ = inst;
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
 }

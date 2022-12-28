@@ -8520,6 +8520,17 @@ pub const FuncGen = struct {
         const ptr_ty = self.air.typeOf(pl_op.operand);
         const value = try self.resolveInst(extra.lhs);
         const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
+        // Ensure @memset(dst, undefined, size) is optimized out in each backend to allow each
+        // optimizer to use this information as they wish.
+        if (val_is_undef) {
+            const wants_safety = switch (self.dg.module.comp.bin_file.options.optimize_mode) {
+                .ReleaseSmall, .ReleaseFast => false,
+                .Debug, .ReleaseSafe => true,
+            };
+            if (!wants_safety) {
+                return null;
+            }
+        }
         const len = try self.resolveInst(extra.rhs);
         const u8_llvm_ty = self.context.intType(8);
         const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else value;
