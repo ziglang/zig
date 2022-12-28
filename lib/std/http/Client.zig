@@ -63,16 +63,10 @@ pub const Request = struct {
     }
 
     pub fn readAtLeast(req: *Request, buffer: []u8, len: usize) !usize {
-        var index: usize = 0;
-        while (index < len) {
-            const amt = try req.read(buffer[index..]);
-            index += amt;
-            switch (req.protocol) {
-                .http => if (amt == 0) break,
-                .https => if (req.tls_client.eof) break,
-            }
+        switch (req.protocol) {
+            .http => return req.stream.readAtLeast(buffer, len),
+            .https => return req.tls_client.readAtLeast(req.stream, buffer, len),
         }
-        return index;
     }
 };
 
