@@ -104,6 +104,8 @@ const FutexImpl = struct {
                 self.state.compareAndSwap(@enumToInt(State.unlocked), @enumToInt(State.locked), .AcqRel, .Acquire);
             // was unlocked & this thread made it locked
             if (state_result == null) {
+                // sanity check
+                assert(self.recursion_depth.value == 0);
                 // record thread id & break early: no need for blocking
                 self.owning_thread_id.store(current_thread_id, .Release);
                 break :outer;
