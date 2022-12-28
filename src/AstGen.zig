@@ -804,7 +804,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .call,
         .call_comma,
         .async_call,
-        .async_call_comma, => {
+        .async_call_comma,
+        => {
             var buf: [1]Ast.Node.Index = undefined;
             return callExpr(gz, scope, ri, node, tree.fullCall(&buf, node).?);
         },
@@ -824,14 +825,15 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .field_access => return fieldAccess(gz, scope, ri, node),
 
         .if_simple,
-        .@"if", => return ifExpr(gz, scope, ri.br(), node, tree.fullIf(node).?),
+        .@"if",
+        => return ifExpr(gz, scope, ri.br(), node, tree.fullIf(node).?),
 
         .while_simple,
         .while_cont,
-        .@"while", => return whileExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
+        .@"while",
+        => return whileExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
 
-        .for_simple,
-        .@"for" => return forExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
+        .for_simple, .@"for" => return forExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
 
         .slice_open => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
@@ -1019,7 +1021,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .ptr_type_aligned,
         .ptr_type_sentinel,
         .ptr_type,
-        .ptr_type_bit_range, => return ptrType(gz, scope, ri, node, tree.fullPtrType(node).?),
+        .ptr_type_bit_range,
+        => return ptrType(gz, scope, ri, node, tree.fullPtrType(node).?),
 
         .container_decl,
         .container_decl_trailing,
@@ -1032,7 +1035,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .tagged_union_enum_tag,
         .tagged_union_enum_tag_trailing,
         .tagged_union_two,
-        .tagged_union_two_trailing, => {
+        .tagged_union_two_trailing,
+        => {
             var buf: [2]Ast.Node.Index = undefined;
             return containerDecl(gz, scope, ri, node, tree.fullContainerDecl(&buf, node).?);
         },
@@ -1062,7 +1066,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .array_init_dot,
         .array_init_dot_comma,
         .array_init,
-        .array_init_comma, => {
+        .array_init_comma,
+        => {
             var buf: [2]Ast.Node.Index = undefined;
             return arrayInitExpr(gz, scope, ri, node, tree.fullArrayInit(&buf, node).?);
         },
@@ -1074,7 +1079,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .struct_init_dot,
         .struct_init_dot_comma,
         .struct_init,
-        .struct_init_comma, => {
+        .struct_init_comma,
+        => {
             var buf: [2]Ast.Node.Index = undefined;
             return structInitExpr(gz, scope, ri, node, tree.fullStructInit(&buf, node).?);
         },
@@ -1082,7 +1088,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .fn_proto_simple,
         .fn_proto_multi,
         .fn_proto_one,
-        .fn_proto, => {
+        .fn_proto,
+        => {
             var buf: [1]Ast.Node.Index = undefined;
             return fnProtoExpr(gz, scope, ri, node, tree.fullFnProto(&buf, node).?);
         },
@@ -5096,13 +5103,15 @@ fn containerMember(
     switch (node_tags[member_node]) {
         .container_field_init,
         .container_field_align,
-        .container_field, => return ContainerMemberResult{ .field = tree.fullContainerField(member_node).? },
-        
+        .container_field,
+        => return ContainerMemberResult{ .field = tree.fullContainerField(member_node).? },
+
         .fn_proto,
         .fn_proto_multi,
         .fn_proto_one,
         .fn_proto_simple,
-        .fn_decl, => {
+        .fn_decl,
+        => {
             var buf: [1]Ast.Node.Index = undefined;
             const full = tree.fullFnProto(&buf, member_node).?;
             const body = if (node_tags[member_node] == .fn_decl) node_datas[member_node].rhs else 0;
@@ -5116,7 +5125,8 @@ fn containerMember(
         .global_var_decl,
         .local_var_decl,
         .simple_var_decl,
-        .aligned_var_decl, => {
+        .aligned_var_decl,
+        => {
             astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.fullVarDecl(member_node).?) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => {},

@@ -1042,7 +1042,7 @@ pub const Struct = struct {
         const node = owner_decl.relativeToNodeIndex(0);
 
         var buf: [2]Ast.Node.Index = undefined;
-        if(tree.fullContainerDecl(&buf, node)) |container_decl| {
+        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
             return queryFieldSrc(tree.*, query, file, container_decl);
         } else {
             // This struct was generated using @Type
@@ -2226,7 +2226,8 @@ pub const SrcLoc = struct {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
-                    .aligned_var_decl, => tree.fullVarDecl(node).?,
+                    .aligned_var_decl,
+                    => tree.fullVarDecl(node).?,
                     .@"usingnamespace" => {
                         const node_data = tree.nodes.items(.data);
                         return nodeToSpan(tree, node_data[node].lhs);
@@ -2340,13 +2341,15 @@ pub const SrcLoc = struct {
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple,
-                    .@"if", => tree.fullIf(node).?.ast.cond_expr,
-                    
+                    .@"if",
+                    => tree.fullIf(node).?.ast.cond_expr,
+
                     .while_simple,
                     .while_cont,
                     .@"while",
                     .for_simple,
-                    .@"for", => tree.fullWhile(node).?.ast.cond_expr,
+                    .@"for",
+                    => tree.fullWhile(node).?.ast.cond_expr,
 
                     .@"orelse" => node,
                     .@"catch" => node,
@@ -6033,7 +6036,8 @@ pub fn initSrc(
         .array_init_dot,
         .array_init_dot_comma,
         .array_init,
-        .array_init_comma, => {
+        .array_init_comma,
+        => {
             const full = tree.fullArrayInit(&buf, node).?.ast.elements;
             return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index]));
         },
@@ -6044,7 +6048,8 @@ pub fn initSrc(
         .struct_init_dot,
         .struct_init_dot_comma,
         .struct_init,
-        .struct_init_comma, => {
+        .struct_init_comma,
+        => {
             const full = tree.fullStructInit(&buf, node).?.ast.fields;
             return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) };
         },
