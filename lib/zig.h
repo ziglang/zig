@@ -8,7 +8,7 @@
 
 #if _MSC_VER
 #include <intrin.h>
-#else
+#elif defined(__i386__) || defined(__x86_64__)
 #include <cpuid.h>
 #endif
 
@@ -2345,11 +2345,13 @@ zig_msvc_atomics_128op(u128, nand)
 zig_msvc_atomics_128op(u128, min)
 zig_msvc_atomics_128op(u128, max)
 
-#endif
+#endif /* _MSC_VER && (_M_IX86 || _M_X64) */
 
 /* ========================= Special Case Intrinsics ========================= */
 
-static inline void zig_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u32* ebx, zig_u32* ecx, zig_u32* edx) {
+#if (_MSC_VER && (_M_IX86 || _M_X64)) || defined(__i386__) || defined(__x86_64__)
+
+static inline void zig_x86_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u32* ebx, zig_u32* ecx, zig_u32* edx) {
 #if _MSC_VER
     zig_u32 cpu_info[4];
     __cpuidex(cpu_info, leaf_id, subid);
@@ -2362,7 +2364,7 @@ static inline void zig_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u
 #endif
 }
 
-static inline zig_u32 zig_get_xcr0() {
+static inline zig_u32 zig_x86_get_xcr0() {
 #if _MSC_VER
     return (zig_u32)_xgetbv(0);
 #else
@@ -2372,3 +2374,5 @@ static inline zig_u32 zig_get_xcr0() {
     return eax;
 #endif
 }
+
+#endif
