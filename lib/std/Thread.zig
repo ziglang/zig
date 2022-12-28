@@ -16,6 +16,7 @@ pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
 pub const RwLock = @import("Thread/RwLock.zig");
+pub const RecursiveMutex = @import("Thread/RecursiveMutex.zig");
 
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
 const is_gnu = target.abi.isGnu();
@@ -1151,6 +1152,7 @@ test "std.Thread" {
     _ = Mutex;
     _ = Semaphore;
     _ = Condition;
+    _ = RecursiveMutex;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
