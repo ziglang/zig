@@ -83,15 +83,15 @@ const FutexImpl = struct {
             Thread.getCurrentId();
         // != null <=> was locked before
         if (self.state.compareAndSwap(@enumToInt(State.unlocked), @enumToInt(State.locked), .AcqRel, .Acquire) != null) {
-            const owning_thread = self.owning_thread_id.load(.SeqCst);
+            const owning_thread = self.owning_thread_id.load(.Acquire);
             if (owning_thread != current_thread_id) {
                 return false;
             }
         }
         // record thread id & break early: no need for blocking
-        self.owning_thread_id.store(current_thread_id, .SeqCst);
+        self.owning_thread_id.store(current_thread_id, .Release);
         _ =
-            self.recursion_depth.fetchAdd(1, .SeqCst);
+            self.recursion_depth.fetchAdd(1, .Monotonic);
         return true;
     }
 
@@ -105,18 +105,18 @@ const FutexImpl = struct {
             // was unlocked & this thread made it locked
             if (state_result == null) {
                 // record thread id & break early: no need for blocking
-                self.owning_thread_id.store(current_thread_id, .SeqCst);
+                self.owning_thread_id.store(current_thread_id, .Release);
                 break :outer;
             } else {
                 const owning_thread =
-                    self.owning_thread_id.load(.SeqCst);
+                    self.owning_thread_id.load(.Acquire);
                 if (owning_thread == current_thread_id) {
                     break :outer;
                 }
                 Futex.wait(&self.state, @enumToInt(State.locked));
             }
         }
-        _ = self.recursion_depth.fetchAdd(1, .SeqCst);
+        _ = self.recursion_depth.fetchAdd(1, .Monotonic);
     }
 
     pub fn unlock(self: *Impl) void {
@@ -126,9 +126,9 @@ const FutexImpl = struct {
             self.owning_thread_id.load(.Acquire);
         assert(current_thread_id ==
             owning_thread_id);
-        if (self.recursion_depth.fetchSub(1, .SeqCst) == 1) {
-            self.owning_thread_id.store(0, .SeqCst);
-            self.state.store(@enumToInt(State.unlocked), .SeqCst);
+        if (self.recursion_depth.fetchSub(1, .Monotonic) == 1) {
+            self.owning_thread_id.store(0, .Release);
+            self.state.store(@enumToInt(State.unlocked), .Release);
             Futex.wake(&self.state, 1);
         }
     }
@@ -198,8 +198,7 @@ test "Recursive Mutex - Smoke Test" {
         .num_iterations = 1000,
         .rm = .{},
     };
-    const num_threads =
-        10;
+    const num_threads = 10;
     var threads: [num_threads]Thread = undefined;
     for (threads) |*t| t.* = try std.Thread.spawn(.{}, TestContext.worker, .{&ctx});
     for (threads) |thread| {
