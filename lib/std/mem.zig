@@ -431,36 +431,46 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
         .Struct => |struct_info| {
             switch (@typeInfo(Init)) {
                 .Struct => |init_info| {
-                    var value = std.mem.zeroes(T);
-
-                    inline for (struct_info.fields) |field| {
-                        if (field.default_value) |default_value_ptr| {
-                            const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
-                            @field(value, field.name) = default_value;
-                        } else if (@typeInfo(field.type) == .Struct) {
-                            @field(value, field.name) = zeroInit(field.type, .{});
-                        }
-                    }
-
                     if (init_info.is_tuple) {
-                        inline for (init_info.fields) |field, i| {
-                            @field(value, struct_info.fields[i].name) = @field(init, field.name);
+                        if (init_info.fields.len > struct_info.fields.len) {
+                            @compileError("Tuple initializer has more elments than there are fields in `" ++ @typeName(T) ++ "`");
                         }
-                        return value;
+                    } else {
+                        inline for (init_info.fields) |field| {
+                            if (!@hasField(T, field.name)) {
+                                @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                            }
+                        }
                     }
 
-                    inline for (init_info.fields) |field| {
-                        if (!@hasField(T, field.name)) {
-                            @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
-                        }
+                    var value: T = undefined;
 
-                        switch (@typeInfo(field.type)) {
-                            .Struct => {
-                                @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
-                            },
-                            else => {
-                                @field(value, field.name) = @field(init, field.name);
-                            },
+                    inline for (struct_info.fields) |field, i| {
+                        if (!field.is_comptime) {
+                            if (init_info.is_tuple and init_info.fields.len > i) {
+                                @field(value, struct_info.fields[i].name) = @field(init, init_info.fields[i].name);
+                            } else if (@hasField(@TypeOf(init), field.name)) {
+                                switch (@typeInfo(field.type)) {
+                                    .Struct => {
+                                        @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
+                                    },
+                                    else => {
+                                        @field(value, field.name) = @field(init, field.name);
+                                    }
+                                }
+                            } else if (field.default_value) |default_value_ptr| {
+                                const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
+                                @field(value, field.name) = default_value;
+                            } else {
+                                switch (@typeInfo(field.type)) {
+                                    .Struct => {
+                                        @field(value, field.name) = std.mem.zeroInit(field.type, .{});
+                                    },
+                                    else => {
+                                        @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                    }
+                                }
+                            }
                         }
                     }
 
