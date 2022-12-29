@@ -500,7 +500,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                         else => return error.TlsUnexpectedMessage,
                                     }
 
-                                    const algorithm = @intToEnum(tls.SignatureScheme, mem.readIntBig(u16, handshake[0..2]));
+                                    const scheme = @intToEnum(tls.SignatureScheme, mem.readIntBig(u16, handshake[0..2]));
                                     const sig_len = mem.readIntBig(u16, handshake[2..4]);
                                     if (4 + sig_len > handshake.len) return error.TlsBadLength;
                                     const encoded_sig = handshake[4..][0..sig_len];
@@ -520,23 +520,25 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                     };
                                     const main_cert_pub_key = main_cert_pub_key_buf[0..main_cert_pub_key_len];
 
-                                    switch (algorithm) {
-                                        .ecdsa_secp256r1_sha256 => {
+                                    switch (scheme) {
+                                        inline .ecdsa_secp256r1_sha256,
+                                        .ecdsa_secp384r1_sha384,
+                                        => |comptime_scheme| {
                                             if (main_cert_pub_key_algo != .X9_62_id_ecPublicKey)
-                                                return error.TlsBadSignatureAlgorithm;
-                                            const P256 = std.crypto.sign.ecdsa.EcdsaP256Sha256;
-                                            const sig = try P256.Signature.fromDer(encoded_sig);
-                                            const key = try P256.PublicKey.fromSec1(main_cert_pub_key);
+                                                return error.TlsBadSignatureScheme;
+                                            const Ecdsa = SchemeEcdsa(comptime_scheme);
+                                            const sig = try Ecdsa.Signature.fromDer(encoded_sig);
+                                            const key = try Ecdsa.PublicKey.fromSec1(main_cert_pub_key);
                                             try sig.verify(verify_bytes, key);
                                         },
                                         .rsa_pss_rsae_sha256 => {
-                                            @panic("TODO signature algorithm: rsa_pss_rsae_sha256");
+                                            @panic("TODO signature scheme: rsa_pss_rsae_sha256");
                                         },
                                         else => {
-                                            //std.debug.print("signature algorithm: {any}\n", .{
-                                            //    algorithm,
+                                            //std.debug.print("signature scheme: {any}\n", .{
+                                            //    scheme,
                                             //});
-                                            return error.TlsBadSignatureAlgorithm;
+                                            return error.TlsBadSignatureScheme;
                                         },
                                     }
                                 },
@@ -1005,6 +1007,15 @@ inline fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
         .Big => x,
         .Little => @byteSwap(x),
+    };
+}
+
+fn SchemeEcdsa(comptime scheme: tls.SignatureScheme) type {
+    return switch (scheme) {
+        .ecdsa_secp256r1_sha256 => crypto.sign.ecdsa.EcdsaP256Sha256,
+        .ecdsa_secp384r1_sha384 => crypto.sign.ecdsa.EcdsaP384Sha384,
+        .ecdsa_secp521r1_sha512 => crypto.sign.ecdsa.EcdsaP512Sha512,
+        else => @compileError("bad scheme"),
     };
 }
 
