@@ -52,7 +52,7 @@ pub fn unlock(self: *Mutex) void {
     self.impl.unlock();
 }
 
-const Impl = if (builtin.mode == .Debug)
+const Impl = if (builtin.mode == .Debug and !builtin.single_threaded)
     DebugImpl
 else
     ReleaseImpl;

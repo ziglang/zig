@@ -161,12 +161,27 @@ const WindowsImpl = struct {
             }
         }
 
-        const rc = os.windows.kernel32.SleepConditionVariableSRW(
-            &self.condition,
-            &mutex.impl.srwlock,
-            timeout_ms,
-            0, // the srwlock was assumed to acquired in exclusive mode not shared
-        );
+        const rc = blk: {
+            if (comptime builtin.mode == .Debug) {
+                // The internal state of the DebugMutex needs to be handled here as well.
+                mutex.impl.locking_thread = null;
+                const result = os.windows.kernel32.SleepConditionVariableSRW(
+                    &self.condition,
+                    &mutex.impl.impl.srwlock,
+                    timeout_ms,
+                    0, // the srwlock was assumed to acquired in exclusive mode not shared
+                );
+                mutex.impl.locking_thread = std.Thread.getCurrentId();
+                break :blk result;
+            } else {
+                break :blk os.windows.kernel32.SleepConditionVariableSRW(
+                    &self.condition,
+                    &mutex.impl.srwlock,
+                    timeout_ms,
+                    0, // the srwlock was assumed to acquired in exclusive mode not shared
+                );
+            }
+        };
 
         // Return error.Timeout if we know the timeout elapsed correctly.
         if (rc == os.windows.FALSE) {
