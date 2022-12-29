@@ -91,7 +91,7 @@ fn AesGcm(comptime Aes: anytype) type {
                 acc |= (computed_tag[p] ^ tag[p]);
             }
             if (acc != 0) {
-                mem.set(u8, m, 0xaa);
+                @memset(m.ptr, undefined, m.len);
                 return error.AuthenticationFailed;
             }
 
