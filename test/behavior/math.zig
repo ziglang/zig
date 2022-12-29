@@ -377,6 +377,23 @@ fn testBinaryNot(x: u16) !void {
     try expect(~x == 0b0101010101010101);
 }
 
+
+test "binary not 128-bit" {
+    try expect(comptime x: {
+        break :x ~@as(u128, 0x55555555_55555555_55555555_55555555) == 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa;
+    });
+    try expect(comptime x: {
+        break :x ~@as(i128, 0x55555555_55555555_55555555_55555555) == @bitCast(i128, @as(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa));
+    });
+
+    try testBinaryNot128(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa);
+    try testBinaryNot128(i128, @bitCast(i128, @as(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa)));
+}
+
+fn testBinaryNot128(comptime Type: type, x: Type) !void {
+    try expect(~x == @as(Type, 0x55555555_55555555_55555555_55555555));
+}
+
 test "division" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

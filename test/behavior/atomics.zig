@@ -308,15 +308,12 @@ fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usi
 }
 
 test "atomicrmw with 128-bit ints" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.cpu.arch != .x86_64) {
+        // TODO: Ideally this could use target.atomicPtrAlignment and check for IntTooBig
         return error.SkipZigTest;
     }
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try testAtomicRmwInt128(.unsigned);
     comptime try testAtomicRmwInt128(.unsigned);
