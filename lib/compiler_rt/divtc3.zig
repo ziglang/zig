@@ -4,7 +4,7 @@ const Complex = @import("./mulc3.zig").Complex;
 
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
-        @export(__divtc3, .{ .name = "__divtc3", .linkage = common.linkage });
+        @export(__divtc3, .{ .name = "__divtc3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

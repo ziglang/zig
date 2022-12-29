@@ -181,10 +181,6 @@ emit_docs: ?EmitLoc,
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
 
-/// Exported symbol names. This is only for when the target is wasm.
-/// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
-export_symbol_names: std.ArrayListUnmanaged([]const u8) = .{},
-
 pub const default_stack_protector_buffer_size = 4;
 pub const SemaError = Module.SemaError;
 
@@ -954,6 +950,7 @@ pub const InitOptions = struct {
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     linker_import_memory: ?bool = null,
+    linker_import_symbols: bool = false,
     linker_import_table: bool = false,
     linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
@@ -1811,6 +1808,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
             .import_memory = options.linker_import_memory orelse false,
+            .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
             .export_table = options.linker_export_table,
             .initial_memory = options.linker_initial_memory,
@@ -2165,11 +2163,6 @@ pub fn destroy(self: *Compilation) void {
 
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
-
-    for (self.export_symbol_names.items) |symbol_name| {
-        gpa.free(symbol_name);
-    }
-    self.export_symbol_names.deinit(gpa);
 
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();

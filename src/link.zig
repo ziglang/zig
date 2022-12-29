@@ -128,6 +128,7 @@ pub const Options = struct {
     compress_debug_sections: CompressDebugSections,
     bind_global_refs_locally: bool,
     import_memory: bool,
+    import_symbols: bool,
     import_table: bool,
     export_table: bool,
     initial_memory: ?u64,

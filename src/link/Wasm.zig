@@ -3406,39 +3406,14 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--stack-first");
         }
 
-        var auto_export_symbols = true;
         // Users are allowed to specify which symbols they want to export to the wasm host.
         for (wasm.base.options.export_symbol_names) |symbol_name| {
             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
             try argv.append(arg);
-            auto_export_symbols = false;
         }
 
         if (wasm.base.options.rdynamic) {
             try argv.append("--export-dynamic");
-            auto_export_symbols = false;
-        }
-
-        if (auto_export_symbols) {
-            if (wasm.base.options.module) |mod| {
-                // when we use stage1, we use the exports that stage1 provided us.
-                // For stage2, we can directly retrieve them from the module.
-                const skip_export_non_fn = target.os.tag == .wasi and
-                    wasm.base.options.wasi_exec_model == .command;
-                for (mod.decl_exports.values()) |exports| {
-                    for (exports.items) |exprt| {
-                        const exported_decl = mod.declPtr(exprt.exported_decl);
-                        if (skip_export_non_fn and exported_decl.ty.zigTypeTag() != .Fn) {
-                            // skip exporting symbols when we're building a WASI command
-                            // and the symbol is not a function
-                            continue;
-                        }
-                        const symbol_name = exported_decl.name;
-                        const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
-                        try argv.append(arg);
-                    }
-                }
-            }
         }
 
         if (wasm.base.options.entry) |entry| {
@@ -3457,12 +3432,20 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             if (wasm.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
+                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
+                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
+                // the flag in which case, we ensure `--export-dynamic` is called.
+                if (!wasm.base.options.rdynamic) {
+                    try argv.append("--export-dynamic");
+                }
             }
         } else if (wasm.base.options.entry == null) {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
         }
+        if (wasm.base.options.import_symbols) {
+            try argv.append("--allow-undefined");
+        }
         try argv.appendSlice(&[_][]const u8{
-            "--allow-undefined",
             "-o",
             full_out_path,
         });

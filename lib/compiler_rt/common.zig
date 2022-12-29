@@ -2,6 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+/// Determines the symbol's visibility to other objects.
+/// For WebAssembly this allows the symbol to be resolved to other modules, but will not
+/// export it to the host runtime.
+pub const visibility: std.builtin.SymbolVisibility = if (builtin.target.isWasm()) .hidden else .default;
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,

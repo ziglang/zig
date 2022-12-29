@@ -517,6 +517,7 @@ const usage_build_generic =
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     \\  --import-memory                (WebAssembly) import memory from the environment
+    \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
@@ -718,6 +719,7 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_memory: ?bool = null;
+    var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
     var linker_initial_memory: ?u64 = null;
@@ -1316,6 +1318,8 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "--import-symbols")) {
+                        linker_import_symbols = true;
                     } else if (mem.eql(u8, arg, "--import-table")) {
                         linker_import_table = true;
                     } else if (mem.eql(u8, arg, "--export-table")) {
@@ -1839,6 +1843,8 @@ fn buildOutputType(
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     linker_import_memory = true;
+                } else if (mem.eql(u8, arg, "--import-symbols")) {
+                    linker_import_symbols = true;
                 } else if (mem.eql(u8, arg, "--import-table")) {
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
@@ -2981,6 +2987,7 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_import_memory = linker_import_memory,
+        .linker_import_symbols = linker_import_symbols,
         .linker_import_table = linker_import_table,
         .linker_export_table = linker_export_table,
         .linker_initial_memory = linker_initial_memory,
