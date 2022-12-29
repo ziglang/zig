@@ -2195,7 +2195,12 @@ pub const Type = extern union {
                     .Slice => try writer.writeAll("[]"),
                 }
                 if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
-                    try writer.print("align({d}", .{info.@"align"});
+                    if (info.@"align" != 0) {
+                        try writer.print("align({d}", .{info.@"align"});
+                    } else {
+                        const alignment = info.pointee_type.abiAlignment(mod.getTarget());
+                        try writer.print("align({d}", .{alignment});
+                    }
 
                     if (info.bit_offset != 0 or info.host_size != 0) {
                         try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
