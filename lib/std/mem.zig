@@ -437,6 +437,8 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         if (field.default_value) |default_value_ptr| {
                             const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
                             @field(value, field.name) = default_value;
+                        } else if (@typeInfo(field.type) == .Struct) {
+                            @field(value, field.name) = zeroInit(field.type, .{});
                         }
                     }
 
@@ -538,6 +540,24 @@ test "zeroInit" {
         .foo = 69,
         .bar = 420,
     }, b);
+
+    const Baz = struct {
+        foo: [:0]const u8 = "bar",
+    };
+
+    const baz1 = zeroInit(Baz, .{});
+    try testing.expectEqual(Baz{}, baz1);
+
+    const baz2 = zeroInit(Baz, .{.foo = "zab"});
+    try testing.expectEqualSlices(u8, "zab", baz2.foo);
+
+    const NestedBaz = struct {
+        bbb: Baz,
+    };
+    const nested_baz = zeroInit(NestedBaz, .{});
+    try testing.expectEqual(NestedBaz{
+        .bbb = Baz{},
+    }, nested_baz);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
