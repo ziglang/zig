@@ -1672,6 +1672,17 @@ pub const Stream = struct {
         }
     }
 
+    pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
+        if (builtin.os.tag == .windows) {
+            // TODO improve this to use ReadFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return os.windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null, io.default_mode);
+        }
+
+        return os.readv(s.handle, iovecs);
+    }
+
     /// Returns the number of bytes read. If the number read is smaller than
     /// `buffer.len`, it means the stream reached the end. Reaching the end of
     /// a stream is not an error condition.
