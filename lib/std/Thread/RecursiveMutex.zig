@@ -1,6 +1,6 @@
-//! Recursive Mutex is a mutex that can be blocked multiple times from the same thread.
-//! This can be useful when you want to guard functions that lock and unlock a mutex internally.
-//! The maximum amont of recursion supported is maxInt(usize)
+//! Recursive Mutex, also known as re-entrant mutex, is a mutex that can be locked multiple times from the same thread.
+//! This mechanism can be useful when you want to surround a function call by a mutex, if the function also locks the same mutex internally.
+//! The maximum supported number of consecutive re-entries by one thread is maxInt(usize)
 const RecursiveMutex = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -99,7 +99,7 @@ const FutexImpl = struct {
         const current_thread_id =
             Thread.getCurrentId();
         var state_result: ?u32 = undefined;
-        outer: while (true) {
+        while (true) {
             state_result =
                 self.state.compareAndSwap(@enumToInt(State.unlocked), @enumToInt(State.locked), .AcqRel, .Acquire);
             // was unlocked & this thread made it locked
@@ -108,12 +108,12 @@ const FutexImpl = struct {
                 assert(self.recursion_depth.value == 0);
                 // record thread id & break early: no need for blocking
                 self.owning_thread_id.store(current_thread_id, .Release);
-                break :outer;
+                break;
             } else {
                 const owning_thread =
                     self.owning_thread_id.load(.Acquire);
                 if (owning_thread == current_thread_id) {
-                    break :outer;
+                    break;
                 }
                 Futex.wait(&self.state, @enumToInt(State.locked));
             }
