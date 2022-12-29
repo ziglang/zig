@@ -1776,6 +1776,8 @@ pub fn UnlockFile(
     }
 }
 
+extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
+
 pub fn teb() *TEB {
     return switch (native_arch) {
         .x86 => asm volatile (
@@ -1784,21 +1786,7 @@ pub fn teb() *TEB {
         ),
         .x86_64 => blk: {
             if (builtin.zig_backend == .stage2_c) {
-                // TODO: __asm is not available on x64 MSVC. This is a workaround
-                // until an intrinsic to read the gs register is available
-                var thread_information: THREAD_BASIC_INFORMATION = undefined;
-                const result = ntdll.NtQueryInformationThread(
-                    kernel32.GetCurrentThread(),
-                    .ThreadBasicInformation,
-                    &thread_information,
-                    @sizeOf(THREAD_BASIC_INFORMATION),
-                    null);
-
-                if (result == .SUCCESS) {
-                    break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), thread_information.TebBaseAddress));
-                } else {
-                    unexpectedStatus(result) catch unreachable;
-                }
+                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_64_windows_teb()));
             } else {
                 break :blk asm volatile (
                     \\ movq %%gs:0x30, %[ptr]

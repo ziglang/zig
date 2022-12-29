@@ -2349,6 +2349,20 @@ zig_msvc_atomics_128op(u128, max)
 
 /* ========================= Special Case Intrinsics ========================= */
 
+#if (_MSC_VER && _M_X64) || defined(__x86_64__)
+
+static inline void* zig_x86_64_windows_teb() {
+#if _MSC_VER
+    return __readgsqword(0x30);
+#else
+    void* teb;
+    __asm volatile(" movq %%gs:0x30, %[ptr]": [ptr]"=r"(teb)::);
+    return teb;
+#endif
+}
+
+#endif
+
 #if (_MSC_VER && (_M_IX86 || _M_X64)) || defined(__i386__) || defined(__x86_64__)
 
 static inline void zig_x86_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u32* ebx, zig_u32* ecx, zig_u32* edx) {

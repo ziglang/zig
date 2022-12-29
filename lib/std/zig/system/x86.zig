@@ -528,7 +528,7 @@ const CpuidLeaf = packed struct {
     edx: u32,
 };
 
-extern fn zig_x86_cpuid(leaf_id: u32, subid: u32, eax: *u32, ebx: *u32, ecx: *u32, edx: *u32) void;
+extern fn zig_x86_cpuid(leaf_id: u32, subid: u32, eax: *u32, ebx: *u32, ecx: *u32, edx: *u32) callconv(.C) void;
 
 fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     // valid for both x86 and x86_64
@@ -553,7 +553,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
-extern fn zig_x86_get_xcr0() u32;
+extern fn zig_x86_get_xcr0() callconv(.C) u32;
 
 // Read control register 0 (XCR0). Used to detect features such as AVX.
 fn getXCR0() u32 {
