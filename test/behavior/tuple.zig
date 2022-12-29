@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -339,4 +340,29 @@ test "tuple type with void field and a runtime field" {
     const T = std.meta.Tuple(&[_]type{ usize, void });
     var t: T = .{ 5, {} };
     try expect(t[0] == 5);
+}
+
+test "branching inside tuple literal" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(a: anytype) !void {
+            try expect(a[0] == 1234);
+        }
+    };
+    var a = false;
+    try S.foo(.{if (a) @as(u32, 5678) else @as(u32, 1234)});
+}
+
+test "tuple initialized with a runtime known value" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const E = union(enum) { e: []const u8 };
+    const W = union(enum) { w: E };
+    var e = E{ .e = "test" };
+    const w = .{W{ .w = e }};
+    try expectEqualStrings(w[0].w.e, "test");
 }

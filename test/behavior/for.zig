@@ -227,3 +227,25 @@ test "else continue outer for" {
         } else continue;
     }
 }
+
+test "for loop with else branch" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    {
+        var x = [_]u32{ 1, 2 };
+        const q = for (x) |y| {
+            if ((y & 1) != 0) continue;
+            break y * 2;
+        } else @as(u32, 1);
+        try expect(q == 4);
+    }
+    {
+        var x = [_]u32{ 1, 2 };
+        const q = for (x) |y| {
+            if ((y & 1) != 0) continue;
+            break y * 2;
+        } else @panic("");
+        try expect(q == 4);
+    }
+}
