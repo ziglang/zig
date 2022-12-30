@@ -1725,10 +1725,31 @@ pub const Object = struct {
                 return array_di_ty;
             },
             .Vector => {
+                const elem_ty = ty.elemType2();
+                // Vector elements cannot be padded since that would make
+                // @bitSizOf(elem) * len > @bitSizOf(vec).
+                // Neither gdb nor lldb seem to be able to display non-byte sized
+                // vectors properly.
+                const elem_di_type = switch (elem_ty.zigTypeTag()) {
+                    .Int => blk: {
+                        const info = elem_ty.intInfo(target);
+                        assert(info.bits != 0);
+                        const name = try ty.nameAlloc(gpa, o.module);
+                        defer gpa.free(name);
+                        const dwarf_encoding: c_uint = switch (info.signedness) {
+                            .signed => DW.ATE.signed,
+                            .unsigned => DW.ATE.unsigned,
+                        };
+                        break :blk dib.createBasicType(name, info.bits, dwarf_encoding);
+                    },
+                    .Bool => dib.createBasicType("bool", 1, DW.ATE.boolean),
+                    else => try o.lowerDebugType(ty.childType(), .full),
+                };
+
                 const vector_di_ty = dib.createVectorType(
                     ty.abiSize(target) * 8,
                     ty.abiAlignment(target) * 8,
-                    try o.lowerDebugType(ty.childType(), .full),
+                    elem_di_type,
                     ty.vectorLen(),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
