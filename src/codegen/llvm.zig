@@ -8062,7 +8062,7 @@ pub const FuncGen = struct {
                 return arg_val;
             }
 
-            const src_index = self.getSrcArgIndex(self.arg_index - 1);
+            const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
             const func = self.dg.decl.getFunction().?;
             const lbrace_line = self.dg.module.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
             const lbrace_col = func.lbrace_column + 1;
@@ -8093,16 +8093,6 @@ pub const FuncGen = struct {
         }
 
         return arg_val;
-    }
-
-    fn getSrcArgIndex(self: *FuncGen, runtime_index: u32) u32 {
-        const fn_info = self.dg.decl.ty.fnInfo();
-        var i: u32 = 0;
-        for (fn_info.param_types) |param_ty, src_index| {
-            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-            if (i == runtime_index) return @intCast(u32, src_index);
-            i += 1;
-        } else unreachable;
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
