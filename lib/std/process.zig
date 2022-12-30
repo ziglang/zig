@@ -369,6 +369,13 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
             error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
             else => |e| return e,
         };
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
+        defer envmap.deinit();
+        const val = envmap.getPtr(key) orelse return error.EnvironmentVariableNotFound;
+        const result = try allocator.alloc(u8, val.len);
+        mem.copy(u8, result, val.*);
+        return result;
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return allocator.dupe(u8, result);
@@ -390,6 +397,10 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool 
         const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
         defer stack_alloc.allocator.free(key_w);
         return std.os.getenvW(key_w) != null;
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
+        defer envmap.deinit();
+        return envmap.getPtr(key) != null;
     } else {
         return os.getenv(key) != null;
     }
