@@ -147,7 +147,8 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
             .alert => {
                 const level = @intToEnum(tls.AlertLevel, frag[0]);
                 const desc = @intToEnum(tls.AlertDescription, frag[1]);
-                std.debug.print("alert: {s} {s}\n", .{ @tagName(level), @tagName(desc) });
+                _ = level;
+                _ = desc;
                 return error.TlsAlert;
             },
             .handshake => {
@@ -226,14 +227,11 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                     shared_key = mul.affineCoordinates().x.toBytes(.Big);
                                 },
                                 else => {
-                                    //std.debug.print("named group: {x}\n", .{named_group});
                                     return error.TlsIllegalParameter;
                                 },
                             }
                         },
-                        else => {
-                            std.debug.print("unexpected extension: {x}\n", .{et});
-                        },
+                        else => {},
                     }
                     i = next_i;
                 }
@@ -283,18 +281,6 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                         p.server_handshake_key = hkdfExpandLabel(P.Hkdf, server_secret, "key", "", P.AEAD.key_length);
                         p.client_handshake_iv = hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length);
                         p.server_handshake_iv = hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length);
-                        //std.debug.print("shared_key: {}\nhello_hash: {}\nearly_secret: {}\nempty_hash: {}\nderived_secret: {}\nhandshake_secret: {}\n client_secret: {}\n server_secret: {}\nclient_handshake_iv: {}\nserver_handshake_iv: {}\n", .{
-                        //    std.fmt.fmtSliceHexLower(&shared_key),
-                        //    std.fmt.fmtSliceHexLower(&hello_hash),
-                        //    std.fmt.fmtSliceHexLower(&early_secret),
-                        //    std.fmt.fmtSliceHexLower(&empty_hash),
-                        //    std.fmt.fmtSliceHexLower(&hs_derived_secret),
-                        //    std.fmt.fmtSliceHexLower(&p.handshake_secret),
-                        //    std.fmt.fmtSliceHexLower(&client_secret),
-                        //    std.fmt.fmtSliceHexLower(&server_secret),
-                        //    std.fmt.fmtSliceHexLower(&p.client_handshake_iv),
-                        //    std.fmt.fmtSliceHexLower(&p.server_handshake_iv),
-                        //});
                     },
                     else => {
                         return error.TlsIllegalParameter;
@@ -416,11 +402,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                         const next_ext_i = hs_i + ext_size;
                                         switch (et) {
                                             .server_name => {},
-                                            else => {
-                                                std.debug.print("encrypted extension: {any}\n", .{
-                                                    et,
-                                                });
-                                            },
+                                            else => {},
                                         }
                                         hs_i = next_ext_i;
                                     }
@@ -467,12 +449,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             @memcpy(&main_cert_pub_key_buf, pub_key.ptr, pub_key.len);
                                             main_cert_pub_key_len = @intCast(@TypeOf(main_cert_pub_key_len), pub_key.len);
                                         } else {
-                                            prev_cert.verify(subject) catch |err| {
-                                                std.debug.print("unable to validate previous cert: {s}\n", .{
-                                                    @errorName(err),
-                                                });
-                                                return err;
-                                            };
+                                            try prev_cert.verify(subject);
                                         }
 
                                         if (ca_bundle.verify(subject)) |_| {
@@ -480,12 +457,7 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             break :cert;
                                         } else |err| switch (err) {
                                             error.CertificateIssuerNotFound => {},
-                                            else => |e| {
-                                                std.debug.print("unable to validate cert against system root CAs: {s}\n", .{
-                                                    @errorName(e),
-                                                });
-                                                return e;
-                                            },
+                                            else => |e| return e,
                                         }
 
                                         prev_cert = subject;
@@ -559,9 +531,6 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             }
                                         },
                                         else => {
-                                            //std.debug.print("signature scheme: {any}\n", .{
-                                            //    scheme,
-                                            //});
                                             return error.TlsBadSignatureScheme;
                                         },
                                     }
@@ -609,11 +578,6 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
 
                                             const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                             const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
-                                            //std.debug.print("master_secret={}\nclient_secret={}\nserver_secret={}\n", .{
-                                            //    std.fmt.fmtSliceHexLower(&p.master_secret),
-                                            //    std.fmt.fmtSliceHexLower(&client_secret),
-                                            //    std.fmt.fmtSliceHexLower(&server_secret),
-                                            //});
                                             break :c @unionInit(tls.ApplicationCipher, @tagName(tag), .{
                                                 .client_secret = client_secret,
                                                 .server_secret = server_secret,
@@ -646,13 +610,11 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                         }
                     },
                     else => {
-                        std.debug.print("inner content type: {any}\n", .{inner_ct});
                         return error.TlsUnexpectedMessage;
                     },
                 }
             },
             else => {
-                std.debug.print("content type: {s}\n", .{@tagName(ct)});
                 return error.TlsUnexpectedMessage;
             },
         }
@@ -707,16 +669,6 @@ pub fn write(c: *Client, stream: net.Stream, bytes: []const u8) !usize {
                 c.write_seq += 1; // TODO send key_update on overflow
                 const nonce = @as(V, p.client_iv) ^ operand;
                 P.AEAD.encrypt(ciphertext, auth_tag, cleartext, ad, nonce, p.client_key);
-                //std.debug.print("seq: {d} nonce: {} client_key: {} client_iv: {} ad: {} auth_tag: {}\nserver_key: {} server_iv: {}\n", .{
-                //    c.write_seq - 1,
-                //    std.fmt.fmtSliceHexLower(&nonce),
-                //    std.fmt.fmtSliceHexLower(&p.client_key),
-                //    std.fmt.fmtSliceHexLower(&p.client_iv),
-                //    std.fmt.fmtSliceHexLower(ad),
-                //    std.fmt.fmtSliceHexLower(auth_tag),
-                //    std.fmt.fmtSliceHexLower(&p.server_key),
-                //    std.fmt.fmtSliceHexLower(&p.server_iv),
-                //});
 
                 const record = ciphertext_buf[record_start..ciphertext_end];
                 iovecs_buf[iovec_end] = .{
@@ -844,10 +796,6 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
             c.partial_cleartext_idx = 0;
             c.partial_ciphertext_idx = 0;
             c.partial_ciphertext_end = 0;
-        } else {
-            std.debug.print("finished giving partial cleartext. {d} bytes ciphertext remain\n", .{
-                c.partial_ciphertext_end - c.partial_ciphertext_idx,
-            });
         }
     }
 
@@ -943,11 +891,8 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
         in += 1;
         const legacy_version = mem.readIntBig(u16, frag[in..][0..2]);
         in += 2;
-        //_ = legacy_version;
+        _ = legacy_version;
         const record_len = mem.readIntBig(u16, frag[in..][0..2]);
-        std.debug.print("ct={any} legacy_version={x} record_len={d}\n", .{
-            ct, legacy_version, record_len,
-        });
         if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
         in += 2;
         const end = in + record_len;
@@ -962,12 +907,8 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
             const first = frag[in..];
             const full_record_len = record_len + tls.ciphertext_record_header_len;
             const second_len = full_record_len - first.len;
-            if (frag1.len < second_len) {
-                std.debug.print("end > frag.len finishRead2 end={d} frag.len={d}\n", .{
-                    end, frag.len,
-                });
+            if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
-            }
 
             mem.copy(u8, frag[0..in], first);
             mem.copy(u8, frag[first.len..], frag1[0..second_len]);
@@ -1016,7 +957,7 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                             c.partial_ciphertext_end = c.partial_ciphertext_idx;
                             return vp.total;
                         }
-                        std.debug.print("alert: {s} {s}\n", .{ @tagName(level), @tagName(desc) });
+                        _ = level;
                         return error.TlsAlert;
                     },
                     .handshake => {
@@ -1032,11 +973,9 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                             const handshake = cleartext[ct_i..next_handshake_i];
                             switch (handshake_type) {
                                 .new_session_ticket => {
-                                    std.debug.print("new_session_ticket\n", .{});
                                     // This client implementation ignores new session tickets.
                                 },
                                 .key_update => {
-                                    std.debug.print("key_update\n", .{});
                                     switch (c.application_cipher) {
                                         inline else => |*p| {
                                             const P = @TypeOf(p.*);
@@ -1085,13 +1024,10 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                                 const dest = c.partially_read_buffer[c.partial_ciphertext_idx..];
                                 mem.copy(u8, dest, msg);
                                 c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), c.partial_ciphertext_idx + msg.len);
-                                std.debug.print("application_data {d} bytes to partial buffer\n", .{msg.len});
                             } else {
                                 const amt = vp.put(msg);
-                                std.debug.print("application_data {d} bytes to read buffer\n", .{msg.len});
                                 if (amt < msg.len) {
                                     const rest = msg[amt..];
-                                    std.debug.print("  {d} bytes to partial buffer\n", .{rest.len});
                                     c.partial_cleartext_idx = 0;
                                     c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), rest.len);
                                     mem.copy(u8, &c.partially_read_buffer, rest);
@@ -1101,7 +1037,6 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                             // Output buffer was used directly which means no
                             // memory copying needs to occur, and we can move
                             // on to the next ciphertext record.
-                            std.debug.print("application_data {d} bytes directly to read buffer\n", .{cleartext.len - 1});
                             vp.next(cleartext.len - 1);
                         }
                     },

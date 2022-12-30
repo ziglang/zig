@@ -241,7 +241,6 @@ pub fn parse(cert: Certificate) !Parsed {
 
     var common_name = der.Element.Slice.empty;
     var name_i = subject.slice.start;
-    //std.debug.print("subject name:\n", .{});
     while (name_i < subject.slice.end) {
         const rdn = try der.Element.parse(cert_bytes, name_i);
         var rdn_i = rdn.slice.start;
@@ -252,9 +251,6 @@ pub fn parse(cert: Certificate) !Parsed {
                 const ty_elem = try der.Element.parse(cert_bytes, atav_i);
                 const ty = try parseAttribute(cert_bytes, ty_elem);
                 const val = try der.Element.parse(cert_bytes, ty_elem.slice.end);
-                //std.debug.print(" {s}: '{s}'\n", .{
-                //    @tagName(ty), cert_bytes[val.slice.start..val.slice.end],
-                //});
                 switch (ty) {
                     .commonName => common_name = val.slice,
                     else => {},
@@ -452,10 +448,7 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) !E {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
     const oid_bytes = bytes[element.slice.start..element.slice.end];
-    return E.map.get(oid_bytes) orelse {
-        //std.debug.print("tag: {}\n", .{std.fmt.fmtSliceHexLower(oid_bytes)});
-        return error.CertificateHasUnrecognizedObjectId;
-    };
+    return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
 pub fn checkVersion(bytes: []const u8, version: der.Element) !void {
