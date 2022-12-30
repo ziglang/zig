@@ -754,7 +754,9 @@ pub fn writeAll(c: *Client, stream: net.Stream, bytes: []const u8) !void {
 }
 
 pub fn eof(c: Client) bool {
-    return c.received_close_notify and c.partial_ciphertext_idx >= c.partial_ciphertext_end;
+    return c.received_close_notify and
+        c.partial_cleartext_idx >= c.partial_ciphertext_idx and
+        c.partial_ciphertext_idx >= c.partial_ciphertext_end;
 }
 
 /// Returns the number of bytes read, calling the underlying read function the
