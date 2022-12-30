@@ -544,11 +544,14 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                             const exponent = components.exponent;
                                             const modulus = components.modulus;
+                                            var rsa_mem_buf: [512 * 32]u8 = undefined;
+                                            var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
+                                            const ally = fba.allocator();
                                             switch (modulus.len) {
                                                 inline 128, 256, 512 => |modulus_len| {
-                                                    const key = try rsa.PublicKey.fromBytes(exponent, modulus, rsa.poop);
+                                                    const key = try rsa.PublicKey.fromBytes(exponent, modulus, ally);
                                                     const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                                    try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, rsa.poop);
+                                                    try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, ally);
                                                 },
                                                 else => {
                                                     return error.TlsBadRsaSignatureBitCount;

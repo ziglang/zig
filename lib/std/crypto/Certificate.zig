@@ -511,6 +511,10 @@ fn verifyRsa(
     var msg_hashed: [Hash.digest_length]u8 = undefined;
     Hash.hash(message, &msg_hashed, .{});
 
+    var rsa_mem_buf: [512 * 32]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
+    const ally = fba.allocator();
+
     switch (modulus.len) {
         inline 128, 256, 512 => |modulus_len| {
             const ps_len = modulus_len - (hash_der.len + msg_hashed.len) - 3;
@@ -521,11 +525,11 @@ fn verifyRsa(
                 hash_der ++
                 msg_hashed;
 
-            const public_key = rsa.PublicKey.fromBytes(exponent, modulus, rsa.poop) catch |err| switch (err) {
-                error.OutOfMemory => @panic("TODO don't heap allocate"),
+            const public_key = rsa.PublicKey.fromBytes(exponent, modulus, ally) catch |err| switch (err) {
+                error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
             };
-            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key, rsa.poop) catch |err| switch (err) {
-                error.OutOfMemory => @panic("TODO don't heap allocate"),
+            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key, ally) catch |err| switch (err) {
+                error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
 
                 error.MessageTooLong => unreachable,
                 error.NegativeIntoUnsigned => @panic("TODO make RSA not emit this error"),
@@ -977,7 +981,4 @@ pub const rsa = struct {
 
         return i;
     }
-
-    // TODO: flush the toilet
-    pub const poop = std.heap.page_allocator;
 };
