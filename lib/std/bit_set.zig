@@ -399,14 +399,14 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns true if the bit at the specified index
         /// is present in the set, false otherwise.
-        pub fn isSet(self: Self, index: usize) bool {
+        pub fn isSet(self: *const Self, index: usize) bool {
             assert(index < bit_length);
             if (num_masks == 0) return false; // doesn't compile in this case
             return (self.masks[maskIndex(index)] & maskBit(index)) != 0;
         }
 
         /// Returns the total number of set bits in this bit set.
-        pub fn count(self: Self) usize {
+        pub fn count(self: *const Self) usize {
             var total: usize = 0;
             for (self.masks) |mask| {
                 total += @popCount(mask);
@@ -493,9 +493,10 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Flips all bits in this bit set which are present
         /// in the toggles bit set.
-        pub fn toggleSet(self: *Self, toggles: Self) void {
+        pub fn toggleSet(self: *Self, toggles: *const Self) void {
+            const other = &toggles.masks;
             for (self.masks) |*mask, i| {
-                mask.* ^= toggles.masks[i];
+                mask.* ^= other[i];
             }
         }
 
@@ -514,7 +515,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Performs a union of two bit sets, and stores the
         /// result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in either input.
-        pub fn setUnion(self: *Self, other: Self) void {
+        pub fn setUnion(self: *Self, other: *const Self) void {
             for (self.masks) |*mask, i| {
                 mask.* |= other.masks[i];
             }
@@ -523,7 +524,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Performs an intersection of two bit sets, and stores
         /// the result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in both inputs.
-        pub fn setIntersection(self: *Self, other: Self) void {
+        pub fn setIntersection(self: *Self, other: *const Self) void {
             for (self.masks) |*mask, i| {
                 mask.* &= other.masks[i];
             }
@@ -531,7 +532,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Finds the index of the first set bit.
         /// If no bits are set, returns null.
-        pub fn findFirstSet(self: Self) ?usize {
+        pub fn findFirstSet(self: *const Self) ?usize {
             var offset: usize = 0;
             const mask = for (self.masks) |mask| {
                 if (mask != 0) break mask;
@@ -555,7 +556,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns true iff every corresponding bit in both
         /// bit sets are the same.
-        pub fn eql(self: Self, other: Self) bool {
+        pub fn eql(self: *const Self, other: *const Self) bool {
             var i: usize = 0;
             return while (i < num_masks) : (i += 1) {
                 if (self.masks[i] != other.masks[i]) {
@@ -566,20 +567,20 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns true iff the first bit set is the subset
         /// of the second one.
-        pub fn subsetOf(self: Self, other: Self) bool {
+        pub fn subsetOf(self: *const Self, other: *const Self) bool {
             return self.intersectWith(other).eql(self);
         }
 
         /// Returns true iff the first bit set is the superset
         /// of the second one.
-        pub fn supersetOf(self: Self, other: Self) bool {
+        pub fn supersetOf(self: *const Self, other: *const Self) bool {
             return other.subsetOf(self);
         }
 
         /// Returns the complement bit sets. Bits in the result
         /// are set if the corresponding bits were not set.
-        pub fn complement(self: Self) Self {
-            var result = self;
+        pub fn complement(self: *const Self) Self {
+            var result = self.*;
             result.toggleAll();
             return result;
         }
@@ -587,8 +588,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Returns the union of two bit sets. Bits in the
         /// result are set if the corresponding bits were set
         /// in either input.
-        pub fn unionWith(self: Self, other: Self) Self {
-            var result = self;
+        pub fn unionWith(self: *const Self, other: *const Self) Self {
+            var result = self.*;
             result.setUnion(other);
             return result;
         }
@@ -596,8 +597,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Returns the intersection of two bit sets. Bits in
         /// the result are set if the corresponding bits were
         /// set in both inputs.
-        pub fn intersectWith(self: Self, other: Self) Self {
-            var result = self;
+        pub fn intersectWith(self: *const Self, other: *const Self) Self {
+            var result = self.*;
             result.setIntersection(other);
             return result;
         }
@@ -605,8 +606,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Returns the xor of two bit sets. Bits in the
         /// result are set if the corresponding bits were
         /// not the same in both inputs.
-        pub fn xorWith(self: Self, other: Self) Self {
-            var result = self;
+        pub fn xorWith(self: *const Self, other: *const Self) Self {
+            var result = self.*;
             result.toggleSet(other);
             return result;
         }
@@ -614,9 +615,9 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Returns the difference of two bit sets. Bits in
         /// the result are set if set in the first but not
         /// set in the second set.
-        pub fn differenceWith(self: Self, other: Self) Self {
-            var result = self;
-            result.setIntersection(other.complement());
+        pub fn differenceWith(self: *const Self, other: *const Self) Self {
+            var result = self.*;
+            result.setIntersection(&other.complement());
             return result;
         }
 
@@ -1360,6 +1361,7 @@ fn testSupersetOf(empty: anytype, full: anytype, even: anytype, odd: anytype, le
 fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     try testing.expectEqual(len, a.capacity());
     try testing.expectEqual(len, b.capacity());
+    const needs_ptr = @hasField(std.meta.Child(@TypeOf(a)), "masks") and @typeInfo(@TypeOf(@field(a, "masks"))) != .Pointer;
 
     {
         var i: usize = 0;
@@ -1416,7 +1418,12 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
         }
     }
 
-    a.setUnion(b.*);
+    if (comptime needs_ptr) {
+        a.setUnion(b);
+    } else {
+        a.setUnion(b.*);
+    }
+
     {
         var i: usize = 0;
         while (i < len) : (i += 1) {
@@ -1443,7 +1450,11 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
         try testing.expectEqual(@as(?usize, null), unset.next());
     }
 
-    a.toggleSet(b.*);
+    if (comptime needs_ptr) {
+        a.toggleSet(b);
+    } else {
+        a.toggleSet(b.*);
+    }
     {
         try testing.expectEqual(len / 4, a.count());
 
@@ -1459,7 +1470,11 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
         }
     }
 
-    a.setIntersection(b.*);
+    if (comptime needs_ptr) {
+        a.setIntersection(b);
+    } else {
+        a.setIntersection(b.*);
+    }
     {
         try testing.expectEqual((len + 3) / 4, a.count());
 
@@ -1470,7 +1485,11 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
         }
     }
 
-    a.toggleSet(a.*);
+    if (comptime needs_ptr) {
+        a.toggleSet(a);
+    } else {
+        a.toggleSet(a.*);
+    }
     {
         var iter = a.iterator(.{});
         try testing.expectEqual(@as(?usize, null), iter.next());
@@ -1570,20 +1589,26 @@ fn fillOdd(set: anytype, len: usize) void {
 }
 
 fn testPureBitSet(comptime Set: type) !void {
-    const empty = Set.initEmpty();
-    const full = Set.initFull();
+    var empty_ = Set.initEmpty();
+    var full_ = Set.initFull();
+    const needs_ptr = @hasField(Set, "masks") and @typeInfo(@TypeOf(empty_.masks)) != .Pointer;
 
-    const even = even: {
+    var even_ = even: {
         var bit_set = Set.initEmpty();
         fillEven(&bit_set, Set.bit_length);
         break :even bit_set;
     };
 
-    const odd = odd: {
+    var odd_ = odd: {
         var bit_set = Set.initEmpty();
         fillOdd(&bit_set, Set.bit_length);
         break :odd bit_set;
     };
+
+    var empty = if (needs_ptr) &empty_ else empty_;
+    var full = if (needs_ptr) &full_ else full_;
+    var even = if (needs_ptr) &even_ else even_;
+    var odd = if (needs_ptr) &odd_ else odd_;
 
     try testSubsetOf(empty, full, even, odd, Set.bit_length);
     try testSupersetOf(empty, full, even, odd, Set.bit_length);
@@ -1622,36 +1647,41 @@ fn testPureBitSet(comptime Set: type) !void {
     try testing.expect(full.differenceWith(even).eql(odd));
 }
 
-fn testStaticBitSet(comptime Set: type) !void {
+fn testStaticBitSet(comptime Set: type, comptime Container: @Type(.EnumLiteral)) !void {
     var a = Set.initEmpty();
     var b = Set.initFull();
     try testing.expectEqual(@as(usize, 0), a.count());
     try testing.expectEqual(@as(usize, Set.bit_length), b.count());
 
-    try testEql(a, b, Set.bit_length);
+    if (comptime Container == .ArrayBitSet) {
+        try testEql(&a, &b, Set.bit_length);
+    } else {
+        try testEql(a, b, Set.bit_length);
+    }
+
     try testBitSet(&a, &b, Set.bit_length);
 
     try testPureBitSet(Set);
 }
 
 test "IntegerBitSet" {
-    try testStaticBitSet(IntegerBitSet(0));
-    try testStaticBitSet(IntegerBitSet(1));
-    try testStaticBitSet(IntegerBitSet(2));
-    try testStaticBitSet(IntegerBitSet(5));
-    try testStaticBitSet(IntegerBitSet(8));
-    try testStaticBitSet(IntegerBitSet(32));
-    try testStaticBitSet(IntegerBitSet(64));
-    try testStaticBitSet(IntegerBitSet(127));
+    try testStaticBitSet(IntegerBitSet(0), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(1), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(2), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(5), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(8), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(32), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(64), .IntegerBitSet);
+    try testStaticBitSet(IntegerBitSet(127), .IntegerBitSet);
 }
 
 test "ArrayBitSet" {
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
-        try testStaticBitSet(ArrayBitSet(u8, size));
-        try testStaticBitSet(ArrayBitSet(u16, size));
-        try testStaticBitSet(ArrayBitSet(u32, size));
-        try testStaticBitSet(ArrayBitSet(u64, size));
-        try testStaticBitSet(ArrayBitSet(u128, size));
+        try testStaticBitSet(ArrayBitSet(u8, size), .ArrayBitSet);
+        try testStaticBitSet(ArrayBitSet(u16, size), .ArrayBitSet);
+        try testStaticBitSet(ArrayBitSet(u32, size), .ArrayBitSet);
+        try testStaticBitSet(ArrayBitSet(u64, size), .ArrayBitSet);
+        try testStaticBitSet(ArrayBitSet(u128, size), .ArrayBitSet);
     }
 }
 
