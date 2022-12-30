@@ -181,6 +181,12 @@ test "tuple to vector" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // Regressed with LLVM 14:
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTest() !void {
             const Vec3 = @Vector(3, i32);

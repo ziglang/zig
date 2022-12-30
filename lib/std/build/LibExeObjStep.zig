@@ -74,6 +74,9 @@ disable_sanitize_c: bool,
 sanitize_thread: bool,
 rdynamic: bool,
 import_memory: bool = false,
+/// For WebAssembly targets, this will allow for undefined symbols to
+/// be imported from the host environment.
+import_symbols: bool = false,
 import_table: bool = false,
 export_table: bool = false,
 initial_memory: ?u64 = null,
@@ -1458,6 +1461,9 @@ fn make(step: *Step) !void {
     if (self.import_memory) {
         try zig_args.append("--import-memory");
     }
+    if (self.import_symbols) {
+        try zig_args.append("--import-symbols");
+    }
     if (self.import_table) {
         try zig_args.append("--import-table");
     }
@@ -1609,8 +1615,6 @@ fn make(step: *Step) !void {
                     try zig_args.append(bin_name);
                     try zig_args.append("--test-cmd");
                     try zig_args.append("--dir=.");
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append("--allow-unknown-exports"); // TODO: Remove when stage2 is default compiler
                     try zig_args.append("--test-cmd-bin");
                 } else {
                     try zig_args.append("--test-no-exec");

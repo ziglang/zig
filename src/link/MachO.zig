@@ -2576,10 +2576,14 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 fn freeRelocationsForAtom(self: *MachO, atom: *Atom) void {
-    _ = self.relocs.remove(atom);
-    _ = self.rebases.remove(atom);
-    _ = self.bindings.remove(atom);
-    _ = self.lazy_bindings.remove(atom);
+    var removed_relocs = self.relocs.fetchRemove(atom);
+    if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
+    var removed_rebases = self.rebases.fetchRemove(atom);
+    if (removed_rebases) |*rebases| rebases.value.deinit(self.base.allocator);
+    var removed_bindings = self.bindings.fetchRemove(atom);
+    if (removed_bindings) |*bindings| bindings.value.deinit(self.base.allocator);
+    var removed_lazy_bindings = self.lazy_bindings.fetchRemove(atom);
+    if (removed_lazy_bindings) |*lazy_bindings| lazy_bindings.value.deinit(self.base.allocator);
 }
 
 fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
@@ -3358,27 +3362,36 @@ fn writeDyldInfoData(self: *MachO) !void {
     try self.collectExportData(&trie);
 
     const link_seg = self.getLinkeditSegmentPtr();
-    const rebase_off = mem.alignForwardGeneric(u64, link_seg.fileoff, @alignOf(u64));
-    assert(rebase_off == link_seg.fileoff);
+    assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
+    const rebase_off = link_seg.fileoff;
     const rebase_size = try bind.rebaseInfoSize(rebase_pointers.items);
-    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size });
+    const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
-    const bind_off = mem.alignForwardGeneric(u64, rebase_off + rebase_size, @alignOf(u64));
+    const bind_off = rebase_off + rebase_size_aligned;
     const bind_size = try bind.bindInfoSize(bind_pointers.items);
-    log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size });
+    const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
+    log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
-    const lazy_bind_off = mem.alignForwardGeneric(u64, bind_off + bind_size, @alignOf(u64));
+    const lazy_bind_off = bind_off + bind_size_aligned;
     const lazy_bind_size = try bind.lazyBindInfoSize(lazy_bind_pointers.items);
-    log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + lazy_bind_size });
+    const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
+    log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
+        lazy_bind_off,
+        lazy_bind_off + lazy_bind_size_aligned,
+    });
 
-    const export_off = mem.alignForwardGeneric(u64, lazy_bind_off + lazy_bind_size, @alignOf(u64));
+    const export_off = lazy_bind_off + lazy_bind_size_aligned;
     const export_size = trie.size;
-    log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
+    const export_size_aligned = mem.alignForwardGeneric(u64, export_size, @alignOf(u64));
+    log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size_aligned });
 
-    const needed_size = export_off + export_size - rebase_off;
+    const needed_size = math.cast(usize, export_off + export_size_aligned - rebase_off) orelse
+        return error.Overflow;
     link_seg.filesize = needed_size;
+    assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
-    var buffer = try gpa.alloc(u8, math.cast(usize, needed_size) orelse return error.Overflow);
+    var buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
     mem.set(u8, buffer, 0);
 
@@ -3407,13 +3420,13 @@ fn writeDyldInfoData(self: *MachO) !void {
     try self.populateLazyBindOffsetsInStubHelper(buffer[start..end]);
 
     self.dyld_info_cmd.rebase_off = @intCast(u32, rebase_off);
-    self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size);
+    self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size_aligned);
     self.dyld_info_cmd.bind_off = @intCast(u32, bind_off);
-    self.dyld_info_cmd.bind_size = @intCast(u32, bind_size);
+    self.dyld_info_cmd.bind_size = @intCast(u32, bind_size_aligned);
     self.dyld_info_cmd.lazy_bind_off = @intCast(u32, lazy_bind_off);
-    self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size);
+    self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size_aligned);
     self.dyld_info_cmd.export_off = @intCast(u32, export_off);
-    self.dyld_info_cmd.export_size = @intCast(u32, export_size);
+    self.dyld_info_cmd.export_size = @intCast(u32, export_size_aligned);
 }
 
 fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
@@ -3569,13 +3582,11 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     const nsyms = nlocals + nexports + nimports;
 
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(
-        u64,
-        seg.fileoff + seg.filesize,
-        @alignOf(macho.nlist_64),
-    );
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = nsyms * @sizeOf(macho.nlist_64);
     seg.filesize = offset + needed_size - seg.fileoff;
+    assert(mem.isAlignedGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64)));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -3599,17 +3610,25 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
 }
 
 fn writeStrtab(self: *MachO) !void {
+    const gpa = self.base.allocator;
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = self.strtab.buffer.items.len;
-    seg.filesize = offset + needed_size - seg.fileoff;
+    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
-    log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
-    try self.base.file.?.pwriteAll(self.strtab.buffer.items, offset);
+    const buffer = try gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
+    defer gpa.free(buffer);
+    mem.set(u8, buffer, 0);
+    mem.copy(u8, buffer, self.strtab.buffer.items);
+
+    try self.base.file.?.pwriteAll(buffer, offset);
 
     self.symtab_cmd.stroff = @intCast(u32, offset);
-    self.symtab_cmd.strsize = @intCast(u32, needed_size);
+    self.symtab_cmd.strsize = @intCast(u32, needed_size_aligned);
 }
 
 const SymtabCtx = struct {
@@ -3628,15 +3647,17 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const iundefsym = iextdefsym + ctx.nextdefsym;
 
     const seg = self.getLinkeditSegmentPtr();
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const offset = seg.fileoff + seg.filesize;
+    assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = nindirectsyms * @sizeOf(u32);
-    seg.filesize = offset + needed_size - seg.fileoff;
+    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
-    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
     var buf = std.ArrayList(u8).init(gpa);
     defer buf.deinit();
-    try buf.ensureTotalCapacity(needed_size);
+    try buf.ensureTotalCapacity(math.cast(usize, needed_size_aligned) orelse return error.Overflow);
     const writer = buf.writer();
 
     if (self.stubs_section_index) |sect_id| {
@@ -3675,7 +3696,12 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
         }
     }
 
-    assert(buf.items.len == needed_size);
+    const padding = math.cast(usize, needed_size_aligned - needed_size) orelse return error.Overflow;
+    if (padding > 0) {
+        buf.appendNTimesAssumeCapacity(0, padding);
+    }
+
+    assert(buf.items.len == needed_size_aligned);
     try self.base.file.?.pwriteAll(buf.items, offset);
 
     self.dysymtab_cmd.nlocalsym = ctx.nlocalsym;

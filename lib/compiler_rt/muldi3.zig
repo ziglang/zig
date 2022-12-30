@@ -10,9 +10,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage });
+        @export(__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__muldi3, .{ .name = "__muldi3", .linkage = common.linkage });
+        @export(__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

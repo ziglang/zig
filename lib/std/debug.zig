@@ -1128,7 +1128,10 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
 
         for (slice) |byte| {
             if (line == line_info.line) {
-                try out_stream.writeByte(byte);
+                switch (byte) {
+                    '\t' => try out_stream.writeByte(' '),
+                    else => try out_stream.writeByte(byte),
+                }
                 if (byte == '\n') {
                     return;
                 }

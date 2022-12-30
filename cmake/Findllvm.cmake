@@ -8,9 +8,27 @@
 # LLVM_LIBDIRS
 # LLVM_LINK_MODE
 
-function(check_llvm_config LLVM_CONFIG_EXE)
-    # Start with empty message for current llvm-config
-    set(LLVM_CONFIG_ERROR_MESSAGES "" PARENT_SCOPE)
+
+if(ZIG_USE_LLVM_CONFIG)
+  set(LLVM_CONFIG_ERROR_MESSAGES "")
+  while(1)
+    unset(LLVM_CONFIG_EXE CACHE)
+    find_program(LLVM_CONFIG_EXE
+        NAMES llvm-config-15 llvm-config-15.0 llvm-config150 llvm-config15 llvm-config NAMES_PER_DIR
+        PATHS
+            "/mingw64/bin"
+            "/c/msys64/mingw64/bin"
+            "c:/msys64/mingw64/bin"
+            "C:/Libraries/llvm-15.0.0/bin")
+
+    if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+      if (NOT LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
+        list(JOIN LLVM_CONFIG_ERROR_MESSAGES "\n" LLVM_CONFIG_ERROR_MESSAGE)
+        message(FATAL_ERROR ${LLVM_CONFIG_ERROR_MESSAGE})
+      else()
+        message(FATAL_ERROR "unable to find llvm-config")
+      endif()
+    endif()
 
     # Check that this LLVM is the right version
     execute_process(
@@ -18,10 +36,14 @@ function(check_llvm_config LLVM_CONFIG_EXE)
       OUTPUT_VARIABLE LLVM_CONFIG_VERSION
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER_EQUAL 16)
-      # Save the error message for current llvm-config we find
-      set(LLVM_CONFIG_ERROR_MESSAGES "Expected LLVM 15.x but found ${LLVM_CONFIG_VERSION}" PARENT_SCOPE)
-      return()
+    get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 16 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 16)
+      # Save the error message, in case this is the last llvm-config we find
+      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 15.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+
+      # Ignore this directory and try the search again
+      list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+      continue()
     endif()
 
     # Check that this LLVM supports linking as a shared/static library, if requested
@@ -38,13 +60,17 @@ function(check_llvm_config LLVM_CONFIG_EXE)
         ERROR_VARIABLE LLVM_CONFIG_ERROR
         ERROR_STRIP_TRAILING_WHITESPACE)
 
-      if (LLVM_CONFIG_ERROR)
+      if (LLVM_CONFIG_ERROR) 
+        # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          set(LLVM_CONFIG_ERROR_MESSAGES "This LLVM does not support linking as a shared library" PARENT_SCOPE)
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          set(LLVM_CONFIG_ERROR_MESSAGES "This LLVM does not support linking as a static library" PARENT_SCOPE)
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
-        return()
+
+        # Ignore this directory and try the search again
+        list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+        continue()
       endif()
     endif()
 
@@ -53,15 +79,17 @@ function(check_llvm_config LLVM_CONFIG_EXE)
         OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
       OUTPUT_STRIP_TRAILING_WHITESPACE)
     string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
-
-    macro(NEED_TARGET TARGET_NAME)
+    function(NEED_TARGET TARGET_NAME)
       list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
       if (${_index} EQUAL -1)
-        set(LLVM_CONFIG_ERROR_MESSAGES "This LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled." PARENT_SCOPE)
-        return()
-      endif()
-    endmacro()
+        # Save the error message, in case this is the last llvm-config we find
+        list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
 
+        # Ignore this directory and try the search again
+        list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+        continue()
+      endif()
+    endfunction(NEED_TARGET)
     NEED_TARGET("AArch64")
     NEED_TARGET("AMDGPU")
     NEED_TARGET("ARM")
@@ -80,39 +108,9 @@ function(check_llvm_config LLVM_CONFIG_EXE)
     NEED_TARGET("WebAssembly")
     NEED_TARGET("X86")
     NEED_TARGET("XCore")
-endfunction()
 
-if(ZIG_USE_LLVM_CONFIG)
-  while(1)
-    unset(LLVM_CONFIG_EXE CACHE)
-    find_program(LLVM_CONFIG_EXE
-        NAMES llvm-config-15 llvm-config-15.0 llvm-config150 llvm-config15 llvm-config NAMES_PER_DIR
-        PATHS
-            "/mingw64/bin"
-            "/c/msys64/mingw64/bin"
-            "c:/msys64/mingw64/bin"
-            "C:/Libraries/llvm-15.0.0/bin")
-
-    if("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-        message(FATAL_ERROR "Suitable llvm-config is not found.")
-    endif()
-
-    message("Trying ${LLVM_CONFIG_EXE}...")
-
-    check_llvm_config(${LLVM_CONFIG_EXE})
-    if(LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
-        message("This llvm-config is suitable for us, continuing...")
-        break()
-    else()
-
-        message("This llvm-config is not suitable for us:")
-        list(JOIN LLVM_CONFIG_ERROR_MESSAGES "\n" LLVM_CONFIG_ERROR_MESSAGE)
-        message(${LLVM_CONFIG_ERROR_MESSAGE})
-        message("Trying another llvm-config...")
-
-        get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-        list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
-    endif()
+    # Got it!
+    break()
   endwhile()
 
   if(ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)

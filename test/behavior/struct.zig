@@ -1458,3 +1458,40 @@ test "struct has only one reference" {
     try expectEqual(@sizeOf(struct { x: u16 }), S.optionalComptimeIntParam(@sizeOf(struct { x: u16 })));
     try expectEqual(@sizeOf(struct { x: u32 }), S.errorUnionComptimeIntParam(@sizeOf(struct { x: u32 })));
 }
+
+test "no dependency loop on pointer to optional struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const A = struct { b: B };
+        const B = struct { a: *?A };
+    };
+    var a1: ?S.A = null;
+    var a2: ?S.A = .{ .b = .{ .a = &a1 } };
+    a1 = .{ .b = .{ .a = &a2 } };
+
+    try expect(a1.?.b.a == &a2);
+    try expect(a2.?.b.a == &a1);
+}
+
+test "discarded struct initialization works as expected" {
+    const S = struct { a: u32 };
+    _ = S{ .a = 1 };
+}
+
+test "function pointer in struct returns the struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const A = struct {
+        const A = @This();
+        f: *const fn () A,
+
+        fn f() A {
+            return .{ .f = f };
+        }
+    };
+    var a = A.f();
+    try expect(a.f == A.f);
+}

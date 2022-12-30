@@ -390,7 +390,6 @@ fn switchWithUnreachable(x: i32) i32 {
 }
 
 test "capture value of switch with all unreachable prongs" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const x = return_a_number() catch |err| switch (err) {
@@ -494,7 +493,6 @@ test "switch prongs with error set cases make a new error set type for capture v
 }
 
 test "return result loc and then switch with range implicit casted to error union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
