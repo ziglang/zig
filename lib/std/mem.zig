@@ -456,7 +456,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                                     },
                                     else => {
                                         @field(value, field.name) = @field(init, field.name);
-                                    }
+                                    },
                                 }
                             } else if (field.default_value) |default_value_ptr| {
                                 const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
@@ -468,7 +468,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                                     },
                                     else => {
                                         @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
-                                    }
+                                    },
                                 }
                             }
                         }
@@ -558,7 +558,7 @@ test "zeroInit" {
     const baz1 = zeroInit(Baz, .{});
     try testing.expectEqual(Baz{}, baz1);
 
-    const baz2 = zeroInit(Baz, .{.foo = "zab"});
+    const baz2 = zeroInit(Baz, .{ .foo = "zab" });
     try testing.expectEqualSlices(u8, "zab", baz2.foo);
 
     const NestedBaz = struct {
