@@ -2351,7 +2351,7 @@ zig_msvc_atomics_128op(u128, max)
 
 #if (_MSC_VER && _M_X64) || defined(__x86_64__)
 
-static inline void* zig_x86_64_windows_teb() {
+static inline void* zig_x86_64_windows_teb(void) {
 #if _MSC_VER
     return __readgsqword(0x30);
 #else
@@ -2378,7 +2378,7 @@ static inline void zig_x86_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, z
     *edx = cpu_info[3];
 }
 
-static inline zig_u32 zig_x86_get_xcr0() {
+static inline zig_u32 zig_x86_get_xcr0(void) {
 #if _MSC_VER
     return (zig_u32)_xgetbv(0);
 #else
