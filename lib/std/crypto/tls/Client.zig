@@ -536,7 +536,24 @@ pub fn init(stream: net.Stream, ca_bundle: Certificate.Bundle, host: []const u8)
                                             try sig.verify(verify_bytes, key);
                                         },
                                         .rsa_pss_rsae_sha256 => {
-                                            @panic("TODO signature scheme: rsa_pss_rsae_sha256");
+                                            if (main_cert_pub_key_algo != .rsaEncryption)
+                                                return error.TlsBadSignatureScheme;
+
+                                            const Hash = crypto.hash.sha2.Sha256;
+                                            const rsa = Certificate.rsa;
+                                            const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
+                                            const exponent = components.exponent;
+                                            const modulus = components.modulus;
+                                            switch (modulus.len) {
+                                                inline 128, 256, 512 => |modulus_len| {
+                                                    const key = try rsa.PublicKey.fromBytes(exponent, modulus, rsa.poop);
+                                                    const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
+                                                    try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, rsa.poop);
+                                                },
+                                                else => {
+                                                    return error.TlsBadRsaSignatureBitCount;
+                                                },
+                                            }
                                         },
                                         else => {
                                             //std.debug.print("signature scheme: {any}\n", .{
@@ -737,7 +754,7 @@ pub fn writeAll(c: *Client, stream: net.Stream, bytes: []const u8) !void {
 }
 
 pub fn eof(c: Client) bool {
-    return c.received_close_notify and c.partial_ciphertext_end == 0;
+    return c.received_close_notify and c.partial_ciphertext_idx >= c.partial_ciphertext_end;
 }
 
 /// Returns the number of bytes read, calling the underlying read function the
@@ -822,6 +839,10 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
             c.partial_cleartext_idx = 0;
             c.partial_ciphertext_idx = 0;
             c.partial_ciphertext_end = 0;
+        } else {
+            std.debug.print("finished giving partial cleartext. {d} bytes ciphertext remain\n", .{
+                c.partial_ciphertext_end - c.partial_ciphertext_idx,
+            });
         }
     }
 
@@ -866,8 +887,9 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
 
     // There might be more bytes inside `in_stack_buffer` that need to be processed,
     // but at least frag0 will have one complete ciphertext record.
-    const frag0 = c.partially_read_buffer[0..@min(c.partially_read_buffer.len, actual_read_len)];
-    var frag1 = in_stack_buffer[0 .. actual_read_len - frag0.len];
+    const frag0_end = @min(c.partially_read_buffer.len, c.partial_ciphertext_end + actual_read_len);
+    const frag0 = c.partially_read_buffer[c.partial_ciphertext_idx..frag0_end];
+    var frag1 = in_stack_buffer[0..actual_read_len -| first_iov.len];
     // We need to decipher frag0 and frag1 but there may be a ciphertext record
     // straddling the boundary. We can handle this with two memcpy() calls to
     // assemble the straddling record in between handling the two sides.
@@ -900,12 +922,14 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
             const record_len = (record_len_byte_0 << 8) | record_len_byte_1;
             if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
 
-            const second_len = record_len + tls.ciphertext_record_header_len - first.len;
+            const full_record_len = record_len + tls.ciphertext_record_header_len;
+            const second_len = full_record_len - first.len;
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
             mem.copy(u8, frag[0..in], first);
             mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
             continue;
@@ -914,23 +938,35 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
         in += 1;
         const legacy_version = mem.readIntBig(u16, frag[in..][0..2]);
         in += 2;
-        _ = legacy_version;
+        //_ = legacy_version;
         const record_len = mem.readIntBig(u16, frag[in..][0..2]);
+        std.debug.print("ct={any} legacy_version={x} record_len={d}\n", .{
+            ct, legacy_version, record_len,
+        });
         if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
         in += 2;
         const end = in + record_len;
         if (end > frag.len) {
+            // We need the record header on the next iteration of the loop.
+            in -= tls.ciphertext_record_header_len;
+
             if (frag.ptr == frag1.ptr)
                 return finishRead(c, frag, in, vp.total);
 
             // A record straddles the two fragments. Copy into the now-empty first fragment.
             const first = frag[in..];
-            const second_len = record_len + tls.ciphertext_record_header_len - first.len;
-            if (frag1.len < second_len)
+            const full_record_len = record_len + tls.ciphertext_record_header_len;
+            const second_len = full_record_len - first.len;
+            if (frag1.len < second_len) {
+                std.debug.print("end > frag.len finishRead2 end={d} frag.len={d}\n", .{
+                    end, frag.len,
+                });
                 return finishRead2(c, first, frag1, vp.total);
+            }
 
             mem.copy(u8, frag[0..in], first);
             mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
             continue;
@@ -991,9 +1027,11 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                             const handshake = cleartext[ct_i..next_handshake_i];
                             switch (handshake_type) {
                                 .new_session_ticket => {
+                                    std.debug.print("new_session_ticket\n", .{});
                                     // This client implementation ignores new session tickets.
                                 },
                                 .key_update => {
+                                    std.debug.print("key_update\n", .{});
                                     switch (c.application_cipher) {
                                         inline else => |*p| {
                                             const P = @TypeOf(p.*);
@@ -1042,10 +1080,13 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                                 const dest = c.partially_read_buffer[c.partial_ciphertext_idx..];
                                 mem.copy(u8, dest, msg);
                                 c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), c.partial_ciphertext_idx + msg.len);
+                                std.debug.print("application_data {d} bytes to partial buffer\n", .{msg.len});
                             } else {
                                 const amt = vp.put(msg);
+                                std.debug.print("application_data {d} bytes to read buffer\n", .{msg.len});
                                 if (amt < msg.len) {
                                     const rest = msg[amt..];
+                                    std.debug.print("  {d} bytes to partial buffer\n", .{rest.len});
                                     c.partial_cleartext_idx = 0;
                                     c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), rest.len);
                                     mem.copy(u8, &c.partially_read_buffer, rest);
@@ -1055,6 +1096,7 @@ pub fn readvAdvanced(c: *Client, stream: net.Stream, iovecs: []const std.os.iove
                             // Output buffer was used directly which means no
                             // memory copying needs to occur, and we can move
                             // on to the next ciphertext record.
+                            std.debug.print("application_data {d} bytes directly to read buffer\n", .{cleartext.len - 1});
                             vp.next(cleartext.len - 1);
                         }
                     },
@@ -1166,10 +1208,6 @@ const VecPut = struct {
             const src = bytes[bytes_i..][0..@min(dest.len, bytes.len - bytes_i)];
             mem.copy(u8, dest, src);
             bytes_i += src.len;
-            if (bytes_i >= bytes.len) {
-                vp.total += bytes_i;
-                return bytes_i;
-            }
             vp.off += src.len;
             if (vp.off >= v.iov_len) {
                 vp.off = 0;
@@ -1178,6 +1216,10 @@ const VecPut = struct {
                     vp.total += bytes_i;
                     return bytes_i;
                 }
+            }
+            if (bytes_i >= bytes.len) {
+                vp.total += bytes_i;
+                return bytes_i;
             }
         }
     }
@@ -1201,17 +1243,11 @@ const VecPut = struct {
     }
 
     fn freeSize(vp: VecPut) usize {
+        if (vp.idx >= vp.iovecs.len) return 0;
         var total: usize = 0;
-
         total += vp.iovecs[vp.idx].iov_len - vp.off;
-
-        if (vp.idx + 1 >= vp.iovecs.len)
-            return total;
-
-        for (vp.iovecs[vp.idx + 1 ..]) |v| {
-            total += v.iov_len;
-        }
-
+        if (vp.idx + 1 >= vp.iovecs.len) return total;
+        for (vp.iovecs[vp.idx + 1 ..]) |v| total += v.iov_len;
         return total;
     }
 };

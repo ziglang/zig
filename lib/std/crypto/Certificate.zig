@@ -474,19 +474,9 @@ fn verifyRsa(
     pub_key: []const u8,
 ) !void {
     if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
-    const pub_key_seq = try der.Element.parse(pub_key, 0);
-    if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
-    const modulus_elem = try der.Element.parse(pub_key, pub_key_seq.slice.start);
-    if (modulus_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
-    const exponent_elem = try der.Element.parse(pub_key, modulus_elem.slice.end);
-    if (exponent_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
-    // Skip over meaningless zeroes in the modulus.
-    const modulus_raw = pub_key[modulus_elem.slice.start..modulus_elem.slice.end];
-    const modulus_offset = for (modulus_raw) |byte, i| {
-        if (byte != 0) break i;
-    } else modulus_raw.len;
-    const modulus = modulus_raw[modulus_offset..];
-    const exponent = pub_key[exponent_elem.slice.start..exponent_elem.slice.end];
+    const pk_components = try rsa.PublicKey.parseDer(pub_key);
+    const exponent = pk_components.exponent;
+    const modulus = pk_components.modulus;
     if (exponent.len > modulus.len) return error.CertificatePublicKeyInvalid;
     if (sig.len != modulus.len) return error.CertificateSignatureInvalidLength;
 
@@ -688,10 +678,154 @@ test {
 /// which is licensed under the Apache License Version 2.0, January 2004
 /// http://www.apache.org/licenses/
 /// The code has been modified.
-const rsa = struct {
+pub const rsa = struct {
     const BigInt = std.math.big.int.Managed;
 
-    const PublicKey = struct {
+    pub const PSSSignature = struct {
+        pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
+            var result = [1]u8{0} ** modulus_len;
+            std.mem.copy(u8, &result, msg);
+            return result;
+        }
+
+        pub fn verify(comptime modulus_len: usize, sig: [modulus_len]u8, msg: []const u8, public_key: PublicKey, comptime Hash: type, allocator: std.mem.Allocator) !void {
+            const mod_bits = try countBits(public_key.n.toConst(), allocator);
+            const em_dec = try encrypt(modulus_len, sig, public_key, allocator);
+
+            try EMSA_PSS_VERIFY(msg, &em_dec, mod_bits - 1, Hash.digest_length, Hash, allocator);
+        }
+
+        fn EMSA_PSS_VERIFY(msg: []const u8, em: []const u8, emBit: usize, sLen: usize, comptime Hash: type, allocator: std.mem.Allocator) !void {
+            // TODO
+            // 1.   If the length of M is greater than the input limitation for
+            //      the hash function (2^61 - 1 octets for SHA-1), output
+            //      "inconsistent" and stop.
+
+            // emLen = \ceil(emBits/8)
+            const emLen = ((emBit - 1) / 8) + 1;
+            std.debug.assert(emLen == em.len);
+
+            // 2.   Let mHash = Hash(M), an octet string of length hLen.
+            var mHash: [Hash.digest_length]u8 = undefined;
+            Hash.hash(msg, &mHash, .{});
+
+            // 3.   If emLen < hLen + sLen + 2, output "inconsistent" and stop.
+            if (emLen < Hash.digest_length + sLen + 2) {
+                return error.InvalidSignature;
+            }
+
+            // 4.   If the rightmost octet of EM does not have hexadecimal value
+            //      0xbc, output "inconsistent" and stop.
+            if (em[em.len - 1] != 0xbc) {
+                return error.InvalidSignature;
+            }
+
+            // 5.   Let maskedDB be the leftmost emLen - hLen - 1 octets of EM,
+            //      and let H be the next hLen octets.
+            const maskedDB = em[0..(emLen - Hash.digest_length - 1)];
+            const h = em[(emLen - Hash.digest_length - 1)..(emLen - 1)];
+
+            // 6.   If the leftmost 8emLen - emBits bits of the leftmost octet in
+            //      maskedDB are not all equal to zero, output "inconsistent" and
+            //      stop.
+            const zero_bits = emLen * 8 - emBit;
+            var mask: u8 = maskedDB[0];
+            var i: usize = 0;
+            while (i < 8 - zero_bits) : (i += 1) {
+                mask = mask >> 1;
+            }
+            if (mask != 0) {
+                return error.InvalidSignature;
+            }
+
+            // 7.   Let dbMask = MGF(H, emLen - hLen - 1).
+            const mgf_len = emLen - Hash.digest_length - 1;
+            var mgf_out = try allocator.alloc(u8, ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length);
+            defer allocator.free(mgf_out);
+            var dbMask = try MGF1(mgf_out, h, mgf_len, Hash, allocator);
+
+            // 8.   Let DB = maskedDB \xor dbMask.
+            i = 0;
+            while (i < dbMask.len) : (i += 1) {
+                dbMask[i] = maskedDB[i] ^ dbMask[i];
+            }
+
+            // 9.   Set the leftmost 8emLen - emBits bits of the leftmost octet
+            //      in DB to zero.
+            i = 0;
+            mask = 0;
+            while (i < 8 - zero_bits) : (i += 1) {
+                mask = mask << 1;
+                mask += 1;
+            }
+            dbMask[0] = dbMask[0] & mask;
+
+            // 10.  If the emLen - hLen - sLen - 2 leftmost octets of DB are not
+            //      zero or if the octet at position emLen - hLen - sLen - 1 (the
+            //      leftmost position is "position 1") does not have hexadecimal
+            //      value 0x01, output "inconsistent" and stop.
+            if (dbMask[mgf_len - sLen - 2] != 0x00) {
+                return error.InvalidSignature;
+            }
+
+            if (dbMask[mgf_len - sLen - 1] != 0x01) {
+                return error.InvalidSignature;
+            }
+
+            // 11.  Let salt be the last sLen octets of DB.
+            const salt = dbMask[(mgf_len - sLen)..];
+
+            // 12.  Let
+            //         M' = (0x)00 00 00 00 00 00 00 00 || mHash || salt ;
+            //      M' is an octet string of length 8 + hLen + sLen with eight
+            //      initial zero octets.
+            var m_p = try allocator.alloc(u8, 8 + Hash.digest_length + sLen);
+            defer allocator.free(m_p);
+            std.mem.copy(u8, m_p, &([_]u8{0} ** 8));
+            std.mem.copy(u8, m_p[8..], &mHash);
+            std.mem.copy(u8, m_p[(8 + Hash.digest_length)..], salt);
+
+            // 13.  Let H' = Hash(M'), an octet string of length hLen.
+            var h_p: [Hash.digest_length]u8 = undefined;
+            Hash.hash(m_p, &h_p, .{});
+
+            // 14.  If H = H', output "consistent".  Otherwise, output
+            //      "inconsistent".
+            if (!std.mem.eql(u8, h, &h_p)) {
+                return error.InvalidSignature;
+            }
+        }
+
+        fn MGF1(out: []u8, seed: []const u8, len: usize, comptime Hash: type, allocator: std.mem.Allocator) ![]u8 {
+            var counter: usize = 0;
+            var idx: usize = 0;
+            var c: [4]u8 = undefined;
+
+            var hash = try allocator.alloc(u8, seed.len + c.len);
+            defer allocator.free(hash);
+            std.mem.copy(u8, hash, seed);
+            var hashed: [Hash.digest_length]u8 = undefined;
+
+            while (idx < len) {
+                c[0] = @intCast(u8, (counter >> 24) & 0xFF);
+                c[1] = @intCast(u8, (counter >> 16) & 0xFF);
+                c[2] = @intCast(u8, (counter >> 8) & 0xFF);
+                c[3] = @intCast(u8, counter & 0xFF);
+
+                std.mem.copy(u8, hash[seed.len..], &c);
+                Hash.hash(hash, &hashed, .{});
+
+                std.mem.copy(u8, out[idx..], &hashed);
+                idx += hashed.len;
+
+                counter += 1;
+            }
+
+            return out[0..len];
+        }
+    };
+
+    pub const PublicKey = struct {
         n: BigInt,
         e: BigInt,
 
@@ -712,6 +846,24 @@ const rsa = struct {
             return .{
                 .n = _n,
                 .e = _e,
+            };
+        }
+
+        pub fn parseDer(pub_key: []const u8) !struct { modulus: []const u8, exponent: []const u8 } {
+            const pub_key_seq = try der.Element.parse(pub_key, 0);
+            if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
+            const modulus_elem = try der.Element.parse(pub_key, pub_key_seq.slice.start);
+            if (modulus_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
+            const exponent_elem = try der.Element.parse(pub_key, modulus_elem.slice.end);
+            if (exponent_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
+            // Skip over meaningless zeroes in the modulus.
+            const modulus_raw = pub_key[modulus_elem.slice.start..modulus_elem.slice.end];
+            const modulus_offset = for (modulus_raw) |byte, i| {
+                if (byte != 0) break i;
+            } else modulus_raw.len;
+            return .{
+                .modulus = modulus_raw[modulus_offset..],
+                .exponent = pub_key[exponent_elem.slice.start..exponent_elem.slice.end],
             };
         }
     };
@@ -812,6 +964,20 @@ const rsa = struct {
         try BigInt.divFloor(&q, rem, a, n);
     }
 
+    fn countBits(a: std.math.big.int.Const, allocator: std.mem.Allocator) !usize {
+        var i: usize = 0;
+        var a_copy = try BigInt.init(allocator);
+        defer a_copy.deinit();
+        try a_copy.copy(a);
+
+        while (!a_copy.eqZero()) {
+            try a_copy.shiftRight(&a_copy, 1);
+            i += 1;
+        }
+
+        return i;
+    }
+
     // TODO: flush the toilet
-    const poop = std.heap.page_allocator;
+    pub const poop = std.heap.page_allocator;
 };
