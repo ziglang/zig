@@ -1110,7 +1110,6 @@ pub const DeclGen = struct {
                         // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal
                         const max_string_initializer_len = 65535;
 
-
                         const ai = ty.arrayInfo();
                         if (ai.elem_type.eql(Type.u8, dg.module)) {
                             if (ai.len <= max_string_initializer_len) {
@@ -1134,7 +1133,7 @@ pub const DeclGen = struct {
                                     if (index != 0) try writer.writeByte(',');
                                     const elem_val = try val.elemValue(dg.module, arena_allocator, index);
                                     const elem_val_u8 = if (elem_val.isUndef()) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(target));
-                                    try writer.print("'\\x{x}'", .{ elem_val_u8 });
+                                    try writer.print("'\\x{x}'", .{elem_val_u8});
                                 }
                                 if (ai.sentinel) |s| {
                                     if (index != 0) try writer.writeByte(',');
@@ -1350,7 +1349,7 @@ pub const DeclGen = struct {
                                 try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
                             }
 
-                            if (needs_closing_paren) try writer.writeByte(')') ;
+                            if (needs_closing_paren) try writer.writeByte(')');
                             if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
 
                             bit_offset_val_pl.data += field_ty.bitSize(target);
@@ -2254,7 +2253,7 @@ pub const DeclGen = struct {
         if (dest_bits <= 64 and src_bits <= 64) {
             const needs_cast = src_int_info == null or
                 (toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.?.bits) or
-                     dest_int_info.signedness != src_int_info.?.signedness);
+                dest_int_info.signedness != src_int_info.?.signedness);
 
             if (needs_cast) {
                 try w.writeByte('(');
@@ -2567,7 +2566,7 @@ pub const DeclGen = struct {
         } else if (ty.isRuntimeFloat()) {
             try ty.print(writer, dg.module);
         } else if (ty.isPtrAtRuntime()) {
-            try writer.print("p{d}", .{ ty.bitSize(target) });
+            try writer.print("p{d}", .{ty.bitSize(target)});
         } else if (ty.zigTypeTag() == .Bool) {
             try writer.print("u8", .{});
         } else return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
@@ -2633,12 +2632,7 @@ pub const DeclGen = struct {
         const c_bits = toCIntBits(int_info.bits);
         if (c_bits == null or c_bits.? > 128)
             return dg.fail("TODO implement integer constants larger than 128 bits", .{});
-        return std.fmt.Formatter(formatIntLiteral){ .data = .{
-            .ty = ty,
-            .val = val,
-            .mod = dg.module,
-            .location = location
-        } };
+        return std.fmt.Formatter(formatIntLiteral){ .data = .{ .ty = ty, .val = val, .mod = dg.module, .location = location } };
     }
 };
 
@@ -3668,9 +3662,9 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             }
             try f.writeCValue(writer, operand, .FunctionArgument);
             if (c_bits == 128) try writer.writeByte(')');
-            try writer.print(", {})", .{ try f.fmtIntLiteral(Type.u8, shift_val) });
+            try writer.print(", {})", .{try f.fmtIntLiteral(Type.u8, shift_val)});
             if (c_bits == 128) try writer.writeByte(')');
-            try writer.print(", {})", .{ try f.fmtIntLiteral(Type.u8, shift_val) });
+            try writer.print(", {})", .{try f.fmtIntLiteral(Type.u8, shift_val)});
         },
     }
 
@@ -7227,12 +7221,7 @@ fn undefPattern(comptime IntType: type) IntType {
     return @bitCast(IntType, @as(UnsignedType, (1 << (int_info.bits | 1)) / 3));
 }
 
-const FormatIntLiteralContext = struct {
-    ty: Type,
-    val: Value,
-    mod: *Module,
-    location: ?ValueRenderLocation = null
-};
+const FormatIntLiteralContext = struct { ty: Type, val: Value, mod: *Module, location: ?ValueRenderLocation = null };
 fn formatIntLiteral(
     data: FormatIntLiteralContext,
     comptime fmt: []const u8,
@@ -7324,7 +7313,7 @@ fn formatIntLiteral(
             } else {
                 try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
             }
-        }
+        },
     }
 
     const limbs_count_64 = @divExact(64, @bitSizeOf(BigIntLimb));

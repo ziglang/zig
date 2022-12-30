@@ -377,7 +377,6 @@ fn testBinaryNot(x: u16) !void {
     try expect(~x == 0b0101010101010101);
 }
 
-
 test "binary not 128-bit" {
     try expect(comptime x: {
         break :x ~@as(u128, 0x55555555_55555555_55555555_55555555) == 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa;
@@ -667,7 +666,6 @@ test "128-bit multiplication" {
         var c = a * b;
         try expect(c == 0x63ffffffffffffff9c);
     }
-
 }
 
 test "@addWithOverflow" {
