@@ -16,6 +16,7 @@ pub const Request = struct {
     headers: std.ArrayListUnmanaged(u8) = .{},
     tls_client: std.crypto.tls.Client,
     protocol: Protocol,
+    response_headers: http.Headers = .{},
 
     pub const Protocol = enum { http, https };
 
@@ -51,18 +52,53 @@ pub const Request = struct {
         }
     }
 
+    pub fn readAll(req: *Request, buffer: []u8) !usize {
+        return readAtLeast(req, buffer, buffer.len);
+    }
+
     pub fn read(req: *Request, buffer: []u8) !usize {
+        return readAtLeast(req, buffer, 1);
+    }
+
+    pub fn readAtLeast(req: *Request, buffer: []u8, len: usize) !usize {
+        assert(len <= buffer.len);
+        var index: usize = 0;
+        while (index < len) {
+            const headers_finished = req.response_headers.state == .finished;
+            const amt = try readAdvanced(req, buffer[index..]);
+            if (amt == 0 and headers_finished) break;
+            index += amt;
+        }
+        return index;
+    }
+
+    /// This one can return 0 without meaning EOF.
+    /// TODO change to readvAdvanced
+    pub fn readAdvanced(req: *Request, buffer: []u8) !usize {
+        if (req.response_headers.state == .finished) return readRaw(req, buffer);
+
+        const amt = try readRaw(req, buffer);
+        const data = buffer[0..amt];
+        const i = req.response_headers.feed(data);
+        if (req.response_headers.state == .invalid) return error.InvalidHttpHeaders;
+        if (i < data.len) {
+            const rest = data[i..];
+            std.mem.copy(u8, buffer, rest);
+            return rest.len;
+        }
+        return 0;
+    }
+
+    /// Only abstracts over http/https.
+    fn readRaw(req: *Request, buffer: []u8) !usize {
         switch (req.protocol) {
             .http => return req.stream.read(buffer),
             .https => return req.tls_client.read(req.stream, buffer),
         }
     }
 
-    pub fn readAll(req: *Request, buffer: []u8) !usize {
-        return readAtLeast(req, buffer, buffer.len);
-    }
-
-    pub fn readAtLeast(req: *Request, buffer: []u8, len: usize) !usize {
+    /// Only abstracts over http/https.
+    fn readAtLeastRaw(req: *Request, buffer: []u8, len: usize) !usize {
         switch (req.protocol) {
             .http => return req.stream.readAtLeast(buffer, len),
             .https => return req.tls_client.readAtLeast(req.stream, buffer, len),

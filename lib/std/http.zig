@@ -242,10 +242,60 @@ pub const Status = enum(u10) {
     }
 };
 
+pub const Headers = struct {
+    state: State = .start,
+    invalid_index: u32 = undefined,
+
+    pub const State = enum { invalid, start, line, nl_r, nl_n, nl2_r, finished };
+
+    /// Returns how many bytes are processed into headers. Always less than or
+    /// equal to bytes.len. If the amount returned is less than bytes.len, it
+    /// means the headers ended and the first byte after the double \r\n\r\n is
+    /// located at `bytes[result]`.
+    pub fn feed(h: *Headers, bytes: []const u8) usize {
+        for (bytes) |b, i| {
+            switch (h.state) {
+                .start => switch (b) {
+                    '\r' => h.state = .nl_r,
+                    '\n' => return invalid(h, i),
+                    else => {},
+                },
+                .nl_r => switch (b) {
+                    '\n' => h.state = .nl_n,
+                    else => return invalid(h, i),
+                },
+                .nl_n => switch (b) {
+                    '\r' => h.state = .nl2_r,
+                    else => h.state = .line,
+                },
+                .nl2_r => switch (b) {
+                    '\n' => h.state = .finished,
+                    else => return invalid(h, i),
+                },
+                .line => switch (b) {
+                    '\r' => h.state = .nl_r,
+                    '\n' => return invalid(h, i),
+                    else => {},
+                },
+                .invalid => return i,
+                .finished => return i,
+            }
+        }
+        return bytes.len;
+    }
+
+    fn invalid(h: *Headers, i: usize) usize {
+        h.invalid_index = @intCast(u32, i);
+        h.state = .invalid;
+        return i;
+    }
+};
+
 const std = @import("std.zig");
 
 test {
     _ = Client;
     _ = Method;
     _ = Status;
+    _ = Headers;
 }
