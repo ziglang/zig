@@ -2366,16 +2366,16 @@ static inline void* zig_x86_64_windows_teb() {
 #if (_MSC_VER && (_M_IX86 || _M_X64)) || defined(__i386__) || defined(__x86_64__)
 
 static inline void zig_x86_cpuid(zig_u32 leaf_id, zig_u32 subid, zig_u32* eax, zig_u32* ebx, zig_u32* ecx, zig_u32* edx) {
-#if _MSC_VER
     zig_u32 cpu_info[4];
+#if _MSC_VER
     __cpuidex(cpu_info, leaf_id, subid);
+#else
+    __cpuid_count(leaf_id, subid, cpu_info[0], cpu_info[1], cpu_info[2], cpu_info[3]);
+#endif
     *eax = cpu_info[0];
     *ebx = cpu_info[1];
     *ecx = cpu_info[2];
     *edx = cpu_info[3];
-#else
-    __cpuid_count(leaf_id, subid, eax, ebx, ecx, edx);
-#endif
 }
 
 static inline zig_u32 zig_x86_get_xcr0() {
