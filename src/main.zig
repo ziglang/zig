@@ -162,6 +162,9 @@ pub fn main() anyerror!void {
         if (use_gpa) {
             break :gpa general_purpose_allocator.allocator();
         }
+        if (builtin.os.tag == .freebsd) {
+            break :gpa std.heap.c_allocator;
+        }
         // We would prefer to use raw libc allocator here, but cannot
         // use it if it won't support the alignment we need.
         if (@alignOf(std.c.max_align_t) < @alignOf(i128)) {
