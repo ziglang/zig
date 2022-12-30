@@ -1459,7 +1459,8 @@ pub const Object = struct {
                     .signed => DW.ATE.signed,
                     .unsigned => DW.ATE.unsigned,
                 };
-                const di_type = dib.createBasicType(name, info.bits, dwarf_encoding);
+                const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType(name, di_bits, dwarf_encoding);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1550,7 +1551,8 @@ pub const Object = struct {
                 return di_type;
             },
             .Bool => {
-                const di_type = dib.createBasicType("bool", 1, DW.ATE.boolean);
+                const di_bits = 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType("bool", di_bits, DW.ATE.boolean);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1739,7 +1741,8 @@ pub const Object = struct {
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
                 if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
-                    const di_ty = dib.createBasicType(name, 1, DW.ATE.boolean);
+                    const di_bits = 8; // lldb cannot handle non-byte sized types
+                    const di_ty = dib.createBasicType(name, di_bits, DW.ATE.boolean);
                     gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                     return di_ty;
                 }
@@ -1934,7 +1937,8 @@ pub const Object = struct {
                             .signed => DW.ATE.signed,
                             .unsigned => DW.ATE.unsigned,
                         };
-                        const di_ty = dib.createBasicType(name, info.bits, dwarf_encoding);
+                        const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                        const di_ty = dib.createBasicType(name, di_bits, dwarf_encoding);
                         gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                         return di_ty;
                     }
