@@ -307,7 +307,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             const pair = mem.sliceTo(env, 0);
             var parts = mem.split(u8, pair, "=");
             const key = parts.first();
-            const value = parts.next().?;
+            const value = parts.rest();
             try result.put(key, value);
         }
         return result;
