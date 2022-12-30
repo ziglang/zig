@@ -232,7 +232,6 @@ pub extern "c" fn setresuid(ruid: c.uid_t, euid: c.uid_t, suid: c.uid_t) c_int;
 pub extern "c" fn setresgid(rgid: c.gid_t, egid: c.gid_t, sgid: c.gid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
-pub extern "c" fn aligned_alloc(usize, usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
