@@ -39,9 +39,9 @@ const assert = std.debug.assert;
 
 pub const Client = @import("tls/Client.zig");
 
-pub const ciphertext_record_header_len = 5;
+pub const record_header_len = 5;
 pub const max_ciphertext_len = (1 << 14) + 256;
-pub const max_ciphertext_record_len = max_ciphertext_len + ciphertext_record_header_len;
+pub const max_ciphertext_record_len = max_ciphertext_len + record_header_len;
 pub const hello_retry_request_sequence = [32]u8{
     0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
     0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
@@ -360,3 +360,130 @@ pub inline fn int3(x: u24) [3]u8 {
         @truncate(u8, x),
     };
 }
+
+/// An abstraction to ensure that protocol-parsing code does not perform an
+/// out-of-bounds read.
+pub const Decoder = struct {
+    buf: []u8,
+    /// Points to the next byte in buffer that will be decoded.
+    idx: usize = 0,
+    /// Up to this point in `buf` we have already checked that `cap` is greater than it.
+    our_end: usize = 0,
+    /// Beyond this point in `buf` is extra tag-along bytes beyond the amount we
+    /// requested with `readAtLeast`.
+    their_end: usize = 0,
+    /// Points to the end within buffer that has been filled. Beyond this point
+    /// in buf is undefined bytes.
+    cap: usize = 0,
+    /// Debug helper to prevent illegal calls to read functions.
+    disable_reads: bool = false,
+
+    pub fn fromTheirSlice(buf: []u8) Decoder {
+        return .{
+            .buf = buf,
+            .their_end = buf.len,
+            .cap = buf.len,
+            .disable_reads = true,
+        };
+    }
+
+    /// Use this function to increase `their_end`.
+    pub fn readAtLeast(d: *Decoder, stream: anytype, their_amt: usize) !void {
+        assert(!d.disable_reads);
+        const existing_amt = d.cap - d.idx;
+        d.their_end = d.idx + their_amt;
+        if (their_amt <= existing_amt) return;
+        const request_amt = their_amt - existing_amt;
+        const dest = d.buf[d.cap..];
+        if (request_amt > dest.len) return error.TlsRecordOverflow;
+        const actual_amt = try stream.readAtLeast(dest, request_amt);
+        if (actual_amt < request_amt) return error.TlsConnectionTruncated;
+        d.cap += actual_amt;
+    }
+
+    /// Same as `readAtLeast` but also increases `our_end` by exactly `our_amt`.
+    /// Use when `our_amt` is calculated by us, not by them.
+    pub fn readAtLeastOurAmt(d: *Decoder, stream: anytype, our_amt: usize) !void {
+        assert(!d.disable_reads);
+        try readAtLeast(d, stream, our_amt);
+        d.our_end = d.idx + our_amt;
+    }
+
+    /// Use this function to increase `our_end`.
+    /// This should always be called with an amount provided by us, not them.
+    pub fn ensure(d: *Decoder, amt: usize) !void {
+        d.our_end = @max(d.idx + amt, d.our_end);
+        if (d.our_end > d.their_end) return error.TlsDecodeError;
+    }
+
+    /// Use this function to increase `idx`.
+    pub fn decode(d: *Decoder, comptime T: type) T {
+        switch (@typeInfo(T)) {
+            .Int => |info| switch (info.bits) {
+                8 => {
+                    skip(d, 1);
+                    return d.buf[d.idx - 1];
+                },
+                16 => {
+                    skip(d, 2);
+                    const b0: u16 = d.buf[d.idx - 2];
+                    const b1: u16 = d.buf[d.idx - 1];
+                    return (b0 << 8) | b1;
+                },
+                24 => {
+                    skip(d, 3);
+                    const b0: u24 = d.buf[d.idx - 3];
+                    const b1: u24 = d.buf[d.idx - 2];
+                    const b2: u24 = d.buf[d.idx - 1];
+                    return (b0 << 16) | (b1 << 8) | b2;
+                },
+                else => @compileError("unsupported int type: " ++ @typeName(T)),
+            },
+            .Enum => |info| {
+                const int = d.decode(info.tag_type);
+                if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
+                return @intToEnum(T, int);
+            },
+            else => @compileError("unsupported type: " ++ @typeName(T)),
+        }
+    }
+
+    /// Use this function to increase `idx`.
+    pub fn array(d: *Decoder, comptime len: usize) *[len]u8 {
+        skip(d, len);
+        return d.buf[d.idx - len ..][0..len];
+    }
+
+    /// Use this function to increase `idx`.
+    pub fn slice(d: *Decoder, len: usize) []u8 {
+        skip(d, len);
+        return d.buf[d.idx - len ..][0..len];
+    }
+
+    /// Use this function to increase `idx`.
+    pub fn skip(d: *Decoder, amt: usize) void {
+        d.idx += amt;
+        assert(d.idx <= d.our_end); // insufficient ensured bytes
+    }
+
+    pub fn eof(d: Decoder) bool {
+        assert(d.our_end <= d.their_end);
+        assert(d.idx <= d.our_end);
+        return d.idx == d.their_end;
+    }
+
+    /// Provide the length they claim, and receive a sub-decoder specific to that slice.
+    /// The parent decoder is advanced to the end.
+    pub fn sub(d: *Decoder, their_len: usize) !Decoder {
+        const end = d.idx + their_len;
+        if (end > d.their_end) return error.TlsDecodeError;
+        const sub_buf = d.buf[d.idx..end];
+        d.idx = end;
+        d.our_end = end;
+        return fromTheirSlice(sub_buf);
+    }
+
+    pub fn rest(d: Decoder) []u8 {
+        return d.buf[d.idx..d.cap];
+    }
+};
