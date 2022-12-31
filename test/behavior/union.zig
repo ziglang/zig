@@ -1482,6 +1482,8 @@ test "no dependency loop when function pointer in union returns the union" {
         b: *const fn (x: U) void,
         c: *const fn (x: U) U,
         d: *const fn (x: u8) U,
+        e: *const fn (x: *U) void,
+        f: *const fn (x: *U) U,
         fn foo(x: u8) U {
             return .{ .a = x };
         }

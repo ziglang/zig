@@ -394,3 +394,20 @@ test "recursive inline call with comptime known argument" {
 
     try expect(S.foo(4) == 20);
 }
+
+test "inline while with @call" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn inc(a: *u32) void {
+            a.* += 1;
+        }
+    };
+    var a: u32 = 0;
+    comptime var i = 0;
+    inline while (i < 10) : (i += 1) {
+        @call(.auto, S.inc, .{&a});
+    }
+    try expect(a == 10);
+}
