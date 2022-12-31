@@ -1528,3 +1528,19 @@ test "optional pointer coerced to optional allowzero pointer" {
     q = p;
     try expect(@ptrToInt(q.?) == 4);
 }
+
+test "ptrToInt on const inside comptime block" {
+    var a = comptime blk: {
+        const b: u8 = 1;
+        const c = @ptrToInt(&b);
+        break :blk c;
+    };
+    try expect(@intToPtr(*const u8, a).* == 1);
+}
+
+test "single item pointer to pointer to array to slice" {
+    var x: i32 = 1234;
+    try expect(@as([]const i32, @as(*[1]i32, &x))[0] == 1234);
+    const z1 = @as([]const i32, @as(*[1]i32, &x));
+    try expect(z1[0] == 1234);
+}

@@ -2773,3 +2773,21 @@ test "runtime precision specifier" {
     try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
     try expectFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }
+
+test "recursive format function" {
+    const R = union(enum) {
+        const R = @This();
+        Leaf: i32,
+        Branch: struct { left: *const R, right: *const R },
+
+        pub fn format(self: R, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            return switch (self) {
+                .Leaf => |n| std.fmt.format(writer, "Leaf({})", .{n}),
+                .Branch => |b| std.fmt.format(writer, "Branch({}, {})", .{ b.left, b.right }),
+            };
+        }
+    };
+
+    var r = R{ .Leaf = 1 };
+    try expectFmt("Leaf(1)\n", "{}\n", .{&r});
+}

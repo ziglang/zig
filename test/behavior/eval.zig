@@ -1621,3 +1621,38 @@ test "inline for loop of functions returning error unions" {
     }
     try expect(a == 3);
 }
+
+test "if inside a switch" {
+    var condition = true;
+    var wave_type: u32 = 0;
+    var sample: i32 = switch (wave_type) {
+        0 => if (condition) 2 else 3,
+        1 => 100,
+        2 => 200,
+        3 => 300,
+        else => unreachable,
+    };
+    try expect(sample == 2);
+}
+
+test "function has correct return type when previous return is casted to smaller type" {
+    const S = struct {
+        fn foo(b: bool) u16 {
+            if (b) return @as(u8, 0xFF);
+            return 0xFFFF;
+        }
+    };
+    try expect(S.foo(true) == 0xFF);
+}
+
+test "early exit in container level const" {
+    const S = struct {
+        const value = blk: {
+            if (true) {
+                break :blk @as(u32, 1);
+            }
+            break :blk @as(u32, 0);
+        };
+    };
+    try expect(S.value == 1);
+}

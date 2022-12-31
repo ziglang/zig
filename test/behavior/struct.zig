@@ -1495,3 +1495,63 @@ test "function pointer in struct returns the struct" {
     var a = A.f();
     try expect(a.f == A.f);
 }
+
+test "no dependency loop on optional field wrapped in generic function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn Atomic(comptime T: type) type {
+            return T;
+        }
+        const A = struct { b: Atomic(?*B) };
+        const B = struct { a: ?*A };
+    };
+    var a: S.A = .{ .b = null };
+    var b: S.B = .{ .a = &a };
+    a.b = &b;
+
+    try expect(a.b == &b);
+    try expect(b.a == &a);
+}
+
+test "optional field init with tuple" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: ?struct { b: u32 },
+    };
+    var a: u32 = 0;
+    var b = S{
+        .a = .{ .b = a },
+    };
+    try expect(b.a.?.b == a);
+}
+
+test "if inside struct init inside if" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const MyStruct = struct { x: u32 };
+    const b: u32 = 5;
+    var i: u32 = 1;
+    var my_var = if (i < 5)
+        MyStruct{
+            .x = 1 + if (i > 0) b else 0,
+        }
+    else
+        MyStruct{
+            .x = 1 + if (i > 0) b else 0,
+        };
+    try expect(my_var.x == 6);
+}
+
+test "optional generic function label struct field" {
+    const Options = struct {
+        isFoo: ?fn (type) u8 = defaultIsFoo,
+        fn defaultIsFoo(comptime _: type) u8 {
+            return 123;
+        }
+    };
+    try expect((Options{}).isFoo.?(u8) == 123);
+}
