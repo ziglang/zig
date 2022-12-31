@@ -1800,9 +1800,36 @@ fn setupExports(wasm: *Wasm) !void {
     if (wasm.base.options.output_mode == .Obj) return;
     log.debug("Building exports from symbols", .{});
 
+    const force_exp_names = wasm.base.options.export_symbol_names;
+    if (force_exp_names.len > 0) {
+        var failed_exports = try std.ArrayList([]const u8).initCapacity(wasm.base.allocator, force_exp_names.len);
+        defer failed_exports.deinit();
+
+        for (force_exp_names) |exp_name| {
+            const name_index = wasm.string_table.getOffset(exp_name) orelse {
+                failed_exports.appendAssumeCapacity(exp_name);
+                continue;
+            };
+            const loc = wasm.globals.get(name_index) orelse {
+                failed_exports.appendAssumeCapacity(exp_name);
+                continue;
+            };
+
+            const symbol = loc.getSymbol(wasm);
+            symbol.setFlag(.WASM_SYM_EXPORTED);
+        }
+
+        if (failed_exports.items.len > 0) {
+            for (failed_exports.items) |exp_name| {
+                log.err("could not export '{s}', symbol not found", .{exp_name});
+            }
+            return error.MissingSymbol;
+        }
+    }
+
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm);
-        if (!symbol.isExported()) continue;
+        if (!symbol.isExported(wasm.base.options.rdynamic)) continue;
 
         const sym_name = sym_loc.getName(wasm);
         const export_name = if (wasm.export_names.get(sym_loc)) |name| name else blk: {
