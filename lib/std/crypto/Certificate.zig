@@ -504,7 +504,7 @@ fn verifyRsa(
     var msg_hashed: [Hash.digest_length]u8 = undefined;
     Hash.hash(message, &msg_hashed, .{});
 
-    var rsa_mem_buf: [512 * 32]u8 = undefined;
+    var rsa_mem_buf: [512 * 64]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
     const ally = fba.allocator();
 
