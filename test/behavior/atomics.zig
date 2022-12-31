@@ -315,8 +315,8 @@ test "atomicrmw with 128-bit ints" {
 
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    // TODO "ld.lld: undefined symbol: __sync_lock_test_and_set_16" on -target x86_64-linux-none -mcpu x86_64
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .linux) return error.SkipZigTest;
+    // TODO "ld.lld: undefined symbol: __sync_lock_test_and_set_16" on -mcpu x86_64
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
 
     try testAtomicRmwInt128(.unsigned);
     comptime try testAtomicRmwInt128(.unsigned);
