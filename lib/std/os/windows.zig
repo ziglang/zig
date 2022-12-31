@@ -1493,9 +1493,9 @@ pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
-pub const VirtualQuerryError = error{Unexpected};
+pub const VirtualQueryError = error{Unexpected};
 
-pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQuerryError!SIZE_T {
+pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
     const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
