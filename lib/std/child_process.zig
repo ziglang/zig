@@ -1357,6 +1357,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 
 /// Case-insenstive UTF-16 lookup
 fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
+    if (ext.len != 4) return false;
     const State = enum {
         start,
         dot,
@@ -1411,6 +1412,11 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
         },
     };
     return false;
+}
+
+test "windowsCreateProcessSupportsExtension" {
+    try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }));
+    try std.testing.expect(!windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }));
 }
 
 /// Caller must dealloc.
