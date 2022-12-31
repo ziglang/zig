@@ -47,7 +47,7 @@ pub const Request = struct {
                 try req.stream.writeAll(req.headers.items);
             },
             .https => {
-                try req.tls_client.writeAllEnd(req.stream, req.headers.items, true);
+                try req.tls_client.writeAll(req.stream, req.headers.items);
             },
         }
     }
