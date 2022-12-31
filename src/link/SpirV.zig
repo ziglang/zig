@@ -314,7 +314,7 @@ fn cloneAir(air: Air, gpa: Allocator, air_arena: Allocator) !Air {
 
     for (air_tags) |tag, i| {
         switch (tag) {
-            .arg, .alloc, .ret_ptr, .const_ty => air_datas[i].ty = try air_datas[i].ty.copy(air_arena),
+            .alloc, .ret_ptr, .const_ty => air_datas[i].ty = try air_datas[i].ty.copy(air_arena),
             else => {},
         }
     }

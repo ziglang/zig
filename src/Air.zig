@@ -31,7 +31,7 @@ pub const Inst = struct {
         /// The first N instructions in the main block must be one arg instruction per
         /// function parameter. This makes function parameters participate in
         /// liveness analysis without any special handling.
-        /// Uses the `ty` field.
+        /// Uses the `arg` field.
         arg,
         /// Float or integer addition. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
@@ -795,6 +795,10 @@ pub const Inst = struct {
             rhs: Ref,
         },
         ty: Type,
+        arg: struct {
+            ty: Ref,
+            src_index: u32,
+        },
         ty_op: struct {
             ty: Ref,
             operand: Ref,
@@ -1103,10 +1107,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .alloc,
         .ret_ptr,
-        .arg,
         .err_return_trace,
         .c_va_start,
         => return datas[inst].ty,
+
+        .arg => return air.getRefType(datas[inst].arg.ty),
 
         .assembly,
         .block,

@@ -1459,7 +1459,8 @@ pub const Object = struct {
                     .signed => DW.ATE.signed,
                     .unsigned => DW.ATE.unsigned,
                 };
-                const di_type = dib.createBasicType(name, info.bits, dwarf_encoding);
+                const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType(name, di_bits, dwarf_encoding);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1550,7 +1551,8 @@ pub const Object = struct {
                 return di_type;
             },
             .Bool => {
-                const di_type = dib.createBasicType("bool", 1, DW.ATE.boolean);
+                const di_bits = 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType("bool", di_bits, DW.ATE.boolean);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1723,10 +1725,31 @@ pub const Object = struct {
                 return array_di_ty;
             },
             .Vector => {
+                const elem_ty = ty.elemType2();
+                // Vector elements cannot be padded since that would make
+                // @bitSizOf(elem) * len > @bitSizOf(vec).
+                // Neither gdb nor lldb seem to be able to display non-byte sized
+                // vectors properly.
+                const elem_di_type = switch (elem_ty.zigTypeTag()) {
+                    .Int => blk: {
+                        const info = elem_ty.intInfo(target);
+                        assert(info.bits != 0);
+                        const name = try ty.nameAlloc(gpa, o.module);
+                        defer gpa.free(name);
+                        const dwarf_encoding: c_uint = switch (info.signedness) {
+                            .signed => DW.ATE.signed,
+                            .unsigned => DW.ATE.unsigned,
+                        };
+                        break :blk dib.createBasicType(name, info.bits, dwarf_encoding);
+                    },
+                    .Bool => dib.createBasicType("bool", 1, DW.ATE.boolean),
+                    else => try o.lowerDebugType(ty.childType(), .full),
+                };
+
                 const vector_di_ty = dib.createVectorType(
                     ty.abiSize(target) * 8,
                     ty.abiAlignment(target) * 8,
-                    try o.lowerDebugType(ty.childType(), .full),
+                    elem_di_type,
                     ty.vectorLen(),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -1739,7 +1762,8 @@ pub const Object = struct {
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
                 if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
-                    const di_ty = dib.createBasicType(name, 1, DW.ATE.boolean);
+                    const di_bits = 8; // lldb cannot handle non-byte sized types
+                    const di_ty = dib.createBasicType(name, di_bits, DW.ATE.boolean);
                     gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                     return di_ty;
                 }
@@ -1934,7 +1958,8 @@ pub const Object = struct {
                             .signed => DW.ATE.signed,
                             .unsigned => DW.ATE.unsigned,
                         };
-                        const di_ty = dib.createBasicType(name, info.bits, dwarf_encoding);
+                        const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                        const di_ty = dib.createBasicType(name, di_bits, dwarf_encoding);
                         gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                         return di_ty;
                     }
@@ -8062,7 +8087,7 @@ pub const FuncGen = struct {
                 return arg_val;
             }
 
-            const src_index = self.getSrcArgIndex(self.arg_index - 1);
+            const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
             const func = self.dg.decl.getFunction().?;
             const lbrace_line = self.dg.module.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
             const lbrace_col = func.lbrace_column + 1;
@@ -8093,16 +8118,6 @@ pub const FuncGen = struct {
         }
 
         return arg_val;
-    }
-
-    fn getSrcArgIndex(self: *FuncGen, runtime_index: u32) u32 {
-        const fn_info = self.dg.decl.ty.fnInfo();
-        var i: u32 = 0;
-        for (fn_info.param_types) |param_ty, src_index| {
-            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-            if (i == runtime_index) return @intCast(u32, src_index);
-            i += 1;
-        } else unreachable;
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

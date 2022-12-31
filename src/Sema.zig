@@ -476,13 +476,6 @@ pub const Block = struct {
         });
     }
 
-    fn addArg(block: *Block, ty: Type) error{OutOfMemory}!Air.Inst.Ref {
-        return block.addInst(.{
-            .tag = .arg,
-            .data = .{ .ty = ty },
-        });
-    }
-
     fn addStructFieldPtr(
         block: *Block,
         struct_ptr: Air.Inst.Ref,
@@ -7258,7 +7251,13 @@ fn instantiateGenericCall(
                 } else {
                     // We insert into the map an instruction which is runtime-known
                     // but has the type of the argument.
-                    const child_arg = try child_block.addArg(arg_ty);
+                    const child_arg = try child_block.addInst(.{
+                        .tag = .arg,
+                        .data = .{ .arg = .{
+                            .ty = try child_sema.addType(arg_ty),
+                            .src_index = @intCast(u32, arg_i),
+                        } },
+                    });
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 }
             }
