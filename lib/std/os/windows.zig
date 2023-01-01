@@ -240,6 +240,16 @@ pub fn DeviceIoControl(
     }
 }
 
+pub const GetHandleInformationError = error{Unexpected};
+
+pub fn GetHandleInformation(h: HANDLE, flags: *DWORD) GetHandleInformationError!void {
+    if (kernel32.GetHandleInformation(h, flags) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
     if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
@@ -1625,6 +1635,45 @@ pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) G
     return rc;
 }
 
+// zig fmt: off
+pub const PROCESS_CREATION_FLAGS = enum(u32) {
+    // <- gap here ->
+    DEBUG_PROCESS                       = 0x0000_0001,
+    DEBUG_ONLY_THIS_PROCESS             = 0x0000_0002,
+    CREATE_SUSPENDED                    = 0x0000_0004,
+    DETACHED_PROCESS                    = 0x0000_0008,
+    CREATE_NEW_CONSOLE                  = 0x0000_0010,
+    NORMAL_PRIORITY_CLASS               = 0x0000_0020,
+    IDLE_PRIORITY_CLASS                 = 0x0000_0040,
+    HIGH_PRIORITY_CLASS                 = 0x0000_0080,
+    REALTIME_PRIORITY_CLASS             = 0x0000_0100,
+    CREATE_NEW_PROCESS_GROUP            = 0x0000_0200,
+    CREATE_UNICODE_ENVIRONMENT          = 0x0000_0400,
+    CREATE_SEPARATE_WOW_VDM             = 0x0000_0800,
+    CREATE_SHARED_WOW_VDM               = 0x0000_1000,
+    CREATE_FORCEDOS                     = 0x0000_2000,
+    BELOW_NORMAL_PRIORITY_CLASS         = 0x0000_4000,
+    ABOVE_NORMAL_PRIORITY_CLASS         = 0x0000_8000,
+    INHERIT_PARENT_AFFINITY             = 0x0001_0000,
+    INHERIT_CALLER_PRIORITY             = 0x0002_0000,
+    CREATE_PROTECTED_PROCESS            = 0x0004_0000,
+    EXTENDED_STARTUPINFO_PRESENT        = 0x0008_0000,
+    PROCESS_MODE_BACKGROUND_BEGIN       = 0x0010_0000,
+    PROCESS_MODE_BACKGROUND_END         = 0x0020_0000,
+    CREATE_SECURE_PROCESS               = 0x0040_0000,
+    // <- gap here ->
+    CREATE_BREAKAWAY_FROM_JOB           = 0x0100_0000,
+    CREATE_PRESERVE_CODE_AUTHZ_LEVEL    = 0x0200_0000,
+    CREATE_DEFAULT_ERROR_MODE           = 0x0400_0000,
+    CREATE_NO_WINDOW                    = 0x0800_0000,
+    PROFILE_USER                        = 0x1000_0000,
+    PROFILE_KERNEL                      = 0x2000_0000,
+    PROFILE_SERVER                      = 0x4000_0000,
+    CREATE_IGNORE_SYSTEM_DEFAULT        = 0x8000_0000,
+    _,
+};
+// zig fmt: on
+
 pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
@@ -2986,8 +3035,6 @@ pub const COORD = extern struct {
     X: SHORT,
     Y: SHORT,
 };
-
-pub const CREATE_UNICODE_ENVIRONMENT = 1024;
 
 pub const TLS_OUT_OF_INDEXES = 4294967295;
 pub const IMAGE_TLS_DIRECTORY = extern struct {

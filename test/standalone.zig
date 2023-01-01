@@ -137,6 +137,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/install_raw_hex",
         .import = @import("standalone/install_raw_hex/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/childprocess_extrapipe",
+        .import = @import("standalone/childprocess_extrapipe/build.zig"),
+    },
     // TODO take away EmitOption.emit_to option and make it give a FileSource
     //.{
     //    .build_root = "test/standalone/emit_asm_and_bin",

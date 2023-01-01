@@ -309,6 +309,27 @@ pub fn close(fd: fd_t) void {
     }
 }
 
+pub const windowsPtrDigits = 19; // log10(max(usize))
+pub const unixoidPtrDigits = 10; // log10(max(u32)) + 1 for sign
+pub const handleCharSize = if (builtin.target.os.tag == .windows) windowsPtrDigits else unixoidPtrDigits;
+
+pub fn handleToString(handle: fd_t, buf: []u8) std.fmt.BufPrintError![]u8 {
+    var s_handle: []u8 = undefined;
+    const handle_int =
+        // handle is *anyopaque or an integer on unix-likes Kernels.
+        if (builtin.target.os.tag == .windows) @ptrToInt(handle) else handle;
+    s_handle = try std.fmt.bufPrint(buf[0..], "{d}", .{handle_int});
+    return s_handle;
+}
+
+pub fn stringToHandle(s_handle: []const u8) std.fmt.ParseIntError!std.os.fd_t {
+    var handle: std.os.fd_t = if (builtin.target.os.tag == .windows)
+        @intToPtr(windows.HANDLE, try std.fmt.parseInt(usize, s_handle, 10))
+    else
+        try std.fmt.parseInt(std.os.fd_t, s_handle, 10);
+    return handle;
+}
+
 pub const FChmodError = error{
     AccessDenied,
     InputOutput,
@@ -4960,6 +4981,44 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
         .SPIPE => return error.Unseekable,
         .NXIO => return error.Unseekable,
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+const IsInheritableError = FcntlError || windows.GetHandleInformationError;
+
+/// Whether inheritence is enabled or CLOEXEC is not set.
+pub inline fn isInheritable(handle: fd_t) IsInheritableError!bool {
+    if (builtin.os.tag == .windows) {
+        var handle_flags: windows.DWORD = undefined;
+        try windows.GetHandleInformation(handle, &handle_flags);
+        return handle_flags & windows.HANDLE_FLAG_INHERIT != 0;
+    } else {
+        const fcntl_flags = try fcntl(handle, F.GETFD, 0);
+        return fcntl_flags & FD_CLOEXEC == 0;
+    }
+}
+
+const EnableInheritanceError = FcntlError || windows.SetHandleInformationError;
+
+/// Enables inheritence or sets CLOEXEC.
+pub inline fn enableInheritance(handle: fd_t) EnableInheritanceError!void {
+    if (builtin.os.tag == .windows) {
+        try windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, 1);
+    } else {
+        var flags = try fcntl(handle, F.GETFD, 0);
+        flags &= ~@as(u32, FD_CLOEXEC);
+        _ = try fcntl(handle, F.SETFD, flags);
+    }
+}
+
+const DisableInheritanceError = FcntlError || windows.SetHandleInformationError;
+
+/// Disables inheritence or unsets CLOEXEC.
+pub inline fn disableInheritance(handle: fd_t) DisableInheritanceError!void {
+    if (builtin.os.tag == .windows) {
+        try windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, 0);
+    } else {
+        _ = try fcntl(handle, F.SETFD, FD_CLOEXEC);
     }
 }
 
