@@ -2453,6 +2453,12 @@ fn buildOutputType(
             clang_argv.appendAssumeCapacity(include_dir);
         }
 
+        try clang_argv.ensureUnusedCapacity(framework_dirs.items.len * 2);
+        for (framework_dirs.items) |framework_dir| {
+            clang_argv.appendAssumeCapacity("-F");
+            clang_argv.appendAssumeCapacity(framework_dir);
+        }
+
         try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
         try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
         const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
