@@ -805,6 +805,7 @@ fn validateFeatures(
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
     if (wasm.base.options.output_mode == .Obj) return;
+    if (wasm.base.options.import_symbols) return;
 
     var found_undefined_symbols = false;
     for (wasm.undefs.values()) |undef| {
@@ -2467,6 +2468,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
+    try wasm.checkUndefinedSymbols();
 
     try wasm.setupStart();
     try wasm.setupImports();
