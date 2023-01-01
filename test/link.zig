@@ -47,6 +47,10 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
+    cases.addBuildFile("test/link/wasm/export-data/build.zig", .{
+        .build_modes = true,
+    });
+
     cases.addBuildFile("test/link/wasm/extern/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
