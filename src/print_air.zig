@@ -204,10 +204,11 @@ const Writer = struct {
             .const_ty,
             .alloc,
             .ret_ptr,
-            .arg,
             .err_return_trace,
             .c_va_start,
             => try w.writeTy(s, inst),
+
+            .arg => try w.writeArg(s, inst),
 
             .not,
             .bitcast,
@@ -349,6 +350,12 @@ const Writer = struct {
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty = w.air.instructions.items(.data)[inst].ty;
         try w.writeType(s, ty);
+    }
+
+    fn writeArg(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const arg = w.air.instructions.items(.data)[inst].arg;
+        try w.writeType(s, w.air.getRefType(arg.ty));
+        try s.print(", {d}", .{arg.src_index});
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

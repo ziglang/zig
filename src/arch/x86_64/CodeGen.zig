@@ -3799,7 +3799,8 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
     const ty = self.air.typeOfIndex(inst);
     const mcv = self.args[arg_index];
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
+    const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();

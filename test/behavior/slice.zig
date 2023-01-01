@@ -737,3 +737,13 @@ test "empty slice ptr is non null" {
     const t = @ptrCast([*]i8, p);
     try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
 }
+
+test "slice decays to many pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var buf: [8]u8 = "abcdefg\x00".*;
+    const p: [*:0]const u8 = buf[0..7 :0];
+    try expectEqualStrings(buf[0..7], std.mem.span(p));
+}

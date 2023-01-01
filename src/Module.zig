@@ -5672,11 +5672,15 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
             runtime_param_index += 1;
             continue;
         }
+        const air_ty = try sema.addType(param_ty);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{ .ty = param_ty },
+            .data = .{ .arg = .{
+                .ty = air_ty,
+                .src_index = @intCast(u32, total_param_index),
+            } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
         total_param_index += 1;
