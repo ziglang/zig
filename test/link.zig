@@ -58,6 +58,11 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
+    cases.addBuildFile("test/link/wasm/function-table/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
     cases.addBuildFile("test/link/wasm/infer-features/build.zig", .{
         .requires_stage2 = true,
     });
