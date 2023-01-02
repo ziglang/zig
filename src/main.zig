@@ -629,6 +629,10 @@ const Emit = union(enum) {
 };
 
 fn optionalStringEnvVar(arena: Allocator, name: []const u8) !?[]const u8 {
+    // Env vars aren't used in the bootstrap stage.
+    if (build_options.only_c) {
+        return null;
+    }
     if (std.process.getEnvVarOwned(arena, name)) |value| {
         return value;
     } else |err| switch (err) {
