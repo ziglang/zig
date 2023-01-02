@@ -508,7 +508,7 @@ pub fn HashMap(
         /// If a new entry needs to be stored, this function asserts there
         /// is enough capacity to store it.
         pub fn getOrPutAssumeCapacityAdapted(self: *Self, key: anytype, ctx: anytype) GetOrPutResult {
-            return self.unmanaged.getOrPutAssumeCapacityAdapted(self.allocator, key, ctx);
+            return self.unmanaged.getOrPutAssumeCapacityAdapted(key, ctx);
         }
 
         pub fn getOrPutValue(self: *Self, key: K, value: V) Allocator.Error!Entry {
