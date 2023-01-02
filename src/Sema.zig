@@ -2536,6 +2536,9 @@ fn coerceResultPtr(
             .wrap_errunion_payload => {
                 new_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, new_ptr, false, true);
             },
+            .array_to_slice => {
+                return sema.fail(block, src, "TODO coerce_result_ptr array_to_slice", .{});
+            },
             else => {
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected AIR tag for coerce_result_ptr: {}", .{
@@ -7839,7 +7842,23 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     if (try sema.resolveMaybeUndefVal(operand)) |int_val| {
         if (dest_ty.isNonexhaustiveEnum()) {
-            return sema.addConstant(dest_ty, int_val);
+            var buffer: Type.Payload.Bits = undefined;
+            const int_tag_ty = dest_ty.intTagType(&buffer);
+            if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
+                return sema.addConstant(dest_ty, int_val);
+            }
+            const msg = msg: {
+                const msg = try sema.errMsg(
+                    block,
+                    src,
+                    "int value '{}' out of range of non-exhaustive enum '{}'",
+                    .{ int_val.fmtValue(sema.typeOf(operand), sema.mod), dest_ty.fmt(sema.mod) },
+                );
+                errdefer msg.destroy(sema.gpa);
+                try sema.addDeclaredHereNote(msg, dest_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (int_val.isUndef()) {
             return sema.failWithUseOfUndef(block, operand_src);
@@ -32886,7 +32905,7 @@ fn enumHasInt(
     int: Value,
 ) CompileError!bool {
     switch (ty.tag()) {
-        .enum_nonexhaustive => return sema.intFitsInType(int, ty, null),
+        .enum_nonexhaustive => unreachable,
         .enum_full => {
             const enum_full = ty.castTag(.enum_full).?.data;
             const tag_ty = enum_full.tag_ty;
