@@ -830,6 +830,8 @@ pub const Manifest = struct {
     /// If `want_shared_lock` is true, this function automatically downgrades the
     /// lock from exclusive to shared.
     pub fn writeManifest(self: *Manifest) !void {
+        assert(self.have_exclusive_lock);
+
         const manifest_file = self.manifest_file.?;
         if (self.manifest_dirty) {
             self.manifest_dirty = false;
