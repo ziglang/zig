@@ -1776,6 +1776,8 @@ pub fn UnlockFile(
     }
 }
 
+/// This is a workaround for the C backend until zig has the ability to put
+/// C code in inline assembly.
 extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
 
 pub fn teb() *TEB {
