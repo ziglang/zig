@@ -1458,7 +1458,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .gpa = gpa,
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
-        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
+        cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
         cache.addPrefix(options.zig_lib_directory);
         cache.addPrefix(options.local_cache_directory);
         errdefer cache.manifest_dir.close();
