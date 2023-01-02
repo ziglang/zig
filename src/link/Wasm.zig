@@ -813,7 +813,12 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
             const file_name = if (undef.file) |file_index| name: {
                 break :name wasm.objects.items[file_index].name;
             } else wasm.name;
-            log.err("could not resolve undefined symbol '{s}'", .{undef.getName(wasm)});
+            const import_name = if (undef.file) |file_index| name: {
+                const obj = wasm.objects.items[file_index];
+                const name_index = obj.findImport(symbol.tag.externalType(), symbol.index).name;
+                break :name obj.string_table.get(name_index);
+            } else wasm.string_table.get(wasm.imports.get(undef).?.name);
+            log.err("could not resolve undefined symbol '{s}'", .{import_name});
             log.err("  defined in '{s}'", .{file_name});
         }
     }
@@ -1430,18 +1435,31 @@ pub fn addOrUpdateImport(
     type_index: ?u32,
 ) !void {
     assert(symbol_index != 0);
-    // For the import name itwasm, we use the decl's name, rather than the fully qualified name
-    const decl_name_index = try wasm.string_table.put(wasm.base.allocator, name);
+    // For the import name, we use the decl's name, rather than the fully qualified name
+    // Also mangle the name when the lib name is set and not equal to "C" so imports with the same
+    // name but different module can be resolved correctly.
+    const mangle_name = lib_name != null and
+        !std.mem.eql(u8, std.mem.sliceTo(lib_name.?, 0), "c");
+    const full_name = if (mangle_name) full_name: {
+        break :full_name try std.fmt.allocPrint(wasm.base.allocator, "{s}|{s}", .{ name, lib_name.? });
+    } else name;
+    defer if (mangle_name) wasm.base.allocator.free(full_name);
+
+    const decl_name_index = try wasm.string_table.put(wasm.base.allocator, full_name);
     const symbol: *Symbol = &wasm.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
     symbol.name = decl_name_index;
+    if (mangle_name) {
+        // we specified a specific name for the symbol that does not match the import name
+        symbol.setFlag(.WASM_SYM_EXPLICIT_NAME);
+    }
     const global_gop = try wasm.globals.getOrPut(wasm.base.allocator, decl_name_index);
     if (!global_gop.found_existing) {
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
-        try wasm.undefs.putNoClobber(wasm.base.allocator, name, loc);
+        try wasm.undefs.putNoClobber(wasm.base.allocator, full_name, loc);
     }
 
     if (type_index) |ty_index| {
@@ -1452,7 +1470,7 @@ pub fn addOrUpdateImport(
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
                 .module_name = try wasm.string_table.put(wasm.base.allocator, module_name),
-                .name = decl_name_index,
+                .name = try wasm.string_table.put(wasm.base.allocator, name),
                 .kind = .{ .function = ty_index },
             };
         }
@@ -3130,11 +3148,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm).*;
-        const name = if (symbol.isUndefined()) blk: {
-            if (symbol.tag == .data) continue;
-            const imp = wasm.imports.get(sym_loc) orelse continue;
-            break :blk wasm.string_table.get(imp.name);
-        } else sym_loc.getName(wasm);
+        const name = sym_loc.getName(wasm);
         switch (symbol.tag) {
             .function => {
                 const gop = funcs.getOrPutAssumeCapacity(symbol.index);

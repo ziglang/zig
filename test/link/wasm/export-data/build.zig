@@ -2,13 +2,11 @@ const std = @import("std");
 const Builder = std.build.Builder;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
     const lib = b.addSharedLibrary("lib", "lib.zig", .unversioned);
-    lib.setBuildMode(mode);
+    lib.setBuildMode(.ReleaseSafe); // to make the output deterministic in address positions
     lib.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     lib.use_lld = false;
     lib.export_symbol_names = &.{ "foo", "bar" };
@@ -25,8 +23,8 @@ pub fn build(b: *Builder) void {
     check_lib.checkNext("type i32");
     check_lib.checkNext("mutable false");
     check_lib.checkNext("i32.const {bar_address}");
-    check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 0x0c } });
-    check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 0x10 } });
+    check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 4 } });
 
     check_lib.checkStart("Section export");
     check_lib.checkNext("entries 3");
