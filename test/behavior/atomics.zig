@@ -256,12 +256,12 @@ test "atomicrmw with ints" {
 
 fn testAtomicRmwInts() !void {
     // TODO: Use the max atomic bit size for the target, maybe builtin?
-    try testAtomicRmwInt(8);
+    try testAtomicRmwInt(.unsigned, 8);
 
     if (builtin.cpu.arch == .x86_64) {
-        try testAtomicRmwInt(16);
-        try testAtomicRmwInt(32);
-        try testAtomicRmwInt(64);
+        try testAtomicRmwInt(.unsigned, 16);
+        try testAtomicRmwInt(.unsigned, 32);
+        try testAtomicRmwInt(.unsigned, 64);
     }
 }
 
