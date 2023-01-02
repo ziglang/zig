@@ -3771,7 +3771,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
         .Bool => doNotOptimizeAway(@boolToInt(val)),
         .Int => {
             const bits = t.Int.bits;
-            if (bits <= max_gp_register_bits) {
+            if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
                 const val2 = @as(
                     std.meta.Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
                     val,
@@ -3783,18 +3783,24 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else doNotOptimizeAway(&val);
         },
         .Float => {
-            if (t.Float.bits == 32 or t.Float.bits == 64) {
+            if ((t.Float.bits == 32 or t.Float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
                     : [val] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
-        .Pointer => asm volatile (""
-            :
-            : [val] "m" (val),
-            : "memory"
-        ),
+        .Pointer => {
+            if (builtin.zig_backend == .stage2_c) {
+                doNotOptimizeAwayC(val);
+            } else {
+                asm volatile (""
+                    :
+                    : [val] "m" (val),
+                    : "memory"
+                );
+            }
+        },
         .Array => {
             if (t.Array.len * @sizeOf(t.Array.child) <= 64) {
                 for (val) |v| doNotOptimizeAway(v);
@@ -3802,6 +3808,16 @@ pub fn doNotOptimizeAway(val: anytype) void {
         },
         else => doNotOptimizeAway(&val),
     }
+}
+
+/// .stage2_c doesn't support asm blocks yet, so use volatile stores instead
+var deopt_target: if (builtin.zig_backend == .stage2_c) u8 else void = undefined;
+fn doNotOptimizeAwayC(ptr: anytype) void {
+    const dest = @ptrCast(*volatile u8, &deopt_target);
+    for (asBytes(ptr)) |b| {
+        dest.* = b;
+    }
+    dest.* = 0;
 }
 
 test "doNotOptimizeAway" {

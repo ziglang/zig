@@ -1776,16 +1776,26 @@ pub fn UnlockFile(
     }
 }
 
+/// This is a workaround for the C backend until zig has the ability to put
+/// C code in inline assembly.
+extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
+
 pub fn teb() *TEB {
     return switch (native_arch) {
         .x86 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB),
         ),
-        .x86_64 => asm volatile (
-            \\ movq %%gs:0x30, %[ptr]
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .x86_64 => blk: {
+            if (builtin.zig_backend == .stage2_c) {
+                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_64_windows_teb()));
+            } else {
+                break :blk asm volatile (
+                    \\ movq %%gs:0x30, %[ptr]
+                    : [ptr] "=r" (-> *TEB),
+                );
+            }
+        },
         .aarch64 => asm volatile (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
@@ -3455,6 +3465,21 @@ pub const ASSEMBLY_STORAGE_MAP = opaque {};
 pub const FLS_CALLBACK_INFO = opaque {};
 pub const RTL_BITMAP = opaque {};
 pub const KAFFINITY = usize;
+pub const KPRIORITY = i32;
+
+pub const CLIENT_ID = extern struct {
+    UniqueProcess: HANDLE,
+    UniqueThread: HANDLE,
+};
+
+pub const THREAD_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    TebBaseAddress: PVOID,
+    ClientId: CLIENT_ID,
+    AffinityMask: KAFFINITY,
+    Priority: KPRIORITY,
+    BasePriority: KPRIORITY,
+};
 
 pub const TEB = extern struct {
     Reserved1: [12]PVOID,
