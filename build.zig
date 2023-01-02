@@ -569,6 +569,10 @@ fn addCmakeCfgOptionsToExe(
     exe: *std.build.LibExeObjStep,
     use_zig_libcxx: bool,
 ) !void {
+    if (exe.target.isDarwin()) {
+        // useful for package maintainers
+        exe.headerpad_max_install_names = true;
+    }
     exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
