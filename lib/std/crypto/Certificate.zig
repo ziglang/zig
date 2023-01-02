@@ -198,14 +198,13 @@ pub const Parsed = struct {
     ///  * That the subject's issuer is indeed the provided issuer.
     ///  * The time validity of the subject.
     ///  * The signature.
-    pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed) VerifyError!void {
+    pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed, now_sec: i64) VerifyError!void {
         // Check that the subject's issuer name matches the issuer's
         // subject name.
         if (!mem.eql(u8, parsed_subject.issuer(), parsed_issuer.subject())) {
             return error.CertificateIssuerMismatch;
         }
 
-        const now_sec = std.time.timestamp();
         if (now_sec < parsed_subject.validity.not_before)
             return error.CertificateNotYetValid;
         if (now_sec > parsed_subject.validity.not_after)
@@ -419,10 +418,10 @@ pub fn parse(cert: Certificate) !Parsed {
     };
 }
 
-pub fn verify(subject: Certificate, issuer: Certificate) !void {
+pub fn verify(subject: Certificate, issuer: Certificate, now_sec: i64) !void {
     const parsed_subject = try subject.parse();
     const parsed_issuer = try issuer.parse();
-    return parsed_subject.verify(parsed_issuer);
+    return parsed_subject.verify(parsed_issuer, now_sec);
 }
 
 pub fn contents(cert: Certificate, elem: der.Element) []const u8 {

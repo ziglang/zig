@@ -13,7 +13,7 @@ pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,
 };
 
-pub fn verify(cb: Bundle, subject: Certificate.Parsed) VerifyError!void {
+pub fn verify(cb: Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError!void {
     const bytes_index = cb.find(subject.issuer()) orelse return error.CertificateIssuerNotFound;
     const issuer_cert: Certificate = .{
         .buffer = cb.bytes.items,
@@ -22,7 +22,7 @@ pub fn verify(cb: Bundle, subject: Certificate.Parsed) VerifyError!void {
     // Every certificate in the bundle is pre-parsed before adding it, ensuring
     // that parsing will succeed here.
     const issuer = issuer_cert.parse() catch unreachable;
-    try subject.verify(issuer);
+    try subject.verify(issuer, now_sec);
 }
 
 /// The returned bytes become invalid after calling any of the rescan functions

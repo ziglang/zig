@@ -351,6 +351,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !C
     var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
     var main_cert_pub_key_buf: [300]u8 = undefined;
     var main_cert_pub_key_len: u16 = undefined;
+    const now_sec = std.time.timestamp();
 
     while (true) {
         try d.readAtLeastOurAmt(stream, tls.record_header_len);
@@ -458,10 +459,10 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !C
                                     @memcpy(&main_cert_pub_key_buf, pub_key.ptr, pub_key.len);
                                     main_cert_pub_key_len = @intCast(@TypeOf(main_cert_pub_key_len), pub_key.len);
                                 } else {
-                                    try prev_cert.verify(subject);
+                                    try prev_cert.verify(subject, now_sec);
                                 }
 
-                                if (ca_bundle.verify(subject)) |_| {
+                                if (ca_bundle.verify(subject, now_sec)) |_| {
                                     handshake_state = .trust_chain_established;
                                     break :cert;
                                 } else |err| switch (err) {
