@@ -111,6 +111,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !C
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
         .ecdsa_secp521r1_sha512,
+        .rsa_pss_rsae_sha256,
+        .rsa_pss_rsae_sha384,
+        .rsa_pss_rsae_sha512,
         .rsa_pkcs1_sha256,
         .rsa_pkcs1_sha384,
         .rsa_pkcs1_sha512,
@@ -444,9 +447,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !C
                                 const subject = try subject_cert.parse();
                                 if (cert_index == 0) {
                                     // Verify the host on the first certificate.
-                                    if (!hostMatchesCommonName(host, subject.commonName())) {
-                                        return error.TlsCertificateHostMismatch;
-                                    }
+                                    try subject.verifyHostName(host);
 
                                     // Keep track of the public key for the
                                     // certificate_verify message later.
@@ -1160,26 +1161,6 @@ fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
     } else {
         return s2[index - s1.len];
     }
-}
-
-fn hostMatchesCommonName(host: []const u8, common_name: []const u8) bool {
-    if (mem.eql(u8, common_name, host)) {
-        return true; // exact match
-    }
-
-    if (mem.startsWith(u8, common_name, "*.")) {
-        // wildcard certificate, matches any subdomain
-        if (mem.endsWith(u8, host, common_name[1..])) {
-            // The host has a subdomain, but the important part matches.
-            return true;
-        }
-        if (mem.eql(u8, common_name[2..], host)) {
-            // The host has no subdomain and matches exactly.
-            return true;
-        }
-    }
-
-    return false;
 }
 
 const builtin = @import("builtin");

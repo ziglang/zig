@@ -81,6 +81,43 @@ pub const NamedCurve = enum {
     });
 };
 
+pub const ExtensionId = enum {
+    subject_key_identifier,
+    key_usage,
+    private_key_usage_period,
+    subject_alt_name,
+    issuer_alt_name,
+    basic_constraints,
+    crl_number,
+    certificate_policies,
+    authority_key_identifier,
+
+    pub const map = std.ComptimeStringMap(ExtensionId, .{
+        .{ &[_]u8{ 0x55, 0x1D, 0x0E }, .subject_key_identifier },
+        .{ &[_]u8{ 0x55, 0x1D, 0x0F }, .key_usage },
+        .{ &[_]u8{ 0x55, 0x1D, 0x10 }, .private_key_usage_period },
+        .{ &[_]u8{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
+        .{ &[_]u8{ 0x55, 0x1D, 0x12 }, .issuer_alt_name },
+        .{ &[_]u8{ 0x55, 0x1D, 0x13 }, .basic_constraints },
+        .{ &[_]u8{ 0x55, 0x1D, 0x14 }, .crl_number },
+        .{ &[_]u8{ 0x55, 0x1D, 0x20 }, .certificate_policies },
+        .{ &[_]u8{ 0x55, 0x1D, 0x23 }, .authority_key_identifier },
+    });
+};
+
+pub const GeneralNameTag = enum(u5) {
+    otherName = 0,
+    rfc822Name = 1,
+    dNSName = 2,
+    x400Address = 3,
+    directoryName = 4,
+    ediPartyName = 5,
+    uniformResourceIdentifier = 6,
+    iPAddress = 7,
+    registeredID = 8,
+    _,
+};
+
 pub const Parsed = struct {
     certificate: Certificate,
     issuer_slice: Slice,
@@ -91,6 +128,7 @@ pub const Parsed = struct {
     pub_key_algo: PubKeyAlgo,
     pub_key_slice: Slice,
     message_slice: Slice,
+    subject_alt_name_slice: Slice,
     validity: Validity,
 
     pub const PubKeyAlgo = union(AlgorithmCategory) {
@@ -137,6 +175,10 @@ pub const Parsed = struct {
         return p.slice(p.message_slice);
     }
 
+    pub fn subjectAltName(p: Parsed) []const u8 {
+        return p.slice(p.subject_alt_name_slice);
+    }
+
     pub const VerifyError = error{
         CertificateIssuerMismatch,
         CertificateNotYetValid,
@@ -152,8 +194,10 @@ pub const Parsed = struct {
         CertificateSignatureNamedCurveUnsupported,
     };
 
-    /// This function checks the time validity for the subject only. Checking
-    /// the issuer's time validity is out of scope.
+    /// This function verifies:
+    ///  * That the subject's issuer is indeed the provided issuer.
+    ///  * The time validity of the subject.
+    ///  * The signature.
     pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed) VerifyError!void {
         // Check that the subject's issuer name matches the issuer's
         // subject name.
@@ -193,6 +237,62 @@ pub const Parsed = struct {
                 parsed_issuer.pubKey(),
             ),
         }
+    }
+
+    pub const VerifyHostNameError = error{
+        CertificateHostMismatch,
+        CertificateFieldHasInvalidLength,
+    };
+
+    pub fn verifyHostName(parsed_subject: Parsed, host_name: []const u8) VerifyHostNameError!void {
+        // If the Subject Alternative Names extension is present, this is
+        // what to check. Otherwise, only the common name is checked.
+        const subject_alt_name = parsed_subject.subjectAltName();
+        if (subject_alt_name.len == 0) {
+            if (checkHostName(host_name, parsed_subject.commonName())) {
+                return;
+            } else {
+                return error.CertificateHostMismatch;
+            }
+        }
+
+        const general_names = try der.Element.parse(subject_alt_name, 0);
+        var name_i = general_names.slice.start;
+        while (name_i < general_names.slice.end) {
+            const general_name = try der.Element.parse(subject_alt_name, name_i);
+            name_i = general_name.slice.end;
+            switch (@intToEnum(GeneralNameTag, @enumToInt(general_name.identifier.tag))) {
+                .dNSName => {
+                    const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
+                    if (checkHostName(host_name, dns_name)) return;
+                },
+                else => {},
+            }
+        }
+
+        return error.CertificateHostMismatch;
+    }
+
+    fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
+        if (mem.eql(u8, dns_name, host_name)) {
+            return true; // exact match
+        }
+
+        if (mem.startsWith(u8, dns_name, "*.")) {
+            // wildcard certificate, matches any subdomain
+            // TODO: I think wildcards are not supposed to match any prefix but
+            // only match exactly one subdomain.
+            if (mem.endsWith(u8, host_name, dns_name[1..])) {
+                // The host_name has a subdomain, but the important part matches.
+                return true;
+            }
+            if (mem.eql(u8, dns_name[2..], host_name)) {
+                // The host_name has no subdomain and matches exactly.
+                return true;
+            }
+        }
+
+        return false;
     }
 };
 
@@ -268,6 +368,39 @@ pub fn parse(cert: Certificate) !Parsed {
     const sig_elem = try der.Element.parse(cert_bytes, sig_algo.slice.end);
     const signature = try parseBitString(cert, sig_elem);
 
+    // Extensions
+    var subject_alt_name_slice = der.Element.Slice.empty;
+    ext: {
+        if (pub_key_info.slice.end >= tbs_certificate.slice.end)
+            break :ext;
+
+        const outer_extensions = try der.Element.parse(cert_bytes, pub_key_info.slice.end);
+        if (outer_extensions.identifier.tag != .bitstring)
+            break :ext;
+
+        const extensions = try der.Element.parse(cert_bytes, outer_extensions.slice.start);
+
+        var ext_i = extensions.slice.start;
+        while (ext_i < extensions.slice.end) {
+            const extension = try der.Element.parse(cert_bytes, ext_i);
+            ext_i = extension.slice.end;
+            const oid_elem = try der.Element.parse(cert_bytes, extension.slice.start);
+            const ext_id = parseExtensionId(cert_bytes, oid_elem) catch |err| switch (err) {
+                error.CertificateHasUnrecognizedObjectId => continue,
+                else => |e| return e,
+            };
+            const critical_elem = try der.Element.parse(cert_bytes, oid_elem.slice.end);
+            const ext_bytes_elem = if (critical_elem.identifier.tag != .boolean)
+                critical_elem
+            else
+                try der.Element.parse(cert_bytes, critical_elem.slice.end);
+            switch (ext_id) {
+                .subject_alt_name => subject_alt_name_slice = ext_bytes_elem.slice,
+                else => continue,
+            }
+        }
+    }
+
     return .{
         .certificate = cert,
         .common_name_slice = common_name,
@@ -282,6 +415,7 @@ pub fn parse(cert: Certificate) !Parsed {
             .not_before = not_before_utc,
             .not_after = not_after_utc,
         },
+        .subject_alt_name_slice = subject_alt_name_slice,
     };
 }
 
@@ -444,6 +578,10 @@ pub fn parseNamedCurve(bytes: []const u8, element: der.Element) !NamedCurve {
     return parseEnum(NamedCurve, bytes, element);
 }
 
+pub fn parseExtensionId(bytes: []const u8, element: der.Element) !ExtensionId {
+    return parseEnum(ExtensionId, bytes, element);
+}
+
 fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) !E {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
@@ -604,6 +742,7 @@ pub const der = struct {
         boolean = 1,
         integer = 2,
         bitstring = 3,
+        octetstring = 4,
         null = 5,
         object_identifier = 6,
         sequence = 16,
