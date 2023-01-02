@@ -2536,6 +2536,9 @@ fn coerceResultPtr(
             .wrap_errunion_payload => {
                 new_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, new_ptr, false, true);
             },
+            .array_to_slice => {
+                return sema.fail(block, src, "TODO coerce_result_ptr array_to_slice", .{});
+            },
             else => {
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected AIR tag for coerce_result_ptr: {}", .{
@@ -7839,7 +7842,23 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     if (try sema.resolveMaybeUndefVal(operand)) |int_val| {
         if (dest_ty.isNonexhaustiveEnum()) {
-            return sema.addConstant(dest_ty, int_val);
+            var buffer: Type.Payload.Bits = undefined;
+            const int_tag_ty = dest_ty.intTagType(&buffer);
+            if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
+                return sema.addConstant(dest_ty, int_val);
+            }
+            const msg = msg: {
+                const msg = try sema.errMsg(
+                    block,
+                    src,
+                    "int value '{}' out of range of non-exhaustive enum '{}'",
+                    .{ int_val.fmtValue(sema.typeOf(operand), sema.mod), dest_ty.fmt(sema.mod) },
+                );
+                errdefer msg.destroy(sema.gpa);
+                try sema.addDeclaredHereNote(msg, dest_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (int_val.isUndef()) {
             return sema.failWithUseOfUndef(block, operand_src);
@@ -30318,6 +30337,18 @@ fn resolveTypeFieldsStruct(
     ty: Type,
     struct_obj: *Module.Struct,
 ) CompileError!void {
+    switch (sema.mod.declPtr(struct_obj.owner_decl).analysis) {
+        .file_failure,
+        .dependency_failure,
+        .sema_failure,
+        .sema_failure_retryable,
+        => {
+            sema.owner_decl.analysis = .dependency_failure;
+            sema.owner_decl.generation = sema.mod.generation;
+            return error.AnalysisFail;
+        },
+        else => {},
+    }
     switch (struct_obj.status) {
         .none => {},
         .field_types_wip => {
@@ -30338,10 +30369,23 @@ fn resolveTypeFieldsStruct(
     }
 
     struct_obj.status = .field_types_wip;
+    errdefer struct_obj.status = .none;
     try semaStructFields(sema.mod, struct_obj);
 }
 
 fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_obj: *Module.Union) CompileError!void {
+    switch (sema.mod.declPtr(union_obj.owner_decl).analysis) {
+        .file_failure,
+        .dependency_failure,
+        .sema_failure,
+        .sema_failure_retryable,
+        => {
+            sema.owner_decl.analysis = .dependency_failure;
+            sema.owner_decl.generation = sema.mod.generation;
+            return error.AnalysisFail;
+        },
+        else => {},
+    }
     switch (union_obj.status) {
         .none => {},
         .field_types_wip => {
@@ -30362,6 +30406,7 @@ fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_obj: *Module.Union) Compi
     }
 
     union_obj.status = .field_types_wip;
+    errdefer union_obj.status = .none;
     try semaUnionFields(sema.mod, union_obj);
     union_obj.status = .have_field_types;
 }
@@ -30426,9 +30471,7 @@ fn resolveInferredErrorSetTy(
 fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void {
     const gpa = mod.gpa;
     const decl_index = struct_obj.owner_decl;
-    const file_scope = struct_obj.namespace.file_scope;
-    if (file_scope.status != .success_zir) return error.AnalysisFail;
-    const zir = file_scope.zir;
+    const zir = struct_obj.namespace.file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
@@ -32886,7 +32929,7 @@ fn enumHasInt(
     int: Value,
 ) CompileError!bool {
     switch (ty.tag()) {
-        .enum_nonexhaustive => return sema.intFitsInType(int, ty, null),
+        .enum_nonexhaustive => unreachable,
         .enum_full => {
             const enum_full = ty.castTag(.enum_full).?.data;
             const tag_ty = enum_full.tag_ty;
