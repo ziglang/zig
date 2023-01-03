@@ -26,6 +26,14 @@ partial_ciphertext_end: u15,
 /// When this is true, the stream may still not be at the end because there
 /// may be data in `partially_read_buffer`.
 received_close_notify: bool,
+/// By default, reaching the end-of-stream when reading from the server will
+/// cause `error.TlsConnectionTruncated` to be returned, unless a close_notify
+/// message has been received. By setting this flag to `true`, instead, the
+/// end-of-stream will be forwarded to the application layer above TLS.
+/// This makes the application vulnerable to truncation attacks unless the
+/// application layer itself verifies that the amount of data received equals
+/// the amount of data expected, such as HTTP with the Content-Length header.
+allow_truncation_attacks: bool = false,
 application_cipher: tls.ApplicationCipher,
 /// The size is enough to contain exactly one TLSCiphertext record.
 /// This buffer is segmented into four parts:
@@ -900,8 +908,14 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
     const actual_read_len = try stream.readv(ask_iovecs);
     if (actual_read_len == 0) {
-        // This is either a truncation attack, or a bug in the server.
-        return error.TlsConnectionTruncated;
+        // This is either a truncation attack, a bug in the server, or an
+        // intentional omission of the close_notify message due to truncation
+        // detection handled above the TLS layer.
+        if (c.allow_truncation_attacks) {
+            c.received_close_notify = true;
+        } else {
+            return error.TlsConnectionTruncated;
+        }
     }
 
     // There might be more bytes inside `in_stack_buffer` that need to be processed,

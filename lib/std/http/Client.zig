@@ -1,3 +1,7 @@
+//! This API is a barely-touched, barely-functional http client, just the
+//! absolute minimum thing I needed in order to test `std.crypto.tls`. Bear
+//! with me and I promise the API will become useful and streamlined.
+
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const http = std.http;
@@ -10,6 +14,9 @@ headers: std.ArrayListUnmanaged(u8) = .{},
 active_requests: usize = 0,
 ca_bundle: std.crypto.Certificate.Bundle = .{},
 
+/// TODO: emit error.UnexpectedEndOfStream or something like that when the read
+/// data does not match the content length. This is necessary since HTTPS disables
+/// close_notify protection on underlying TLS streams.
 pub const Request = struct {
     client: *Client,
     stream: net.Stream,
@@ -133,6 +140,9 @@ pub fn request(client: *Client, url: Url, options: Request.Options) !Request {
         .http => {},
         .https => {
             req.tls_client = try std.crypto.tls.Client.init(req.stream, client.ca_bundle, url.host);
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            req.tls_client.allow_truncation_attacks = true;
         },
     }
 
