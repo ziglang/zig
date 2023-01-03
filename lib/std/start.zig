@@ -525,7 +525,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 // and we want fewer call frames in stack traces.
 inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -554,7 +554,7 @@ inline fn initEventLoopAndCallMain() u8 {
 // because it is working around stage1 compiler bugs.
 inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
