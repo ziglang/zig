@@ -5131,20 +5131,54 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return target;
         },
         .freebsd => {
-            comptime if (builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
-                @compileError("querying for canonical path of a handle is unsupported on FreeBSD 12 and below");
-
-            var kfile: system.kinfo_file = undefined;
-            kfile.structsize = system.KINFO_FILE_SIZE;
-            switch (errno(system.fcntl(fd, system.F.KINFO, @ptrToInt(&kfile)))) {
-                .SUCCESS => {},
-                .BADF => return error.FileNotFound,
-                else => |err| return unexpectedErrno(err),
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .gt) {
+                var kfile: system.kinfo_file = undefined;
+                kfile.structsize = system.KINFO_FILE_SIZE;
+                switch (errno(system.fcntl(fd, system.F.KINFO, @ptrToInt(&kfile)))) {
+                    .SUCCESS => {},
+                    .BADF => return error.FileNotFound,
+                    else => |err| return unexpectedErrno(err),
+                }
+                const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
+                mem.copy(u8, out_buffer, kfile.path[0..len]);
+                return out_buffer[0..len];
+            } else {
+                // This fallback implementation reimplements libutil's `kinfo_getfile()`.
+                // The motivation is to avoid linking -lutil when building zig or general
+                // user executables.
+                var mib = [4]c_int{ CTL.KERN, KERN.PROC, KERN.PROC_FILEDESC, system.getpid() };
+                var len: usize = undefined;
+                sysctl(&mib, null, &len, null, 0) catch |err| switch (err) {
+                    error.PermissionDenied => unreachable,
+                    error.SystemResources => return error.SystemResources,
+                    error.NameTooLong => unreachable,
+                    error.UnknownName => unreachable,
+                    else => return error.Unexpected,
+                };
+                len = len * 4 / 3;
+                const buf = std.heap.c_allocator.alloc(u8, len) catch return error.SystemResources;
+                defer std.heap.c_allocator.free(buf);
+                len = buf.len;
+                sysctl(&mib, &buf[0], &len, null, 0) catch |err| switch (err) {
+                    error.PermissionDenied => unreachable,
+                    error.SystemResources => return error.SystemResources,
+                    error.NameTooLong => unreachable,
+                    error.UnknownName => unreachable,
+                    else => return error.Unexpected,
+                };
+                var i: usize = 0;
+                while (i < len) {
+                    const kf: *align(1) system.kinfo_file = @ptrCast(*align(1) system.kinfo_file, &buf[i]);
+                    if (kf.fd == fd) {
+                        len = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES;
+                        if (len == 0) return error.NameTooLong;
+                        mem.copy(u8, out_buffer, kf.path[0..len]);
+                        return out_buffer[0..len];
+                    }
+                    i += @intCast(usize, kf.structsize);
+                }
+                return error.InvalidHandle;
             }
-
-            const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
-            mem.copy(u8, out_buffer, kfile.path[0..len]);
-            return out_buffer[0..len];
         },
         else => @compileError("querying for canonical path of a handle is unsupported on this host"),
     }

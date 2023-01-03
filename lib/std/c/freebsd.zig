@@ -21,6 +21,8 @@ pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub extern "c" fn getpid() pid_t;
 
+pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
+
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
     hdr_cnt: c_int,
