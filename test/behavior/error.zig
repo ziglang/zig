@@ -76,7 +76,6 @@ fn unwrapSimpleValueFromErrorDo() anyerror!isize {
 }
 
 test "error return in assignment" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     doErrReturnInAssignment() catch unreachable;
@@ -829,7 +828,6 @@ test "alignment of wrapping an error union payload" {
 }
 
 test "compare error union and error set" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: anyerror = error.Foo;
@@ -889,7 +887,6 @@ test "field access of anyerror results in smaller error set" {
 
 test "optional error union return type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo() ?anyerror!u32 {
