@@ -523,7 +523,14 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is only supported by linux and freebsd.
-    if (native_os != .linux and native_os != .freebsd) return error.SkipZigTest;
+    switch (native_os) {
+        .linux => {},
+        .freebsd => {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+                return error.SkipZigTest;
+        },
+        else => return error.SkipZigTest,
+    }
 
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019

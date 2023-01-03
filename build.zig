@@ -593,24 +593,38 @@ fn addCmakeCfgOptionsToExe(
 
         // System -lc++ must be used because in this code path we are attempting to link
         // against system-provided LLVM, Clang, LLD.
-        if (exe.target.getOsTag() == .linux) {
-            // First we try to link against gcc libstdc++. If that doesn't work, we fall
-            // back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
-                error.RequiredLibraryNotFound => {
-                    exe.linkSystemLibrary("c++");
-                },
-                else => |e| return e,
-            };
-            exe.linkSystemLibrary("unwind");
-        } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-        } else if (exe.target.getOsTag() == .openbsd) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
-        } else if (exe.target.isDarwin()) {
-            exe.linkSystemLibrary("c++");
+        switch (exe.target.getOsTag()) {
+            .linux => {
+                // First we try to link against gcc libstdc++. If that doesn't work, we fall
+                // back to -lc++ and cross our fingers.
+                addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        exe.linkSystemLibrary("c++");
+                    },
+                    else => |e| return e,
+                };
+                exe.linkSystemLibrary("unwind");
+            },
+            .ios, .macos, .watchos, .tvos => {
+                exe.linkSystemLibrary("c++");
+            },
+            .freebsd => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            .openbsd => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            .netbsd => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            .dragonfly => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            else => {},
         }
     }
 
