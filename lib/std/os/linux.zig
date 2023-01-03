@@ -1594,7 +1594,7 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
-    return tcgets_ioctl.func(fd, termios_p);
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CGETS, @ptrToInt(termios_p));
 }
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
@@ -2851,11 +2851,11 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
-const tcgets_ioctl = ioctlInfo(.read, 't', 19, termios);
+pub const tiocswinsz_ioctl = ioctlInfo(.write, 't', 103, winsize);
 pub const tiocgwinsz_ioctl = ioctlInfo(.read, 't', 104, winsize);
 
 pub const T = struct {
-    pub const CGETS = tcgets_ioctl.request;
+    pub const CGETS = if (is_mips) 0x540D else 0x5401;
     pub const CSETS = if (is_mips) 0x540e else 0x5402;
     pub const CSETSW = if (is_mips) 0x540f else 0x5403;
     pub const CSETSF = if (is_mips) 0x5410 else 0x5404;
@@ -2873,9 +2873,8 @@ pub const T = struct {
     pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
     pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
     pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    // TODO: verify this is still 0x40087468 when (is_mips or is_ppc64) and 0x5413 otherwise
     pub const IOCGWINSZ = tiocgwinsz_ioctl.request;
-    pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
+    pub const IOCSWINSZ = tiocswinsz_ioctl.request;
     pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
     pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
     pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;
@@ -5719,6 +5718,9 @@ pub const IoctlDirection = enum {
 /// `ioctlFunc` returns a function with the same argument type that was used to create the
 /// request number.  By preserving this relationship, the kernel will always have the correct
 /// IO direction and argument size, meaning it should never result in out-of-bounds memory access.
+///
+/// Note that this mechanism to protect ioctl memory access did not exist in early versions of
+/// the kernel so some ioctls do not use it.
 pub fn ioctlFunc(
     comptime dir: IoctlDirection,
     comptime io_type: u8,
@@ -5726,6 +5728,18 @@ pub fn ioctlFunc(
     comptime Arg: type,
 ) ioctlInfo(dir, io_type, nr, Arg).Fn {
     return ioctlInfo(dir, io_type, nr, Arg).func;
+}
+
+/// Returns the legacy ioctl number for the given io_type/nr if there is one, otherwise, returns null.
+fn legacyIoctl(comptime io_type: u8, comptime nr: u8) ?u32 {
+    return switch (io_type) {
+        't' => switch (nr) {
+            // TIOC{G/S}WINSZ
+            103, 104 => if (is_mips or is_sparc or is_ppc) null else 0x547b - @intCast(u32, nr),
+            else => null,
+        },
+        else => null,
+    };
 }
 
 fn ioctlInfo(comptime dir: IoctlDirection, comptime io_type: u8, comptime nr: u8, comptime Arg: type) type {
@@ -5739,7 +5753,7 @@ fn ioctlInfo(comptime dir: IoctlDirection, comptime io_type: u8, comptime nr: u8
     }
 
     return struct {
-        pub const request = switch (dir) {
+        pub const request = if (legacyIoctl(io_type, nr)) |r| r else switch (dir) {
             .none => IOCTL.IO(io_type, nr),
             .read => IOCTL.IOR(io_type, nr, Arg),
             .write => IOCTL.IOW(io_type, nr, Arg),
