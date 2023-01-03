@@ -5181,6 +5181,20 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 return error.InvalidHandle;
             }
         },
+        .dragonfly => {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0 }) == .lt) {
+                @compileError("querying for canonical path of a handle is unsupported on this host");
+            }
+            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
+                .SUCCESS => {},
+                .BADF => return error.FileNotFound,
+                .RANGE => return error.NameTooLong,
+                else => |err| return unexpectedErrno(err),
+            }
+            const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
+            return out_buffer[0..len];
+        },
         else => @compileError("querying for canonical path of a handle is unsupported on this host"),
     }
 }

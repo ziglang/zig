@@ -419,6 +419,7 @@ pub const F = struct {
     pub const DUP2FD = 10;
     pub const DUPFD_CLOEXEC = 17;
     pub const DUP2FD_CLOEXEC = 18;
+    pub const GETPATH = 19;
 };
 
 pub const FD_CLOEXEC = 1;
