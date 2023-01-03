@@ -2696,6 +2696,8 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
         .NOSPC => return error.NoSpaceLeft,
         .NOTDIR => return error.NotDir,
         .ROFS => return error.ReadOnlyFileSystem,
+        // dragonfly: when dir_fd is unlinked from filesystem
+        .NOTCONN => return error.FileNotFound,
         else => |err| return unexpectedErrno(err),
     }
 }
