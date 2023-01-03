@@ -273,7 +273,7 @@ pub const Target = struct {
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 1 },
                         },
                     },
                     .macos => return switch (arch) {
@@ -312,19 +312,19 @@ pub const Target = struct {
                     .netbsd => return .{
                         .semver = .{
                             .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 9, .minor = 1 },
+                            .max = .{ .major = 10, .minor = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 9 },
+                            .max = .{ .major = 7, .minor = 2 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
                             .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 0 },
+                            .max = .{ .major = 6, .minor = 4 },
                         },
                     },
                     .solaris => return .{
