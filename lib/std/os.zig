@@ -5140,6 +5140,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     else => |err| return unexpectedErrno(err),
                 }
                 const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
+                if (len == 0) return error.NameTooLong;
                 mem.copy(u8, out_buffer, kfile.path[0..len]);
                 return out_buffer[0..len];
             } else {
