@@ -372,10 +372,8 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
         defer envmap.deinit();
-        const val = envmap.getPtr(key) orelse return error.EnvironmentVariableNotFound;
-        const result = try allocator.alloc(u8, val.len);
-        mem.copy(u8, result, val.*);
-        return result;
+        const val = envmap.get(key) orelse return error.EnvironmentVariableNotFound;
+        return allocator.dupe(u8, val);
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return allocator.dupe(u8, result);
