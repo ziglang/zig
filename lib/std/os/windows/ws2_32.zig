@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const windows = std.os.windows;
 
 const WINAPI = windows.WINAPI;
@@ -1106,7 +1107,15 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        family: ADDRESS_FAMILY align(8),
+        padding: [SS_MAXSIZE - @sizeOf(ADDRESS_FAMILY)]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     /// IPv4 socket address
     pub const in = extern struct {
@@ -1207,7 +1216,7 @@ pub const LPFN_GETACCEPTEXSOCKADDRS = *const fn (
 
 pub const LPFN_WSASENDMSG = *const fn (
     s: SOCKET,
-    lpMsg: *const std.x.os.Socket.Message,
+    lpMsg: *const WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -1216,7 +1225,7 @@ pub const LPFN_WSASENDMSG = *const fn (
 
 pub const LPFN_WSARECVMSG = *const fn (
     s: SOCKET,
-    lpMsg: *std.x.os.Socket.Message,
+    lpMsg: *WSAMSG,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
@@ -2090,7 +2099,7 @@ pub extern "ws2_32" fn WSASend(
 
 pub extern "ws2_32" fn WSASendMsg(
     s: SOCKET,
-    lpMsg: *const std.x.os.Socket.Message,
+    lpMsg: *WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -2099,7 +2108,7 @@ pub extern "ws2_32" fn WSASendMsg(
 
 pub extern "ws2_32" fn WSARecvMsg(
     s: SOCKET,
-    lpMsg: *std.x.os.Socket.Message,
+    lpMsg: *WSAMSG,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,

@@ -1226,11 +1226,14 @@ pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noal
     return syscall5(.getsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const std.x.os.Socket.Message, flags: c_int) usize {
+pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const msg_usize = @ptrToInt(msg);
     if (native_arch == .x86) {
-        return socketcall(SC.sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+        return socketcall(SC.sendmsg, &[3]usize{ fd_usize, msg_usize, flags });
+    } else {
+        return syscall3(.sendmsg, fd_usize, msg_usize, flags);
     }
-    return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
@@ -1274,24 +1277,42 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
 }
 
 pub fn connect(fd: i32, addr: *const anyopaque, len: socklen_t) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const addr_usize = @ptrToInt(addr);
     if (native_arch == .x86) {
-        return socketcall(SC.connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
+        return socketcall(SC.connect, &[3]usize{ fd_usize, addr_usize, len });
+    } else {
+        return syscall3(.connect, fd_usize, addr_usize, len);
     }
-    return syscall3(.connect, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len);
 }
 
-pub fn recvmsg(fd: i32, msg: *std.x.os.Socket.Message, flags: c_int) usize {
+pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const msg_usize = @ptrToInt(msg);
     if (native_arch == .x86) {
-        return socketcall(SC.recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+        return socketcall(SC.recvmsg, &[3]usize{ fd_usize, msg_usize, flags });
+    } else {
+        return syscall3(.recvmsg, fd_usize, msg_usize, flags);
     }
-    return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
-pub fn recvfrom(fd: i32, noalias buf: [*]u8, len: usize, flags: u32, noalias addr: ?*sockaddr, noalias alen: ?*socklen_t) usize {
+pub fn recvfrom(
+    fd: i32,
+    noalias buf: [*]u8,
+    len: usize,
+    flags: u32,
+    noalias addr: ?*sockaddr,
+    noalias alen: ?*socklen_t,
+) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const buf_usize = @ptrToInt(buf);
+    const addr_usize = @ptrToInt(addr);
+    const alen_usize = @ptrToInt(alen);
     if (native_arch == .x86) {
-        return socketcall(SC.recvfrom, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen) });
+        return socketcall(SC.recvfrom, &[6]usize{ fd_usize, buf_usize, len, flags, addr_usize, alen_usize });
+    } else {
+        return syscall6(.recvfrom, fd_usize, buf_usize, len, flags, addr_usize, alen_usize);
     }
-    return syscall6(.recvfrom, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
@@ -3219,7 +3240,15 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        family: sa_family_t align(8),
+        padding: [SS_MAXSIZE - @sizeOf(sa_family_t)]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     /// IPv4 socket address
     pub const in = extern struct {

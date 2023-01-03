@@ -142,6 +142,11 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             d.total_len += b.len;
         }
 
+        pub fn peek(d: Self) [digest_length]u8 {
+            var copy = d;
+            return copy.finalResult();
+        }
+
         pub fn final(d: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
             mem.set(u8, d.buf[d.buf_len..], 0);
@@ -173,6 +178,12 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             for (rr) |s, j| {
                 mem.writeIntBig(u32, out[4 * j ..][0..4], s);
             }
+        }
+
+        pub fn finalResult(d: *Self) [digest_length]u8 {
+            var result: [digest_length]u8 = undefined;
+            d.final(&result);
+            return result;
         }
 
         const W = [64]u32{
@@ -621,6 +632,11 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             d.total_len += b.len;
         }
 
+        pub fn peek(d: Self) [digest_length]u8 {
+            var copy = d;
+            return copy.finalResult();
+        }
+
         pub fn final(d: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
             mem.set(u8, d.buf[d.buf_len..], 0);
@@ -652,6 +668,12 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             for (rr) |s, j| {
                 mem.writeIntBig(u64, out[8 * j ..][0..8], s);
             }
+        }
+
+        pub fn finalResult(d: *Self) [digest_length]u8 {
+            var result: [digest_length]u8 = undefined;
+            d.final(&result);
+            return result;
         }
 
         fn round(d: *Self, b: *const [128]u8) void {

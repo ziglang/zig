@@ -1672,6 +1672,40 @@ pub const Stream = struct {
         }
     }
 
+    pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
+        if (builtin.os.tag == .windows) {
+            // TODO improve this to use ReadFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return os.windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null, io.default_mode);
+        }
+
+        return os.readv(s.handle, iovecs);
+    }
+
+    /// Returns the number of bytes read. If the number read is smaller than
+    /// `buffer.len`, it means the stream reached the end. Reaching the end of
+    /// a stream is not an error condition.
+    pub fn readAll(s: Stream, buffer: []u8) ReadError!usize {
+        return readAtLeast(s, buffer, buffer.len);
+    }
+
+    /// Returns the number of bytes read, calling the underlying read function
+    /// the minimal number of times until the buffer has at least `len` bytes
+    /// filled. If the number read is less than `len` it means the stream
+    /// reached the end. Reaching the end of the stream is not an error
+    /// condition.
+    pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
+        assert(len <= buffer.len);
+        var index: usize = 0;
+        while (index < len) {
+            const amt = try s.read(buffer[index..]);
+            if (amt == 0) break;
+            index += amt;
+        }
+        return index;
+    }
+
     /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
@@ -1684,6 +1718,13 @@ pub const Stream = struct {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
             return os.write(self.handle, buffer);
+        }
+    }
+
+    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try self.write(bytes[index..]);
         }
     }
 
