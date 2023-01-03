@@ -85,6 +85,9 @@ pub const Context = opaque {
 
     pub const createBuilder = LLVMCreateBuilderInContext;
     extern fn LLVMCreateBuilderInContext(C: *Context) *Builder;
+
+    pub const setOptBisectLimit = ZigLLVMSetOptBisectLimit;
+    extern fn ZigLLVMSetOptBisectLimit(C: *Context, limit: c_int) void;
 };
 
 pub const Value = opaque {

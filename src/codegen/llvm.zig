@@ -520,6 +520,10 @@ pub const Object = struct {
         if (options.pie) llvm_module.setModulePIELevel();
         if (code_model != .Default) llvm_module.setModuleCodeModel(code_model);
 
+        if (options.opt_bisect_limit >= 0) {
+            context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
+        }
+
         return Object{
             .gpa = gpa,
             .module = options.module.?,

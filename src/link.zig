@@ -169,6 +169,7 @@ pub const Options = struct {
     print_gc_sections: bool,
     print_icf_sections: bool,
     print_map: bool,
+    opt_bisect_limit: i32,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,

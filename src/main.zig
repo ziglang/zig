@@ -536,6 +536,7 @@ const usage_build_generic =
     \\  --test-runner [path]           Specify a custom test runner
     \\
     \\Debug Options (Zig Compiler Development):
+    \\  -fopt-bisect-limit [limit]   Only run [limit] first LLVM optimization passes
     \\  -ftime-report                Print timing diagnostics
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
@@ -729,6 +730,7 @@ fn buildOutputType(
     var linker_print_gc_sections: bool = false;
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
+    var linker_opt_bisect_limit: i32 = -1;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -1285,6 +1287,8 @@ fn buildOutputType(
                         no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
                         no_builtin = true;
+                    } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
+                        linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
@@ -2996,6 +3000,7 @@ fn buildOutputType(
         .linker_print_gc_sections = linker_print_gc_sections,
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
+        .linker_opt_bisect_limit = linker_opt_bisect_limit,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nocopyreloc = linker_z_nocopyreloc,
