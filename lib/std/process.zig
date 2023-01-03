@@ -384,6 +384,8 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (builtin.os.tag == .windows) {
         const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
         return std.os.getenvW(key_w) != null;
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        @compileError("hasEnvVarConstant is not supported for WASI without libc");
     } else {
         return os.getenv(key) != null;
     }
