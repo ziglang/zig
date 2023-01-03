@@ -3798,7 +3798,7 @@ fn analyzeFancyFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[fn_info.body.len - 1],
+                    fn_info.body[0],
                 );
             } else {
                 break :blk null;
@@ -3936,7 +3936,7 @@ fn analyzeFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[fn_info.body.len - 1],
+                    fn_info.body[0],
                 );
             } else {
                 break :blk null;
@@ -3977,11 +3977,25 @@ fn getGenericReturnType(
     file: *File,
     scope: *Scope,
     parent_src: SrcLocInfo, // function decl line
-    body_end: usize,
+    body_main_block: usize,
 ) !DocData.Expr {
-    // TODO: compute the correct line offset
-    const wr = try self.walkInstruction(file, scope, parent_src, body_end - 3, false);
-    return wr.expr;
+    const tags = file.zir.instructions.items(.tag);
+    const data = file.zir.instructions.items(.data);
+
+    // We expect `body_main_block` to be the first instruction
+    // inside the function body, and for it to be a block instruction.
+    const pl_node = data[body_main_block].pl_node;
+    const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+    const maybe_ret_node = file.zir.extra[extra.end..][extra.data.body_len - 4];
+    switch (tags[maybe_ret_node]) {
+        .ret_node, .ret_load => {
+            const wr = try self.walkInstruction(file, scope, parent_src, maybe_ret_node, false);
+            return wr.expr;
+        },
+        else => {
+            return DocData.Expr{ .comptimeExpr = 0 };
+        },
+    }
 }
 
 fn collectUnionFieldInfo(
