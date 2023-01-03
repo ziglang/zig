@@ -890,7 +890,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 }
 
 test "try in labeled block doesn't cast to wrong type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -1036,7 +1035,6 @@ comptime {
 }
 
 test "switch inside @as gets correct type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u32 = 0;
