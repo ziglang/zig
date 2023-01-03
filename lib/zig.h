@@ -1208,8 +1208,13 @@ typedef struct { zig_align(16) zig_i64 hi; zig_u64 lo; } zig_i128;
 
 #define zig_as_u128(hi, lo) ((zig_u128){ .h##i = (hi), .l##o = (lo) })
 #define zig_as_i128(hi, lo) ((zig_i128){ .h##i = (hi), .l##o = (lo) })
+#if _MSC_VER /* MSVC doesn't allow struct literals in constant expressions */
 #define zig_as_constant_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #define zig_as_constant_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#else /* But non-MSVC doesn't like the unprotected commas */
+#define zig_as_constant_u128(hi, lo) zig_as_u128(hi, lo)
+#define zig_as_constant_i128(hi, lo) zig_as_i128(hi, lo)
+#endif
 #define zig_hi_u128(val) ((val).hi)
 #define zig_lo_u128(val) ((val).lo)
 #define zig_hi_i128(val) ((val).hi)
@@ -1265,6 +1270,11 @@ static inline zig_u128 zig_shr_u128(zig_u128 lhs, zig_u8 rhs) {
 
 static inline zig_u128 zig_shl_u128(zig_u128 lhs, zig_u8 rhs) {
     return lhs << rhs;
+}
+
+static inline zig_i128 zig_shr_i128(zig_i128 lhs, zig_u8 rhs) {
+    zig_i128 sign_mask = lhs < zig_as_i128(0, 0) ? -zig_as_i128(0, 1) : zig_as_i128(0, 0);
+    return ((lhs ^ sign_mask) >> rhs) ^ sign_mask;
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, zig_u8 rhs) {
@@ -1338,13 +1348,19 @@ static inline zig_u128 zig_shr_u128(zig_u128 lhs, zig_u8 rhs) {
 
 static inline zig_u128 zig_shl_u128(zig_u128 lhs, zig_u8 rhs) {
     if (rhs == zig_as_u8(0)) return lhs;
-    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = lhs.lo << rhs, .lo = zig_minInt_u64 };
+    if (rhs >= zig_as_u8(64)) return (zig_u128){ .hi = lhs.lo << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 };
     return (zig_u128){ .hi = lhs.hi << rhs | lhs.lo >> (zig_as_u8(64) - rhs), .lo = lhs.lo << rhs };
+}
+
+static inline zig_i128 zig_shr_i128(zig_i128 lhs, zig_u8 rhs) {
+    if (rhs == zig_as_u8(0)) return lhs;
+    if (rhs >= zig_as_u8(64)) return (zig_i128){ .hi = zig_shr_i64(lhs.hi, 63), .lo = zig_shr_i64(lhs.hi, (rhs - zig_as_u8(64))) };
+    return (zig_i128){ .hi = zig_shr_i64(lhs.hi, rhs), .lo = lhs.lo >> rhs | (zig_u64)lhs.hi << (zig_as_u8(64) - rhs) };
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, zig_u8 rhs) {
     if (rhs == zig_as_u8(0)) return lhs;
-    if (rhs >= zig_as_u8(64)) return (zig_i128){ .hi = lhs.lo << rhs, .lo = zig_minInt_u64 };
+    if (rhs >= zig_as_u8(64)) return (zig_i128){ .hi = lhs.lo << (rhs - zig_as_u8(64)), .lo = zig_minInt_u64 };
     return (zig_i128){ .hi = lhs.hi << rhs | lhs.lo >> (zig_as_u8(64) - rhs), .lo = lhs.lo << rhs };
 }
 
@@ -1377,6 +1393,10 @@ static zig_i128 zig_mul_i128(zig_i128 lhs, zig_i128 rhs) {
     return __multi3(lhs, rhs);
 }
 
+static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs) {
+    return zig_bitcast_u128(zig_mul_i128(zig_bitcast_i128(lhs), zig_bitcast_i128(rhs)));
+}
+
 zig_extern zig_u128 __udivti3(zig_u128 lhs, zig_u128 rhs);
 static zig_u128 zig_div_trunc_u128(zig_u128 lhs, zig_u128 rhs) {
     return __udivti3(lhs, rhs);
@@ -1399,7 +1419,7 @@ static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
 
 static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
     zig_i128 rem = zig_rem_i128(lhs, rhs);
-    return zig_add_i128(rem, (((lhs.hi ^ rhs.hi) & rem.hi) < zig_as_i64(0) ? rhs : zig_as_i128(0, 0)));
+    return zig_add_i128(rem, ((lhs.hi ^ rhs.hi) & rem.hi) < zig_as_i64(0) ? rhs : zig_as_i128(0, 0));
 }
 
 static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
@@ -1429,11 +1449,6 @@ static inline zig_u128 zig_max_u128(zig_u128 lhs, zig_u128 rhs) {
 
 static inline zig_i128 zig_max_i128(zig_i128 lhs, zig_i128 rhs) {
     return zig_cmp_i128(lhs, rhs) > zig_as_i32(0) ? lhs : rhs;
-}
-
-static inline zig_i128 zig_shr_i128(zig_i128 lhs, zig_u8 rhs) {
-    zig_i128 sign_mask = zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i32(0) ? zig_sub_i128(zig_as_i128(0, 0), zig_as_i128(0, 1)) : zig_as_i128(0, 0);
-    return zig_xor_i128(zig_bitcast_i128(zig_shr_u128(zig_bitcast_u128(zig_xor_i128(lhs, sign_mask)), rhs)), sign_mask);
 }
 
 static inline zig_u128 zig_wrap_u128(zig_u128 val, zig_u8 bits) {
@@ -1467,17 +1482,6 @@ static inline zig_u128 zig_subw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
 static inline zig_i128 zig_subw_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
     return zig_wrap_i128(zig_bitcast_i128(zig_sub_u128(zig_bitcast_u128(lhs), zig_bitcast_u128(rhs))), bits);
 }
-
-#if _MSC_VER
-static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs) {
-    zig_u64 lo_carry;
-    zig_u64 lo = _umul128(lhs.lo, rhs.lo, &lo_carry);
-    zig_u64 hi = lhs.hi * rhs.lo + lhs.lo * rhs.hi + lo_carry;
-    return zig_as_u128(hi, lo);
-}
-#else
-static zig_u128 zig_mul_u128(zig_u128 lhs, zig_u128 rhs); // TODO
-#endif
 
 static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     return zig_wrap_u128(zig_mul_u128(lhs, rhs), bits);
@@ -1569,50 +1573,28 @@ static inline bool zig_mulo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, zig_
 
 #else /* zig_has_int128 */
 
-static inline bool zig_overflow_u128(bool overflow, zig_u128 full_res, zig_u8 bits) {
-    return overflow ||
-        zig_cmp_u128(full_res, zig_minInt(u128, bits)) < zig_as_i32(0) ||
-        zig_cmp_u128(full_res, zig_maxInt(u128, bits)) > zig_as_i32(0);
-}
-
-static inline bool zig_overflow_i128(bool overflow, zig_i128 full_res, zig_u8 bits) {
-    return overflow ||
-        zig_cmp_i128(full_res, zig_minInt(i128, bits)) < zig_as_i32(0) ||
-        zig_cmp_i128(full_res, zig_maxInt(i128, bits)) > zig_as_i32(0);
-}
-
 static inline bool zig_addo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
-    zig_u128 full_res;
-    bool overflow =
-        zig_addo_u64(&full_res.hi, lhs.hi, rhs.hi, 64) |
-        zig_addo_u64(&full_res.hi, full_res.hi, zig_addo_u64(&full_res.lo, lhs.lo, rhs.lo, 64), 64);
-    *res = zig_wrap_u128(full_res, bits);
-    return zig_overflow_u128(overflow, full_res, bits);
+    zig_u64 hi;
+    bool overflow = zig_addo_u64(&hi, lhs.hi, rhs.hi, bits - 64);
+    return overflow ^ zig_addo_u64(&res->hi, hi, zig_addo_u64(&res->lo, lhs.lo, rhs.lo, 64), bits - 64);
 }
 
-zig_extern zig_i128 __addoti4(zig_i128 lhs, zig_i128 rhs, zig_c_int *overflow);
 static inline bool zig_addo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
-    zig_c_int overflow_int;
-    zig_i128 full_res = __addoti4(lhs, rhs, &overflow_int);
-    *res = zig_wrap_i128(full_res, bits);
-    return zig_overflow_i128(overflow_int, full_res, bits);
+    zig_i64 hi;
+    bool overflow = zig_addo_i64(&hi, lhs.hi, rhs.hi, bits - 64);
+    return overflow ^ zig_addo_i64(&res->hi, hi, zig_addo_u64(&res->lo, lhs.lo, rhs.lo, 64), bits - 64);
 }
 
 static inline bool zig_subo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
-    zig_u128 full_res;
-    bool overflow =
-        zig_subo_u64(&full_res.hi, lhs.hi, rhs.hi, 64) |
-        zig_subo_u64(&full_res.hi, full_res.hi, zig_subo_u64(&full_res.lo, lhs.lo, rhs.lo, 64), 64);
-    *res = zig_wrap_u128(full_res, bits);
-    return zig_overflow_u128(overflow, full_res, bits);
+    zig_u64 hi;
+    bool overflow = zig_subo_u64(&hi, lhs.hi, rhs.hi, bits - 64);
+    return overflow ^ zig_subo_u64(&res->hi, hi, zig_subo_u64(&res->lo, lhs.lo, rhs.lo, 64), bits - 64);
 }
 
-zig_extern zig_i128 __suboti4(zig_i128 lhs, zig_i128 rhs, zig_c_int *overflow);
 static inline bool zig_subo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
-    zig_c_int overflow_int;
-    zig_i128 full_res = __suboti4(lhs, rhs, &overflow_int);
-    *res = zig_wrap_i128(full_res, bits);
-    return zig_overflow_i128(overflow_int, full_res, bits);
+    zig_i64 hi;
+    bool overflow = zig_subo_i64(&hi, lhs.hi, rhs.hi, bits - 64);
+    return overflow ^ zig_subo_i64(&res->hi, hi, zig_subo_u64(&res->lo, lhs.lo, rhs.lo, 64), bits - 64);
 }
 
 static inline bool zig_mulo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
@@ -1625,8 +1607,11 @@ zig_extern zig_i128 __muloti4(zig_i128 lhs, zig_i128 rhs, zig_c_int *overflow);
 static inline bool zig_mulo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
     zig_c_int overflow_int;
     zig_i128 full_res = __muloti4(lhs, rhs, &overflow_int);
+    bool overflow = overflow_int != 0 ||
+        zig_cmp_i128(full_res, zig_minInt(i128, bits)) < zig_as_i32(0) ||
+        zig_cmp_i128(full_res, zig_maxInt(i128, bits)) > zig_as_i32(0);
     *res = zig_wrap_i128(full_res, bits);
-    return zig_overflow_i128(overflow_int, full_res, bits);
+    return overflow;
 }
 
 #endif /* zig_has_int128 */
@@ -1647,17 +1632,12 @@ static inline zig_u128 zig_shls_u128(zig_u128 lhs, zig_u128 rhs, zig_u8 bits) {
     zig_u128 res;
     if (zig_cmp_u128(rhs, zig_as_u128(0, bits)) >= zig_as_i32(0))
         return zig_cmp_u128(lhs, zig_as_u128(0, 0)) != zig_as_i32(0) ? zig_maxInt(u128, bits) : lhs;
-
-#if zig_has_int128
-    return zig_shlo_u128(&res, lhs, (zig_u8)rhs, bits) ? zig_maxInt(u128, bits) : res;
-#else
-    return zig_shlo_u128(&res, lhs, (zig_u8)rhs.lo, bits) ? zig_maxInt(u128, bits) : res;
-#endif
+    return zig_shlo_u128(&res, lhs, (zig_u8)zig_lo_u128(rhs), bits) ? zig_maxInt(u128, bits) : res;
 }
 
 static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_i128 rhs, zig_u8 bits) {
     zig_i128 res;
-    if (zig_cmp_u128(zig_bitcast_u128(rhs), zig_as_u128(0, bits)) < zig_as_i32(0) && !zig_shlo_i128(&res, lhs, zig_lo_i128(rhs), bits)) return res;
+    if (zig_cmp_u128(zig_bitcast_u128(rhs), zig_as_u128(0, bits)) < zig_as_i32(0) && !zig_shlo_i128(&res, lhs, (zig_u8)zig_lo_i128(rhs), bits)) return res;
     return zig_cmp_i128(lhs, zig_as_i128(0, 0)) < zig_as_i32(0) ? zig_minInt(i128, bits) : zig_maxInt(i128, bits);
 }
 
