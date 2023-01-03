@@ -42,6 +42,16 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
+    cases.addBuildFile("test/link/wasm/export/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
+    // TODO: Fix open handle in wasm-linker refraining rename from working on Windows.
+    if (builtin.os.tag != .windows) {
+        cases.addBuildFile("test/link/wasm/export-data/build.zig", .{});
+    }
+
     cases.addBuildFile("test/link/wasm/extern/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
@@ -49,6 +59,11 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
     });
 
     cases.addBuildFile("test/link/wasm/extern-mangle/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/function-table/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
     });

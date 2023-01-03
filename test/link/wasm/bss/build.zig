@@ -26,8 +26,7 @@ pub fn build(b: *Builder) void {
     check_lib.checkNext("name memory"); // as per linker specification
 
     // since we are importing memory, ensure it's not exported
-    check_lib.checkStart("Section export");
-    check_lib.checkNext("entries 1"); // we're exporting function 'foo' so only 1 entry
+    check_lib.checkNotPresent("Section export");
 
     // validate the name of the stack pointer
     check_lib.checkStart("Section custom");
