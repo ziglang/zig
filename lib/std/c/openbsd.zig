@@ -417,6 +417,7 @@ pub const AI = struct {
 };
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 255;
 pub const IOV_MAX = 1024;
 
 pub const STDIN_FILENO = 0;
