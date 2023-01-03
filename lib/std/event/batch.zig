@@ -17,7 +17,7 @@ pub fn Batch(
     comptime async_behavior: enum {
         /// Observe the value of `std.io.is_async` to decide whether `add`
         /// and `wait` will be async functions. Asserts that the jobs do not suspend when
-        /// `std.io.mode == .blocking`. This is a generally safe assumption, and the
+        /// `std.options.io_mode == .blocking`. This is a generally safe assumption, and the
         /// usual recommended option for this parameter.
         auto_async,
 

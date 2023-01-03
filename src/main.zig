@@ -25,11 +25,23 @@ const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const crash_report = @import("crash_report.zig");
 
-// Crash report needs to override the panic handler and other root decls
-pub usingnamespace crash_report.root_decls;
+pub const std_options = struct {
+    pub const wasiCwd = wasi_cwd;
+    pub const logFn = log;
+    pub const enable_segfault_handler = false;
+
+    pub const log_level: std.log.Level = switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe, .ReleaseFast => .info,
+        .ReleaseSmall => .err,
+    };
+};
+
+// Crash report needs to override the panic handler
+pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
-pub inline fn wasi_cwd() fs.Dir {
+pub fn wasi_cwd() fs.Dir {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.os.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
@@ -111,12 +123,6 @@ const debug_usage = normal_usage ++
 
 const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 
-pub const log_level: std.log.Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe, .ReleaseFast => .info,
-    .ReleaseSmall => .err,
-};
-
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
 pub fn log(
@@ -128,7 +134,7 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.log.level) or
+    if (@enumToInt(level) > @enumToInt(std.options.log_level) or
         @enumToInt(level) > @enumToInt(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;

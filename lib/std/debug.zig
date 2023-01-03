@@ -1861,10 +1861,9 @@ pub const have_segfault_handling_support = switch (native_os) {
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
 };
-pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
-    root.enable_segfault_handler
-else
-    runtime_safety and have_segfault_handling_support;
+
+const enable_segfault_handler = std.options.enable_segfault_handler;
+pub const default_enable_segfault_handler = runtime_safety and have_segfault_handling_support;
 
 pub fn maybeEnableSegfaultHandler() void {
     if (enable_segfault_handler) {

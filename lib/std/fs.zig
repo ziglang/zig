@@ -2661,15 +2661,15 @@ pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
     } else if (builtin.os.tag == .wasi) {
-        if (@hasDecl(root, "wasi_cwd")) {
-            return root.wasi_cwd();
-        } else {
-            // Expect the first preopen to be current working directory.
-            return .{ .fd = 3 };
-        }
+        return std.options.wasiCwd();
     } else {
         return Dir{ .fd = os.AT.FDCWD };
     }
+}
+
+pub fn defaultWasiCwd() Dir {
+    // Expect the first preopen to be current working directory.
+    return .{ .fd = 3 };
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains

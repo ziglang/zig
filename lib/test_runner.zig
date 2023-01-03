@@ -2,7 +2,10 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
-pub const io_mode: io.Mode = builtin.test_io_mode;
+pub const std_options = struct {
+    pub const io_mode: io.Mode = builtin.test_io_mode;
+    pub const logFn = log;
+};
 
 var log_err_count: usize = 0;
 
@@ -45,7 +48,7 @@ pub fn main() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
+        const result = if (test_fn.async_frame_size) |size| switch (std.options.io_mode) {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
