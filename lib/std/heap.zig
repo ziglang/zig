@@ -20,6 +20,12 @@ pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 
+const memory_pool = @import("heap/memory_pool.zig");
+pub const MemoryPool = memory_pool.MemoryPool;
+pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
+pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+pub const MemoryPoolOptions = memory_pool.Options;
+
 /// TODO Utilize this on Windows.
 pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
 
@@ -851,6 +857,7 @@ test {
     _ = LoggingAllocator;
     _ = LogToWriterAllocator;
     _ = ScopedLoggingAllocator;
+    _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
     if (comptime builtin.target.isWasm()) {
