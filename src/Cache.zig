@@ -1035,7 +1035,7 @@ test "cache file and then recall it" {
             try testing.expect(try ch.hit());
             digest2 = ch.final();
 
-            try ch.writeManifest();
+            try testing.expectEqual(false, ch.have_exclusive_lock);
         }
 
         try testing.expectEqual(digest1, digest2);
