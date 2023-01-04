@@ -720,10 +720,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
             .vector_store_elem => @panic("TODO implement vector_store_elem"),
 
-            .c_va_arg => @panic("TODO implement c_va_arg"),
-            .c_va_copy => @panic("TODO implement c_va_copy"),
-            .c_va_end => @panic("TODO implement c_va_end"),
-            .c_va_start => @panic("TODO implement c_va_start"),
+            .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
+            .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
+            .c_va_end => return self.fail("TODO implement c_va_end", .{}),
+            .c_va_start => return self.fail("TODO implement c_va_start", .{}),
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
