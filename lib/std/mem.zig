@@ -446,30 +446,32 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                     var value: T = undefined;
 
                     inline for (struct_info.fields) |field, i| {
-                        if (!field.is_comptime) {
-                            if (init_info.is_tuple and init_info.fields.len > i) {
-                                @field(value, struct_info.fields[i].name) = @field(init, init_info.fields[i].name);
-                            } else if (@hasField(@TypeOf(init), field.name)) {
-                                switch (@typeInfo(field.type)) {
-                                    .Struct => {
-                                        @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
-                                    },
-                                    else => {
-                                        @field(value, field.name) = @field(init, field.name);
-                                    },
-                                }
-                            } else if (field.default_value) |default_value_ptr| {
-                                const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
-                                @field(value, field.name) = default_value;
-                            } else {
-                                switch (@typeInfo(field.type)) {
-                                    .Struct => {
-                                        @field(value, field.name) = std.mem.zeroInit(field.type, .{});
-                                    },
-                                    else => {
-                                        @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
-                                    },
-                                }
+                        if (field.is_comptime) {
+                            continue;
+                        }
+
+                        if (init_info.is_tuple and init_info.fields.len > i) {
+                            @field(value, field.name) = @field(init, init_info.fields[i].name);
+                        } else if (@hasField(@TypeOf(init), field.name)) {
+                            switch (@typeInfo(field.type)) {
+                                .Struct => {
+                                    @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
+                                },
+                                else => {
+                                    @field(value, field.name) = @field(init, field.name);
+                                },
+                            }
+                        } else if (field.default_value) |default_value_ptr| {
+                            const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
+                            @field(value, field.name) = default_value;
+                        } else {
+                            switch (@typeInfo(field.type)) {
+                                .Struct => {
+                                    @field(value, field.name) = std.mem.zeroInit(field.type, .{});
+                                },
+                                else => {
+                                    @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                },
                             }
                         }
                     }
