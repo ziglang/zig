@@ -31,6 +31,8 @@ pub const winmm = @import("windows/winmm.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
+const Self = @This();
+
 pub const OpenError = error{
     IsDir,
     NotDir,
@@ -3282,7 +3284,7 @@ pub usingnamespace switch (native_arch) {
         };
 
         pub const CONTEXT = extern struct {
-            P1Home: DWORD64,
+            P1Home: DWORD64 align(16),
             P2Home: DWORD64,
             P3Home: DWORD64,
             P4Home: DWORD64,
@@ -3352,9 +3354,28 @@ pub usingnamespace switch (native_arch) {
             LastExceptionToRip: DWORD64,
             LastExceptionFromRip: DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip, .sp = ctx.Rsp };
             }
+
+            pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+                ctx.Rip = ip;
+            }
+
+            pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+                ctx.Rsp = sp;
+            }
+        };
+
+        pub const RUNTIME_FUNCTION = extern struct {
+            BeginAddress: DWORD,
+            EndAddress: DWORD,
+            UnwindData: DWORD,
+        };
+
+        pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
+            FloatingContext: [16]?*M128A,
+            IntegerContext: [16]?*ULONG64,
         };
     },
     .aarch64 => struct {
@@ -3370,7 +3391,7 @@ pub usingnamespace switch (native_arch) {
         };
 
         pub const CONTEXT = extern struct {
-            ContextFlags: ULONG,
+            ContextFlags: ULONG align(16),
             Cpsr: ULONG,
             DUMMYUNIONNAME: extern union {
                 DUMMYSTRUCTNAME: extern struct {
@@ -3418,12 +3439,60 @@ pub usingnamespace switch (native_arch) {
             Wcr: [2]DWORD,
             Wvr: [2]DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
                 return .{
                     .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
                     .ip = ctx.Pc,
+                    .sp = ctx.Sp,
                 };
             }
+
+            pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+                ctx.Pc = ip;
+            }
+
+            pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+                ctx.Sp = sp;
+            }
+        };
+
+        pub const RUNTIME_FUNCTION = extern struct {
+            BeginAddress: DWORD,
+            DUMMYUNIONNAME: extern union {
+                UnwindData: DWORD,
+                DUMMYSTRUCTNAME: packed struct {
+                    Flag: u2,
+                    FunctionLength: u11,
+                    RegF: u3,
+                    RegI: u4,
+                    H: u1,
+                    CR: u2,
+                    FrameSize: u9,
+                },
+            },
+        };
+
+        pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
+            X19: ?*DWORD64,
+            X20: ?*DWORD64,
+            X21: ?*DWORD64,
+            X22: ?*DWORD64,
+            X23: ?*DWORD64,
+            X24: ?*DWORD64,
+            X25: ?*DWORD64,
+            X26: ?*DWORD64,
+            X27: ?*DWORD64,
+            X28: ?*DWORD64,
+            Fp: ?*DWORD64,
+            Lr: ?*DWORD64,
+            D8: ?*DWORD64,
+            D9: ?*DWORD64,
+            D10: ?*DWORD64,
+            D11: ?*DWORD64,
+            D12: ?*DWORD64,
+            D13: ?*DWORD64,
+            D14: ?*DWORD64,
+            D15: ?*DWORD64,
         };
     },
     else => struct {},
@@ -3435,6 +3504,36 @@ pub const EXCEPTION_POINTERS = extern struct {
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+
+pub const EXCEPTION_DISPOSITION = i32;
+pub const EXCEPTION_ROUTINE = *const fn (
+    ExceptionRecord: ?*EXCEPTION_RECORD,
+    EstablisherFrame: PVOID,
+    ContextRecord: *(Self.CONTEXT),
+    DispatcherContext: PVOID,
+) callconv(WINAPI) EXCEPTION_DISPOSITION;
+
+pub const UNWIND_HISTORY_TABLE_SIZE = 12;
+pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
+    ImageBase: ULONG64,
+    FunctionEntry: *Self.RUNTIME_FUNCTION,
+};
+
+pub const UNWIND_HISTORY_TABLE = extern struct {
+    Count: ULONG,
+    LocalHint: BYTE,
+    GlobalHint: BYTE,
+    Search: BYTE,
+    Once: BYTE,
+    LowAddress: ULONG64,
+    HighAddress: ULONG64,
+    Entry: [UNWIND_HISTORY_TABLE_SIZE]UNWIND_HISTORY_TABLE_ENTRY,
+};
+
+pub const UNW_FLAG_NHANDLER = 0x0;
+pub const UNW_FLAG_EHANDLER = 0x1;
+pub const UNW_FLAG_UHANDLER = 0x2;
+pub const UNW_FLAG_CHAININFO = 0x4;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
@@ -3492,6 +3591,21 @@ pub const TEB = extern struct {
     ReservedForOle: PVOID,
     Reserved6: [4]PVOID,
     TlsExpansionSlots: PVOID,
+};
+
+pub const EXCEPTION_REGISTRATION_RECORD = extern struct {
+    Next: ?*EXCEPTION_REGISTRATION_RECORD,
+    Handler: ?*EXCEPTION_DISPOSITION,
+};
+
+pub const NT_TIB = extern struct {
+    ExceptionList: ?*EXCEPTION_REGISTRATION_RECORD,
+    StackBase: PVOID,
+    StackLimit: PVOID,
+    SubSystemTib: PVOID,
+    DUMMYUNIONNAME: extern union { FiberData: PVOID, Version: DWORD },
+    ArbitraryUserPointer: PVOID,
+    Self: ?*@This(),
 };
 
 /// Process Environment Block
