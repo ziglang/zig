@@ -22,6 +22,7 @@ const Type = @import("../../type.zig").Type;
 const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const Endian = std.builtin.Endian;
 
 const build_options = @import("build_options");
 
@@ -30,6 +31,7 @@ const abi = @import("abi.zig");
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const Instruction = bits.Instruction;
+const ASI = Instruction.ASI;
 const ShiftWidth = Instruction.ShiftWidth;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
@@ -615,7 +617,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .clz             => try self.airClz(inst),
             .ctz             => try self.airCtz(inst),
             .popcount        => try self.airPopcount(inst),
-            .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
+            .byte_swap       => try self.airByteSwap(inst),
             .bit_reverse     => try self.airBitReverse(inst),
             .tag_name        => try self.airTagName(inst),
             .error_name      => try self.airErrorName(inst),
@@ -1198,6 +1200,90 @@ fn airBreakpoint(self: *Self) !void {
         },
     });
     return self.finishAirBookkeeping();
+}
+
+fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
+    // We have hardware byteswapper in SPARCv9, don't let mainstream compilers mislead you.
+    // That being said, the strategy to lower this is:
+    // - If src is an immediate, comptime-swap it.
+    // - If src is in memory then issue an LD*A with #ASI_P_[oppposite-endian]
+    // - If src is a register then issue an ST*A with #ASI_P_[oppposite-endian]
+    //   to a stack slot, then follow with a normal load from said stack slot.
+    //   This is because on some implementations, ASI-tagged memory operations are non-piplelinable
+    //   and loads tend to have longer latency than stores, so the sequence will minimize stall.
+    // The result will always be either another immediate or stored in a register.
+    // TODO: Fold byteswap+store into a single ST*A and load+byteswap into a single LD*A.
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        switch (operand_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO byteswap for vectors", .{}),
+            .Int => {
+                const int_info = operand_ty.intInfo(self.target.*);
+                if (int_info.bits == 8) break :result operand;
+
+                const abi_size = int_info.bits >> 3;
+                const abi_align = operand_ty.abiAlignment(self.target.*);
+                const opposite_endian_asi = switch (self.target.cpu.arch.endian()) {
+                    Endian.Big => ASI.asi_primary_little,
+                    Endian.Little => ASI.asi_primary,
+                };
+
+                switch (operand) {
+                    .immediate => |imm| {
+                        const swapped = switch (int_info.bits) {
+                            16 => @byteSwap(@intCast(u16, imm)),
+                            24 => @byteSwap(@intCast(u24, imm)),
+                            32 => @byteSwap(@intCast(u32, imm)),
+                            40 => @byteSwap(@intCast(u40, imm)),
+                            48 => @byteSwap(@intCast(u48, imm)),
+                            56 => @byteSwap(@intCast(u56, imm)),
+                            64 => @byteSwap(@intCast(u64, imm)),
+                            else => return self.fail("TODO synthesize SPARCv9 byteswap for other integer sizes", .{}),
+                        };
+                        break :result .{ .immediate = swapped };
+                    },
+                    .register => |reg| {
+                        if (int_info.bits > 64 or @popCount(int_info.bits) != 1)
+                            return self.fail("TODO synthesize SPARCv9 byteswap for other integer sizes", .{});
+
+                        const off = try self.allocMem(inst, abi_size, abi_align);
+                        const off_reg = try self.copyToTmpRegister(operand_ty, .{ .immediate = realStackOffset(off) });
+
+                        try self.genStoreASI(reg, .sp, off_reg, abi_size, opposite_endian_asi);
+                        try self.genLoad(reg, .sp, Register, off_reg, abi_size);
+                        break :result reg;
+                    },
+                    .memory => {
+                        if (int_info.bits > 64 or @popCount(int_info.bits) != 1)
+                            return self.fail("TODO synthesize SPARCv9 byteswap for other integer sizes", .{});
+
+                        const addr_reg = try self.copyToTmpRegister(operand_ty, operand);
+                        const dst_reg = try self.register_manager.allocReg(null, gp);
+
+                        try self.genLoadASI(dst_reg, addr_reg, .g0, abi_size, opposite_endian_asi);
+                        break :result dst_reg;
+                    },
+                    .stack_offset => |off| {
+                        if (int_info.bits > 64 or @popCount(int_info.bits) != 1)
+                            return self.fail("TODO synthesize SPARCv9 byteswap for other integer sizes", .{});
+
+                        const off_reg = try self.copyToTmpRegister(operand_ty, .{ .immediate = realStackOffset(off) });
+                        const dst_reg = try self.register_manager.allocReg(null, gp);
+
+                        try self.genLoadASI(dst_reg, .sp, off_reg, abi_size, opposite_endian_asi);
+                        break :result dst_reg;
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
+        }
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
@@ -3583,6 +3669,34 @@ fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_ty
     }
 }
 
+fn genLoadASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Register, abi_size: u64, asi: ASI) !void {
+    switch (abi_size) {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .lduba,
+                2 => .lduha,
+                4 => .lduwa,
+                8 => .ldxa,
+                else => unreachable, // unexpected abi size
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{
+                    .mem_asi = .{
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2 = off_reg,
+                        .asi = asi,
+                    },
+                },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genLoad for more abi_sizes", .{}),
+        else => unreachable,
+    }
+}
+
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
@@ -3942,6 +4056,34 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
     }
 }
 
+fn genStoreASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Register, abi_size: u64, asi: ASI) !void {
+    switch (abi_size) {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .stba,
+                2 => .stha,
+                4 => .stwa,
+                8 => .stxa,
+                else => unreachable, // unexpected abi size
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{
+                    .mem_asi = .{
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2 = off_reg,
+                        .asi = asi,
+                    },
+                },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genLoad for more abi_sizes", .{}),
+        else => unreachable,
+    }
+}
+
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
@@ -4257,12 +4399,12 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
 /// Turns stack_offset MCV into a real SPARCv9 stack offset usable for asm.
 fn realStackOffset(off: u32) u32 {
     return off
-        // SPARCv9 %sp points away from the stack by some amount.
-        + abi.stack_bias
-        // The first couple bytes of each stack frame is reserved
-        // for ABI and hardware purposes.
-        + abi.stack_reserved_area;
-        // Only after that we have the usable stack frame portion.
+    // SPARCv9 %sp points away from the stack by some amount.
+    + abi.stack_bias
+    // The first couple bytes of each stack frame is reserved
+    // for ABI and hardware purposes.
+    + abi.stack_reserved_area;
+    // Only after that we have the usable stack frame portion.
 }
 
 /// Caller must call `CallMCValues.deinit`.

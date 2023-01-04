@@ -91,6 +91,11 @@ pub fn emitMir(
             .lduw => try emit.mirArithmetic3Op(inst),
             .ldx => try emit.mirArithmetic3Op(inst),
 
+            .lduba => unreachable,
+            .lduha => unreachable,
+            .lduwa => unreachable,
+            .ldxa => unreachable,
+
             .@"and" => try emit.mirArithmetic3Op(inst),
             .@"or" => try emit.mirArithmetic3Op(inst),
             .xor => try emit.mirArithmetic3Op(inst),
@@ -126,6 +131,11 @@ pub fn emitMir(
             .sth => try emit.mirArithmetic3Op(inst),
             .stw => try emit.mirArithmetic3Op(inst),
             .stx => try emit.mirArithmetic3Op(inst),
+
+            .stba => unreachable,
+            .stha => unreachable,
+            .stwa => unreachable,
+            .stxa => unreachable,
 
             .sub => try emit.mirArithmetic3Op(inst),
             .subcc => try emit.mirArithmetic3Op(inst),
