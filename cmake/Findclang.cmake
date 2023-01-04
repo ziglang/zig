@@ -5,7 +5,6 @@
 # CLANG_FOUND
 # CLANG_INCLUDE_DIRS
 # CLANG_LIBRARIES
-# CLANG_SYSTEM_LIBRARIES
 # CLANG_LIBDIRS
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
@@ -70,7 +69,7 @@ else()
 endif()
 
 if (MSVC)
-  set(CLANG_SYSTEM_LIBRARIES "version.lib")
+  set(CLANG_LIBRARIES ${CLANG_LIBRARIES} "version.lib")
 endif()
 
 include(FindPackageHandleStandardArgs)

@@ -552,8 +552,6 @@ fn addCmakeCfgOptionsToExe(
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
-    addCMakeSystemLibraryList(exe, cfg.clang_system_libraries);
-    addCMakeSystemLibraryList(exe, cfg.llvm_system_libraries);
 
     if (use_zig_libcxx) {
         exe.linkLibCpp();
@@ -683,26 +681,11 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
+        } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
+            exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
             exe.addObjectFile(lib);
         }
-    }
-}
-
-fn addCMakeSystemLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
-    var it = mem.tokenize(u8, list, ";");
-    while (it.next()) |lib| {
-        var start_offset: usize = 0;
-        var end_offset: usize = 0;
-        if (mem.startsWith(u8, lib, "-l")) {
-            start_offset = "-l".len;
-        }
-
-        if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib")) {
-            end_offset = ".lib".len;
-        }
-
-        exe.linkSystemLibrary(lib[start_offset .. lib.len - end_offset]);
     }
 }
 
@@ -716,11 +699,9 @@ const CMakeConfig = struct {
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
     clang_libraries: []const u8,
-    clang_system_libraries: []const u8,
     llvm_lib_dir: []const u8,
     llvm_include_dir: []const u8,
     llvm_libraries: []const u8,
-    llvm_system_libraries: []const u8,
     dia_guids_lib: []const u8,
 };
 
@@ -783,11 +764,9 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
         .lld_include_dir = undefined,
         .lld_libraries = undefined,
         .clang_libraries = undefined,
-        .clang_system_libraries = undefined,
         .llvm_lib_dir = undefined,
         .llvm_include_dir = undefined,
         .llvm_libraries = undefined,
-        .llvm_system_libraries = undefined,
         .dia_guids_lib = undefined,
     };
 
@@ -825,16 +804,8 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
             .field = "clang_libraries",
         },
         .{
-            .prefix = "#define ZIG_CLANG_SYSTEM_LIBRARIES ",
-            .field = "clang_system_libraries",
-        },
-        .{
             .prefix = "#define ZIG_LLVM_LIBRARIES ",
             .field = "llvm_libraries",
-        },
-        .{
-            .prefix = "#define ZIG_LLVM_SYSTEM_LIBRARIES ",
-            .field = "llvm_system_libraries",
         },
         .{
             .prefix = "#define ZIG_DIA_GUIDS_LIB ",

@@ -133,9 +133,9 @@ find_package(lld 15)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
-        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "z.lib")
+        list(REMOVE_ITEM LLVM_LIBRARIES "z.lib")
     else()
-        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lz")
+        list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
     endif()
 
     find_library(ZLIB NAMES libz.a libzlibstatic.a z zlib libz NAMES_PER_DIR)
@@ -144,9 +144,9 @@ endif()
 
 if(ZIG_STATIC_ZSTD)
     if (MSVC)
-        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "zstd.lib")
+        list(REMOVE_ITEM LLVM_LIBRARIES "zstd.lib")
     else()
-        list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lzstd")
+        list(REMOVE_ITEM LLVM_LIBRARIES "-lzstd")
     endif()
 
     find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR)
@@ -154,7 +154,7 @@ if(ZIG_STATIC_ZSTD)
 endif()
 
 if(APPLE AND ZIG_STATIC)
-    list(REMOVE_ITEM LLVM_SYSTEM_LIBRARIES "-lcurses")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
       PATHS
         /usr/local/opt/ncurses/lib
@@ -710,7 +710,6 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
-    ${LLVM_SYSTEM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
