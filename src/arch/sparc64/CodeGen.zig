@@ -595,7 +595,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
             .store_safe      => try self.airStore(inst, true),
-            .struct_field_ptr=> @panic("TODO try self.airStructFieldPtr(inst)"),
+            .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
             .int_to_float    => try self.airIntToFloat(inst),
@@ -2423,6 +2423,13 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     try self.store(ptr, value, ptr_ty, value_ty);
 
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
