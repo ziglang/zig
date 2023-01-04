@@ -3287,15 +3287,24 @@ pub const DeclGen = struct {
             .Float => {
                 const llvm_ty = try dg.lowerType(tv.ty);
                 switch (tv.ty.floatBits(target)) {
-                    16 => if (intrinsicsAllowed(tv.ty, target)) {
-                        return llvm_ty.constReal(tv.val.toFloat(f16));
-                    } else {
+                    16 => {
                         const repr = @bitCast(u16, tv.val.toFloat(f16));
                         const llvm_i16 = dg.context.intType(16);
                         const int = llvm_i16.constInt(repr, .False);
                         return int.constBitCast(llvm_ty);
                     },
-                    32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
+                    32 => {
+                        const repr = @bitCast(u32, tv.val.toFloat(f32));
+                        const llvm_i32 = dg.context.intType(32);
+                        const int = llvm_i32.constInt(repr, .False);
+                        return int.constBitCast(llvm_ty);
+                    },
+                    64 => {
+                        const repr = @bitCast(u64, tv.val.toFloat(f64));
+                        const llvm_i64 = dg.context.intType(64);
+                        const int = llvm_i64.constInt(repr, .False);
+                        return int.constBitCast(llvm_ty);
+                    },
                     80 => {
                         const float = tv.val.toFloat(f80);
                         const repr = std.math.break_f80(float);
