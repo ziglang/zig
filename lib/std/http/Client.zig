@@ -21,7 +21,8 @@ pub const Request = struct {
     stream: net.Stream,
     tls_client: std.crypto.tls.Client,
     protocol: Protocol,
-    response_headers: http.Headers = .{},
+    response_headers: http.Headers,
+    redirects_left: u32,
 
     pub const Headers = struct {
         method: http.Method = .GET,
@@ -35,7 +36,9 @@ pub const Request = struct {
 
     pub const Protocol = enum { http, https };
 
-    pub const Options = struct {};
+    pub const Options = struct {
+        max_redirects: u32 = 3,
+    };
 
     pub fn readAll(req: *Request, buffer: []u8) !usize {
         return readAtLeast(req, buffer, buffer.len);
@@ -97,8 +100,6 @@ pub fn deinit(client: *Client, gpa: std.mem.Allocator) void {
 }
 
 pub fn request(client: *Client, url: Url, headers: Request.Headers, options: Request.Options) !Request {
-    _ = options; // we have no options yet
-
     const protocol = std.meta.stringToEnum(Request.Protocol, url.scheme) orelse
         return error.UnsupportedUrlScheme;
     const port: u16 = url.port orelse switch (protocol) {
@@ -111,6 +112,7 @@ pub fn request(client: *Client, url: Url, headers: Request.Headers, options: Req
         .stream = try net.tcpConnectToHost(client.allocator, url.host, port),
         .protocol = protocol,
         .tls_client = undefined,
+        .redirects_left = options.max_redirects,
     };
 
     switch (protocol) {
