@@ -823,9 +823,9 @@ pub fn HashMapUnmanaged(
 
                 const cap = it.hm.capacity();
                 var metadata = it.hm.metadata.? + it.index;
-                if (comptime builtin.zig_backend != .stage2_c and // TODO
+                if (builtin.zig_backend != .stage2_c and // TODO
                     // https://github.com/ziglang/zig/issues/13782
-                    (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
+                    (builtin.zig_backend != .stage2_llvm or comptime builtin.cpu.arch.endian() != .Big))
                 {
                     comptime var vec_size: u32 = @as(u32, std.simd.suggestVectorSize(u8) orelse 1);
                     inline while (vec_size >= 1) : (vec_size /= 2) {
@@ -884,11 +884,11 @@ pub fn HashMapUnmanaged(
                 items: [*]T,
 
                 pub fn next(self: *@This()) ?*T {
-                    if (comptime builtin.zig_backend != .stage2_c and // TODO
+                    if (builtin.zig_backend != .stage2_c and // TODO
                         // https://github.com/ziglang/zig/issues/13782
-                        (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch.endian() != .Big))
+                        (builtin.zig_backend != .stage2_llvm or comptime builtin.cpu.arch.endian() != .Big))
                     {
-                        comptime var vec_size: usize = std.simd.suggestVectorSize(u16) orelse 1;
+                        comptime var vec_size: usize = std.simd.suggestVectorSize(u8) orelse 1;
                         inline while (vec_size >= 1) : (vec_size /= 2) {
                             while (self.len >= vec_size) : ({
                                 self.len -= vec_size;
