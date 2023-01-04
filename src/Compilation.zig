@@ -3663,13 +3663,15 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         break :digest digest;
     } else man.final();
 
-    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
-    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
-    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
-    // it to prevent doing a full file content comparison the next time around.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
-    };
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+        };
+    }
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
         "o", &digest, cimport_zig_basename,
