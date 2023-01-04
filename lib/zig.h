@@ -1764,8 +1764,8 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define __builtin_infl() zig_msvc_flt_infl
 #endif
 
-
 #if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(__GNUC__)
+#define zig_has_float_builtins 1
 #define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
 #define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
 #define zig_as_special_f64(sign, name, arg, repr) sign zig_as_f64(__builtin_##name, )(arg)
@@ -1773,16 +1773,7 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define zig_as_special_f128(sign, name, arg, repr) sign zig_as_f128(__builtin_##name, )(arg)
 #define zig_as_special_c_longdouble(sign, name, arg, repr) sign zig_as_c_longdouble(__builtin_##name, )(arg)
 #else
-#define zig_float_from_repr(Type, ReprType) \
-    static inline zig_##Type zig_float_from_repr_##Type(zig_##ReprType repr) { \
-        return *((zig_##Type*)&repr); \
-    }
-zig_float_from_repr(f16, u16)
-zig_float_from_repr(f32, u32)
-zig_float_from_repr(f64, u64)
-zig_float_from_repr(f80, u128)
-zig_float_from_repr(f128, u128)
-zig_float_from_repr(c_longdouble, u128)
+#define zig_has_float_builtins 0
 #define zig_as_special_f16(sign, name, arg, repr) zig_float_from_repr_f16(repr)
 #define zig_as_special_f32(sign, name, arg, repr) zig_float_from_repr_f32(repr)
 #define zig_as_special_f64(sign, name, arg, repr) zig_float_from_repr_f64(repr)
@@ -1982,6 +1973,19 @@ typedef zig_i128 zig_c_longdouble;
 #define zig_as_special_c_longdouble(sign, name, arg, repr) repr
 #undef zig_as_special_constant_c_longdouble
 #define zig_as_special_constant_c_longdouble(sign, name, arg, repr) repr
+#endif
+
+#if !zig_has_float_builtins
+#define zig_float_from_repr(Type, ReprType) \
+    static inline zig_##Type zig_float_from_repr_##Type(zig_##ReprType repr) { \
+        return *((zig_##Type*)&repr); \
+    }
+zig_float_from_repr(f16, u16)
+zig_float_from_repr(f32, u32)
+zig_float_from_repr(f64, u64)
+zig_float_from_repr(f80, u128)
+zig_float_from_repr(f128, u128)
+zig_float_from_repr(c_longdouble, u128)
 #endif
 
 #define zig_cast_f16 (zig_f16)
