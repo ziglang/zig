@@ -1163,7 +1163,7 @@ test "no file inputs" {
 
         try testing.expect(try man.hit());
         digest2 = man.final();
-        try man.writeManifest();
+        try testing.expectEqual(false, man.have_exclusive_lock);
     }
 
     try testing.expectEqual(digest1, digest2);
@@ -1226,7 +1226,7 @@ test "Manifest with files added after initial hash work" {
             try testing.expect(try ch.hit());
             digest2 = ch.final();
 
-            try ch.writeManifest();
+            try testing.expectEqual(false, ch.have_exclusive_lock);
         }
         try testing.expect(mem.eql(u8, &digest1, &digest2));
 
