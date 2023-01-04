@@ -1764,8 +1764,8 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define __builtin_infl() zig_msvc_flt_infl
 #endif
 
-#define zig_has_float_builtins (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(__GNUC__)
-#if zig_has_float_builtins
+#if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(__GNUC__)
+#define zig_has_float_builtins 1
 #define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
 #define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
 #define zig_as_special_f64(sign, name, arg, repr) sign zig_as_f64(__builtin_##name, )(arg)
@@ -1773,6 +1773,7 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define zig_as_special_f128(sign, name, arg, repr) sign zig_as_f128(__builtin_##name, )(arg)
 #define zig_as_special_c_longdouble(sign, name, arg, repr) sign zig_as_c_longdouble(__builtin_##name, )(arg)
 #else
+#define zig_has_float_builtins 0
 #define zig_as_special_f16(sign, name, arg, repr) zig_float_from_repr_f16(repr)
 #define zig_as_special_f32(sign, name, arg, repr) zig_float_from_repr_f32(repr)
 #define zig_as_special_f64(sign, name, arg, repr) zig_float_from_repr_f64(repr)
