@@ -1378,7 +1378,7 @@ fn genHtml(
                         try shell_out.print("\n", .{});
 
                         if (expected_outcome == .BuildFail) {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.run(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
                                 .env_map = &env_map,
@@ -1405,7 +1405,7 @@ fn genHtml(
                             try shell_out.writeAll(colored_stderr);
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.items) catch
+                        const exec_result = run(allocator, &env_map, build_args.items) catch
                             return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.verbose_cimport) {
@@ -1438,7 +1438,7 @@ fn genHtml(
                         var exited_with_signal = false;
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.run(.{
                                 .allocator = allocator,
                                 .argv = run_args,
                                 .env_map = &env_map,
@@ -1458,7 +1458,7 @@ fn genHtml(
                             }
                             break :blk result;
                         } else blk: {
-                            break :blk exec(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
+                            break :blk run(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
                         };
 
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1519,7 +1519,7 @@ fn genHtml(
                                 },
                             }
                         }
-                        const result = exec(allocator, &env_map, test_args.items) catch
+                        const result = run(allocator, &env_map, test_args.items) catch
                             return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
@@ -1553,7 +1553,7 @@ fn genHtml(
                             try test_args.append("-fstage1");
                             try shell_out.print("-fstage1", .{});
                         }
-                        const result = try ChildProcess.exec(.{
+                        const result = try ChildProcess.run(.{
                             .allocator = allocator,
                             .argv = test_args.items,
                             .env_map = &env_map,
@@ -1609,7 +1609,7 @@ fn genHtml(
                             },
                         }
 
-                        const result = try ChildProcess.exec(.{
+                        const result = try ChildProcess.run(.{
                             .allocator = allocator,
                             .argv = test_args.items,
                             .env_map = &env_map,
@@ -1678,7 +1678,7 @@ fn genHtml(
                         }
 
                         if (maybe_error_match) |error_match| {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.run(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
                                 .env_map = &env_map,
@@ -1709,7 +1709,7 @@ fn genHtml(
                             const colored_stderr = try termColor(allocator, escaped_stderr);
                             try shell_out.print("\n{s} ", .{colored_stderr});
                         } else {
-                            _ = exec(allocator, &env_map, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
+                            _ = run(allocator, &env_map, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
                         }
                         try shell_out.writeAll("\n");
                     },
@@ -1756,7 +1756,7 @@ fn genHtml(
                                 },
                             }
                         }
-                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = run(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
@@ -1771,8 +1771,8 @@ fn genHtml(
     }
 }
 
-fn exec(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8) !ChildProcess.ExecResult {
-    const result = try ChildProcess.exec(.{
+fn run(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8) !ChildProcess.RunResult {
+    const result = try ChildProcess.run(.{
         .allocator = allocator,
         .argv = args,
         .env_map = env_map,
@@ -1796,7 +1796,7 @@ fn exec(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8
 }
 
 fn getBuiltinCode(allocator: Allocator, env_map: *process.EnvMap, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
+    const result = try run(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
     return result.stdout;
 }
 

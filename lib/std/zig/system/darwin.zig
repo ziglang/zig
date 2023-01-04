@@ -13,7 +13,7 @@ pub const macos = @import("darwin/macos.zig");
 /// https://github.com/Homebrew/brew/blob/e119bdc571dcb000305411bc1e26678b132afb98/Library/Homebrew/brew.sh#L630
 pub fn isDarwinSDKInstalled(allocator: Allocator) bool {
     const argv = &[_][]const u8{ "/usr/bin/xcode-select", "--print-path" };
-    const result = std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv }) catch return false;
+    const result = std.ChildProcess.run(.{ .allocator = allocator, .argv = argv }) catch return false;
     defer {
         allocator.free(result.stderr);
         allocator.free(result.stdout);
@@ -40,7 +40,7 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
     };
     const path = path: {
         const argv = &[_][]const u8{ "/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-path" };
-        const result = std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv }) catch return null;
+        const result = std.ChildProcess.run(.{ .allocator = allocator, .argv = argv }) catch return null;
         defer {
             allocator.free(result.stderr);
             allocator.free(result.stdout);
@@ -55,7 +55,7 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
     };
     const version = version: {
         const argv = &[_][]const u8{ "/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-version" };
-        const result = std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv }) catch return null;
+        const result = std.ChildProcess.run(.{ .allocator = allocator, .argv = argv }) catch return null;
         defer {
             allocator.free(result.stderr);
             allocator.free(result.stdout);

@@ -94,7 +94,7 @@ fn make(step: *Step) !void {
 
     try argv_list.append(self.source.getPath(self.builder));
 
-    const output_path_nl = try self.builder.execFromStep(argv_list.items, &self.step);
+    const output_path_nl = try self.builder.runFromStep(argv_list.items, &self.step);
     const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
     self.out_basename = fs.path.basename(output_path);

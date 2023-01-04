@@ -98,7 +98,7 @@ fn make(step: *Step) !void {
     };
 
     try argv_list.appendSlice(&.{ full_src_path, full_dest_path });
-    _ = try self.builder.execFromStep(argv_list.items, &self.step);
+    _ = try self.builder.runFromStep(argv_list.items, &self.step);
 }
 
 test {

@@ -99,7 +99,7 @@ pub const Builder = struct {
     /// Information about the native target. Computed before build() is invoked.
     host: NativeTargetInfo,
 
-    pub const ExecError = error{
+    pub const RunError = error{
         ReadFailure,
         ExitCodeFailure,
         ProcessTerminated,
@@ -1181,7 +1181,7 @@ pub const Builder = struct {
         argv: []const []const u8,
         out_code: *u8,
         stderr_behavior: std.ChildProcess.StdIo,
-    ) ExecError![]u8 {
+    ) RunError![]u8 {
         assert(argv.len != 0);
 
         if (!std.process.can_spawn)
@@ -1217,7 +1217,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn execFromStep(self: *Builder, argv: []const []const u8, src_step: ?*Step) ![]u8 {
+    pub fn runFromStep(self: *Builder, argv: []const []const u8, src_step: ?*Step) ![]u8 {
         assert(argv.len != 0);
 
         if (self.verbose) {
@@ -1266,8 +1266,8 @@ pub const Builder = struct {
         };
     }
 
-    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
-        return self.execFromStep(argv, null);
+    pub fn run(self: *Builder, argv: []const []const u8) ![]u8 {
+        return self.runFromStep(argv, null);
     }
 
     pub fn addSearchPrefix(self: *Builder, search_prefix: []const u8) void {

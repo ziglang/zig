@@ -11,7 +11,7 @@ const ArrayList = std.ArrayList;
 const Mode = std.builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const RunError = build.Builder.RunError;
 
 // Cases
 const compare_output = @import("compare_output.zig");
@@ -875,7 +875,7 @@ pub const StackTracesContext = struct {
                 const cmd = try std.mem.join(b.allocator, " ", args.items);
                 std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
                 b.allocator.free(cmd);
-                return ExecError.ExecNotSupported;
+                return RunError.ExecNotSupported;
             }
 
             var child = std.ChildProcess.init(args.items, b.allocator);

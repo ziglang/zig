@@ -1387,7 +1387,7 @@ pub const TestContext = struct {
             try zig_args.append("--color");
             try zig_args.append("off");
 
-            const result = try std.ChildProcess.exec(.{
+            const result = try std.ChildProcess.run(.{
                 .allocator = arena,
                 .argv = zig_args.items,
             });
@@ -1777,7 +1777,7 @@ pub const TestContext = struct {
                     var argv = std.ArrayList([]const u8).init(allocator);
                     defer argv.deinit();
 
-                    var exec_result = x: {
+                    var run_result = x: {
                         var exec_node = update_node.start("execute", 0);
                         exec_node.activate();
                         defer exec_node.end();
@@ -1879,7 +1879,7 @@ pub const TestContext = struct {
                         try comp.makeBinFileExecutable();
 
                         while (true) {
-                            break :x std.ChildProcess.exec(.{
+                            break :x std.ChildProcess.run(.{
                                 .allocator = allocator,
                                 .argv = argv.items,
                                 .cwd_dir = tmp.dir,
@@ -1907,13 +1907,13 @@ pub const TestContext = struct {
                     var test_node = update_node.start("test", 0);
                     test_node.activate();
                     defer test_node.end();
-                    defer allocator.free(exec_result.stdout);
-                    defer allocator.free(exec_result.stderr);
-                    switch (exec_result.term) {
+                    defer allocator.free(run_result.stdout);
+                    defer allocator.free(run_result.stderr);
+                    switch (run_result.term) {
                         .Exited => |code| {
                             if (code != 0) {
                                 print("\n{s}\n{s}: execution exited with code {d}:\n", .{
-                                    exec_result.stderr, case.name, code,
+                                    run_result.stderr, case.name, code,
                                 });
                                 dumpArgs(argv.items);
                                 return error.ChildProcessExecution;
@@ -1921,16 +1921,16 @@ pub const TestContext = struct {
                         },
                         else => {
                             print("\n{s}\n{s}: execution crashed:\n", .{
-                                exec_result.stderr, case.name,
+                                run_result.stderr, case.name,
                             });
                             dumpArgs(argv.items);
                             return error.ChildProcessExecution;
                         },
                     }
-                    try std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
+                    try std.testing.expectEqualStrings(expected_stdout, run_result.stdout);
                     // We allow stderr to have garbage in it because wasmtime prints a
                     // warning about --invoke even though we don't pass it.
-                    //std.testing.expectEqualStrings("", exec_result.stderr);
+                    //std.testing.expectEqualStrings("", run_result.stderr);
                 },
             }
         }

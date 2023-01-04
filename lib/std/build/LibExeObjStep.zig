@@ -17,7 +17,7 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const FileSource = std.build.FileSource;
 const PkgConfigPkg = Builder.PkgConfigPkg;
 const PkgConfigError = Builder.PkgConfigError;
-const ExecError = Builder.ExecError;
+const RunError = Builder.RunError;
 const Pkg = std.build.Pkg;
 const VcpkgRoot = std.build.VcpkgRoot;
 const InstallDir = std.build.InstallDir;
@@ -1875,7 +1875,7 @@ fn make(step: *Step) !void {
         try zig_args.append(try std.mem.concat(builder.allocator, u8, &[_][]const u8{ "@", args_file }));
     }
 
-    const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
+    const output_dir_nl = try builder.runFromStep(zig_args.items, &self.step);
     const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
     if (self.output_dir) |output_dir| {
@@ -1991,7 +1991,7 @@ pub fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_
     };
 }
 
-fn execPkgConfigList(self: *Builder, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
+fn execPkgConfigList(self: *Builder, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
     const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();

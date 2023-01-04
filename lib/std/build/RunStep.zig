@@ -11,7 +11,7 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const RunError = build.Builder.RunError;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -210,7 +210,7 @@ pub fn runCommand(
         const cmd = try std.mem.join(builder.allocator, " ", argv);
         std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
         builder.allocator.free(cmd);
-        return ExecError.ExecNotSupported;
+        return RunError.ExecNotSupported;
     }
 
     var child = std.ChildProcess.init(argv, builder.allocator);

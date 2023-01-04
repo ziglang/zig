@@ -191,7 +191,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub const ExecResult = struct {
+    pub const RunResult = struct {
         term: Term,
         stdout: []u8,
         stderr: []u8,
@@ -373,7 +373,7 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(args: struct {
+    pub fn run(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -381,7 +381,7 @@ pub const ChildProcess = struct {
         env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
-    }) !ExecResult {
+    }) !RunResult {
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -402,7 +402,7 @@ pub const ChildProcess = struct {
             const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
             errdefer args.allocator.free(stderr);
 
-            return ExecResult{
+            return RunResult{
                 .term = try child.wait(),
                 .stdout = stdout,
                 .stderr = stderr,
@@ -422,7 +422,7 @@ pub const ChildProcess = struct {
             try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
         }
 
-        return ExecResult{
+        return RunResult{
             .term = try child.wait(),
             .stdout = try stdout.toOwnedSlice(),
             .stderr = try stderr.toOwnedSlice(),
@@ -989,7 +989,7 @@ pub const ChildProcess = struct {
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        exec: {
+        run: {
             const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
 
@@ -1041,7 +1041,7 @@ pub const ChildProcess = struct {
                     dir_buf.shrinkRetainingCapacity(normalized_len);
 
                     if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
-                        break :exec;
+                        break :run;
                     } else |err| switch (err) {
                         error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
                         error.UnrecoverableInvalidExe => return error.InvalidExe,
@@ -1246,7 +1246,7 @@ fn windowsCreateProcessPathExt(
     };
 
     // Now we know that at least *a* file matching the wildcard exists, we can loop
-    // through PATHEXT in order and exec any that exist
+    // through PATHEXT in order and run any that exist
 
     var ext_it = mem.tokenize(u16, pathext, &[_]u16{';'});
     while (ext_it.next()) |ext| {

@@ -642,7 +642,7 @@ fn addCxxKnownPath(
 ) !void {
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
-    const path_padded = try b.exec(&[_][]const u8{
+    const path_padded = try b.run(&[_][]const u8{
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),
     });
