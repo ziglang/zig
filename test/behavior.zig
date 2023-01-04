@@ -240,6 +240,7 @@ test {
     {
         _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
+        _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
     }
 
