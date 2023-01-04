@@ -141,6 +141,8 @@ const MCValue = union(enum) {
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     /// Note that this stores the plain value (i.e without the effects of the stack bias).
+    /// Always convert this value into machine offsets with realStackOffset() before
+    /// lowering into asm!
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
@@ -3651,7 +3653,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
         },
         .ptr_stack_offset => |off| {
-            const real_offset = off + abi.stack_bias + abi.stack_reserved_area;
+            const real_offset = realStackOffset(off);
             const simm13 = math.cast(i13, real_offset) orelse
                 return self.fail("TODO larger stack offsets: {}", .{real_offset});
 
@@ -3783,7 +3785,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
-            const real_offset = off + abi.stack_bias + abi.stack_reserved_area;
+            const real_offset = realStackOffset(off);
             const simm13 = math.cast(i13, real_offset) orelse
                 return self.fail("TODO larger stack offsets: {}", .{real_offset});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
@@ -3817,7 +3819,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .register => |reg| {
-            const real_offset = stack_offset + abi.stack_bias + abi.stack_reserved_area;
+            const real_offset = realStackOffset(stack_offset);
             const simm13 = math.cast(i13, real_offset) orelse
                 return self.fail("TODO larger stack offsets: {}", .{real_offset});
             return self.genStore(reg, .sp, i13, simm13, abi_size);
@@ -4250,6 +4252,17 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
         },
         else => {}, // TODO process stack allocation death
     }
+}
+
+/// Turns stack_offset MCV into a real SPARCv9 stack offset usable for asm.
+fn realStackOffset(off: u32) u32 {
+    return off
+        // SPARCv9 %sp points away from the stack by some amount.
+        + abi.stack_bias
+        // The first couple bytes of each stack frame is reserved
+        // for ABI and hardware purposes.
+        + abi.stack_reserved_area;
+        // Only after that we have the usable stack frame portion.
 }
 
 /// Caller must call `CallMCValues.deinit`.
