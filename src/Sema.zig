@@ -24477,7 +24477,7 @@ fn coerceExtra(
         return block.addBitCast(dest_ty, inst);
     }
 
-    const is_undef = if (maybe_inst_val) |val| val.isUndef() else false;
+    const is_undef = inst_ty.zigTypeTag() == .Undefined;
 
     switch (dest_ty.zigTypeTag()) {
         .Optional => optional: {
