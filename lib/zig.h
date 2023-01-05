@@ -1770,7 +1770,7 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, zig_u8 bits) {
 #define __builtin_infl() zig_msvc_flt_infl
 #endif
 
-#if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf))
+#if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(zig_gnuc)
 #define zig_has_float_builtins 1
 #define zig_as_special_f16(sign, name, arg, repr) sign zig_as_f16(__builtin_##name, )(arg)
 #define zig_as_special_f32(sign, name, arg, repr) sign zig_as_f32(__builtin_##name, )(arg)
