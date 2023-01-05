@@ -7174,6 +7174,7 @@ fn instantiateGenericCall(
                 return err;
             },
             else => {
+                assert(mod.monomorphed_funcs.remove(new_module_func));
                 {
                     errdefer new_decl_arena.deinit();
                     try new_decl.finalizeNewArena(&new_decl_arena);

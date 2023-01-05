@@ -3519,14 +3519,6 @@ pub fn deinit(mod: *Module) void {
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const gpa = mod.gpa;
     {
-        if (mod.failed_decls.contains(decl_index)) {
-            blk: {
-                const errs = mod.comp.getAllErrorsAlloc() catch break :blk;
-                for (errs.list) |err| Compilation.AllErrors.Message.renderToStdErr(err, .no_color);
-            }
-            // TODO restore test case triggering this panic
-            @panic("Zig compiler bug: attempted to destroy declaration with an attached error");
-        }
         const decl = mod.declPtr(decl_index);
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         _ = mod.test_functions.swapRemove(decl_index);
