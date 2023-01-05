@@ -31,10 +31,21 @@ const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.cache);
 
 pub fn addPrefix(cache: *Cache, directory: Compilation.Directory) void {
-    if (directory.path) |p| {
+    var patched_dir = directory;
+    if (patched_dir.path) |*path| {
+        if (std.mem.endsWith(u8, path.*, std.fs.path.sep_str)) {
+            // remove the path separator at the end. This might remove the "/" from an
+            // absolute path, and push "" into the cache, but this is acceptible,
+            // as both "/" and "" are semantically the same prefix of a unix path.
+            path.* = path.*[0 .. path.*.len - 1];
+        }
+    }
+
+    if (patched_dir.path) |p| {
         log.debug("Cache.addPrefix {d} {s}", .{ cache.prefixes_len, p });
     }
-    cache.prefixes_buffer[cache.prefixes_len] = directory;
+
+    cache.prefixes_buffer[cache.prefixes_len] = patched_dir;
     cache.prefixes_len += 1;
 }
 
