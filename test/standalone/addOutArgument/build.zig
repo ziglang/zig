@@ -14,4 +14,7 @@ pub fn build(b: *std.build.Builder) void {
     runner_verify.addFileSourceArg(out_file_source);
 
     b.getInstallStep().dependOn(&runner_verify.step);
+
+    const test_step = b.step("test", "Does the same as the install step.");
+    test_step.dependOn(&runner_verify.step);
 }
