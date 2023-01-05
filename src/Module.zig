@@ -6749,3 +6749,25 @@ pub fn getDeclExports(mod: Module, decl_index: Decl.Index) []const *Export {
         return &[0]*Export{};
     }
 }
+
+pub const Feature = enum {
+    panic_fn,
+    panic_unwrap_error,
+    safety_check_formatted,
+    error_return_trace,
+    is_named_enum_value,
+    error_set_has_value,
+};
+
+pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
+    return switch (feature) {
+        .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
+        .error_return_trace => mod.comp.bin_file.options.use_llvm,
+        .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+    };
+}

@@ -1820,12 +1820,7 @@ fn analyzeAsType(
 }
 
 pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) !void {
-    const backend_supports_error_return_tracing =
-        sema.mod.comp.bin_file.options.use_llvm;
-    if (!backend_supports_error_return_tracing) {
-        // TODO implement this feature in all the backends and then delete this branch
-        return;
-    }
+    if (!sema.mod.backendSupportsFeature(.error_return_trace)) return;
 
     assert(!block.is_comptime);
     var err_trace_block = block.makeSubBlock();
@@ -5906,9 +5901,8 @@ fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?*Decl {
 pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref {
     const src = sema.src;
 
-    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    if (!backend_supports_error_return_tracing or !sema.mod.comp.bin_file.options.error_return_tracing)
-        return .none;
+    if (!sema.mod.backendSupportsFeature(.error_return_trace)) return .none;
+    if (!sema.mod.comp.bin_file.options.error_return_tracing) return .none;
 
     if (block.is_comptime)
         return .none;
@@ -6146,8 +6140,7 @@ fn zirCall(
     if (sema.owner_func == null or !sema.owner_func.?.calls_or_awaits_errorable_fn)
         input_is_error = false; // input was an error type, but no errorable fn's were actually called
 
-    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    if (backend_supports_error_return_tracing and sema.mod.comp.bin_file.options.error_return_tracing and
+    if (sema.mod.backendSupportsFeature(.error_return_trace) and sema.mod.comp.bin_file.options.error_return_tracing and
         !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const call_inst: Air.Inst.Ref = if (modifier == .always_tail) undefined else b: {
@@ -7934,11 +7927,8 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     const result = try block.addTyOp(.intcast, dest_ty, operand);
-    if (block.wantSafety() and
-        !dest_ty.isNonexhaustiveEnum() and
-        // TODO instead of "use_llvm", check a different condition so that backends
-        // can advertise themselves as supporting these extra AIR instructions for safety.
-        sema.mod.comp.bin_file.options.use_llvm)
+    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and
+        sema.mod.backendSupportsFeature(.is_named_enum_value))
     {
         const ok = try block.addUnOp(.is_named_enum_value, result);
         try sema.addSafetyCheck(block, ok, .invalid_enum_value);
@@ -10656,8 +10646,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
-    const backend_supports_is_named_enum = sema.mod.comp.bin_file.options.use_llvm;
-
     if (scalar_cases_len + multi_cases_len == 0 and !special.is_inline) {
         if (empty_enum) {
             return Air.Inst.Ref.void_value;
@@ -10668,7 +10656,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand)) {
             return Air.Inst.Ref.unreachable_value;
         }
-        if (backend_supports_is_named_enum and block.wantSafety() and operand_ty.zigTypeTag() == .Enum and
+        if (sema.mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag() == .Enum and
             (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
@@ -11138,7 +11126,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.wip_capture_scope = wip_captures.scope;
         case_block.inline_case_capture = .none;
 
-        if (backend_supports_is_named_enum and special.body.len != 0 and block.wantSafety() and
+        if (sema.mod.backendSupportsFeature(.is_named_enum_value) and special.body.len != 0 and block.wantSafety() and
             operand_ty.zigTypeTag() == .Enum and (!operand_ty.isNonexhaustiveEnum() or union_originally))
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
@@ -11451,10 +11439,7 @@ fn validateSwitchNoRange(
 }
 
 fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref) !bool {
-    const this_feature_is_implemented_in_the_backend =
-        sema.mod.comp.bin_file.options.use_llvm;
-
-    if (!this_feature_is_implemented_in_the_backend) return false;
+    if (!sema.mod.backendSupportsFeature(.panic_unwrap_error)) return false;
 
     const tags = sema.code.instructions.items(.tag);
     for (body) |inst| {
@@ -16968,20 +16953,17 @@ fn retWithErrTracing(
 }
 
 fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
-    // TODO implement this feature in all the backends and then delete this check.
-    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+    if (!sema.mod.backendSupportsFeature(.error_return_trace)) return false;
 
     return fn_ret_ty.isError() and
-        sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing;
+        sema.mod.comp.bin_file.options.error_return_tracing;
 }
 
 fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].save_err_ret_index;
 
-    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = backend_supports_error_return_tracing and sema.mod.comp.bin_file.options.error_return_tracing;
-    if (!ok) return;
+    if (!sema.mod.backendSupportsFeature(.error_return_trace)) return;
+    if (!sema.mod.comp.bin_file.options.error_return_tracing) return;
 
     // This is only relevant at runtime.
     if (block.is_comptime or block.is_typeof) return;
@@ -17003,11 +16985,9 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     // This is only relevant at runtime.
     if (start_block.is_comptime or start_block.is_typeof) return;
 
-    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
-        sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing;
-    if (!ok) return;
+    if (!sema.mod.backendSupportsFeature(.error_return_trace)) return;
+    if (!sema.owner_func.?.calls_or_awaits_errorable_fn) return;
+    if (!sema.mod.comp.bin_file.options.error_return_tracing) return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -17986,14 +17966,10 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
     const stack_trace_ty = try sema.resolveTypeFields(unresolved_stack_trace_ty);
     const opt_ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
 
-    // TODO implement this feature in all the backends and then delete this check.
-    const backend_supports_error_return_tracing =
-        sema.mod.comp.bin_file.options.use_llvm;
-
     if (sema.owner_func != null and
         sema.owner_func.?.calls_or_awaits_errorable_fn and
         sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing)
+        sema.mod.backendSupportsFeature(.error_return_trace))
     {
         return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
     }
@@ -18173,7 +18149,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.addStrLit(block, field_name);
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety() and sema.mod.comp.bin_file.options.use_llvm) {
+    if (block.wantSafety() and sema.mod.backendSupportsFeature(.is_named_enum_value)) {
         const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
         try sema.addSafetyCheck(block, ok, .invalid_enum_value);
     }
@@ -19467,7 +19443,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety() and !dest_ty.isAnyError() and sema.mod.comp.bin_file.options.use_llvm) {
+    if (block.wantSafety() and !dest_ty.isAnyError() and sema.mod.backendSupportsFeature(.error_set_has_value)) {
         const err_int_inst = try block.addBitCast(Type.err_int, operand);
         const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
         try sema.addSafetyCheck(block, ok, .invalid_error_code);
@@ -22656,11 +22632,7 @@ fn panicWithMsg(
     const mod = sema.mod;
     const arena = sema.arena;
 
-    const this_feature_is_implemented_in_the_backend =
-        mod.comp.bin_file.options.target.ofmt == .c or
-        mod.comp.bin_file.options.use_llvm;
-    if (!this_feature_is_implemented_in_the_backend) {
-        // TODO implement this feature in all the backends and then delete this branch
+    if (!mod.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.breakpoint);
         _ = try block.addNoOp(.unreach);
         return;
@@ -22709,11 +22681,7 @@ fn panicUnwrapError(
     defer fail_block.instructions.deinit(gpa);
 
     {
-        const this_feature_is_implemented_in_the_backend =
-            sema.mod.comp.bin_file.options.use_llvm;
-
-        if (!this_feature_is_implemented_in_the_backend) {
-            // TODO implement this feature in all the backends and then delete this branch
+        if (!sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
             _ = try fail_block.addNoOp(.breakpoint);
             _ = try fail_block.addNoOp(.unreach);
         } else {
@@ -22839,18 +22807,12 @@ fn safetyCheckFormatted(
 
     defer fail_block.instructions.deinit(gpa);
 
-    {
-        const this_feature_is_implemented_in_the_backend =
-            sema.mod.comp.bin_file.options.use_llvm;
-
-        if (!this_feature_is_implemented_in_the_backend) {
-            // TODO implement this feature in all the backends and then delete this branch
-            _ = try fail_block.addNoOp(.breakpoint);
-            _ = try fail_block.addNoOp(.unreach);
-        } else {
-            const panic_fn = try sema.getBuiltin(func);
-            _ = try sema.analyzeCall(&fail_block, panic_fn, sema.src, sema.src, .auto, false, args, null);
-        }
+    if (!sema.mod.backendSupportsFeature(.safety_check_formatted)) {
+        _ = try fail_block.addNoOp(.breakpoint);
+        _ = try fail_block.addNoOp(.unreach);
+    } else {
+        const panic_fn = try sema.getBuiltin(func);
+        _ = try sema.analyzeCall(&fail_block, panic_fn, sema.src, sema.src, .auto, false, args, null);
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
