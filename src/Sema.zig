@@ -2094,16 +2094,12 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
         const msg = try sema.errMsg(block, init_src, "value stored in comptime field does not match the default value of the field", .{});
         errdefer msg.destroy(sema.gpa);
 
-        const decl_index = container_ty.getOwnerDeclOrNull() orelse break :msg msg;
-        const decl = sema.mod.declPtr(decl_index);
-        const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
-            log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
-            return error.AnalysisFail;
-        };
-        const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
-        const default_value_src: LazySrcLoc = .{ .node_offset_field_default = field_src.node_offset.x };
-
-        try sema.mod.errNoteNonLazy(default_value_src.toSrcLoc(decl), msg, "default value set here", .{});
+        const struct_ty = container_ty.castTag(.@"struct") orelse break :msg msg;
+        const default_value_src = struct_ty.data.fieldSrcLoc(sema.mod, .{
+            .index = field_index,
+            .range = .value,
+        });
+        try sema.mod.errNoteNonLazy(default_value_src, msg, "default value set here", .{});
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
@@ -2141,15 +2137,61 @@ fn addFieldErrNote(
     comptime format: []const u8,
     args: anytype,
 ) !void {
+    @setCold(true);
     const mod = sema.mod;
     const decl_index = container_ty.getOwnerDecl();
     const decl = mod.declPtr(decl_index);
-    const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
-        log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
-        return error.AnalysisFail;
+
+    const field_src = blk: {
+        const tree = decl.getFileScope().getTree(sema.gpa) catch |err| {
+            log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
+            break :blk decl.srcLoc();
+        };
+
+        const container_node = decl.relativeToNodeIndex(0);
+        const node_tags = tree.nodes.items(.tag);
+        var buffer: [2]std.zig.Ast.Node.Index = undefined;
+        const container_decl = switch (node_tags[container_node]) {
+            .root => tree.containerDeclRoot(),
+            .container_decl,
+            .container_decl_trailing,
+            => tree.containerDecl(container_node),
+            .container_decl_two,
+            .container_decl_two_trailing,
+            => tree.containerDeclTwo(&buffer, container_node),
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => tree.containerDeclArg(container_node),
+            .tagged_union,
+            .tagged_union_trailing,
+            => tree.taggedUnion(container_node),
+            .tagged_union_two,
+            .tagged_union_two_trailing,
+            => tree.taggedUnionTwo(&buffer, container_node),
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => tree.taggedUnionEnumTag(container_node),
+            else => break :blk decl.srcLoc(),
+        };
+
+        var it_index: usize = 0;
+        for (container_decl.ast.members) |member_node| {
+            switch (node_tags[member_node]) {
+                .container_field_init,
+                .container_field_align,
+                .container_field,
+                => {
+                    if (it_index == field_index) {
+                        break :blk decl.nodeOffsetSrcLoc(decl.nodeIndexToRelative(member_node));
+                    }
+                    it_index += 1;
+                },
+                else => continue,
+            }
+        }
+        unreachable;
     };
-    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
-    try mod.errNoteNonLazy(field_src.toSrcLoc(decl), parent, format, args);
+    try mod.errNoteNonLazy(field_src, parent, format, args);
 }
 
 fn errMsg(
@@ -2863,7 +2905,7 @@ fn zirEnumDecl(
             .inlining = null,
             .is_comptime = true,
         };
-        defer assert(enum_block.instructions.items.len == 0); // should all be comptime instructions
+        defer enum_block.instructions.deinit(sema.gpa);
 
         if (body.len != 0) {
             try sema.analyzeBody(&enum_block, body);
@@ -2929,13 +2971,12 @@ fn zirEnumDecl(
 
         const gop_field = enum_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop_field.found_existing) {
-            const tree = try sema.getAstTree(block);
-            const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
-            const other_tag_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_field.index);
+            const field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
+            const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_field.index }).lazy;
             const msg = msg: {
                 const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
-                try sema.errNote(block, other_tag_src, msg, "other field here", .{});
+                try sema.errNote(block, other_field_src, msg, "other field here", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -2944,10 +2985,18 @@ fn zirEnumDecl(
         if (has_tag_value) {
             const tag_val_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
             extra_index += 1;
-            // TODO: if we need to report an error here, use a source location
-            // that points to this default value expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref, "enum tag value must be comptime-known")).val;
+            const tag_inst = try sema.resolveInst(tag_val_ref);
+            const tag_val = sema.resolveConstValue(block, .unneeded, tag_inst, "") catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .value,
+                    }).lazy;
+                    _ = try sema.resolveConstValue(block, value_src, tag_inst, "enum tag value must be comptime-known");
+                    unreachable;
+                },
+                else => |e| return e,
+            };
             last_tag_val = tag_val;
             const copied_tag_val = try tag_val.copy(decl_arena_allocator);
             const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
@@ -2955,11 +3004,13 @@ fn zirEnumDecl(
                 .mod = mod,
             });
             if (gop_val.found_existing) {
-                const tree = try sema.getAstTree(block);
-                const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
-                const other_field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_val.index);
+                const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .value,
+                }).lazy;
+                const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_val.index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -2978,9 +3029,8 @@ fn zirEnumDecl(
                 .mod = mod,
             });
             if (gop_val.found_existing) {
-                const tree = try sema.getAstTree(block);
-                const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
-                const other_field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_val.index);
+                const field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
+                const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_val.index }).lazy;
                 const msg = msg: {
                     const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
@@ -2998,9 +3048,11 @@ fn zirEnumDecl(
         }
 
         if (!(try sema.intFitsInType(last_tag_val.?, enum_obj.tag_ty, null))) {
-            const tree = try sema.getAstTree(block);
-            const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
-            const msg = try sema.errMsg(block, field_src, "enumeration value '{}' too large for type '{}'", .{
+            const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+                .index = field_i,
+                .range = if (has_tag_value) .value else .name,
+            }).lazy;
+            const msg = try sema.errMsg(block, value_src, "enumeration value '{}' too large for type '{}'", .{
                 last_tag_val.?.fmtValue(enum_obj.tag_ty, mod), enum_obj.tag_ty.fmt(mod),
             });
             return sema.failWithOwnedErrorMsg(msg);
@@ -30623,18 +30675,12 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
             if (gop.found_existing) {
                 const msg = msg: {
-                    const field_src = struct_obj.fieldSrcLoc(sema.mod, .{
-                        .index = field_i,
-                        .range = .name,
-                    }).lazy;
+                    const field_src = struct_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
                     const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
                     errdefer msg.destroy(gpa);
 
                     const prev_field_index = struct_obj.fields.getIndex(field_name).?;
-                    const prev_field_src = struct_obj.fieldSrcLoc(sema.mod, .{
-                        .index = prev_field_index,
-                        .range = .name,
-                    });
+                    const prev_field_src = struct_obj.fieldSrcLoc(sema.mod, .{ .index = prev_field_index });
                     try sema.mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
@@ -30787,26 +30833,30 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
 
     if (any_inits) {
         extra_index = bodies_index;
-        for (fields) |zir_field, i| {
+        for (fields) |zir_field, field_i| {
             extra_index += zir_field.type_body_len;
             extra_index += zir_field.align_body_len;
             if (zir_field.init_body_len > 0) {
                 const body = zir.extra[extra_index..][0..zir_field.init_body_len];
                 extra_index += body.len;
                 const init = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
-                const field = &struct_obj.fields.values()[i];
+                const field = &struct_obj.fields.values()[field_i];
                 const coerced = sema.coerce(&block_scope, field.ty, init, .unneeded) catch |err| switch (err) {
                     error.NeededSourceLocation => {
-                        const tree = try sema.getAstTree(&block_scope);
-                        const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                        const init_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                            .index = field_i,
+                            .range = .value,
+                        }).lazy;
                         _ = try sema.coerce(&block_scope, field.ty, init, init_src);
                         unreachable;
                     },
                     else => |e| return e,
                 };
                 const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
-                    const tree = try sema.getAstTree(&block_scope);
-                    const init_src = containerFieldInitSrcLoc(decl, tree.*, 0, i);
+                    const init_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .value,
+                    }).lazy;
                     return sema.failWithNeededComptime(&block_scope, init_src, "struct field default value must be comptime-known");
                 };
                 field.default_val = try default_val.copy(decl_arena_allocator);
@@ -31052,14 +31102,8 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 .mod = mod,
             });
             if (gop.found_existing) {
-                const field_src = union_obj.fieldSrcLoc(sema.mod, .{
-                    .index = field_i,
-                    .range = .name,
-                }).lazy;
-                const other_field_src = union_obj.fieldSrcLoc(sema.mod, .{
-                    .index = gop.index,
-                    .range = .name,
-                }).lazy;
+                const field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
+                const other_field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = gop.index }).lazy;
                 const msg = msg: {
                     const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{copied_val.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
@@ -31100,18 +31144,12 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop.found_existing) {
             const msg = msg: {
-                const field_src = union_obj.fieldSrcLoc(sema.mod, .{
-                    .index = field_i,
-                    .range = .name,
-                }).lazy;
+                const field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
                 const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
 
                 const prev_field_index = union_obj.fields.getIndex(field_name).?;
-                const prev_field_src = union_obj.fieldSrcLoc(sema.mod, .{
-                    .index = prev_field_index,
-                    .range = .name,
-                }).lazy;
+                const prev_field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = prev_field_index }).lazy;
                 try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
@@ -31651,102 +31689,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     }
 }
 
-fn getAstTree(sema: *Sema, block: *Block) CompileError!*const std.zig.Ast {
-    return block.namespace.file_scope.getTree(sema.gpa) catch |err| {
-        log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
-        return error.AnalysisFail;
-    };
-}
-
-fn enumFieldSrcLoc(
-    decl: *Decl,
-    tree: std.zig.Ast,
-    node_offset: i32,
-    field_index: usize,
-) LazySrcLoc {
-    @setCold(true);
-    const field_node = containerFieldNode(decl, tree, node_offset, field_index) orelse
-        return LazySrcLoc.nodeOffset(0);
-    return decl.nodeSrcLoc(field_node);
-}
-
-fn containerFieldInitSrcLoc(
-    decl: *Decl,
-    tree: std.zig.Ast,
-    node_offset: i32,
-    field_index: usize,
-) LazySrcLoc {
-    @setCold(true);
-    const node_tags = tree.nodes.items(.tag);
-    const field_node = containerFieldNode(decl, tree, node_offset, field_index) orelse
-        return LazySrcLoc.nodeOffset(0);
-    const node_data = tree.nodes.items(.data)[field_node];
-
-    const init_node = switch (node_tags[field_node]) {
-        .container_field_init => node_data.rhs,
-        .container_field => blk: {
-            const extra_data = tree.extraData(node_data.rhs, std.zig.Ast.Node.ContainerField);
-            break :blk extra_data.value_expr;
-        },
-        else => unreachable,
-    };
-
-    return decl.nodeSrcLoc(init_node);
-}
-
-fn containerFieldNode(
-    decl: *Decl,
-    tree: std.zig.Ast,
-    node_offset: i32,
-    field_index: usize,
-) ?std.zig.Ast.Node.Index {
-    @setCold(true);
-    const enum_node = decl.relativeToNodeIndex(node_offset);
-    const node_tags = tree.nodes.items(.tag);
-    var buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const container_decl = switch (node_tags[enum_node]) {
-        .root => tree.containerDeclRoot(),
-
-        .container_decl,
-        .container_decl_trailing,
-        => tree.containerDecl(enum_node),
-
-        .container_decl_two,
-        .container_decl_two_trailing,
-        => tree.containerDeclTwo(&buffer, enum_node),
-
-        .container_decl_arg,
-        .container_decl_arg_trailing,
-        => tree.containerDeclArg(enum_node),
-
-        .tagged_union,
-        .tagged_union_trailing,
-        => tree.taggedUnion(enum_node),
-        .tagged_union_two,
-        .tagged_union_two_trailing,
-        => tree.taggedUnionTwo(&buffer, enum_node),
-        .tagged_union_enum_tag,
-        .tagged_union_enum_tag_trailing,
-        => tree.taggedUnionEnumTag(enum_node),
-
-        else => return null,
-    };
-    var it_index: usize = 0;
-    for (container_decl.ast.members) |member_node| {
-        switch (node_tags[member_node]) {
-            .container_field_init,
-            .container_field_align,
-            .container_field,
-            => {
-                if (it_index == field_index) return member_node;
-                it_index += 1;
-            },
-
-            else => continue,
-        }
-    } else unreachable;
-}
-
 /// Returns the type of the AIR instruction.
 fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
     return sema.getTmpAir().typeOf(inst);
@@ -31834,14 +31776,6 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
 
 fn addIntUnsigned(sema: *Sema, ty: Type, int: u64) CompileError!Air.Inst.Ref {
     return sema.addConstant(ty, try Value.Tag.int_u64.create(sema.arena, int));
-}
-
-fn addBool(sema: *Sema, ty: Type, boolean: bool) CompileError!Air.Inst.Ref {
-    return switch (ty.zigTypeTag()) {
-        .Vector => sema.addConstant(ty, try Value.Tag.repeated.create(sema.arena, Value.makeBool(boolean))),
-        .Bool => try sema.resolveInst(if (boolean) .bool_true else .bool_false),
-        else => unreachable,
-    };
 }
 
 fn addConstUndef(sema: *Sema, ty: Type) CompileError!Air.Inst.Ref {
@@ -32487,27 +32421,6 @@ fn intAddScalar(sema: *Sema, lhs: Value, rhs: Value) !Value {
     return Value.fromBigInt(sema.arena, result_bigint.toConst());
 }
 
-/// Supports both (vectors of) floats and ints; handles undefined scalars.
-fn numberAddWrap(
-    sema: *Sema,
-    lhs: Value,
-    rhs: Value,
-    ty: Type,
-) !Value {
-    if (ty.zigTypeTag() == .Vector) {
-        const result_data = try sema.arena.alloc(Value, ty.vectorLen());
-        for (result_data) |*scalar, i| {
-            var lhs_buf: Value.ElemValueBuffer = undefined;
-            var rhs_buf: Value.ElemValueBuffer = undefined;
-            const lhs_elem = lhs.elemValueBuffer(sema.mod, i, &lhs_buf);
-            const rhs_elem = rhs.elemValueBuffer(sema.mod, i, &rhs_buf);
-            scalar.* = try sema.numberAddWrapScalar(lhs_elem, rhs_elem, ty.scalarType());
-        }
-        return Value.Tag.aggregate.create(sema.arena, result_data);
-    }
-    return sema.numberAddWrapScalar(lhs, rhs, ty);
-}
-
 /// Supports both floats and ints; handles undefined.
 fn numberAddWrapScalar(
     sema: *Sema,
@@ -32564,27 +32477,6 @@ fn intSubScalar(sema: *Sema, lhs: Value, rhs: Value) !Value {
     var result_bigint = std.math.big.int.Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.sub(lhs_bigint, rhs_bigint);
     return Value.fromBigInt(sema.arena, result_bigint.toConst());
-}
-
-/// Supports both (vectors of) floats and ints; handles undefined scalars.
-fn numberSubWrap(
-    sema: *Sema,
-    lhs: Value,
-    rhs: Value,
-    ty: Type,
-) !Value {
-    if (ty.zigTypeTag() == .Vector) {
-        const result_data = try sema.arena.alloc(Value, ty.vectorLen());
-        for (result_data) |*scalar, i| {
-            var lhs_buf: Value.ElemValueBuffer = undefined;
-            var rhs_buf: Value.ElemValueBuffer = undefined;
-            const lhs_elem = lhs.elemValueBuffer(sema.mod, i, &lhs_buf);
-            const rhs_elem = rhs.elemValueBuffer(sema.mod, i, &rhs_buf);
-            scalar.* = try sema.numberSubWrapScalar(lhs_elem, rhs_elem, ty.scalarType());
-        }
-        return Value.Tag.aggregate.create(sema.arena, result_data);
-    }
-    return sema.numberSubWrapScalar(lhs, rhs, ty);
 }
 
 /// Supports both floats and ints; handles undefined.

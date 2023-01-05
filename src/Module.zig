@@ -1194,6 +1194,49 @@ pub const EnumFull = struct {
             .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
+
+    pub fn fieldSrcLoc(e: EnumFull, mod: *Module, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const owner_decl = mod.declPtr(e.owner_decl);
+        const file = owner_decl.getFileScope();
+        const tree = file.getTree(mod.gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                file.sub_file_path, @errorName(err),
+            });
+            return e.srcLoc(mod);
+        };
+        const node = owner_decl.relativeToNodeIndex(0);
+        const node_tags = tree.nodes.items(.tag);
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two, .tagged_union_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
+            },
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+
+            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
+
+            // This struct was generated using @Type
+            else => return e.srcLoc(mod),
+        }
+    }
 };
 
 pub const Union = struct {
@@ -6171,7 +6214,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
 
 const FieldSrcQuery = struct {
     index: usize,
-    range: enum { name, type, value, alignment },
+    range: enum { name, type, value, alignment } = .name,
 };
 
 fn queryFieldSrc(
