@@ -672,8 +672,8 @@ fn buildOutputType(
     var no_builtin = false;
     var watch = false;
     var debug_compile_errors = false;
-    var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
-    var verbose_cc = std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
+    var verbose_link = (builtin.os.tag == .wasi and !builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
+    var verbose_cc = (builtin.os.tag == .wasi and !builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
@@ -851,7 +851,8 @@ fn buildOutputType(
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
-    color = if (std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
+    color = if (builtin.os.tag == .wasi || std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
