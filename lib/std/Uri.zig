@@ -1,7 +1,7 @@
 //! Implements URI parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
 //! Does not do perfect grammar and character class checking, but should be robust against URIs in the wild.
 
-const Url = @This();
+const Uri = @This();
 const std = @import("std.zig");
 const testing = std.testing;
 
@@ -97,8 +97,8 @@ pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 /// Parses the URI or returns an error.
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
-pub fn parse(text: []const u8) ParseError!Url {
-    var uri = Url{
+pub fn parse(text: []const u8) ParseError!Uri {
+    var uri = Uri{
         .scheme = null,
         .user = null,
         .password = null,
@@ -311,7 +311,7 @@ test "with port" {
 }
 
 test "should fail gracefully" {
-    try std.testing.expectEqual(@as(ParseError!Url, error.InvalidFormat), parse("foobar://"));
+    try std.testing.expectEqual(@as(ParseError!Uri, error.InvalidFormat), parse("foobar://"));
 }
 
 test "scheme" {
@@ -413,7 +413,7 @@ test "authority.IPv6" {
 
 test "RFC example 1" {
     const uri = "foo://example.com:8042/over/there?name=ferret#nose";
-    try std.testing.expectEqual(Url{
+    try std.testing.expectEqual(Uri{
         .scheme = uri[0..3],
         .user = null,
         .password = null,
@@ -427,7 +427,7 @@ test "RFC example 1" {
 
 test "RFX example 2" {
     const uri = "urn:example:animal:ferret:nose";
-    try std.testing.expectEqual(Url{
+    try std.testing.expectEqual(Uri{
         .scheme = uri[0..3],
         .user = null,
         .password = null,

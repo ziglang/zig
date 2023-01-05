@@ -42,7 +42,7 @@ pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
-pub const Url = @import("Url.zig");
+pub const Uri = @import("Uri.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
