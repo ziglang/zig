@@ -1,5 +1,4 @@
 pub const Client = @import("http/Client.zig");
-pub const Headers = @import("http/Headers.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -219,6 +218,7 @@ pub const Status = enum(u10) {
     }
 
     pub const Class = enum {
+        nonstandard,
         informational,
         success,
         redirect,
@@ -226,14 +226,14 @@ pub const Status = enum(u10) {
         server_error,
     };
 
-    pub fn class(self: Status) ?Class {
+    pub fn class(self: Status) Class {
         return switch (@enumToInt(self)) {
             100...199 => .informational,
             200...299 => .success,
             300...399 => .redirect,
             400...499 => .client_error,
             500...599 => .server_error,
-            else => null,
+            else => .nonstandard,
         };
     }
 
@@ -254,5 +254,4 @@ test {
     _ = Client;
     _ = Method;
     _ = Status;
-    _ = Headers;
 }
