@@ -672,8 +672,8 @@ fn buildOutputType(
     var no_builtin = false;
     var watch = false;
     var debug_compile_errors = false;
-    var verbose_link = (builtin.os.tag == .wasi and !builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
-    var verbose_cc = (builtin.os.tag == .wasi and !builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
+    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
+    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
