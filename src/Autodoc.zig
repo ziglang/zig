@@ -3807,10 +3807,15 @@ fn analyzeFancyFunction(
         else => null,
     };
 
+    // if we're analyzing a funcion signature (ie without body), we
+    // actually don't have an ast_node reserved for us, but since
+    // we don't have a name, we don't need it.
+    const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
+
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
-            .src = self_ast_node_index,
+            .src = src,
             .params = param_type_refs.items,
             .ret = ret_type_ref,
             .generic_ret = generic_ret,
@@ -3955,11 +3960,16 @@ fn analyzeFunction(
         } else break :blk ret_type_ref;
     };
 
+    // if we're analyzing a funcion signature (ie without body), we
+    // actually don't have an ast_node reserved for us, but since
+    // we don't have a name, we don't need it.
+    const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
+
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
-            .src = self_ast_node_index,
+            .src = src,
             .params = param_type_refs.items,
             .ret = ret_type,
             .generic_ret = generic_ret,
