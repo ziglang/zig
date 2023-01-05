@@ -96,7 +96,7 @@ pub const Request = struct {
                     int64("HTTP/1.1") => .@"HTTP/1.1",
                     else => return error.BadHttpVersion,
                 };
-                if (first_line[8] != ' ') return error.InvalidHttpHeaders;
+                if (first_line[8] != ' ') return error.HttpHeadersInvalid;
                 const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
 
                 var headers: Response.Headers = .{
@@ -105,12 +105,19 @@ pub const Request = struct {
                 };
 
                 while (it.next()) |line| {
+                    if (line.len == 0) return error.HttpHeadersInvalid;
+                    switch (line[0]) {
+                        ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
+                        else => {},
+                    }
                     var line_it = mem.split(u8, line, ": ");
                     const header_name = line_it.first();
                     const header_value = line_it.rest();
                     if (std.ascii.eqlIgnoreCase(header_name, "location")) {
+                        if (headers.location != null) return error.HttpHeadersInvalid;
                         headers.location = header_value;
                     } else if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
+                        if (headers.content_length != null) return error.HttpHeadersInvalid;
                         headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
                     }
                 }
@@ -130,6 +137,29 @@ pub const Request = struct {
                 try testing.expectEqualStrings("https://www.example.com/", parsed.location orelse
                     return error.TestFailed);
                 try testing.expectEqual(@as(?u64, 220), parsed.content_length);
+            }
+
+            test "header continuation" {
+                const example =
+                    "HTTP/1.0 200 OK\r\n" ++
+                    "Content-Type: text/html;\r\n charset=UTF-8\r\n" ++
+                    "Content-Length: 220\r\n\r\n";
+                try testing.expectError(
+                    error.HttpHeaderContinuationsUnsupported,
+                    Response.Headers.parse(example),
+                );
+            }
+
+            test "extra content length" {
+                const example =
+                    "HTTP/1.0 200 OK\r\n" ++
+                    "Content-Length: 220\r\n" ++
+                    "Content-Type: text/html; charset=UTF-8\r\n" ++
+                    "content-length: 220\r\n\r\n";
+                try testing.expectError(
+                    error.HttpHeadersInvalid,
+                    Response.Headers.parse(example),
+                );
             }
         };
 
@@ -442,7 +472,7 @@ pub const Request = struct {
         const amt = try req.connection.read(buffer);
         const data = buffer[0..amt];
         const i = req.response.findHeadersEnd(data);
-        if (req.response.state == .invalid) return error.InvalidHttpHeaders;
+        if (req.response.state == .invalid) return error.HttpHeadersInvalid;
 
         const headers_data = data[0..i];
         if (req.response.header_bytes.items.len + headers_data.len > req.response.max_header_bytes) {
