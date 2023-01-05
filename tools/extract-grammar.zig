@@ -38,12 +38,10 @@ const Buffer = struct {
 /// be byte-indexed with a u32 integer.
 const max_src_size = std.math.maxInt(u32);
 
-var stdout = io.getStdOut().writer();
-
 pub fn main() !void {
+    const stdout_wr = io.getStdOut().writer();
     var arena = heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit(); // NOTE(mperillo): Can be removed.
-
     const allocator = arena.allocator();
 
     var args_it = try process.argsWithAllocator(allocator);
@@ -77,7 +75,7 @@ pub fn main() !void {
                 if (mem.indexOf(u8, doc, "<-") != null) {
                     // Separate each doc with an empty line.  This in turn will
                     // ensure that rules are separate by an empty line.
-                    try stdout.print("{s}\n", .{doc});
+                    try stdout_wr.print("{s}\n", .{doc});
                 }
             },
             else => {},
