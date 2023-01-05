@@ -100,8 +100,7 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
-    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
+    return @ptrCast([]Inst.Ref, raw_slice);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {

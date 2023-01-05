@@ -3319,8 +3319,6 @@ fn zirEnsureErrUnionPayloadVoid(sema: *Sema, block: *Block, inst: Zir.Inst.Index
         operand_ty.childType()
     else
         operand_ty;
-    // TODO this should be validated in a more generic instruction that is
-    // emitted for all ifs and whiles with an error union condition.
     if (err_union_ty.zigTypeTag() != .ErrorUnion) return;
     const payload_ty = err_union_ty.errorUnionPayload().zigTypeTag();
     if (payload_ty != .Void and payload_ty != .NoReturn) {
@@ -21596,7 +21594,7 @@ fn zirVarExtended(
         .owner_decl = sema.owner_decl_index,
         .init = init_val,
         .is_extern = small.is_extern,
-        .is_mutable = true, // TODO get rid of this unused field
+        .is_mutable = true,
         .is_threadlocal = small.is_threadlocal,
         .is_weak_linkage = false,
         .lib_name = null,
@@ -22075,7 +22073,7 @@ fn zirBuiltinExtern(
         .owner_decl = sema.owner_decl_index,
         .init = Value.initTag(.unreachable_value),
         .is_extern = true,
-        .is_mutable = false, // TODO get rid of this unused field
+        .is_mutable = false,
         .is_threadlocal = options.is_thread_local,
         .is_weak_linkage = options.linkage == .Weak,
         .lib_name = null,
