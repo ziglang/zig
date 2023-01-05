@@ -852,7 +852,7 @@ fn buildOutputType(
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    color = if (builtin.os.tag == .wasi || std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    color = if (builtin.os.tag == .wasi or std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
