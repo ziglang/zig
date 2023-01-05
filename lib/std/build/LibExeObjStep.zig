@@ -155,6 +155,12 @@ link_z_relro: bool = true,
 /// Allow relocations to be lazily processed after load.
 link_z_lazy: bool = false,
 
+/// Common page size
+link_z_common_page_size: ?u64 = null,
+
+/// Maximum page size
+link_z_max_page_size: ?u64 = null,
+
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
@@ -1337,6 +1343,14 @@ fn make(step: *Step) !void {
     if (self.link_z_lazy) {
         try zig_args.append("-z");
         try zig_args.append("lazy");
+    }
+    if (self.link_z_common_page_size) |size| {
+        try zig_args.append("-z");
+        try zig_args.append(builder.fmt("common-page-size={d}", .{size}));
+    }
+    if (self.link_z_max_page_size) |size| {
+        try zig_args.append("-z");
+        try zig_args.append(builder.fmt("max-page-size={d}", .{size}));
     }
 
     if (self.libc_file) |libc_file| {

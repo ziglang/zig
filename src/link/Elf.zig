@@ -1390,6 +1390,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.z_nocopyreloc);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        man.hash.add(self.base.options.z_common_page_size orelse 0);
+        man.hash.add(self.base.options.z_max_page_size orelse 0);
         man.hash.add(self.base.options.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
@@ -1593,6 +1595,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (!self.base.options.z_relro) {
             // LLD defaults to -zrelro
             try argv.append("-znorelro");
+        }
+        if (self.base.options.z_common_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "common-page-size={d}", .{size}));
+        }
+        if (self.base.options.z_max_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "max-page-size={d}", .{size}));
         }
 
         if (getLDMOption(target)) |ldm| {

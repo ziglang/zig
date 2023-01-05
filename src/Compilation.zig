@@ -979,6 +979,8 @@ pub const InitOptions = struct {
     linker_z_now: bool = true,
     linker_z_relro: bool = true,
     linker_z_nocopyreloc: bool = false,
+    linker_z_common_page_size: ?u64 = null,
+    linker_z_max_page_size: ?u64 = null,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
@@ -1835,6 +1837,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .z_nocopyreloc = options.linker_z_nocopyreloc,
             .z_now = options.linker_z_now,
             .z_relro = options.linker_z_relro,
+            .z_common_page_size = options.linker_z_common_page_size,
+            .z_max_page_size = options.linker_z_max_page_size,
             .tsaware = options.linker_tsaware,
             .nxcompat = options.linker_nxcompat,
             .dynamicbase = options.linker_dynamicbase,
@@ -2628,6 +2632,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_nocopyreloc);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
+    man.hash.add(comp.bin_file.options.z_common_page_size orelse 0);
+    man.hash.add(comp.bin_file.options.z_max_page_size orelse 0);
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
