@@ -84,7 +84,15 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
             else => continue,
         }
 
-        try addCertsFromFile(cb, gpa, dir.dir, entry.name);
+        // TODO: How to handle unsupported files? Failing is not an option
+        //       as it makes Zig unusable on platforms with unexpected files
+        //       in this folder
+        addCertsFromFile(cb, gpa, dir.dir, entry.name) catch |err| {
+            std.log.warn("Unexpected file '/etc/ssl/certs/{s}': certs could not be added: {s}", .{
+                entry.name,
+                @errorName(err),
+            });
+        };
     }
 
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
