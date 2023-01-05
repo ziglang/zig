@@ -218,7 +218,6 @@ pub const Status = enum(u10) {
     }
 
     pub const Class = enum {
-        nonstandard,
         informational,
         success,
         redirect,
@@ -232,8 +231,7 @@ pub const Status = enum(u10) {
             200...299 => .success,
             300...399 => .redirect,
             400...499 => .client_error,
-            500...599 => .server_error,
-            else => .nonstandard,
+            else => .server_error,
         };
     }
 
