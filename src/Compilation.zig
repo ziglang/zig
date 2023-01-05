@@ -2358,7 +2358,16 @@ pub fn update(comp: *Compilation) !void {
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
-    if (comp.color == .off) progress.terminal = null;
+    switch (comp.color) {
+        .off => {
+            progress.terminal = null;
+        },
+        .on => {
+            progress.terminal = std.io.getStdErr();
+            progress.supports_ansi_escape_codes = true;
+        },
+        .auto => {},
+    }
 
     try comp.performAllTheWork(main_progress_node);
 
@@ -3672,13 +3681,15 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         break :digest digest;
     } else man.final();
 
-    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
-    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
-    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
-    // it to prevent doing a full file content comparison the next time around.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
-    };
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+        };
+    }
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
         "o", &digest, cimport_zig_basename,
@@ -4077,13 +4088,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         break :blk digest;
     };
 
-    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
-    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
-    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
-    // it to prevent doing a full file content comparison the next time around.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
-    };
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
+        };
+    }
 
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
 

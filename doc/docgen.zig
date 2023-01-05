@@ -760,17 +760,6 @@ fn writeEscaped(out: anytype, input: []const u8) !void {
 //#define VT_BOLD "\x1b[0;1m"
 //#define VT_RESET "\x1b[0m"
 
-const TermState = enum {
-    Start,
-    Escape,
-    LBracket,
-    Number,
-    AfterNumber,
-    Arg,
-    ArgNumber,
-    ExpectEnd,
-};
-
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.testing.allocator, input_bytes);
@@ -787,61 +776,80 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     var first_number: usize = undefined;
     var second_number: usize = undefined;
     var i: usize = 0;
-    var state = TermState.Start;
+    var state: enum {
+        start,
+        escape,
+        lbracket,
+        number,
+        after_number,
+        arg,
+        arg_number,
+        expect_end,
+    } = .start;
+    var last_new_line: usize = 0;
     var open_span_count: usize = 0;
     while (i < input.len) : (i += 1) {
         const c = input[i];
         switch (state) {
-            TermState.Start => switch (c) {
-                '\x1b' => state = TermState.Escape,
+            .start => switch (c) {
+                '\x1b' => state = .escape,
+                '\n' => {
+                    try out.writeByte(c);
+                    last_new_line = buf.items.len;
+                },
                 else => try out.writeByte(c),
             },
-            TermState.Escape => switch (c) {
-                '[' => state = TermState.LBracket,
+            .escape => switch (c) {
+                '[' => state = .lbracket,
                 else => return error.UnsupportedEscape,
             },
-            TermState.LBracket => switch (c) {
+            .lbracket => switch (c) {
                 '0'...'9' => {
                     number_start_index = i;
-                    state = TermState.Number;
+                    state = .number;
                 },
                 else => return error.UnsupportedEscape,
             },
-            TermState.Number => switch (c) {
+            .number => switch (c) {
                 '0'...'9' => {},
                 else => {
                     first_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
                     second_number = 0;
-                    state = TermState.AfterNumber;
+                    state = .after_number;
                     i -= 1;
                 },
             },
 
-            TermState.AfterNumber => switch (c) {
-                ';' => state = TermState.Arg,
+            .after_number => switch (c) {
+                ';' => state = .arg,
+                'D' => state = .start,
+                'K' => {
+                    buf.items.len = last_new_line;
+                    state = .start;
+                },
                 else => {
-                    state = TermState.ExpectEnd;
+                    state = .expect_end;
                     i -= 1;
                 },
             },
-            TermState.Arg => switch (c) {
+            .arg => switch (c) {
                 '0'...'9' => {
                     number_start_index = i;
-                    state = TermState.ArgNumber;
+                    state = .arg_number;
                 },
                 else => return error.UnsupportedEscape,
             },
-            TermState.ArgNumber => switch (c) {
+            .arg_number => switch (c) {
                 '0'...'9' => {},
                 else => {
                     second_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
-                    state = TermState.ExpectEnd;
+                    state = .expect_end;
                     i -= 1;
                 },
             },
-            TermState.ExpectEnd => switch (c) {
+            .expect_end => switch (c) {
                 'm' => {
-                    state = TermState.Start;
+                    state = .start;
                     while (open_span_count != 0) : (open_span_count -= 1) {
                         try out.writeAll("</span>");
                     }
