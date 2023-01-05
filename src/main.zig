@@ -495,6 +495,8 @@ const usage_build_generic =
     \\    lazy                         Don't force all relocations to be processed on load
     \\    relro                        (default) Force all relocations to be read-only after processing
     \\    norelro                      Don't force all relocations to be read-only after processing
+    \\    common-page-size=[bytes]     Set the common page size for ELF binaries
+    \\    max-page-size=[bytes]        Set the max page size for ELF binaries
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -744,6 +746,8 @@ fn buildOutputType(
     var linker_z_origin = false;
     var linker_z_now = true;
     var linker_z_relro = true;
+    var linker_z_common_page_size: ?u64 = null;
+    var linker_z_max_page_size: ?u64 = null;
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
@@ -1325,6 +1329,10 @@ fn buildOutputType(
                             linker_z_relro = true;
                         } else if (mem.eql(u8, z_arg, "norelro")) {
                             linker_z_relro = false;
+                        } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
+                            linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
+                        } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
+                            linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                         } else {
                             warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
@@ -1923,6 +1931,10 @@ fn buildOutputType(
                         stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                             fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
+                    } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
+                        linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
+                    } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
+                        linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                     } else {
                         warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
@@ -3042,6 +3054,8 @@ fn buildOutputType(
         .linker_z_origin = linker_z_origin,
         .linker_z_now = linker_z_now,
         .linker_z_relro = linker_z_relro,
+        .linker_z_common_page_size = linker_z_common_page_size,
+        .linker_z_max_page_size = linker_z_max_page_size,
         .linker_tsaware = linker_tsaware,
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
