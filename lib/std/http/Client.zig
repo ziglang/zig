@@ -551,5 +551,12 @@ pub fn request(client: *Client, url: Url, headers: Request.Headers, options: Req
 }
 
 test {
+    const builtin = @import("builtin");
+    const native_endian = comptime builtin.cpu.arch.endian();
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+        // https://github.com/ziglang/zig/issues/13782
+        return error.SkipZigTest;
+    }
+
     _ = Request;
 }
