@@ -30662,14 +30662,19 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
             if (gop.found_existing) {
                 const msg = msg: {
-                    const tree = try sema.getAstTree(&block_scope);
-                    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
+                    const field_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .name,
+                    }).lazy;
                     const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
                     errdefer msg.destroy(gpa);
 
                     const prev_field_index = struct_obj.fields.getIndex(field_name).?;
-                    const prev_field_src = enumFieldSrcLoc(decl, tree.*, 0, prev_field_index);
-                    try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
+                    const prev_field_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        .index = prev_field_index,
+                        .range = .name,
+                    });
+                    try sema.mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
                 };
@@ -30699,34 +30704,51 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     // so that init values may depend on type layout.
     const bodies_index = extra_index;
 
-    for (fields) |zir_field, i| {
-        // TODO emit compile errors for invalid field types
-        // such as arrays and pointers inside packed structs.
+    for (fields) |zir_field, field_i| {
         const field_ty: Type = ty: {
             if (zir_field.type_ref != .none) {
-                // TODO: if we need to report an error here, use a source location
-                // that points to this type expression rather than the struct.
-                // But only resolve the source location if we need to emit a compile error.
-                break :ty try sema.resolveType(&block_scope, src, zir_field.type_ref);
+                break :ty sema.resolveType(&block_scope, .unneeded, zir_field.type_ref) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                            .index = field_i,
+                            .range = .type,
+                        }).lazy;
+                        _ = try sema.resolveType(&block_scope, ty_src, zir_field.type_ref);
+                        unreachable;
+                    },
+                    else => |e| return e,
+                };
             }
             assert(zir_field.type_body_len != 0);
             const body = zir.extra[extra_index..][0..zir_field.type_body_len];
             extra_index += body.len;
             const ty_ref = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
-            break :ty try sema.analyzeAsType(&block_scope, src, ty_ref);
+            break :ty sema.analyzeAsType(&block_scope, .unneeded, ty_ref) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .type,
+                    }).lazy;
+                    _ = try sema.analyzeAsType(&block_scope, ty_src, ty_ref);
+                    unreachable;
+                },
+                else => |e| return e,
+            };
         };
         if (field_ty.tag() == .generic_poison) {
             return error.GenericPoison;
         }
 
-        const field = &struct_obj.fields.values()[i];
+        const field = &struct_obj.fields.values()[field_i];
         field.ty = try field_ty.copy(decl_arena_allocator);
 
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, 0, i);
-                const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                }).lazy;
+                const msg = try sema.errMsg(&block_scope, ty_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
@@ -30736,9 +30758,11 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         }
         if (field_ty.zigTypeTag() == .NoReturn) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, 0, i);
-                const msg = try sema.errMsg(&block_scope, field_src, "struct fields cannot be 'noreturn'", .{});
+                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                }).lazy;
+                const msg = try sema.errMsg(&block_scope, ty_src, "struct fields cannot be 'noreturn'", .{});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
@@ -30748,12 +30772,14 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         }
         if (struct_obj.layout == .Extern and !try sema.validateExternType(field.ty, .struct_field)) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
-                const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                });
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, fields_src.toSrcLoc(decl), field.ty, .struct_field);
+                try sema.explainWhyTypeIsNotExtern(msg, ty_src, field.ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
@@ -30761,12 +30787,14 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             return sema.failWithOwnedErrorMsg(msg);
         } else if (struct_obj.layout == .Packed and !(validatePackedType(field.ty))) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
-                const msg = try sema.errMsg(&block_scope, fields_src, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                });
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotPacked(msg, fields_src.toSrcLoc(decl), field.ty);
+                try sema.explainWhyTypeIsNotPacked(msg, ty_src, field.ty);
 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
@@ -30778,7 +30806,17 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const body = zir.extra[extra_index..][0..zir_field.align_body_len];
             extra_index += body.len;
             const align_ref = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
-            field.abi_align = try sema.analyzeAsAlign(&block_scope, src, align_ref);
+            field.abi_align = sema.analyzeAsAlign(&block_scope, .unneeded, align_ref) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const align_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .alignment,
+                    }).lazy;
+                    _ = try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
+                    unreachable;
+                },
+                else => |e| return e,
+            };
         }
 
         extra_index += zir_field.init_body_len;
@@ -31023,9 +31061,17 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
 
         if (enum_value_map) |map| {
             const copied_val = if (tag_ref != .none) blk: {
-                const tag_src = src; // TODO better source location
-                const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, tag_src);
-                const val = try sema.resolveConstValue(&block_scope, tag_src, coerced, "enum tag value must be comptime-known");
+                const val = sema.semaUnionFieldVal(&block_scope, .unneeded, int_tag_ty, tag_ref) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const val_src = union_obj.fieldSrcLoc(sema.mod, .{
+                            .index = field_i,
+                            .range = .value,
+                        }).lazy;
+                        _ = try sema.semaUnionFieldVal(&block_scope, val_src, int_tag_ty, tag_ref);
+                        unreachable;
+                    },
+                    else => |e| return e,
+                };
                 last_tag_val = val;
 
                 // This puts the memory into the union arena, not the enum arena, but
@@ -31045,9 +31091,14 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 .mod = mod,
             });
             if (gop.found_existing) {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(sema.mod.declPtr(block_scope.src_decl), tree.*, src.node_offset.x, field_i);
-                const other_field_src = enumFieldSrcLoc(sema.mod.declPtr(block_scope.src_decl), tree.*, src.node_offset.x, gop.index);
+                const field_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .name,
+                }).lazy;
+                const other_field_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = gop.index,
+                    .range = .name,
+                }).lazy;
                 const msg = msg: {
                     const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{copied_val.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
@@ -31069,10 +31120,17 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         else if (field_type_ref == .none)
             Type.initTag(.noreturn)
         else
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the union.
-            // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(&block_scope, src, field_type_ref);
+            sema.resolveType(&block_scope, .unneeded, field_type_ref) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .type,
+                    }).lazy;
+                    _ = try sema.resolveType(&block_scope, ty_src, field_type_ref);
+                    unreachable;
+                },
+                else => |e| return e,
+            };
 
         if (field_ty.tag() == .generic_poison) {
             return error.GenericPoison;
@@ -31081,13 +31139,18 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop.found_existing) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
+                const field_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .name,
+                }).lazy;
                 const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
 
                 const prev_field_index = union_obj.fields.getIndex(field_name).?;
-                const prev_field_src = enumFieldSrcLoc(decl, tree.*, 0, prev_field_index);
+                const prev_field_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = prev_field_index,
+                    .range = .name,
+                }).lazy;
                 try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
@@ -31099,9 +31162,11 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             const enum_has_field = names.orderedRemove(field_name);
             if (!enum_has_field) {
                 const msg = msg: {
-                    const tree = try sema.getAstTree(&block_scope);
-                    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
-                    const msg = try sema.errMsg(&block_scope, field_src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
+                    const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .type,
+                    }).lazy;
+                    const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
                     errdefer msg.destroy(sema.gpa);
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                     break :msg msg;
@@ -31112,9 +31177,11 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
 
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
-                const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
+                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                }).lazy;
+                const msg = try sema.errMsg(&block_scope, ty_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
@@ -31124,12 +31191,14 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         }
         if (union_obj.layout == .Extern and !try sema.validateExternType(field_ty, .union_field)) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
-                const msg = try sema.errMsg(&block_scope, field_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                });
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, field_src.toSrcLoc(decl), field_ty, .union_field);
+                try sema.explainWhyTypeIsNotExtern(msg, ty_src, field_ty, .union_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -31137,12 +31206,14 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         } else if (union_obj.layout == .Packed and !(validatePackedType(field_ty))) {
             const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
-                const msg = try sema.errMsg(&block_scope, fields_src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    .index = field_i,
+                    .range = .type,
+                });
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotPacked(msg, fields_src.toSrcLoc(decl), field_ty);
+                try sema.explainWhyTypeIsNotPacked(msg, ty_src, field_ty);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -31156,10 +31227,17 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         };
 
         if (align_ref != .none) {
-            // TODO: if we need to report an error here, use a source location
-            // that points to this alignment expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.abi_align = try sema.resolveAlign(&block_scope, src, align_ref);
+            gop.value_ptr.abi_align = sema.resolveAlign(&block_scope, .unneeded, align_ref) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const align_src = union_obj.fieldSrcLoc(sema.mod, .{
+                        .index = field_i,
+                        .range = .alignment,
+                    }).lazy;
+                    _ = try sema.resolveAlign(&block_scope, align_src, align_ref);
+                    unreachable;
+                },
+                else => |e| return e,
+            };
         } else {
             gop.value_ptr.abi_align = 0;
         }
@@ -31182,6 +31260,11 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         }
     }
+}
+
+fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Type, tag_ref: Air.Inst.Ref) CompileError!Value {
+    const coerced = try sema.coerce(block, int_tag_ty, tag_ref, src);
+    return sema.resolveConstValue(block, src, coerced, "enum tag value must be comptime-known");
 }
 
 fn generateUnionTagTypeNumbered(
