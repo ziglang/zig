@@ -953,6 +953,7 @@ fn analyzeBodyInner(
             .int_type                     => try sema.zirIntType(block, inst),
             .is_non_err                   => try sema.zirIsNonErr(block, inst),
             .is_non_err_ptr               => try sema.zirIsNonErrPtr(block, inst),
+            .ret_is_non_err               => try sema.zirRetIsNonErr(block, inst),
             .is_non_null                  => try sema.zirIsNonNull(block, inst),
             .is_non_null_ptr              => try sema.zirIsNonNullPtr(block, inst),
             .merge_error_sets             => try sema.zirMergeErrorSets(block, inst),
@@ -10288,6 +10289,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .ret_err_value_code,
                         .restore_err_ret_index,
                         .is_non_err,
+                        .ret_is_non_err,
                         .condbr,
                         => {},
                         else => break,
@@ -16577,7 +16579,7 @@ fn zirIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     try sema.checkErrorType(block, src, sema.typeOf(operand));
-    return sema.analyzeIsNonErr(block, inst_data.src(), operand);
+    return sema.analyzeIsNonErr(block, src, operand);
 }
 
 fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16590,6 +16592,16 @@ fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     try sema.checkErrorType(block, src, sema.typeOf(ptr).elemType2());
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsNonErr(block, src, loaded);
+}
+
+fn zirRetIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand = try sema.resolveInst(inst_data.operand);
+    return sema.analyzeIsNonErr(block, src, operand);
 }
 
 fn zirCondbr(

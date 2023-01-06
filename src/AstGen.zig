@@ -2463,6 +2463,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .is_non_null_ptr,
             .is_non_err,
             .is_non_err_ptr,
+            .ret_is_non_err,
             .mod_rem,
             .mul,
             .mulwrap,
@@ -7012,7 +7013,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
             // Emit conditional branch for generating errdefers.
             const result = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
-            const is_non_err = try gz.addUnNode(.is_non_err, result, node);
+            const is_non_err = try gz.addUnNode(.ret_is_non_err, result, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
