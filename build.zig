@@ -628,8 +628,16 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     exe.linkSystemLibrary("z");
     exe.linkSystemLibrary("zstd");
 
-    // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
-    exe.linkSystemLibrary("c++");
+    if (exe.target.getOs().tag != .windows or exe.target.getAbi() != .msvc) {
+        // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
+        exe.linkSystemLibrary("c++");
+    }
+
+    if (exe.target.getOs().tag == .windows) {
+        exe.linkSystemLibrary("version");
+        exe.linkSystemLibrary("uuid");
+        exe.linkSystemLibrary("ole32");
+    }
 }
 
 fn addCxxKnownPath(
@@ -673,6 +681,8 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
+        } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
+            exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
             exe.addObjectFile(lib);
         }

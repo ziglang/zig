@@ -98,6 +98,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
+        man.hash.addOptional(self.base.options.version);
+        try man.addOptionalFile(self.base.options.module_definition_file);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -166,11 +168,15 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append("-DEBUG");
 
             const out_ext = std.fs.path.extension(full_out_path);
-            const out_pdb = try allocPrint(arena, "{s}.pdb", .{
+            const out_pdb = self.base.options.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
                 full_out_path[0 .. full_out_path.len - out_ext.len],
             });
+
             try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
+        }
+        if (self.base.options.version) |version| {
+            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
@@ -258,6 +264,10 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (self.base.options.module_definition_file) |def| {
+            try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
         }
 
         const resolved_subsystem: ?std.Target.SubSystem = blk: {
@@ -423,7 +433,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     }
                 } else {
                     try argv.append("-NODEFAULTLIB");
-                    if (!is_lib) {
+                    if (!is_lib and self.base.options.entry == null) {
                         if (self.base.options.module) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
@@ -486,6 +496,11 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     continue;
                 }
             }
+            if (target.abi == .msvc) {
+                argv.appendAssumeCapacity(lib_basename);
+                continue;
+            }
+
             log.err("DLL import library for -l{s} not found", .{key});
             return error.DllImportLibraryNotFound;
         }
