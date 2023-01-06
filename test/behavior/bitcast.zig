@@ -109,7 +109,7 @@ fn testBitCastuXToBytes(comptime N: usize) !void {
         const bytes = std.mem.asBytes(&x);
 
         const byte_count = (N + 7) / 8;
-        switch (builtin.cpu.arch.endian()) {
+        switch (native_endian) {
             .Little => {
                 var byte_i = 0;
                 while (byte_i < (byte_count - 1)) : (byte_i += 1) {
@@ -333,7 +333,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
