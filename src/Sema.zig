@@ -29847,6 +29847,11 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             },
             .have_layout, .fully_resolved_wip, .fully_resolved => return,
         }
+        const prev_status = struct_obj.status;
+        errdefer if (struct_obj.status == .layout_wip) {
+            struct_obj.status = prev_status;
+        };
+
         struct_obj.status = .layout_wip;
         for (struct_obj.fields.values()) |field, i| {
             sema.resolveTypeLayout(field.ty) catch |err| switch (err) {
@@ -30026,6 +30031,11 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         },
         .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
+    const prev_status = union_obj.status;
+    errdefer if (union_obj.status == .layout_wip) {
+        union_obj.status = prev_status;
+    };
+
     union_obj.status = .layout_wip;
     for (union_obj.fields.values()) |field, i| {
         sema.resolveTypeLayout(field.ty) catch |err| switch (err) {
