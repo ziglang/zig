@@ -246,6 +246,13 @@ pub const Status = enum(u10) {
     }
 };
 
+pub const TransferEncoding = enum {
+    chunked,
+    compress,
+    deflate,
+    gzip,
+};
+
 const std = @import("std.zig");
 
 test {
