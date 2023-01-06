@@ -1207,6 +1207,7 @@ const VecPut = struct {
     /// Returns the amount actually put which is always equal to bytes.len
     /// unless the vectors ran out of space.
     fn put(vp: *VecPut, bytes: []const u8) usize {
+        if (vp.idx >= vp.iovecs.len) return 0;
         var bytes_i: usize = 0;
         while (true) {
             const v = vp.iovecs[vp.idx];
