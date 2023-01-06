@@ -1194,6 +1194,49 @@ pub const EnumFull = struct {
             .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
+
+    pub fn fieldSrcLoc(e: EnumFull, mod: *Module, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const owner_decl = mod.declPtr(e.owner_decl);
+        const file = owner_decl.getFileScope();
+        const tree = file.getTree(mod.gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                file.sub_file_path, @errorName(err),
+            });
+            return e.srcLoc(mod);
+        };
+        const node = owner_decl.relativeToNodeIndex(0);
+        const node_tags = tree.nodes.items(.tag);
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two, .tagged_union_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
+            },
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+
+            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
+
+            // This struct was generated using @Type
+            else => return e.srcLoc(mod),
+        }
+    }
 };
 
 pub const Union = struct {
@@ -3519,14 +3562,6 @@ pub fn deinit(mod: *Module) void {
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const gpa = mod.gpa;
     {
-        if (mod.failed_decls.contains(decl_index)) {
-            blk: {
-                const errs = mod.comp.getAllErrorsAlloc() catch break :blk;
-                for (errs.list) |err| Compilation.AllErrors.Message.renderToStdErr(err, .no_color);
-            }
-            // TODO restore test case triggering this panic
-            @panic("Zig compiler bug: attempted to destroy declaration with an attached error");
-        }
         const decl = mod.declPtr(decl_index);
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         _ = mod.test_functions.swapRemove(decl_index);
@@ -6179,7 +6214,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
 
 const FieldSrcQuery = struct {
     index: usize,
-    range: enum { name, type, value, alignment },
+    range: enum { name, type, value, alignment } = .name,
 };
 
 fn queryFieldSrc(
@@ -6748,4 +6783,26 @@ pub fn getDeclExports(mod: Module, decl_index: Decl.Index) []const *Export {
     } else {
         return &[0]*Export{};
     }
+}
+
+pub const Feature = enum {
+    panic_fn,
+    panic_unwrap_error,
+    safety_check_formatted,
+    error_return_trace,
+    is_named_enum_value,
+    error_set_has_value,
+};
+
+pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
+    return switch (feature) {
+        .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
+        .error_return_trace => mod.comp.bin_file.options.use_llvm,
+        .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+    };
 }

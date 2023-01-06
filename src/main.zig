@@ -3454,8 +3454,7 @@ fn runOrTest(
                         } else if (watch) {
                             warn("process exited with code {d}", .{code});
                         } else {
-                            // TODO https://github.com/ziglang/zig/issues/6342
-                            process.exit(1);
+                            process.exit(code);
                         }
                     },
                     else => {
