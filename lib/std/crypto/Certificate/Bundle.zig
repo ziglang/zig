@@ -57,10 +57,8 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
 pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
-        .windows => {
-            // TODO
-        },
         .macos => return rescanMac(cb, gpa),
+        .windows => return rescanWindows(cb, gpa),
         else => {},
     }
 }
@@ -106,6 +104,34 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
         }
     }
 
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+
+    const store = try os.windows.crypt32.certOpenSystemStoreW(null, &[4:0]u16{ 'R', 'O', 'O', 'T' });
+    defer os.windows.crypt32.certCloseStore(store, 0) catch unreachable;
+
+    var ctx = os.windows.crypt32.CertEnumCertificatesInStore(store, null);
+    while (ctx) |context| : (ctx = os.windows.crypt32.CertEnumCertificatesInStore(store, ctx)) {
+        var start = @intCast(u32, cb.bytes.items.len);
+        try cb.bytes.appendSlice(gpa, context.pbCertEncoded[0..context.cbCertEncoded]);
+        var parsed = Certificate.parse(.{
+            .buffer = cb.bytes.items,
+            .index = start,
+        }) catch {
+            cb.bytes.items.len = start;
+            continue;
+        };
+        const gop = try cb.map.getOrPutContext(gpa, parsed.subject_slice, .{ .cb = cb });
+        if (gop.found_existing) {
+            cb.bytes.items.len = start;
+        } else {
+            gop.value_ptr.* = start;
+        }
+    }
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
@@ -224,6 +250,7 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
+const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const crypto = std.crypto;
