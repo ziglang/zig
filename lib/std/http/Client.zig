@@ -1,7 +1,3 @@
-//! This API is a barely-touched, barely-functional http client, just the
-//! absolute minimum thing I needed in order to test `std.crypto.tls`. Bear
-//! with me and I promise the API will become useful and streamlined.
-//!
 //! TODO: send connection: keep-alive and LRU cache a configurable number of
 //! open connections to skip DNS and TLS handshake for subsequent requests.
 
@@ -178,6 +174,8 @@ pub const Request = struct {
             seen_rnr,
             finished,
             /// Begin transfer-encoding: chunked parsing states.
+            chunk_size_prefix_r,
+            chunk_size_prefix_n,
             chunk_size,
             chunk_r,
             chunk_data,
@@ -382,6 +380,8 @@ pub const Request = struct {
                             continue :state;
                         },
                     },
+                    .chunk_size_prefix_r => unreachable,
+                    .chunk_size_prefix_n => unreachable,
                     .chunk_size => unreachable,
                     .chunk_r => unreachable,
                     .chunk_data => unreachable,
@@ -449,18 +449,6 @@ pub const Request = struct {
             try expectEqual(@as(u10, 999), parseInt3("999".*));
         }
 
-        inline fn int16(array: *const [2]u8) u16 {
-            return @bitCast(u16, array.*);
-        }
-
-        inline fn int32(array: *const [4]u8) u32 {
-            return @bitCast(u32, array.*);
-        }
-
-        inline fn int64(array: *const [8]u8) u64 {
-            return @bitCast(u64, array.*);
-        }
-
         test "find headers end basic" {
             var buffer: [1]u8 = undefined;
             var r = Response.initStatic(&buffer);
@@ -479,6 +467,29 @@ pub const Request = struct {
                 "Content-Length: 220\r\n" ++
                 "\r\ncontent";
             try testing.expectEqual(@as(usize, 131), r.findHeadersEnd(example));
+        }
+
+        test "find headers end bug" {
+            var buffer: [1]u8 = undefined;
+            var r = Response.initStatic(&buffer);
+            const trail = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+            const example =
+                "HTTP/1.1 200 OK\r\n" ++
+                "Access-Control-Allow-Origin: https://render.githubusercontent.com\r\n" ++
+                "content-disposition: attachment; filename=zig-0.10.0.tar.gz\r\n" ++
+                "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox\r\n" ++
+                "Content-Type: application/x-gzip\r\n" ++
+                "ETag: \"bfae0af6b01c7c0d89eb667cb5f0e65265968aeebda2689177e6b26acd3155ca\"\r\n" ++
+                "Strict-Transport-Security: max-age=31536000\r\n" ++
+                "Vary: Authorization,Accept-Encoding,Origin\r\n" ++
+                "X-Content-Type-Options: nosniff\r\n" ++
+                "X-Frame-Options: deny\r\n" ++
+                "X-XSS-Protection: 1; mode=block\r\n" ++
+                "Date: Fri, 06 Jan 2023 22:26:22 GMT\r\n" ++
+                "Transfer-Encoding: chunked\r\n" ++
+                "X-GitHub-Request-Id: 89C6:17E9:A7C9E:124B51:63B8A00E\r\n" ++
+                "connection: close\r\n\r\n" ++ trail;
+            try testing.expectEqual(@as(usize, example.len - trail.len), r.findHeadersEnd(example));
         }
     };
 
@@ -536,8 +547,7 @@ pub const Request = struct {
     /// This one can return 0 without meaning EOF.
     /// TODO change to readvAdvanced
     pub fn readAdvanced(req: *Request, buffer: []u8) !usize {
-        const amt = try req.connection.read(buffer);
-        var in = buffer[0..amt];
+        var in = buffer[0..try req.connection.read(buffer)];
         var out_index: usize = 0;
         while (true) {
             switch (req.response.state) {
@@ -571,7 +581,8 @@ pub const Request = struct {
                             req.deinit();
                             req.* = new_req;
                             assert(out_index == 0);
-                            return readAdvanced(req, buffer);
+                            in = buffer[0..try req.connection.read(buffer)];
+                            continue;
                         }
 
                         if (req.response.headers.transfer_encoding) |transfer_encoding| {
@@ -598,8 +609,50 @@ pub const Request = struct {
                     return 0;
                 },
                 .finished => {
-                    mem.copy(u8, buffer[out_index..], in);
-                    return out_index + in.len;
+                    if (in.ptr == buffer.ptr) {
+                        return in.len;
+                    } else {
+                        mem.copy(u8, buffer[out_index..], in);
+                        return out_index + in.len;
+                    }
+                },
+                .chunk_size_prefix_r => switch (in.len) {
+                    0 => return out_index,
+                    1 => switch (in[0]) {
+                        '\r' => {
+                            req.response.state = .chunk_size_prefix_n;
+                            return out_index;
+                        },
+                        else => {
+                            req.response.state = .invalid;
+                            return error.HttpHeadersInvalid;
+                        },
+                    },
+                    else => switch (int16(in[0..2])) {
+                        int16("\r\n") => {
+                            in = in[2..];
+                            req.response.state = .chunk_size;
+                            continue;
+                        },
+                        else => {
+                            req.response.state = .invalid;
+                            return error.HttpHeadersInvalid;
+                        },
+                    },
+                },
+                .chunk_size_prefix_n => switch (in.len) {
+                    0 => return out_index,
+                    else => switch (in[0]) {
+                        '\n' => {
+                            in = in[1..];
+                            req.response.state = .chunk_size;
+                            continue;
+                        },
+                        else => {
+                            req.response.state = .invalid;
+                            return error.HttpHeadersInvalid;
+                        },
+                    },
                 },
                 .chunk_size, .chunk_r => {
                     const i = req.response.findChunkedLen(in);
@@ -619,18 +672,36 @@ pub const Request = struct {
                 },
                 .chunk_data => {
                     const sub_amt = @min(req.response.next_chunk_length, in.len);
+                    req.response.next_chunk_length -= sub_amt;
+                    if (req.response.next_chunk_length > 0) {
+                        if (in.ptr == buffer.ptr) {
+                            return sub_amt;
+                        } else {
+                            mem.copy(u8, buffer[out_index..], in[0..sub_amt]);
+                            out_index += sub_amt;
+                            return out_index;
+                        }
+                    }
                     mem.copy(u8, buffer[out_index..], in[0..sub_amt]);
                     out_index += sub_amt;
-                    req.response.next_chunk_length -= sub_amt;
-                    if (req.response.next_chunk_length == 0) {
-                        req.response.state = .chunk_size;
-                        in = in[sub_amt..];
-                        continue;
-                    }
-                    return out_index;
+                    req.response.state = .chunk_size_prefix_r;
+                    in = in[sub_amt..];
+                    continue;
                 },
             }
         }
+    }
+
+    inline fn int16(array: *const [2]u8) u16 {
+        return @bitCast(u16, array.*);
+    }
+
+    inline fn int32(array: *const [4]u8) u32 {
+        return @bitCast(u32, array.*);
+    }
+
+    inline fn int64(array: *const [8]u8) u64 {
+        return @bitCast(u64, array.*);
     }
 
     test {
