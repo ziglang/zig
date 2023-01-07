@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const http = std.http;
 const net = std.net;
 const Client = @This();
-const Url = std.Url;
+const Uri = std.Uri;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
@@ -569,7 +569,7 @@ pub const Request = struct {
                             if (req.redirects_left == 0) return error.TooManyHttpRedirects;
                             const location = req.response.headers.location orelse
                                 return error.HttpRedirectMissingLocation;
-                            const new_url = try std.Url.parse(location);
+                            const new_url = try std.Uri.parse(location);
                             const new_req = try req.client.request(new_url, req.headers, .{
                                 .max_redirects = req.redirects_left - 1,
                                 .header_strategy = if (req.response.header_bytes_owned) .{
@@ -734,23 +734,26 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     return conn;
 }
 
-pub fn request(client: *Client, url: Url, headers: Request.Headers, options: Request.Options) !Request {
-    const protocol: Connection.Protocol = if (mem.eql(u8, url.scheme, "http"))
+pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Request.Options) !Request {
+    const scheme = uri.scheme orelse return error.UnsupportedUrlScheme;
+    const protocol: Connection.Protocol = if (mem.eql(u8, scheme, "http"))
         .plain
-    else if (mem.eql(u8, url.scheme, "https"))
+    else if (mem.eql(u8, scheme, "https"))
         .tls
     else
         return error.UnsupportedUrlScheme;
 
-    const port: u16 = url.port orelse switch (protocol) {
+    const port: u16 = uri.port orelse switch (protocol) {
         .plain => 80,
         .tls => 443,
     };
 
+    const host = uri.host orelse return error.UriMissingHost;
+
     var req: Request = .{
         .client = client,
         .headers = headers,
-        .connection = try client.connect(url.host, port, protocol),
+        .connection = try client.connect(host, port, protocol),
         .redirects_left = options.max_redirects,
         .response = switch (options.header_strategy) {
             .dynamic => |max| Request.Response.initDynamic(max),
@@ -762,11 +765,11 @@ pub fn request(client: *Client, url: Url, headers: Request.Headers, options: Req
         var h = try std.BoundedArray(u8, 1000).init(0);
         try h.appendSlice(@tagName(headers.method));
         try h.appendSlice(" ");
-        try h.appendSlice(url.path);
+        try h.appendSlice(uri.path);
         try h.appendSlice(" ");
         try h.appendSlice(@tagName(headers.version));
         try h.appendSlice("\r\nHost: ");
-        try h.appendSlice(url.host);
+        try h.appendSlice(host);
         try h.appendSlice("\r\nConnection: close\r\n\r\n");
 
         const header_bytes = h.slice();
