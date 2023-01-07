@@ -10,6 +10,11 @@ const testing = std.testing;
 ///
 /// The returned structure type is `extern` so it can be used inside other extern data types
 /// to replace arrays at the ABI boundary.
+///
+/// **WARNING:** This structure does not necessarily preserve the `sentinel` value. This is due to
+///              C code usually not guaranteeing a sentinel either, so a `char[33]` might be
+///              32 chars + 1 sentinel NUL or 33 chars with NUL padding, so additional checking
+///              might be required when a sentinel is expected.
 pub fn PaddedArray(comptime T: type, comptime length: usize, comptime sentinel: T) type {
     return extern struct {
         const Self = @This();
