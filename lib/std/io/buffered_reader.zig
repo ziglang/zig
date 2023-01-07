@@ -1,35 +1,39 @@
 const std = @import("../std.zig");
 const io = std.io;
+const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 
 pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
         unbuffered_reader: ReaderType,
-        fifo: FifoType = FifoType.init(),
+        buf: [buffer_size]u8 = undefined,
+        start: usize = 0,
+        end: usize = 0,
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
 
         const Self = @This();
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
 
         pub fn read(self: *Self, dest: []u8) Error!usize {
             var dest_index: usize = 0;
+
             while (dest_index < dest.len) {
-                const written = self.fifo.read(dest[dest_index..]);
+                const written = std.math.min(dest.len - dest_index, self.end - self.start);
+                std.mem.copy(u8, dest[dest_index..], self.buf[self.start .. self.start + written]);
                 if (written == 0) {
-                    // fifo empty, fill it
-                    const writable = self.fifo.writableSlice(0);
-                    assert(writable.len > 0);
-                    const n = try self.unbuffered_reader.read(writable);
+                    // buf empty, fill it
+                    const n = try self.unbuffered_reader.read(self.buf[0..]);
                     if (n == 0) {
                         // reading from the unbuffered stream returned nothing
                         // so we have nothing left to read.
                         return dest_index;
                     }
-                    self.fifo.update(n);
+                    self.start = 0;
+                    self.end = n;
                 }
+                self.start += written;
                 dest_index += written;
             }
             return dest.len;
@@ -45,7 +49,7 @@ pub fn bufferedReader(underlying_stream: anytype) BufferedReader(4096, @TypeOf(u
     return .{ .unbuffered_reader = underlying_stream };
 }
 
-test "io.BufferedReader" {
+test "io.BufferedReader OneByte" {
     const OneByteReadReader = struct {
         str: []const u8,
         curr: usize,
@@ -83,4 +87,103 @@ test "io.BufferedReader" {
     const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
     defer testing.allocator.free(res);
     try testing.expectEqualSlices(u8, str, res);
+}
+
+fn smallBufferedReader(underlying_stream: anytype) BufferedReader(8, @TypeOf(underlying_stream)) {
+    return .{ .unbuffered_reader = underlying_stream };
+}
+test "io.BufferedReader Block" {
+    const BlockReader = struct {
+        block: []const u8,
+        reads_allowed: usize,
+        curr_read: usize,
+
+        const Error = error{NoError};
+        const Self = @This();
+        const Reader = io.Reader(*Self, Error, read);
+
+        fn init(block: []const u8, reads_allowed: usize) Self {
+            return Self{
+                .block = block,
+                .reads_allowed = reads_allowed,
+                .curr_read = 0,
+            };
+        }
+
+        fn read(self: *Self, dest: []u8) Error!usize {
+            if (self.curr_read >= self.reads_allowed) {
+                return 0;
+            }
+            std.debug.assert(dest.len >= self.block.len);
+            std.mem.copy(u8, dest, self.block);
+
+            self.curr_read += 1;
+            return self.block.len;
+        }
+
+        fn reader(self: *Self) Reader {
+            return .{ .context = self };
+        }
+    };
+
+    const block = "0123";
+
+    // len out == block
+    {
+        var block_reader = BlockReader.init(block, 2);
+        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var out_buf: [4]u8 = undefined;
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, block);
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, block);
+        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+    }
+
+    // len out < block
+    {
+        var block_reader = BlockReader.init(block, 2);
+        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var out_buf: [3]u8 = undefined;
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, "012");
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, "301");
+        const n = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, out_buf[0..n], "23");
+        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+    }
+
+    // len out > block
+    {
+        var block_reader = BlockReader.init(block, 2);
+        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var out_buf: [5]u8 = undefined;
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, "01230");
+        const n = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, out_buf[0..n], "123");
+        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+    }
+
+    // len out == 0
+    {
+        var block_reader = BlockReader.init(block, 2);
+        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var out_buf: [0]u8 = undefined;
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, "");
+    }
+
+    // len bufreader buf > block
+    {
+        var block_reader = BlockReader.init(block, 2);
+        var test_buf_reader = BufferedReader(5, BlockReader){ .unbuffered_reader = block_reader };
+        var out_buf: [4]u8 = undefined;
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, block);
+        _ = try test_buf_reader.read(&out_buf);
+        try testing.expectEqualSlices(u8, &out_buf, block);
+        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+    }
 }

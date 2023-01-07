@@ -8,9 +8,9 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.534+b0b1cc356"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.971+19056cb68"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
-ZIG="$PREFIX/bin/zig" 
+ZIG="$PREFIX/bin/zig"
 
 export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$PATH"
 

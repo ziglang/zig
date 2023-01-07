@@ -2,7 +2,12 @@
 # put "source /path/to/stage2_gdb_pretty_printers.py" in ~/.gdbinit to load it automatically.
 import re
 import gdb.printing
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
 import stage2_pretty_printers_common as common
+
 
 class TypePrinter:
     def __init__(self, val):

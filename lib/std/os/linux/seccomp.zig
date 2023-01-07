@@ -6,16 +6,14 @@
 //! isn't that useful for general-purpose applications, and so a mode that
 //! utilizes user-supplied filters mode was added.
 //!
-//! Seccomp filters are classic BPF programs, which means that all the
-//! information under `std.x.net.bpf` applies here as well. Conceptually, a
-//! seccomp program is attached to the kernel and is executed on each syscall.
-//! The "packet" being validated is the `data` structure, and the verdict is an
-//! action that the kernel performs on the calling process. The actions are
-//! variations on a "pass" or "fail" result, where a pass allows the syscall to
-//! continue and a fail blocks the syscall and returns some sort of error value.
-//! See the full list of actions under ::RET for more information. Finally, only
-//! word-sized, absolute loads (`ld [k]`) are supported to read from the `data`
-//! structure.
+//! Seccomp filters are classic BPF programs. Conceptually, a seccomp program
+//! is attached to the kernel and is executed on each syscall. The "packet"
+//! being validated is the `data` structure, and the verdict is an action that
+//! the kernel performs on the calling process. The actions are variations on a
+//! "pass" or "fail" result, where a pass allows the syscall to continue and a
+//! fail blocks the syscall and returns some sort of error value. See the full
+//! list of actions under ::RET for more information. Finally, only word-sized,
+//! absolute loads (`ld [k]`) are supported to read from the `data` structure.
 //!
 //! There are some issues with the filter API that have traditionally made
 //! writing them a pain:

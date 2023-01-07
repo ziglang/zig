@@ -21,7 +21,7 @@ pub const File = struct {
     /// blocking.
     capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable
+    /// Furthermore, even when `std.options.io_mode` is async, it is still sometimes desirable
     /// to perform blocking I/O, although not by default. For example, when printing a
     /// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
     /// When not building in async I/O mode, the type only has the `.blocking` tag, making

@@ -3,7 +3,7 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__negtf2, .{ .name = "__negtf2", .linkage = common.linkage });
+    @export(__negtf2, .{ .name = "__negtf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __negtf2(a: f128) callconv(.C) f128 {

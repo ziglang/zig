@@ -263,7 +263,9 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
                 while (j < 64) : (j += 1) {
                     xout[j] ^= buf[j];
                 }
-                ctx[9] += @boolToInt(@addWithOverflow(u32, ctx[8], 1, &ctx[8]));
+                const ov = @addWithOverflow(ctx[8], 1);
+                ctx[8] = ov[0];
+                ctx[9] += ov[1];
             }
             if (i < in.len) {
                 salsaCore(x[0..], ctx, true);

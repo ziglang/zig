@@ -489,18 +489,11 @@ test "comptime bitwise operators" {
 
 test "comptime shlWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
-    const ct_shifted: u64 = comptime amt: {
-        var amt = @as(u64, 0);
-        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
-        break :amt amt;
-    };
-
-    const rt_shifted: u64 = amt: {
-        var amt = @as(u64, 0);
-        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
-        break :amt amt;
-    };
+    const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
+    var a = ~@as(u64, 0);
+    const rt_shifted = @shlWithOverflow(a, 16)[0];
 
     try expect(ct_shifted == rt_shifted);
 }
@@ -1553,4 +1546,113 @@ test "comptime function turns function value to function pointer" {
         };
     };
     comptime try expect(S.foo[0] == &S.Nil);
+}
+
+test "container level const and var have unique addresses" {
+    const S = struct {
+        x: i32,
+        y: i32,
+        const c = @This(){ .x = 1, .y = 1 };
+        var v: @This() = c;
+    };
+    var p = &S.c;
+    try std.testing.expect(p.x == S.c.x);
+    S.v.x = 2;
+    try std.testing.expect(p.x == S.c.x);
+}
+
+test "break from block results in type" {
+    const S = struct {
+        fn NewType(comptime T: type) type {
+            const Padded = blk: {
+                if (@sizeOf(T) <= @sizeOf(usize)) break :blk void;
+                break :blk T;
+            };
+
+            return Padded;
+        }
+    };
+    const T = S.NewType(usize);
+    try expect(T == void);
+}
+
+test "struct in comptime false branch is not evaluated" {
+    const S = struct {
+        const comptime_const = 2;
+        fn some(comptime V: type) type {
+            return switch (comptime_const) {
+                3 => struct { a: V.foo },
+                2 => V,
+                else => unreachable,
+            };
+        }
+    };
+    try expect(S.some(u32) == u32);
+}
+
+test "result of nested switch assigned to variable" {
+    var zds: u32 = 0;
+    zds = switch (zds) {
+        0 => switch (zds) {
+            0...0 => 1234,
+            1...1 => zds,
+            2 => zds,
+            else => return,
+        },
+        else => zds,
+    };
+    try expect(zds == 1234);
+}
+
+test "inline for loop of functions returning error unions" {
+    const T1 = struct {
+        fn v() error{}!usize {
+            return 1;
+        }
+    };
+    const T2 = struct {
+        fn v() error{Error}!usize {
+            return 2;
+        }
+    };
+    var a: usize = 0;
+    inline for (.{ T1, T2 }) |T| {
+        a += try T.v();
+    }
+    try expect(a == 3);
+}
+
+test "if inside a switch" {
+    var condition = true;
+    var wave_type: u32 = 0;
+    var sample: i32 = switch (wave_type) {
+        0 => if (condition) 2 else 3,
+        1 => 100,
+        2 => 200,
+        3 => 300,
+        else => unreachable,
+    };
+    try expect(sample == 2);
+}
+
+test "function has correct return type when previous return is casted to smaller type" {
+    const S = struct {
+        fn foo(b: bool) u16 {
+            if (b) return @as(u8, 0xFF);
+            return 0xFFFF;
+        }
+    };
+    try expect(S.foo(true) == 0xFF);
+}
+
+test "early exit in container level const" {
+    const S = struct {
+        const value = blk: {
+            if (true) {
+                break :blk @as(u32, 1);
+            }
+            break :blk @as(u32, 0);
+        };
+    };
+    try expect(S.value == 1);
 }

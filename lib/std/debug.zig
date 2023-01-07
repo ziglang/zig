@@ -110,27 +110,28 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 }
 
 pub fn detectTTYConfig(file: std.fs.File) TTY.Config {
-    if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
+    if (builtin.os.tag == .wasi) {
+        // Per https://github.com/WebAssembly/WASI/issues/162 ANSI codes
+        // aren't currently supported.
+        return .no_color;
+    } else if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
         return .escape_codes;
     } else if (process.hasEnvVarConstant("NO_COLOR")) {
         return .no_color;
-    } else {
-        if (file.supportsAnsiEscapeCodes()) {
-            return .escape_codes;
-        } else if (native_os == .windows and file.isTty()) {
-            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
-                // TODO: Should this return an error instead?
-                return .no_color;
-            }
-            return .{ .windows_api = .{
-                .handle = file.handle,
-                .reset_attributes = info.wAttributes,
-            } };
-        } else {
+    } else if (file.supportsAnsiEscapeCodes()) {
+        return .escape_codes;
+    } else if (native_os == .windows and file.isTty()) {
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+            // TODO: Should this return an error instead?
             return .no_color;
         }
+        return .{ .windows_api = .{
+            .handle = file.handle,
+            .reset_attributes = info.wAttributes,
+        } };
     }
+    return .no_color;
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
@@ -206,17 +207,12 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const first_addr = first_address orelse {
-            stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
-                0,
-                @intCast(u32, addrs.len),
-                @ptrCast(**anyopaque, addrs.ptr),
-                null,
-            );
+            stack_trace.index = walkStackWindows(addrs[0..]);
             return;
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = windows.ntdll.RtlCaptureStackBackTrace(0, @intCast(u32, addr_buf.len), @ptrCast(**anyopaque, addr_buf.ptr), null);
+        const n = walkStackWindows(addr_buf[0..]);
         const first_index = for (addr_buf[0..n]) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -573,6 +569,48 @@ pub fn writeCurrentStackTrace(
     }
 }
 
+pub noinline fn walkStackWindows(addresses: []usize) usize {
+    if (builtin.cpu.arch == .x86) {
+        // RtlVirtualUnwind doesn't exist on x86
+        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
+    }
+
+    const tib = @ptrCast(*const windows.NT_TIB, &windows.teb().Reserved1);
+
+    var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
+    windows.ntdll.RtlCaptureContext(&context);
+
+    var i: usize = 0;
+    var image_base: usize = undefined;
+    var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
+
+    while (i < addresses.len) : (i += 1) {
+        const current_regs = context.getRegs();
+        if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
+            var handler_data: ?*anyopaque = null;
+            var establisher_frame: u64 = undefined;
+            _ = windows.ntdll.RtlVirtualUnwind(windows.UNW_FLAG_NHANDLER, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
+        } else {
+            // leaf function
+            context.setIp(@intToPtr(*u64, current_regs.sp).*);
+            context.setSp(current_regs.sp + @sizeOf(usize));
+        }
+
+        const next_regs = context.getRegs();
+        if (next_regs.sp < @ptrToInt(tib.StackLimit) or next_regs.sp > @ptrToInt(tib.StackBase)) {
+            break;
+        }
+
+        if (next_regs.ip == 0) {
+            break;
+        }
+
+        addresses[i] = next_regs.ip;
+    }
+
+    return i;
+}
+
 pub fn writeCurrentStackTraceWindows(
     out_stream: anytype,
     debug_info: *DebugInfo,
@@ -580,7 +618,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**anyopaque, &addr_buf), null);
+    const n = walkStackWindows(addr_buf[0..]);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
@@ -1128,7 +1166,10 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
 
         for (slice) |byte| {
             if (line == line_info.line) {
-                try out_stream.writeByte(byte);
+                switch (byte) {
+                    '\t' => try out_stream.writeByte(' '),
+                    else => try out_stream.writeByte(byte),
+                }
                 if (byte == '\n') {
                     return;
                 }
@@ -1821,10 +1862,9 @@ pub const have_segfault_handling_support = switch (native_os) {
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
 };
-pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
-    root.enable_segfault_handler
-else
-    runtime_safety and have_segfault_handling_support;
+
+const enable_segfault_handler = std.options.enable_segfault_handler;
+pub const default_enable_segfault_handler = runtime_safety and have_segfault_handling_support;
 
 pub fn maybeEnableSegfaultHandler() void {
     if (enable_segfault_handler) {

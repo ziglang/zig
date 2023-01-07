@@ -10,6 +10,8 @@ pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("lib", "lib.zig", .unversioned);
     lib.setBuildMode(mode);
     lib.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    lib.import_symbols = true; // import `a` and `b`
+    lib.rdynamic = true; // export `foo`
     lib.install();
 
     const check_lib = lib.checkObject(.wasm);

@@ -7,9 +7,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
-const ArrayList = std.ArrayList;
-const Sha256 = std.crypto.hash.sha2.Sha256;
-const fs = std.fs;
 
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
@@ -180,10 +177,6 @@ emit_docs: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
-
-/// Exported symbol names. This is only for when the target is wasm.
-/// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
-export_symbol_names: std.ArrayListUnmanaged([]const u8) = .{},
 
 pub const default_stack_protector_buffer_size = 4;
 pub const SemaError = Module.SemaError;
@@ -591,7 +584,17 @@ pub const AllErrors = struct {
             Message.HashContext,
             std.hash_map.default_max_load_percentage,
         ).init(allocator);
-        const err_source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
+        const err_source = module_err_msg.src_loc.file_scope.getSource(module.gpa) catch |err| {
+            const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
+            try errors.append(.{
+                .plain = .{
+                    .msg = try std.fmt.allocPrint(allocator, "unable to load '{s}': {s}", .{
+                        file_path, @errorName(err),
+                    }),
+                },
+            });
+            return;
+        };
         const err_span = try module_err_msg.src_loc.span(module.gpa);
         const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
 
@@ -954,6 +957,7 @@ pub const InitOptions = struct {
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     linker_import_memory: ?bool = null,
+    linker_import_symbols: bool = false,
     linker_import_table: bool = false,
     linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
@@ -964,6 +968,7 @@ pub const InitOptions = struct {
     linker_print_gc_sections: bool = false,
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
+    linker_opt_bisect_limit: i32 = -1,
     each_lib_rpath: ?bool = null,
     build_id: ?bool = null,
     disable_c_depfile: bool = false,
@@ -974,11 +979,14 @@ pub const InitOptions = struct {
     linker_z_now: bool = true,
     linker_z_relro: bool = true,
     linker_z_nocopyreloc: bool = false,
+    linker_z_common_page_size: ?u64 = null,
+    linker_z_max_page_size: ?u64 = null,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
     linker_optimization: ?u8 = null,
     linker_compress_debug_sections: ?link.CompressDebugSections = null,
+    linker_module_definition_file: ?[]const u8 = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1036,6 +1044,11 @@ pub const InitOptions = struct {
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
+    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+    /// paths when consolidating CodeView streams into a single PDB file.
+    pdb_source_path: ?[]const u8 = null,
+    /// (Windows) PDB output path
+    pdb_out_path: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1464,7 +1477,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .gpa = gpa,
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
-        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
+        cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
         cache.addPrefix(options.zig_lib_directory);
         cache.addPrefix(options.local_cache_directory);
         errdefer cache.manifest_dir.close();
@@ -1810,7 +1823,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
+            .module_definition_file = options.linker_module_definition_file,
             .import_memory = options.linker_import_memory orelse false,
+            .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
             .export_table = options.linker_export_table,
             .initial_memory = options.linker_initial_memory,
@@ -1821,6 +1836,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .print_gc_sections = options.linker_print_gc_sections,
             .print_icf_sections = options.linker_print_icf_sections,
             .print_map = options.linker_print_map,
+            .opt_bisect_limit = options.linker_opt_bisect_limit,
             .z_nodelete = options.linker_z_nodelete,
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,
@@ -1828,6 +1844,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .z_nocopyreloc = options.linker_z_nocopyreloc,
             .z_now = options.linker_z_now,
             .z_relro = options.linker_z_relro,
+            .z_common_page_size = options.linker_z_common_page_size,
+            .z_max_page_size = options.linker_z_max_page_size,
             .tsaware = options.linker_tsaware,
             .nxcompat = options.linker_nxcompat,
             .dynamicbase = options.linker_dynamicbase,
@@ -1883,6 +1901,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_undefined_symbols = .{},
+            .pdb_source_path = options.pdb_source_path,
+            .pdb_out_path = options.pdb_out_path,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2166,11 +2186,6 @@ pub fn destroy(self: *Compilation) void {
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
 
-    for (self.export_symbol_names.items) |symbol_name| {
-        gpa.free(symbol_name);
-    }
-    self.export_symbol_names.deinit(gpa);
-
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();
 }
@@ -2356,7 +2371,16 @@ pub fn update(comp: *Compilation) !void {
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
-    if (comp.color == .off) progress.terminal = null;
+    switch (comp.color) {
+        .off => {
+            progress.terminal = null;
+        },
+        .on => {
+            progress.terminal = std.io.getStdErr();
+            progress.supports_ansi_escape_codes = true;
+        },
+        .auto => {},
+    }
 
     try comp.performAllTheWork(main_progress_node);
 
@@ -2617,6 +2641,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_nocopyreloc);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
+    man.hash.add(comp.bin_file.options.z_common_page_size orelse 0);
+    man.hash.add(comp.bin_file.options.z_max_page_size orelse 0);
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
@@ -3286,8 +3312,8 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .windows_import_lib,
-                    "unable to generate DLL import .lib file: {s}",
-                    .{@errorName(err)},
+                    "unable to generate DLL import .lib file for {s}: {s}",
+                    .{ link_lib, @errorName(err) },
                 );
             };
         },
@@ -3670,13 +3696,15 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         break :digest digest;
     } else man.final();
 
-    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
-    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
-    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
-    // it to prevent doing a full file content comparison the next time around.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
-    };
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+        };
+    }
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
         "o", &digest, cimport_zig_basename,
@@ -3977,70 +4005,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             }
         }
 
-        // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
-        // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and
-        // pass that to zig, e.g. via 'zig build-lib @args.rsp'
-        // See @file syntax here: https://gcc.gnu.org/onlinedocs/gcc/Overall-Options.html
-        var args_length: usize = 0;
-        for (argv.items) |arg| {
-            args_length += arg.len + 1; // +1 to account for null terminator
-        }
-        if (args_length >= 30 * 1024) {
-            const allocator = comp.gpa;
-            const input_args = argv.items[2..];
-            const output_dir = comp.local_cache_directory;
-
-            var args_arena = std.heap.ArenaAllocator.init(allocator);
-            defer args_arena.deinit();
-
-            const args_to_escape = input_args;
-            var escaped_args = try ArrayList([]const u8).initCapacity(args_arena.allocator(), args_to_escape.len);
-
-            arg_blk: for (args_to_escape) |arg| {
-                for (arg) |c, arg_idx| {
-                    if (c == '\\' or c == '"') {
-                        // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                        var escaped = try ArrayList(u8).initCapacity(args_arena.allocator(), arg.len + 1);
-                        const writer = escaped.writer();
-                        writer.writeAll(arg[0..arg_idx]) catch unreachable;
-                        for (arg[arg_idx..]) |to_escape| {
-                            if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
-                            try writer.writeByte(to_escape);
-                        }
-                        escaped_args.appendAssumeCapacity(escaped.items);
-                        continue :arg_blk;
-                    }
-                }
-                escaped_args.appendAssumeCapacity(arg); // no escaping needed so just use original argument
-            }
-
-            const partially_quoted = try std.mem.join(allocator, "\" \"", escaped_args.items);
-            const args = try std.mem.concat(allocator, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
-
-            // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
-            // other zig build commands running in parallel.
-
-            var args_hash: [Sha256.digest_length]u8 = undefined;
-            Sha256.hash(args, &args_hash, .{});
-            var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-            _ = try std.fmt.bufPrint(
-                &args_hex_hash,
-                "{s}",
-                .{std.fmt.fmtSliceHexLower(&args_hash)},
-            );
-
-            const args_dir = "args";
-            try output_dir.handle.makePath(args_dir);
-            const args_file = try fs.path.join(allocator, &[_][]const u8{
-                args_dir, args_hex_hash[0..],
-            });
-            try output_dir.handle.writeFile(args_file, args);
-            const args_file_path = try output_dir.handle.realpathAlloc(allocator, args_file);
-
-            argv.shrinkRetainingCapacity(2);
-            try argv.append(try std.mem.concat(allocator, u8, &[_][]const u8{ "@", args_file_path }));
-        }
-
         if (comp.verbose_cc) {
             dump_argv(argv.items);
         }
@@ -4139,13 +4103,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         break :blk digest;
     };
 
-    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
-    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
-    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
-    // it to prevent doing a full file content comparison the next time around.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
-    };
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
+        };
+    }
 
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
 
@@ -4428,7 +4394,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .zig => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig => {},
         .assembly => {
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
@@ -4573,6 +4539,7 @@ pub const FileExt = enum {
     object,
     static_library,
     zig,
+    def,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -4586,6 +4553,7 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
+            .def,
             .unknown,
             => false,
         };
@@ -4678,6 +4646,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .object;
     } else if (mem.endsWith(u8, filename, ".cu")) {
         return .cu;
+    } else if (mem.endsWith(u8, filename, ".def")) {
+        return .def;
     } else {
         return .unknown;
     }

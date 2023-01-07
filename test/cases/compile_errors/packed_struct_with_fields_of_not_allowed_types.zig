@@ -70,22 +70,22 @@ export fn entry12() void {
 // backend=llvm
 // target=native
 //
-// :3:9: error: packed structs cannot contain fields of type 'anyerror'
-// :3:9: note: type has no guaranteed in-memory representation
-// :8:9: error: packed structs cannot contain fields of type '[2]u24'
-// :8:9: note: type has no guaranteed in-memory representation
-// :13:9: error: packed structs cannot contain fields of type 'anyerror!u32'
-// :13:9: note: type has no guaranteed in-memory representation
-// :18:9: error: packed structs cannot contain fields of type 'tmp.S'
-// :18:9: note: only packed structs layout are allowed in packed types
+// :3:12: error: packed structs cannot contain fields of type 'anyerror'
+// :3:12: note: type has no guaranteed in-memory representation
+// :8:12: error: packed structs cannot contain fields of type '[2]u24'
+// :8:12: note: type has no guaranteed in-memory representation
+// :13:20: error: packed structs cannot contain fields of type 'anyerror!u32'
+// :13:20: note: type has no guaranteed in-memory representation
+// :18:12: error: packed structs cannot contain fields of type 'tmp.S'
+// :18:12: note: only packed structs layout are allowed in packed types
 // :56:11: note: struct declared here
-// :23:9: error: packed structs cannot contain fields of type 'tmp.U'
-// :23:9: note: only packed unions layout are allowed in packed types
+// :23:12: error: packed structs cannot contain fields of type 'tmp.U'
+// :23:12: note: only packed unions layout are allowed in packed types
 // :59:18: note: union declared here
-// :28:9: error: packed structs cannot contain fields of type '?anyerror'
-// :28:9: note: type has no guaranteed in-memory representation
-// :38:9: error: packed structs cannot contain fields of type 'fn() void'
-// :38:9: note: type has no guaranteed in-memory representation
-// :38:9: note: use '*const ' to make a function pointer type
-// :65:28: error: packed structs cannot contain fields of type '[]u8'
-// :65:28: note: slices have no guaranteed in-memory representation
+// :28:12: error: packed structs cannot contain fields of type '?anyerror'
+// :28:12: note: type has no guaranteed in-memory representation
+// :38:12: error: packed structs cannot contain fields of type 'fn() void'
+// :38:12: note: type has no guaranteed in-memory representation
+// :38:12: note: use '*const ' to make a function pointer type
+// :65:31: error: packed structs cannot contain fields of type '[]u8'
+// :65:31: note: slices have no guaranteed in-memory representation

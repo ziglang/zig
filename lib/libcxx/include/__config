@@ -148,7 +148,7 @@
 #    endif
 // Feature macros for disabling pre ABI v1 features. All of these options
 // are deprecated.
-#    if defined(__FreeBSD__)
+#    if defined(__FreeBSD__) || defined(__DragonFly__)
 #      define _LIBCPP_DEPRECATED_ABI_DISABLE_PAIR_TRIVIAL_COPY_CTOR
 #    endif
 #  endif
@@ -726,11 +726,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #  endif // _LIBCPP_CXX03_LANG
 
 #  if defined(__APPLE__) || defined(__FreeBSD__) || defined(_LIBCPP_MSVCRT_LIKE) || defined(__sun__) ||                \
-      defined(__NetBSD__)
+      defined(__NetBSD__) || defined(__DragonFly__)
 #    define _LIBCPP_LOCALE__L_EXTENSIONS 1
 #  endif
 
-#  ifdef __FreeBSD__
+#  if defined(__FreeBSD__) || defined(__DragonFly__)
 #    define _DECLARE_C99_LDBL_MATH 1
 #  endif
 
@@ -750,11 +750,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_HAS_NO_ALIGNED_ALLOCATION
 #  endif
 
-#  if defined(__APPLE__) || defined(__FreeBSD__)
+#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__DragonFly__)
 #    define _LIBCPP_HAS_DEFAULTRUNELOCALE
 #  endif
 
-#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun__)
+#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun__) || defined(__DragonFly__)
 #    define _LIBCPP_WCTYPE_IS_MASK
 #  endif
 
@@ -901,6 +901,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
 #    if defined(__FreeBSD__) ||                                                                                        \
         defined(__wasi__) ||                                                                                           \
+        defined(__DragonFly__) ||                                                                                      \
         defined(__NetBSD__) ||                                                                                         \
         defined(__OpenBSD__) ||                                                                                        \
         defined(__NuttX__) ||                                                                                          \

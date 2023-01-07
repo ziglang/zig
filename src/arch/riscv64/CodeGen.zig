@@ -1608,9 +1608,10 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
-    const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
+fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
+    const arg = self.air.instructions.items(.data)[inst].arg;
+    const ty = self.air.getRefType(arg.ty);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg.src_index);
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
@@ -1640,7 +1641,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     // TODO support stack-only arguments
     // TODO Copy registers to the stack
     const mcv = result;
-    try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
+    try self.genArgDbgInfo(inst, mcv);
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();

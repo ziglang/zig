@@ -70,22 +70,22 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     while (exp > 1) {
         if (exp & 1 == 1) {
-            if (@mulWithOverflow(T, acc, base, &acc)) {
-                return error.Overflow;
-            }
+            const ov = @mulWithOverflow(acc, base);
+            if (ov[1] != 0) return error.Overflow;
+            acc = ov[0];
         }
 
         exp >>= 1;
 
-        if (@mulWithOverflow(T, base, base, &base)) {
-            return error.Overflow;
-        }
+        const ov = @mulWithOverflow(base, base);
+        if (ov[1] != 0) return error.Overflow;
+        base = ov[0];
     }
 
     if (exp == 1) {
-        if (@mulWithOverflow(T, acc, base, &acc)) {
-            return error.Overflow;
-        }
+        const ov = @mulWithOverflow(acc, base);
+        if (ov[1] != 0) return error.Overflow;
+        acc = ov[0];
     }
 
     return acc;

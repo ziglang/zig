@@ -2433,43 +2433,6 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
 
-      {#header_open|Anonymous List Literals#}
-      <p>Similar to {#link|Enum Literals#} and {#link|Anonymous Struct Literals#}
-      the type can be omitted from array literals:</p>
-      {#code_begin|test|anon_list#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "anonymous list literal syntax" {
-    var array: [4]u8 = .{11, 22, 33, 44};
-    try expect(array[0] == 11);
-    try expect(array[1] == 22);
-    try expect(array[2] == 33);
-    try expect(array[3] == 44);
-}
-      {#code_end#}
-      <p>
-      If there is no type in the {#link|result location|Result Location Semantics#} then an
-      anonymous list literal actually turns into a {#link|struct#} with numbered field names:
-      </p>
-      {#code_begin|test|infer_list_literal#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "fully anonymous list literal" {
-    try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
-}
-
-fn dump(args: anytype) !void {
-    try expect(args.@"0" == 1234);
-    try expect(args.@"1" == 12.34);
-    try expect(args.@"2");
-    try expect(args.@"3"[0] == 'h');
-    try expect(args.@"3"[1] == 'i');
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|Multidimensional Arrays#}
       <p>
       Multidimensional arrays can be created by nesting arrays:
@@ -3578,15 +3541,21 @@ fn dump(args: anytype) !void {
     try expect(args.s[1] == 'i');
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|Tuples#}
       <p>
       Anonymous structs can be created without specifying field names, and are referred to as "tuples".
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
-      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as {#link|identifiers|Identifiers#}.
+      they cannot be accessed with {#syntax#}.{#endsyntax#} syntax without also wrapping them in
+      {#syntax#}@""{#endsyntax#}. Names inside {#syntax#}@""{#endsyntax#} are always recognised as
+      {#link|identifiers|Identifiers#}.
       </p>
       <p>
-      Like arrays, tuples have a .len field, can be indexed and  work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
+      Like arrays, tuples have a .len field, can be indexed (provided the index is comptime-known)
+      and work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
       </p>
       {#code_begin|test|tuple#}
 const std = @import("std");
@@ -5413,14 +5382,14 @@ pub fn parseU64(buf: []const u8, radix: u8) !u64 {
         }
 
         // x *= radix
-        if (@mulWithOverflow(u64, x, radix, &x)) {
-            return error.Overflow;
-        }
+        var ov = @mulWithOverflow(x, radix);
+        if (ov[1] != 0) return error.OverFlow;
+        
 
         // x += digit
-        if (@addWithOverflow(u64, x, digit, &x)) {
-            return error.Overflow;
-        }
+        ov = @addWithOverflow(ov[0], digit);
+        if (ov[1] != 0) return error.OverFlow;
+        x = ov[0];
     }
 
     return x;
@@ -5832,14 +5801,16 @@ test "merge error sets" {
 {#code_begin|test|inferred_error_sets#}
 // With an inferred error set
 pub fn add_inferred(comptime T: type, a: T, b: T) !T {
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 // With an explicit error set
 pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 const Error = error {
@@ -6486,7 +6457,22 @@ test "coercion between unions and enums" {
       {#see_also|union|enum#}
       {#header_close#}
       {#header_open|Type Coercion: undefined#}
-      <p>{#link|undefined#} can be cast to any type.</p>
+      <p>{#link|undefined#} can be coerced to any type.</p>
+      {#header_close#}
+
+      {#header_open|Type Coercion: tuples to arrays#}
+      <p>{#link|Tuples#} can be coerced to arrays, if all of the fields have the same type.</p>
+      {#code_begin|test|test_coerce_tuples_arrays#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+const Tuple = struct{ u8, u8 };
+test "coercion from homogenous tuple to array" {
+	const tuple: Tuple = .{5, 6};
+	const array: [2]u8 = tuple;
+	_ = array;
+}
+      {#code_end#}
       {#header_close#}
       {#header_close#}
 
@@ -7632,11 +7618,9 @@ test "global assembly" {
       </p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
-      <pre>{#syntax#}@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@addWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a + b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a + b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
@@ -8695,11 +8679,9 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@mulWithOverflow#}
-      <pre>{#syntax#}@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@mulWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a * b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a * b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
 
@@ -8973,15 +8955,13 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shlWithOverflow#}
-      <pre>{#syntax#}@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@shlWithOverflow(a: anytype, shift_amt: Log2T) struct { @TypeOf(a), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a << b{#endsyntax#}. If overflow or underflow occurs,
-                 stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                         If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a << b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(@TypeOf(a)).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -9323,11 +9303,9 @@ fn doTheTest() !void {
       {#header_close#}
 
       {#header_open|@subWithOverflow#}
-      <pre>{#syntax#}@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@subWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
       <p>
-      Performs {#syntax#}result.* = a - b{#endsyntax#}. If overflow or underflow occurs,
-          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
-                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      Performs {#syntax#}a - b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       {#header_close#}
 
@@ -9774,11 +9752,11 @@ const print = @import("std").debug.print;
 pub fn main() void {
     var byte: u8 = 255;
 
-    var result: u8 = undefined;
-    if (@addWithOverflow(u8, byte, 10, &result)) {
-        print("overflowed result: {}\n", .{result});
+    const ov = @addWithOverflow(byte, 10);
+    if (ov[1] != 0) {
+        print("overflowed result: {}\n", .{ov[0]});
     } else {
-        print("result: {}\n", .{result});
+        print("result: {}\n", .{ov[0]});
     }
 }
       {#code_end#}
@@ -12081,7 +12059,7 @@ ContainerDeclarations
      / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
      /
 
-TestDecl <- KEYWORD_test STRINGLITERALSINGLE? Block
+TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 
 ComptimeDecl <- KEYWORD_comptime Block
 
@@ -12095,7 +12073,7 @@ FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpa
 VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
 
 ContainerField
-     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
       / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
@@ -12366,7 +12344,7 @@ PrefixTypeOp
     <- QUESTIONMARK
      / KEYWORD_anyframe MINUSRARROW
      / SliceTypeStart (ByteAlign / AddrSpace / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
-     / PtrTypeStart (AddrSpace / KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+     / PtrTypeStart (AddrSpace / KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
      / ArrayTypeStart
 
 SuffixOp

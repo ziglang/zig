@@ -543,6 +543,7 @@ const msvcrt_common_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "acrt_iob_func.c",
     "stdio" ++ path.sep_str ++ "snprintf_alias.c",
     "stdio" ++ path.sep_str ++ "vsnprintf_alias.c",
+    "stdio" ++ path.sep_str ++ "_vscprintf.c",
     "misc" ++ path.sep_str ++ "_configthreadlocale.c",
     "misc" ++ path.sep_str ++ "_get_current_locale.c",
     "misc" ++ path.sep_str ++ "invalid_parameter_handler.c",

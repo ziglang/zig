@@ -61,6 +61,7 @@ test "array concat with undefined" {
 }
 
 test "array concat with tuple" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
@@ -652,4 +653,12 @@ test "array init of container level array variable" {
     try expectEqual([2]usize{ 3, 4 }, S.pair);
     S.bar(5, 6);
     try expectEqual([2]usize{ 5, 6 }, S.pair);
+}
+
+test "runtime initialized sentinel-terminated array literal" {
+    var c: u16 = 300;
+    const f = &[_:0x9999]u16{c};
+    const g = @ptrCast(*[4]u8, f);
+    try std.testing.expect(g[2] == 0x99);
+    try std.testing.expect(g[3] == 0x99);
 }

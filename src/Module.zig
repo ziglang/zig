@@ -1173,6 +1173,49 @@ pub const EnumFull = struct {
             .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
+
+    pub fn fieldSrcLoc(e: EnumFull, mod: *Module, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const owner_decl = mod.declPtr(e.owner_decl);
+        const file = owner_decl.getFileScope();
+        const tree = file.getTree(mod.gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                file.sub_file_path, @errorName(err),
+            });
+            return e.srcLoc(mod);
+        };
+        const node = owner_decl.relativeToNodeIndex(0);
+        const node_tags = tree.nodes.items(.tag);
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two, .tagged_union_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
+            },
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+
+            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
+
+            // This struct was generated using @Type
+            else => return e.srcLoc(mod),
+        }
+    }
 };
 
 pub const Union = struct {
@@ -3254,14 +3297,6 @@ pub fn deinit(mod: *Module) void {
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const gpa = mod.gpa;
     {
-        if (mod.failed_decls.contains(decl_index)) {
-            blk: {
-                const errs = mod.comp.getAllErrorsAlloc() catch break :blk;
-                for (errs.list) |err| Compilation.AllErrors.Message.renderToStdErr(err, .no_color);
-            }
-            // TODO restore test case triggering this panic
-            @panic("Zig compiler bug: attempted to destroy declaration with an attached error");
-        }
         const decl = mod.declPtr(decl_index);
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         _ = mod.test_functions.swapRemove(decl_index);
@@ -3275,8 +3310,8 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
             if (decl.getInnerNamespace()) |namespace| {
                 namespace.destroyDecls(mod);
             }
-            decl.clearValues(mod);
         }
+        decl.clearValues(mod);
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
         decl.clearName(gpa);
@@ -4345,8 +4380,17 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer decl_arena.deinit();
     const decl_arena_allocator = decl_arena.allocator();
+
+    const decl_arena_state = blk: {
+        errdefer decl_arena.deinit();
+        const s = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
+        break :blk s;
+    };
+    defer {
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+    }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -4416,8 +4460,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // not the struct itself.
     try sema.resolveTypeLayout(decl_tv.ty);
 
-    const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
-
     if (decl.is_usingnamespace) {
         if (!decl_tv.ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
@@ -4436,8 +4478,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         decl.@"linksection" = null;
         decl.has_tv = true;
         decl.owns_tv = false;
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
         decl.analysis = .complete;
         decl.generation = mod.generation;
 
@@ -4458,16 +4498,14 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
                 }
-                decl.clearValues(mod);
             }
+            decl.clearValues(mod);
 
             decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
             decl.val = try decl_tv.val.copy(decl_arena_allocator);
             // linksection, align, and addrspace were already set by Sema
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
-            decl_arena_state.* = decl_arena.state;
-            decl.value_arena = decl_arena_state;
             decl.analysis = .complete;
             decl.generation = mod.generation;
 
@@ -4502,8 +4540,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     var type_changed = true;
     if (decl.has_tv) {
         type_changed = !decl.ty.eql(decl_tv.ty, mod);
-        decl.clearValues(mod);
     }
+    decl.clearValues(mod);
 
     decl.owns_tv = false;
     var queue_linker_work = false;
@@ -4576,8 +4614,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         };
     };
     decl.has_tv = true;
-    decl_arena_state.* = decl_arena.state;
-    decl.value_arena = decl_arena_state;
     decl.analysis = .complete;
     decl.generation = mod.generation;
 
@@ -5182,8 +5218,8 @@ pub fn clearDecl(
         if (decl.getInnerNamespace()) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
         }
-        decl.clearValues(mod);
     }
+    decl.clearValues(mod);
 
     if (decl.deletion_flag) {
         decl.deletion_flag = false;
@@ -5407,11 +5443,15 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
             runtime_param_index += 1;
             continue;
         }
+        const air_ty = try sema.addType(param_ty);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{ .ty = param_ty },
+            .data = .{ .arg = .{
+                .ty = air_ty,
+                .src_index = @intCast(u32, total_param_index),
+            } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
         total_param_index += 1;
@@ -5905,7 +5945,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
 
 const FieldSrcQuery = struct {
     index: usize,
-    range: enum { name, type, value, alignment },
+    range: enum { name, type, value, alignment } = .name,
 };
 
 fn queryFieldSrc(
@@ -6441,4 +6481,26 @@ pub fn getDeclExports(mod: Module, decl_index: Decl.Index) []const *Export {
     } else {
         return &[0]*Export{};
     }
+}
+
+pub const Feature = enum {
+    panic_fn,
+    panic_unwrap_error,
+    safety_check_formatted,
+    error_return_trace,
+    is_named_enum_value,
+    error_set_has_value,
+};
+
+pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
+    return switch (feature) {
+        .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
+        .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
+        .error_return_trace => mod.comp.bin_file.options.use_llvm,
+        .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+    };
 }

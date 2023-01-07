@@ -3,7 +3,7 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__subhf3, .{ .name = "__subhf3", .linkage = common.linkage });
+    @export(__subhf3, .{ .name = "__subhf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __subhf3(a: f16, b: f16) callconv(.C) f16 {

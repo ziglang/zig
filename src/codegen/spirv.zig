@@ -548,7 +548,7 @@ pub const DeclGen = struct {
             .gs, .fs, .ss => unreachable,
             .shared => .Workgroup,
             .local => .Private,
-            .global, .param, .constant => unreachable,
+            .global, .param, .constant, .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => unreachable,
         };
     }
 

@@ -99,7 +99,10 @@ test "simple variadic function" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -134,7 +137,10 @@ test "variadic functions" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -175,7 +181,10 @@ test "copy VaList" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const S = struct {

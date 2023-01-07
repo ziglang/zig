@@ -3304,13 +3304,13 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 
     // Calculate the aligned base address with an eye out for overflow.
     const addr = @ptrToInt(ptr);
-    var new_addr: usize = undefined;
-    if (@addWithOverflow(usize, addr, align_to - 1, &new_addr)) return null;
-    new_addr &= ~@as(usize, align_to - 1);
+    var ov = @addWithOverflow(addr, align_to - 1);
+    if (ov[1] != 0) return null;
+    ov[0] &= ~@as(usize, align_to - 1);
 
     // The delta is expressed in terms of bytes, turn it into a number of child
     // type elements.
-    const delta = new_addr - addr;
+    const delta = ov[0] - addr;
     const pointee_size = @sizeOf(info.Pointer.child);
     if (delta % pointee_size != 0) return null;
     return delta / pointee_size;
@@ -3771,7 +3771,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
         .Bool => doNotOptimizeAway(@boolToInt(val)),
         .Int => {
             const bits = t.Int.bits;
-            if (bits <= max_gp_register_bits) {
+            if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
                 const val2 = @as(
                     std.meta.Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
                     val,
@@ -3783,18 +3783,24 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else doNotOptimizeAway(&val);
         },
         .Float => {
-            if (t.Float.bits == 32 or t.Float.bits == 64) {
+            if ((t.Float.bits == 32 or t.Float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
                     : [val] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
-        .Pointer => asm volatile (""
-            :
-            : [val] "m" (val),
-            : "memory"
-        ),
+        .Pointer => {
+            if (builtin.zig_backend == .stage2_c) {
+                doNotOptimizeAwayC(val);
+            } else {
+                asm volatile (""
+                    :
+                    : [val] "m" (val),
+                    : "memory"
+                );
+            }
+        },
         .Array => {
             if (t.Array.len * @sizeOf(t.Array.child) <= 64) {
                 for (val) |v| doNotOptimizeAway(v);
@@ -3802,6 +3808,16 @@ pub fn doNotOptimizeAway(val: anytype) void {
         },
         else => doNotOptimizeAway(&val),
     }
+}
+
+/// .stage2_c doesn't support asm blocks yet, so use volatile stores instead
+var deopt_target: if (builtin.zig_backend == .stage2_c) u8 else void = undefined;
+fn doNotOptimizeAwayC(ptr: anytype) void {
+    const dest = @ptrCast(*volatile u8, &deopt_target);
+    for (asBytes(ptr)) |b| {
+        dest.* = b;
+    }
+    dest.* = 0;
 }
 
 test "doNotOptimizeAway" {

@@ -39,7 +39,7 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :31:5: error: extern structs cannot contain fields of type 'tmp.E'
-// :31:5: note: enum tag type 'u9' is not extern compatible
-// :31:5: note: only integers with power of two bits are extern compatible
+// :31:8: error: extern structs cannot contain fields of type 'tmp.E'
+// :31:8: note: enum tag type 'u9' is not extern compatible
+// :31:8: note: only integers with power of two bits are extern compatible
 // :1:15: note: enum declared here

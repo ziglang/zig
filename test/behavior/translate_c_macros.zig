@@ -221,3 +221,7 @@ test "Macro that uses remainder operator. Issue #13346" {
         ),
     );
 }
+
+test "@typeInfo on @cImport result" {
+    try expect(@typeInfo(h).Struct.decls.len > 1);
+}

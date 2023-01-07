@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub const std_options = struct {
+    pub const logFn = log;
+};
+
 pub fn log(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.EnumLiteral),

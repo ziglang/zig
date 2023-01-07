@@ -1510,26 +1510,6 @@ fn walkInstruction(
 
         //     return operand;
         // },
-        .overflow_arithmetic_ptr => {
-            const un_node = data[inst_index].un_node;
-
-            const elem_type_ref = try self.walkRef(file, parent_scope, parent_src, un_node.operand, false);
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{
-                .Pointer = .{
-                    .size = .One,
-                    .child = elem_type_ref.expr,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .is_allowzero = false,
-                },
-            });
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .type = type_slot_index },
-            };
-        },
         .ptr_type => {
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
@@ -3818,7 +3798,7 @@ fn analyzeFancyFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[fn_info.body.len - 1],
+                    fn_info.body[0],
                 );
             } else {
                 break :blk null;
@@ -3827,10 +3807,15 @@ fn analyzeFancyFunction(
         else => null,
     };
 
+    // if we're analyzing a funcion signature (ie without body), we
+    // actually don't have an ast_node reserved for us, but since
+    // we don't have a name, we don't need it.
+    const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
+
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
-            .src = self_ast_node_index,
+            .src = src,
             .params = param_type_refs.items,
             .ret = ret_type_ref,
             .generic_ret = generic_ret,
@@ -3956,7 +3941,7 @@ fn analyzeFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[fn_info.body.len - 1],
+                    fn_info.body[0],
                 );
             } else {
                 break :blk null;
@@ -3975,11 +3960,16 @@ fn analyzeFunction(
         } else break :blk ret_type_ref;
     };
 
+    // if we're analyzing a funcion signature (ie without body), we
+    // actually don't have an ast_node reserved for us, but since
+    // we don't have a name, we don't need it.
+    const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
+
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
-            .src = self_ast_node_index,
+            .src = src,
             .params = param_type_refs.items,
             .ret = ret_type,
             .generic_ret = generic_ret,
@@ -3997,11 +3987,25 @@ fn getGenericReturnType(
     file: *File,
     scope: *Scope,
     parent_src: SrcLocInfo, // function decl line
-    body_end: usize,
+    body_main_block: usize,
 ) !DocData.Expr {
-    // TODO: compute the correct line offset
-    const wr = try self.walkInstruction(file, scope, parent_src, body_end - 3, false);
-    return wr.expr;
+    const tags = file.zir.instructions.items(.tag);
+    const data = file.zir.instructions.items(.data);
+
+    // We expect `body_main_block` to be the first instruction
+    // inside the function body, and for it to be a block instruction.
+    const pl_node = data[body_main_block].pl_node;
+    const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+    const maybe_ret_node = file.zir.extra[extra.end..][extra.data.body_len - 4];
+    switch (tags[maybe_ret_node]) {
+        .ret_node, .ret_load => {
+            const wr = try self.walkInstruction(file, scope, parent_src, maybe_ret_node, false);
+            return wr.expr;
+        },
+        else => {
+            return DocData.Expr{ .comptimeExpr = 0 };
+        },
+    }
 }
 
 fn collectUnionFieldInfo(

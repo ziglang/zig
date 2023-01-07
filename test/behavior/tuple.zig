@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
+const expectEqual = std.testing.expectEqual;
 
 test "tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -232,31 +234,31 @@ test "fieldParentPtr of anon struct" {
 test "offsetOf tuple" {
     var x: u32 = 0;
     const T = @TypeOf(.{ x, x });
-    _ = @offsetOf(T, "1");
+    try expect(@offsetOf(T, "1") == @sizeOf(u32));
 }
 
 test "offsetOf anon struct" {
     var x: u32 = 0;
     const T = @TypeOf(.{ .foo = x, .bar = x });
-    _ = @offsetOf(T, "bar");
+    try expect(@offsetOf(T, "bar") == @sizeOf(u32));
 }
 
 test "initializing tuple with mixed comptime-runtime fields" {
-    if (true) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var x: u32 = 15;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
     var a: T = .{ -1234, 5678, x + 1 };
-    _ = a;
+    try expect(a[2] == 16);
 }
 
 test "initializing anon struct with mixed comptime-runtime fields" {
-    if (true) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var x: u32 = 15;
     const T = @TypeOf(.{ .foo = @as(i32, -1234), .bar = x });
     var a: T = .{ .foo = -1234, .bar = x + 1 };
-    _ = a;
+    try expect(a.bar == 16);
 }
 
 test "tuple in tuple passed to generic function" {
@@ -339,4 +341,59 @@ test "tuple type with void field and a runtime field" {
     const T = std.meta.Tuple(&[_]type{ usize, void });
     var t: T = .{ 5, {} };
     try expect(t[0] == 5);
+}
+
+test "branching inside tuple literal" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(a: anytype) !void {
+            try expect(a[0] == 1234);
+        }
+    };
+    var a = false;
+    try S.foo(.{if (a) @as(u32, 5678) else @as(u32, 1234)});
+}
+
+test "tuple initialized with a runtime known value" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const E = union(enum) { e: []const u8 };
+    const W = union(enum) { w: E };
+    var e = E{ .e = "test" };
+    const w = .{W{ .w = e }};
+    try expectEqualStrings(w[0].w.e, "test");
+}
+
+test "tuple of struct concatenation and coercion to array" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const StructWithDefault = struct { value: f32 = 42 };
+    const SomeStruct = struct { array: [4]StructWithDefault };
+
+    const value1 = SomeStruct{ .array = .{StructWithDefault{}} ++ [_]StructWithDefault{.{}} ** 3 };
+    const value2 = SomeStruct{ .array = .{.{}} ++ [_]StructWithDefault{.{}} ** 3 };
+
+    try expectEqual(value1, value2);
+}
+
+test "nested runtime conditionals in tuple initializer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var data: u8 = 0;
+    const x = .{
+        if (data != 0) "" else switch (@truncate(u1, data)) {
+            0 => "up",
+            1 => "down",
+        },
+    };
+    try expectEqualStrings("up", x[0]);
 }

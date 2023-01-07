@@ -440,11 +440,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.log per scope log level override",
         \\const std = @import("std");
         \\
-        \\pub const log_level: std.log.Level = .debug;
-        \\
-        \\pub const scope_levels = [_]std.log.ScopeLevel{
-        \\    .{ .scope = .a, .level = .warn },
-        \\    .{ .scope = .c, .level = .err },
+        \\pub const std_options = struct {
+        \\    pub const log_level: std.log.Level = .debug;
+        \\    
+        \\    pub const log_scope_levels = &[_]std.log.ScopeLevel{
+        \\        .{ .scope = .a, .level = .warn },
+        \\        .{ .scope = .c, .level = .err },
+        \\    };
+        \\    pub const logFn = log;
         \\};
         \\
         \\const loga = std.log.scoped(.a);
@@ -494,7 +497,10 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.heap.LoggingAllocator logs to std.log",
         \\const std = @import("std");
         \\
-        \\pub const log_level: std.log.Level = .debug;
+        \\pub const std_options = struct {
+        \\    pub const log_level: std.log.Level = .debug;
+        \\    pub const logFn = log;
+        \\};
         \\
         \\pub fn main() !void {
         \\    var allocator_buf: [10]u8 = undefined;

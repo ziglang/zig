@@ -100,8 +100,7 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
-    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
+    return @ptrCast([]Inst.Ref, raw_slice);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -539,9 +538,6 @@ pub const Inst = struct {
         /// Obtains the return type of the in-scope function.
         /// Uses the `node` union field.
         ret_type,
-        /// Create a pointer type for overflow arithmetic.
-        /// TODO remove when doing https://github.com/ziglang/zig/issues/10248
-        overflow_arithmetic_ptr,
         /// Create a pointer type which can have a sentinel, alignment, address space, and/or bit range.
         /// Uses the `ptr_type` union field.
         ptr_type,
@@ -600,9 +596,6 @@ pub const Inst = struct {
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
         typeof_log2_int_type,
-        /// Given an integer type, returns the integer type for the RHS of a shift operation.
-        /// Uses the `un_node` field.
-        log2_int_type,
         /// Asserts control-flow will not reach this instruction (`unreachable`).
         /// Uses the `unreachable` union field.
         @"unreachable",
@@ -1121,7 +1114,6 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .overflow_arithmetic_ptr,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1132,7 +1124,6 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_log2_int_type,
-                .log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .switch_capture,
@@ -1422,7 +1413,6 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .overflow_arithmetic_ptr,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1433,7 +1423,6 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_log2_int_type,
-                .log2_int_type,
                 .switch_capture,
                 .switch_capture_ref,
                 .switch_capture_multi,
@@ -1664,7 +1653,6 @@ pub const Inst = struct {
                 .ret_err_value_code = .str_tok,
                 .ret_ptr = .node,
                 .ret_type = .node,
-                .overflow_arithmetic_ptr = .un_node,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
@@ -1678,7 +1666,6 @@ pub const Inst = struct {
                 .negate_wrap = .un_node,
                 .typeof = .un_node,
                 .typeof_log2_int_type = .un_node,
-                .log2_int_type = .un_node,
                 .@"unreachable" = .@"unreachable",
                 .xor = .pl_node,
                 .optional_type = .un_node,
@@ -1916,19 +1903,19 @@ pub const Inst = struct {
         /// The AST node is the builtin call.
         typeof_peer,
         /// Implements the `@addWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         add_with_overflow,
         /// Implements the `@subWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         sub_with_overflow,
         /// Implements the `@mulWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         mul_with_overflow,
         /// Implements the `@shlWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         shl_with_overflow,
         /// `operand` is payload index to `UnNode`.
@@ -3428,13 +3415,6 @@ pub const Inst = struct {
     pub const FieldTypeRef = struct {
         container_type: Ref,
         field_name: Ref,
-    };
-
-    pub const OverflowArithmetic = struct {
-        node: i32,
-        lhs: Ref,
-        rhs: Ref,
-        ptr: Ref,
     };
 
     pub const Cmpxchg = struct {

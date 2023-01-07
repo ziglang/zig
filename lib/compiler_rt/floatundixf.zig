@@ -4,7 +4,7 @@ const intToFloat = @import("./int_to_float.zig").intToFloat;
 pub const panic = common.panic;
 
 comptime {
-    @export(__floatundixf, .{ .name = "__floatundixf", .linkage = common.linkage });
+    @export(__floatundixf, .{ .name = "__floatundixf", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __floatundixf(a: u64) callconv(.C) f80 {

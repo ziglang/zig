@@ -74,6 +74,9 @@ disable_sanitize_c: bool,
 sanitize_thread: bool,
 rdynamic: bool,
 import_memory: bool = false,
+/// For WebAssembly targets, this will allow for undefined symbols to
+/// be imported from the host environment.
+import_symbols: bool = false,
 import_table: bool = false,
 export_table: bool = false,
 initial_memory: ?u64 = null,
@@ -151,6 +154,12 @@ link_z_relro: bool = true,
 
 /// Allow relocations to be lazily processed after load.
 link_z_lazy: bool = false,
+
+/// Common page size
+link_z_common_page_size: ?u64 = null,
+
+/// Maximum page size
+link_z_max_page_size: ?u64 = null,
 
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
@@ -1335,6 +1344,14 @@ fn make(step: *Step) !void {
         try zig_args.append("-z");
         try zig_args.append("lazy");
     }
+    if (self.link_z_common_page_size) |size| {
+        try zig_args.append("-z");
+        try zig_args.append(builder.fmt("common-page-size={d}", .{size}));
+    }
+    if (self.link_z_max_page_size) |size| {
+        try zig_args.append("-z");
+        try zig_args.append(builder.fmt("max-page-size={d}", .{size}));
+    }
 
     if (self.libc_file) |libc_file| {
         try zig_args.append("--libc");
@@ -1457,6 +1474,9 @@ fn make(step: *Step) !void {
     }
     if (self.import_memory) {
         try zig_args.append("--import-memory");
+    }
+    if (self.import_symbols) {
+        try zig_args.append("--import-symbols");
     }
     if (self.import_table) {
         try zig_args.append("--import-table");
@@ -1609,8 +1629,6 @@ fn make(step: *Step) !void {
                     try zig_args.append(bin_name);
                     try zig_args.append("--test-cmd");
                     try zig_args.append("--dir=.");
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append("--allow-unknown-exports"); // TODO: Remove when stage2 is default compiler
                     try zig_args.append("--test-cmd-bin");
                 } else {
                     try zig_args.append("--test-no-exec");

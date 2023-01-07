@@ -468,21 +468,26 @@ test "clamp" {
 
 /// Returns the product of a and b. Returns an error on overflow.
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a * b;
+    const ov = @mulWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns the sum of a and b. Returns an error on overflow.
 pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a + b;
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a - b;
+    const ov = @subWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 pub fn negate(x: anytype) !@TypeOf(x) {
@@ -492,8 +497,10 @@ pub fn negate(x: anytype) !@TypeOf(x) {
 /// Shifts a left by shift_amt. Returns an error on overflow. shift_amt
 /// is unsigned.
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
-    var answer: T = undefined;
-    return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a << shift_amt;
+    const ov = @shlWithOverflow(a, shift_amt);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Shifts left. Overflowed bits are truncated.
@@ -523,6 +530,10 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -563,6 +574,10 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -604,6 +619,10 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotr" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -644,6 +663,10 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotl" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -761,15 +784,31 @@ fn testOverflow() !void {
 /// See also: `absCast`
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
-    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
-    comptime assert(@typeInfo(T).Int.signedness == .signed); // must pass a signed integer to absInt
-
-    if (x == minInt(T)) {
-        return error.Overflow;
-    } else {
-        @setRuntimeSafety(false);
-        return if (x < 0) -x else x;
-    }
+    return switch (@typeInfo(T)) {
+        .Int => |info| {
+            comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+            if (x == minInt(T)) {
+                return error.Overflow;
+            } else {
+                @setRuntimeSafety(false);
+                return if (x < 0) -x else x;
+            }
+        },
+        .Vector => |vinfo| blk: {
+            switch (@typeInfo(vinfo.child)) {
+                .Int => |info| {
+                    comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                        return error.Overflow;
+                    }
+                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    break :blk @select(vinfo.child, x > zero, x, -x);
+                },
+                else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
+            }
+        },
+        else => @compileError("Expected an int or vector, found " ++ @typeName(T)),
+    };
 }
 
 test "absInt" {
@@ -779,6 +818,10 @@ test "absInt" {
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
     try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
+    try testing.expectEqual(@Vector(3, i32){ 10, 10, 0 }, (absInt(@Vector(3, i32){ -10, 10, 0 }) catch unreachable));
+
+    try testing.expectError(error.Overflow, absInt(@as(i32, minInt(i32))));
+    try testing.expectError(error.Overflow, absInt(@Vector(3, i32){ 10, -10, minInt(i32) }));
 }
 
 /// Divide numerator by denominator, rounding toward zero. Returns an

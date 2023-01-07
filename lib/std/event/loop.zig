@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -104,25 +103,29 @@ pub const Loop = struct {
         };
     };
 
-    const LoopOrVoid = switch (std.io.mode) {
-        .blocking => void,
-        .evented => Loop,
+    pub const Instance = switch (std.options.io_mode) {
+        .blocking => @TypeOf(null),
+        .evented => ?*Loop,
     };
+    pub const instance = std.options.event_loop;
 
-    var global_instance_state: LoopOrVoid = undefined;
-    const default_instance: ?*LoopOrVoid = switch (std.io.mode) {
+    var global_instance_state: Loop = undefined;
+    pub const default_instance = switch (std.options.io_mode) {
         .blocking => null,
         .evented => &global_instance_state,
     };
-    pub const instance: ?*LoopOrVoid = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+
+    pub const Mode = enum {
+        single_threaded,
+        multi_threaded,
+    };
+    pub const default_mode = .multi_threaded;
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn init(self: *Loop) !void {
-        if (builtin.single_threaded or
-            (@hasDecl(root, "event_loop_mode") and root.event_loop_mode == .single_threaded))
-        {
+        if (builtin.single_threaded or std.options.event_loop_mode == .single_threaded) {
             return self.initSingleThreaded();
         } else {
             return self.initMultiThreaded();
