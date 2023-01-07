@@ -10,7 +10,6 @@ pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
 pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
 pub const PaddedArray = @import("padded_array.zig").PaddedArray;
-pub const PaddedArrayExtra = @import("padded_array.zig").PaddedArrayExtra;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
