@@ -771,8 +771,9 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .identifier => return identifier(gz, scope, ri, node),
 
-        .asm_simple => return asmExpr(gz, scope, ri, node, tree.asmSimple(node)),
-        .@"asm"     => return asmExpr(gz, scope, ri, node, tree.asmFull(node)),
+        .asm_simple,
+        .@"asm",
+        => return asmExpr(gz, scope, ri, node, tree.fullAsm(node).?),
 
         .string_literal           => return stringLiteral(gz, ri, node),
         .multiline_string_literal => return multilineStringLiteral(gz, ri, node),
@@ -1366,11 +1367,7 @@ fn arrayInitExpr(
         };
 
         infer: {
-            const array_type: Ast.full.ArrayType = switch (node_tags[array_init.ast.type_expr]) {
-                .array_type => tree.arrayType(array_init.ast.type_expr),
-                .array_type_sentinel => tree.arrayTypeSentinel(array_init.ast.type_expr),
-                else => break :infer,
-            };
+            const array_type: Ast.full.ArrayType = tree.fullArrayType(array_init.ast.type_expr) orelse break :infer;
             // This intentionally does not support `@"_"` syntax.
             if (node_tags[array_type.ast.elem_count] == .identifier and
                 mem.eql(u8, tree.tokenSlice(main_tokens[array_type.ast.elem_count]), "_"))
@@ -1598,17 +1595,13 @@ fn structInitExpr(
     } else array: {
         const node_tags = tree.nodes.items(.tag);
         const main_tokens = tree.nodes.items(.main_token);
-        const array_type: Ast.full.ArrayType = switch (node_tags[struct_init.ast.type_expr]) {
-            .array_type => tree.arrayType(struct_init.ast.type_expr),
-            .array_type_sentinel => tree.arrayTypeSentinel(struct_init.ast.type_expr),
-            else => {
-                if (struct_init.ast.fields.len == 0) {
-                    const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-                    const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
-                    return rvalue(gz, ri, result, node);
-                }
-                break :array;
-            },
+        const array_type: Ast.full.ArrayType = tree.fullArrayType(struct_init.ast.type_expr) orelse {
+            if (struct_init.ast.fields.len == 0) {
+                const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
+                return rvalue(gz, ri, result, node);
+            }
+            break :array;
         };
         const is_inferred_array_len = node_tags[array_type.ast.elem_count] == .identifier and
             // This intentionally does not support `@"_"` syntax.
@@ -4790,7 +4783,6 @@ fn containerDecl(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
-    const node_tags = tree.nodes.items(.tag);
 
     const prev_fn_block = astgen.fn_block;
     astgen.fn_block = null;
@@ -4832,14 +4824,9 @@ fn containerDecl(
                 var nonexhaustive_node: Ast.Node.Index = 0;
                 var nonfinal_nonexhaustive = false;
                 for (container_decl.ast.members) |member_node| {
-                    var member = switch (node_tags[member_node]) {
-                        .container_field_init => tree.containerFieldInit(member_node),
-                        .container_field_align => tree.containerFieldAlign(member_node),
-                        .container_field => tree.containerField(member_node),
-                        else => {
-                            decls += 1;
-                            continue;
-                        },
+                    var member = tree.fullContainerField(member_node) orelse {
+                        decls += 1;
+                        continue;
                     };
                     member.convertToNonTupleLike(astgen.tree.nodes);
                     if (member.ast.tuple_like) {

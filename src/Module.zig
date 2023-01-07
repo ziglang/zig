@@ -1186,34 +1186,12 @@ pub const EnumFull = struct {
             return e.srcLoc(mod);
         };
         const node = owner_decl.relativeToNodeIndex(0);
-        const node_tags = tree.nodes.items(.tag);
-        switch (node_tags[node]) {
-            .container_decl,
-            .container_decl_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
-            .container_decl_two, .container_decl_two_trailing => {
-                var buffer: [2]Ast.Node.Index = undefined;
-                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
-            },
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
-
-            .tagged_union,
-            .tagged_union_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
-            .tagged_union_two, .tagged_union_two_trailing => {
-                var buffer: [2]Ast.Node.Index = undefined;
-                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
-            },
-            .tagged_union_enum_tag,
-            .tagged_union_enum_tag_trailing,
-            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
-
-            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
-
-            // This struct was generated using @Type
-            else => return e.srcLoc(mod),
+        var buf: [2]Ast.Node.Index = undefined;
+        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
+            return queryFieldSrc(tree.*, query, file, container_decl);
+        } else {
+            // This enum was generated using @Type
+            return e.srcLoc(mod);
         }
     }
 };
