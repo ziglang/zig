@@ -1,0 +1,43 @@
+From 1d489151e9f9d1647110277ff77282fe4d96d09b Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 14 Jan 2021 16:14:01 -0600
+Subject: [PATCH] objtool: Don't fail on missing symbol table
+
+Thanks to a recent binutils change which doesn't generate unused
+symbols, it's now possible for thunk_64.o be completely empty without
+CONFIG_PREEMPTION: no text, no data, no symbols.
+
+We could edit the Makefile to only build that file when
+CONFIG_PREEMPTION is enabled, but that will likely create confusion
+if/when the thunks end up getting used by some other code again.
+
+Just ignore it and move on.
+
+Reported-by: Nathan Chancellor <natechancellor@gmail.com>
+Reviewed-by: Nathan Chancellor <natechancellor@gmail.com>
+Reviewed-by: Miroslav Benes <mbenes@suse.cz>
+Tested-by: Nathan Chancellor <natechancellor@gmail.com>
+Link: https://github.com/ClangBuiltLinux/linux/issues/1254
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+---
+ tools/objtool/elf.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/tools/objtool/elf.c b/tools/objtool/elf.c
+index f9682db33cca..d8421e1d06be 100644
+--- a/tools/objtool/elf.c
++++ b/tools/objtool/elf.c
+@@ -380,8 +380,11 @@ static int read_symbols(struct elf *elf)
+ 
+ 	symtab = find_section_by_name(elf, ".symtab");
+ 	if (!symtab) {
+-		WARN("missing symbol table");
+-		return -1;
++		/*
++		 * A missing symbol table is actually possible if it's an empty
++		 * .o file.  This can happen for thunk_64.o.
++		 */
++		return 0;
+ 	}
+ 
+ 	symtab_shndx = find_section_by_name(elf, ".symtab_shndx");

@@ -7,6 +7,10 @@ const os = std.os;
 const linux = os.linux;
 const testing = std.testing;
 
+// Known issues on older kernels:
+// 5.5-5.6: send/recvmsg causes segfaults in kernel, https://lore.kernel.org/lkml/20200714184121.915085982@linuxfoundation.org/
+// 5.11: enable_rings does not clear the DISABLED flag, https://lore.kernel.org/all/YPBxP6kNmTKLrxKI@kroah.com/T/
+
 pub const IO_Uring = struct {
     fd: os.fd_t = -1,
     sq: SubmissionQueue,

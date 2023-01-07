@@ -1,0 +1,33 @@
+From ef6cc5fe92f91a433609a26f9ac574b5ee78f877 Mon Sep 17 00:00:00 2001
+From: Jiboo <lepesme.jb@gmail.com>
+Date: Sat, 7 Jan 2023 10:19:28 +0100
+Subject: [PATCH] Fix missing msg_name assignation causing segfaults in kernel
+ for io_uring's sendmsg/recvmsg ops. Fixed in 5.8 with
+ dd821e0c95a64b5923a0c57f07d3f7563553e756.
+
+---
+ fs/io_uring.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index e54556b0fcc6..2fc57becf66d 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -2182,6 +2182,7 @@ static int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
+ 	if (!io)
+ 		return 0;
+ 
++	io->msg.msg.msg_name = &io->msg.uaddr;
+ 	io->msg.iov = io->msg.fast_iov;
+ 	return sendmsg_copy_msghdr(&io->msg.msg, sr->msg, sr->msg_flags,
+ 					&io->msg.iov);
+@@ -2272,6 +2273,7 @@ static int io_recvmsg_prep(struct io_kiocb *req,
+ 	if (!io)
+ 		return 0;
+ 
++	io->msg.msg.msg_name = &io->msg.uaddr;
+ 	io->msg.iov = io->msg.fast_iov;
+ 	return recvmsg_copy_msghdr(&io->msg.msg, sr->msg, sr->msg_flags,
+ 					&io->msg.uaddr, &io->msg.iov);
+-- 
+2.38.1

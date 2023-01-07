@@ -1,0 +1,40 @@
+From: Yang Yingliang <yangyingliang@huawei.com>
+To: <linux-kernel@vger.kernel.org>, <stable@vger.kernel.org>
+Cc: <gregkh@linuxfoundation.org>, <axboe@kernel.dk>
+Subject: [PATCH stable-5.10] io_uring: fix clear IORING_SETUP_R_DISABLED in wrong function
+Date: Thu, 15 Jul 2021 21:18:25 +0800	[thread overview]
+Message-ID: <20210715131825.2410912-1-yangyingliang@huawei.com> (raw)
+
+In commit 3ebba796fa25 ("io_uring: ensure that SQPOLL thread is started for exit"),
+the IORING_SETUP_R_DISABLED is cleared in io_sq_offload_start(), but when backport
+it to stable-5.10, IORING_SETUP_R_DISABLED is cleared in __io_req_task_submit(),
+move clearing IORING_SETUP_R_DISABLED to io_sq_offload_start() to fix this.
+
+Fixes: 6cae8095490ca ("io_uring: ensure that SQPOLL thread is started for exit")
+Signed-off-by: Yang Yingliang <yangyingliang@huawei.com>
+---
+ fs/io_uring.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index fdbaaf579cc60..57db1dfc35829 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -2086,7 +2086,6 @@ static void __io_req_task_submit(struct io_kiocb *req)
+ 		__io_req_task_cancel(req, -EFAULT);
+ 	mutex_unlock(&ctx->uring_lock);
+ 
+-	ctx->flags &= ~IORING_SETUP_R_DISABLED;
+ 	if (ctx->flags & IORING_SETUP_SQPOLL)
+ 		io_sq_thread_drop_mm();
+ }
+@@ -7998,6 +7997,7 @@ static void io_sq_offload_start(struct io_ring_ctx *ctx)
+ {
+ 	struct io_sq_data *sqd = ctx->sq_data;
+ 
++	ctx->flags &= ~IORING_SETUP_R_DISABLED;
+ 	if ((ctx->flags & IORING_SETUP_SQPOLL) && sqd->thread)
+ 		wake_up_process(sqd->thread);
+ }
+-- 
+2.25.1
