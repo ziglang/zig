@@ -5,7 +5,7 @@ const Uri = @This();
 const std = @import("std.zig");
 const testing = std.testing;
 
-scheme: ?[]const u8,
+scheme: []const u8,
 user: ?[]const u8,
 password: ?[]const u8,
 host: ?[]const u8,
@@ -98,8 +98,9 @@ pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parse(text: []const u8) ParseError!Uri {
+    var reader = SliceReader{ .slice = text };
     var uri = Uri{
-        .scheme = null,
+        .scheme = reader.readWhile(isSchemeChar),
         .user = null,
         .password = null,
         .host = null,
@@ -108,10 +109,6 @@ pub fn parse(text: []const u8) ParseError!Uri {
         .query = null,
         .fragment = null,
     };
-
-    var reader = SliceReader{ .slice = text };
-
-    uri.scheme = reader.readWhile(isSchemeChar);
 
     // after the scheme, a ':' must appear
     if (reader.get()) |c| {
@@ -296,7 +293,7 @@ fn isQuerySeparator(c: u8) bool {
 
 test "basic" {
     const parsed = try parse("https://ziglang.org/download");
-    try testing.expectEqualStrings("https", parsed.scheme orelse return error.UnexpectedNull);
+    try testing.expectEqualStrings("https", parsed.scheme);
     try testing.expectEqualStrings("ziglang.org", parsed.host orelse return error.UnexpectedNull);
     try testing.expectEqualStrings("/download", parsed.path);
     try testing.expectEqual(@as(?u16, null), parsed.port);
@@ -304,7 +301,7 @@ test "basic" {
 
 test "with port" {
     const parsed = try parse("http://example:1337/");
-    try testing.expectEqualStrings("http", parsed.scheme orelse return error.UnexpectedNull);
+    try testing.expectEqualStrings("http", parsed.scheme);
     try testing.expectEqualStrings("example", parsed.host orelse return error.UnexpectedNull);
     try testing.expectEqualStrings("/", parsed.path);
     try testing.expectEqual(@as(?u16, 1337), parsed.port);
@@ -315,12 +312,12 @@ test "should fail gracefully" {
 }
 
 test "scheme" {
-    try std.testing.expectEqualSlices(u8, "http", (try parse("http:_")).scheme.?);
-    try std.testing.expectEqualSlices(u8, "scheme-mee", (try parse("scheme-mee:_")).scheme.?);
-    try std.testing.expectEqualSlices(u8, "a.b.c", (try parse("a.b.c:_")).scheme.?);
-    try std.testing.expectEqualSlices(u8, "ab+", (try parse("ab+:_")).scheme.?);
-    try std.testing.expectEqualSlices(u8, "X+++", (try parse("X+++:_")).scheme.?);
-    try std.testing.expectEqualSlices(u8, "Y+-.", (try parse("Y+-.:_")).scheme.?);
+    try std.testing.expectEqualSlices(u8, "http", (try parse("http:_")).scheme);
+    try std.testing.expectEqualSlices(u8, "scheme-mee", (try parse("scheme-mee:_")).scheme);
+    try std.testing.expectEqualSlices(u8, "a.b.c", (try parse("a.b.c:_")).scheme);
+    try std.testing.expectEqualSlices(u8, "ab+", (try parse("ab+:_")).scheme);
+    try std.testing.expectEqualSlices(u8, "X+++", (try parse("X+++:_")).scheme);
+    try std.testing.expectEqualSlices(u8, "Y+-.", (try parse("Y+-.:_")).scheme);
 }
 
 test "authority" {

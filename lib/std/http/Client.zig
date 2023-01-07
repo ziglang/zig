@@ -735,10 +735,9 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
 }
 
 pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Request.Options) !Request {
-    const scheme = uri.scheme orelse return error.UnsupportedUrlScheme;
-    const protocol: Connection.Protocol = if (mem.eql(u8, scheme, "http"))
+    const protocol: Connection.Protocol = if (mem.eql(u8, uri.scheme, "http"))
         .plain
-    else if (mem.eql(u8, scheme, "https"))
+    else if (mem.eql(u8, uri.scheme, "https"))
         .tls
     else
         return error.UnsupportedUrlScheme;
