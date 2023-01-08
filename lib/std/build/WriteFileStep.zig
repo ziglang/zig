@@ -82,16 +82,15 @@ fn make(step: *Step) !void {
     }
     var digest: [16]u8 = undefined;
     hash.final(&digest);
-    var hash_basename: [64]u8 = undefined;
+    var hash_basename: [digest.len * 2]u8 = undefined;
     _ = std.fmt.bufPrint(
         &hash_basename,
         "{s}",
         .{std.fmt.fmtSliceHexLower(&digest)},
     ) catch unreachable;
+
     self.output_dir = try fs.path.join(self.builder.allocator, &[_][]const u8{
-        self.builder.cache_root,
-        "o",
-        &hash_basename,
+        self.builder.cache_root, "o", &hash_basename,
     });
     var dir = fs.cwd().makeOpenPath(self.output_dir, .{}) catch |err| {
         std.debug.print("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });

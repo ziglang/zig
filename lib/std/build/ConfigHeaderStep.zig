@@ -135,7 +135,6 @@ fn make(step: *Step) !void {
     self.output_dir = try std.fs.path.join(gpa, &[_][]const u8{
         self.builder.cache_root, "o", &hash_basename,
     });
-
     var dir = std.fs.cwd().makeOpenPath(self.output_dir, .{}) catch |err| {
         std.debug.print("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
         return err;
