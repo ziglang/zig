@@ -2312,7 +2312,7 @@ pub extern "ws2_32" fn getaddrinfo(
     pNodeName: ?[*:0]const u8,
     pServiceName: ?[*:0]const u8,
     pHints: ?*const addrinfoa,
-    ppResult: **addrinfoa,
+    ppResult: *?*addrinfoa,
 ) callconv(WINAPI) i32;
 
 pub extern "ws2_32" fn GetAddrInfoExA(

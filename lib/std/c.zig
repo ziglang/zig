@@ -322,7 +322,9 @@ pub extern "c" fn getaddrinfo(
     noalias node: ?[*:0]const u8,
     noalias service: ?[*:0]const u8,
     noalias hints: ?*const c.addrinfo,
-    noalias res: **c.addrinfo,
+    /// On Linux, `res` will not be modified on error and `freeaddrinfo` will
+    /// potentially crash if you pass it an undefined pointer
+    noalias res: *?*c.addrinfo,
 ) c.EAI;
 
 pub extern "c" fn freeaddrinfo(res: *c.addrinfo) void;
