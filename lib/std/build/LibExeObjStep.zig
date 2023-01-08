@@ -28,6 +28,7 @@ const EmulatableRunStep = std.build.EmulatableRunStep;
 const CheckObjectStep = std.build.CheckObjectStep;
 const RunStep = std.build.RunStep;
 const OptionsStep = std.build.OptionsStep;
+const ConfigHeaderStep = std.build.ConfigHeaderStep;
 const LibExeObjStep = @This();
 
 pub const base_id = .lib_exe_obj;
@@ -266,6 +267,7 @@ pub const IncludeDir = union(enum) {
     raw_path: []const u8,
     raw_path_system: []const u8,
     other_step: *LibExeObjStep,
+    config_header_step: *ConfigHeaderStep,
 };
 
 pub const Kind = enum {
@@ -930,6 +932,11 @@ pub fn addSystemIncludePath(self: *LibExeObjStep, path: []const u8) void {
 
 pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
     self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
+}
+
+pub fn addConfigHeader(self: *LibExeObjStep, config_header: *ConfigHeaderStep) void {
+    self.step.dependOn(&config_header.step);
+    self.include_dirs.append(.{ .config_header_step = config_header }) catch @panic("OOM");
 }
 
 pub fn addLibraryPath(self: *LibExeObjStep, path: []const u8) void {
@@ -1683,6 +1690,10 @@ fn make(step: *Step) !void {
                 const h_path = other.getOutputHSource().getPath(self.builder);
                 try zig_args.append("-isystem");
                 try zig_args.append(fs.path.dirname(h_path).?);
+            },
+            .config_header_step => |config_header| {
+                try zig_args.append("-I");
+                try zig_args.append(config_header.output_dir);
             },
         }
     }
