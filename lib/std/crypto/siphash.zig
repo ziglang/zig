@@ -87,6 +87,11 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             self.msg_len +%= @truncate(u8, b.len);
         }
 
+        pub fn peek(self: Self) [digest_length]u8 {
+            var copy = self;
+            return copy.finalResult();
+        }
+
         pub fn final(self: *Self, b: []const u8) T {
             std.debug.assert(b.len < 8);
 
@@ -122,6 +127,12 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             const b2 = self.v0 ^ self.v1 ^ self.v2 ^ self.v3;
             return (@as(u128, b2) << 64) | b1;
+        }
+
+        pub fn finalResult(self: *Self) [digest_length]u8 {
+            var result: [digest_length]u8 = undefined;
+            self.final(&result);
+            return result;
         }
 
         fn round(self: *Self, b: [8]u8) void {
@@ -205,10 +216,21 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             self.buf_len += @intCast(u8, b[off + aligned_len ..].len);
         }
 
+        pub fn peek(self: Self) [mac_length]u8 {
+            var copy = self;
+            return copy.finalResult();
+        }
+
         /// Return an authentication tag for the current state
         /// Assumes `out` is less than or equal to `mac_length`.
         pub fn final(self: *Self, out: *[mac_length]u8) void {
             mem.writeIntLittle(T, out, self.state.final(self.buf[0..self.buf_len]));
+        }
+
+        pub fn finalResult(self: *Self) [mac_length]u8 {
+            var result: [mac_length]u8 = undefined;
+            self.final(&result);
+            return result;
         }
 
         /// Return an authentication tag for a message and a key
