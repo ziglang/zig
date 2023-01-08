@@ -764,7 +764,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             .addrlen = 0,
             .next = null,
         };
-        var res: *os.addrinfo = undefined;
+        var res: ?*os.addrinfo = null;
         var first = true;
         while (true) {
             const rc = ws2_32.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
@@ -791,7 +791,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
         const addr_count = blk: {
             var count: usize = 0;
-            var it: ?*os.addrinfo = res;
+            var it = res;
             while (it) |info| : (it = info.next) {
                 if (info.addr != null) {
                     count += 1;
@@ -801,7 +801,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         };
         result.addrs = try arena.alloc(Address, addr_count);
 
-        var it: ?*os.addrinfo = res;
+        var it = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
@@ -836,7 +836,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             .addrlen = 0,
             .next = null,
         };
-        var res: *os.addrinfo = undefined;
+        var res: ?*os.addrinfo = null;
         switch (sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
             @intToEnum(sys.EAI, 0) => {},
             .ADDRFAMILY => return error.HostLacksNetworkAddresses,
@@ -854,11 +854,11 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             },
             else => unreachable,
         }
-        defer sys.freeaddrinfo(res);
+        defer if (res) |some| sys.freeaddrinfo(some);
 
         const addr_count = blk: {
             var count: usize = 0;
-            var it: ?*os.addrinfo = res;
+            var it = res;
             while (it) |info| : (it = info.next) {
                 if (info.addr != null) {
                     count += 1;
@@ -868,7 +868,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         };
         result.addrs = try arena.alloc(Address, addr_count);
 
-        var it: ?*os.addrinfo = res;
+        var it = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
