@@ -21,6 +21,7 @@ const ThisModule = @This();
 
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
+pub const ConfigHeaderStep = @import("build/ConfigHeaderStep.zig");
 pub const EmulatableRunStep = @import("build/EmulatableRunStep.zig");
 pub const FmtStep = @import("build/FmtStep.zig");
 pub const InstallArtifactStep = @import("build/InstallArtifactStep.zig");
@@ -362,6 +363,17 @@ pub const Builder = struct {
         const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
         run_step.addArgs(argv);
         return run_step;
+    }
+
+    pub fn addConfigHeader(
+        b: *Builder,
+        source: FileSource,
+        style: ConfigHeaderStep.Style,
+        values: anytype,
+    ) *ConfigHeaderStep {
+        const config_header_step = ConfigHeaderStep.create(b, source, style);
+        config_header_step.addValues(values);
+        return config_header_step;
     }
 
     /// Allocator.dupe without the need to handle out of memory.
@@ -1427,6 +1439,7 @@ pub const Step = struct {
         emulatable_run,
         check_file,
         check_object,
+        config_header,
         install_raw,
         options,
         custom,

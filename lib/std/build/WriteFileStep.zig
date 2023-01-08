@@ -63,14 +63,15 @@ fn make(step: *Step) !void {
     // files, then two WriteFileSteps executing in parallel might clobber each other.
 
     // TODO port the cache system from the compiler to zig std lib. Until then
-    // we use blake2b directly and construct the path, and no "cache hit"
-    // detection happens; the files are always written.
-    var hash = std.crypto.hash.blake2.Blake2b384.init(.{});
-
+    // we directly construct the path, and no "cache hit" detection happens;
+    // the files are always written.
+    // Note there is similar code over in ConfigHeaderStep.
+    const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
     // Random bytes to make WriteFileStep unique. Refresh this with
     // new random bytes when WriteFileStep implementation is modified
     // in a non-backwards-compatible way.
-    hash.update("eagVR1dYXoE7ARDP");
+    var hash = Hasher.init("eagVR1dYXoE7ARDP");
+
     {
         var it = self.files.first;
         while (it) |node| : (it = node.next) {
@@ -79,21 +80,22 @@ fn make(step: *Step) !void {
             hash.update("|");
         }
     }
-    var digest: [48]u8 = undefined;
+    var digest: [16]u8 = undefined;
     hash.final(&digest);
-    var hash_basename: [64]u8 = undefined;
-    _ = fs.base64_encoder.encode(&hash_basename, &digest);
-    self.output_dir = try fs.path.join(self.builder.allocator, &[_][]const u8{
-        self.builder.cache_root,
-        "o",
+    var hash_basename: [digest.len * 2]u8 = undefined;
+    _ = std.fmt.bufPrint(
         &hash_basename,
+        "{s}",
+        .{std.fmt.fmtSliceHexLower(&digest)},
+    ) catch unreachable;
+
+    self.output_dir = try fs.path.join(self.builder.allocator, &[_][]const u8{
+        self.builder.cache_root, "o", &hash_basename,
     });
-    // TODO replace with something like fs.makePathAndOpenDir
-    fs.cwd().makePath(self.output_dir) catch |err| {
+    var dir = fs.cwd().makeOpenPath(self.output_dir, .{}) catch |err| {
         std.debug.print("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
         return err;
     };
-    var dir = try fs.cwd().openDir(self.output_dir, .{});
     defer dir.close();
     {
         var it = self.files.first;
