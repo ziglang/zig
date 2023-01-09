@@ -304,7 +304,7 @@ pub const Parsed = struct {
                 break host == null and dns == null;
             }
 
-            // If not a wildcard and they dont 
+            // If not a wildcard and they dont
             // match then there is no match.
             if (mem.eql(u8, dns.?, "*") == false and mem.eql(u8, dns.?, host.?) == false) {
                 return false;
