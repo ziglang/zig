@@ -2150,29 +2150,8 @@ fn addFieldErrNote(
 
         const container_node = decl.relativeToNodeIndex(0);
         const node_tags = tree.nodes.items(.tag);
-        var buffer: [2]std.zig.Ast.Node.Index = undefined;
-        const container_decl = switch (node_tags[container_node]) {
-            .root => tree.containerDeclRoot(),
-            .container_decl,
-            .container_decl_trailing,
-            => tree.containerDecl(container_node),
-            .container_decl_two,
-            .container_decl_two_trailing,
-            => tree.containerDeclTwo(&buffer, container_node),
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => tree.containerDeclArg(container_node),
-            .tagged_union,
-            .tagged_union_trailing,
-            => tree.taggedUnion(container_node),
-            .tagged_union_two,
-            .tagged_union_two_trailing,
-            => tree.taggedUnionTwo(&buffer, container_node),
-            .tagged_union_enum_tag,
-            .tagged_union_enum_tag_trailing,
-            => tree.taggedUnionEnumTag(container_node),
-            else => break :blk decl.srcLoc(),
-        };
+        var buf: [2]std.zig.Ast.Node.Index = undefined;
+        const container_decl = tree.fullContainerDecl(&buf, container_node) orelse break :blk decl.srcLoc();
 
         var it_index: usize = 0;
         for (container_decl.ast.members) |member_node| {
