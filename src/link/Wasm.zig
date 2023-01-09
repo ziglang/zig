@@ -824,7 +824,9 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
             } else wasm.name;
             const import_name = if (undef.file) |file_index| name: {
                 const obj = wasm.objects.items[file_index];
-                const name_index = obj.findImport(symbol.tag.externalType(), symbol.index).name;
+                const name_index = if (symbol.tag == .function) name_index: {
+                    break :name_index obj.findImport(symbol.tag.externalType(), symbol.index).name;
+                } else symbol.name;
                 break :name obj.string_table.get(name_index);
             } else wasm.string_table.get(wasm.imports.get(undef).?.name);
             log.err("could not resolve undefined symbol '{s}'", .{import_name});
