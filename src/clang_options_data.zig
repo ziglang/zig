@@ -6336,7 +6336,7 @@ joinpd1("sycl-std="),
 .{
     .name = "undefined",
     .syntax = .joined_or_separate,
-    .zig_equivalent = .undefined,
+    .zig_equivalent = .@"undefined",
     .pd1 = true,
     .pd2 = false,
     .psl = false,

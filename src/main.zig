@@ -1661,7 +1661,7 @@ fn buildOutputType(
                     .install_name => {
                         install_name = it.only_arg;
                     },
-                    .undefined => {
+                    .@"undefined" => {
                         if (mem.eql(u8, "dynamic_lookup", it.only_arg)) {
                             linker_allow_shlib_undefined = true;
                         } else {
@@ -4730,7 +4730,7 @@ pub const ClangArgIterator = struct {
         headerpad_max_install_names,
         compress_debug_sections,
         install_name,
-        undefined,
+        @"undefined",
     };
 
     const Args = struct {
