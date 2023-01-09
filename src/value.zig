@@ -2193,8 +2193,16 @@ pub const Value = extern union {
                 const payload_ty = ty.errorUnionPayload();
                 return eqlAdvanced(a_payload, payload_ty, b_payload, payload_ty, mod, opt_sema);
             },
-            .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
-            .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
+            .eu_payload_ptr => {
+                const a_payload = a.castTag(.eu_payload_ptr).?.data;
+                const b_payload = b.castTag(.eu_payload_ptr).?.data;
+                return eqlAdvanced(a_payload.container_ptr, ty, b_payload.container_ptr, ty, mod, opt_sema);
+            },
+            .opt_payload_ptr => {
+                const a_payload = a.castTag(.opt_payload_ptr).?.data;
+                const b_payload = b.castTag(.opt_payload_ptr).?.data;
+                return eqlAdvanced(a_payload.container_ptr, ty, b_payload.container_ptr, ty, mod, opt_sema);
+            },
             .function => {
                 const a_payload = a.castTag(.function).?.data;
                 const b_payload = b.castTag(.function).?.data;
