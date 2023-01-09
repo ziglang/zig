@@ -285,6 +285,14 @@ pub const Parsed = struct {
             return true; // exact match
         }
 
+        // In the case of the wildcard not being
+        // in the subdomain.
+        if (mem.indexOf(u8, dns_name, "*")) |idx| {
+            if (idx > 0) {
+                return mem.eql(u8, host_name[0..idx], dns_name[0..idx]);
+            }
+        }
+
         var it_host = std.mem.split(u8, host_name, ".");
         var it_dns = std.mem.split(u8, dns_name, ".");
 
@@ -309,12 +317,13 @@ pub const Parsed = struct {
     }
 };
 
-test "Parsed checkHostName" {
+test "Parsed.checkHostName" {
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(true, Parsed.checkHostName("ziglang.org", "ziglang.org"));
     try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.ziglang.org"));
     try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("ziglang.org", "zig*.org"));
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
 }
 
