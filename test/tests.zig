@@ -241,22 +241,24 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/13782
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/13782
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -295,21 +297,23 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .powerpc,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
-        .{
-            .target = .{
-                .cpu_arch = .powerpc,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/13782
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .powerpc,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
+        // https://github.com/ziglang/zig/issues/13782
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .powerpc,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
         // https://github.com/ziglang/zig/issues/2256
         //.{
         //    .target = .{
