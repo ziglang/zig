@@ -3074,22 +3074,24 @@ const CsuObjects = struct {
 
         var result: CsuObjects = .{};
 
-        // Flatten crt cases.
-        const mode: enum {
+        const Mode = enum {
             dynamic_lib,
             dynamic_exe,
             dynamic_pie,
             static_exe,
             static_pie,
-        } = switch (link_options.output_mode) {
+        };
+
+        // Flatten crt cases.
+        const mode: Mode = switch (link_options.output_mode) {
             .Obj => return CsuObjects{},
             .Lib => switch (link_options.link_mode) {
                 .Dynamic => .dynamic_lib,
                 .Static => return CsuObjects{},
             },
             .Exe => switch (link_options.link_mode) {
-                .Dynamic => if (link_options.pie) .dynamic_pie else .dynamic_exe,
-                .Static => if (link_options.pie) .static_pie else .static_exe,
+                .Dynamic => if (link_options.pie) Mode.dynamic_pie else Mode.dynamic_exe,
+                .Static => if (link_options.pie) Mode.static_pie else Mode.static_exe,
             },
         };
 
