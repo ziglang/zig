@@ -2077,7 +2077,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
         );
         _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
         std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
@@ -2091,7 +2091,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
