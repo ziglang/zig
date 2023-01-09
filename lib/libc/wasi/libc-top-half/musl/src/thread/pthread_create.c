@@ -60,7 +60,11 @@ void __tl_sync(pthread_t td)
 	if (tl_lock_waiters) __wake(&__thread_list_lock, 1, 0);
 }
 
+#ifdef __wasilibc_unmodified_upstream
 _Noreturn void __pthread_exit(void *result)
+#else
+static void __pthread_exit(void *result)
+#endif
 {
 	pthread_t self = __pthread_self();
 	sigset_t set;
@@ -191,7 +195,7 @@ _Noreturn void __pthread_exit(void *result)
 		__tl_unlock();
 		free(self->map_base);
 		// Can't use `exit()` here, because it is too high level
-		for (;;) __wasi_proc_exit(0);
+		return;
 	}
 #endif
 
@@ -212,7 +216,6 @@ _Noreturn void __pthread_exit(void *result)
 	// do it manually here
 	__tl_unlock();
 	// Can't use `exit()` here, because it is too high level
-	for (;;) __wasi_proc_exit(0);
 #endif
 }
 
@@ -235,9 +238,14 @@ struct start_args {
 	volatile int control;
 	unsigned long sig_mask[_NSIG/8/sizeof(long)];
 #else
+	/*
+	 * Note: the offset of the "stack" and "tls_base" members
+	 * in this structure is hardcoded in wasi_thread_start.
+	 */
+	void *stack;
+	void *tls_base;
 	void *(*start_func)(void *);
 	void *start_arg;
-	void *tls_base;
 #endif
 };
 
@@ -271,32 +279,41 @@ static int start_c11(void *p)
 	return 0;
 }
 #else
-__attribute__((export_name("wasi_thread_start")))
-_Noreturn void wasi_thread_start(int tid, void *p)
+
+/*
+ * We want to ensure wasi_thread_start is linked whenever
+ * pthread_create is used. The following reference is to ensure that.
+ * Otherwise, the linker doesn't notice the dependency because
+ * wasi_thread_start is used indirectly via a wasm export.
+ */
+void wasi_thread_start(int tid, void *p);
+hidden void *__dummy_reference = wasi_thread_start;
+
+hidden void __wasi_thread_start_C(int tid, void *p)
 {
 	struct start_args *args = p;
-  	__asm__(".globaltype __tls_base, i32\n"
-			"local.get %0\n"
-			"global.set __tls_base\n"
-			:: "r"(args->tls_base));
 	pthread_t self = __pthread_self();
 	// Set the thread ID (TID) on the pthread structure. The TID is stored
 	// atomically since it is also stored by the parent thread; this way,
 	// whichever thread (parent or child) reaches this point first can proceed
 	// without waiting.
 	atomic_store((atomic_int *) &(self->tid), tid);
-	// Set the stack pointer.
-  	__asm__(".globaltype __stack_pointer, i32\n"
-			"local.get %0\n"
-			"global.set __stack_pointer\n"
-			:: "r"(self->stack));
 	// Execute the user's start function.
-	int (*start)(void*) = (int(*)(void*)) args->start_func;
-	__pthread_exit((void *)(uintptr_t)start(args->start_arg));
+	__pthread_exit(args->start_func(args->start_arg));
 }
 #endif
 
+#ifdef __wasilibc_unmodified_upstream
 #define ROUND(x) (((x)+PAGE_SIZE-1)&-PAGE_SIZE)
+#else
+/*
+ * As we allocate stack with malloc() instead of mmap/mprotect,
+ * there is no point to round it up to PAGE_SIZE.
+ * Instead, round up to a sane alignment.
+ * Note: PAGE_SIZE is rather big on WASM. (65536)
+ */
+#define ROUND(x) (((x)+16-1)&-16)
+#endif
 
 /* pthread_key_create.c overrides this */
 static volatile size_t dummy = 0;
@@ -484,6 +501,7 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	/* Correct the stack size */
 	new->stack_size = stack - stack_limit;
 
+	args->stack = new->stack; /* just for convenience of asm trampoline */
 	args->start_func = entry;
 	args->start_arg = arg;
 	args->tls_base = (void*)new_tls_base;
@@ -561,5 +579,7 @@ fail:
 	return EAGAIN;
 }
 
+#ifdef __wasilibc_unmodified_upstream
 weak_alias(__pthread_exit, pthread_exit);
+#endif
 weak_alias(__pthread_create, pthread_create);

@@ -665,8 +665,7 @@ int32_t __imported_wasi_thread_spawn(int32_t arg0) __attribute__((
     __import_name__("thread_spawn")
 ));
 
-__wasi_errno_t __wasi_thread_spawn(void* start_arg) {
-	int32_t ret = __imported_wasi_thread_spawn((int32_t) start_arg);
-    return (uint16_t) ret;
+int32_t __wasi_thread_spawn(void* start_arg) {
+    return __imported_wasi_thread_spawn((int32_t) start_arg);
 }
 #endif

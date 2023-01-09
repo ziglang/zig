@@ -85,7 +85,9 @@ extern "C" {
 
 int pthread_create(pthread_t *__restrict, const pthread_attr_t *__restrict, void *(*)(void *), void *__restrict);
 int pthread_detach(pthread_t);
+#ifdef __wasilibc_unmodified_upstream
 _Noreturn void pthread_exit(void *);
+#endif
 int pthread_join(pthread_t, void **);
 
 #ifdef __GNUC__
