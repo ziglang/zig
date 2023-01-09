@@ -64,7 +64,14 @@ test "chdir smoke test" {
 
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
-        try expect(mem.eql(u8, tmp_dir_path, new_cwd));
+
+        // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
+        var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var resolved_cwd = path: {
+            var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
+            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
+        };
+        try expect(mem.eql(u8, tmp_dir_path, resolved_cwd));
 
         // Restore cwd because process may have other tests that do not tolerate chdir.
         tmp_dir.close();
