@@ -838,7 +838,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
 fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDebugInfo {
     nosuspend {
         const coff_obj = try allocator.create(coff.Coff);
-        errdefer allocator.destroy(coff_obj);
+        defer allocator.destroy(coff_obj);
         coff_obj.* = try coff.Coff.init(coff_bytes);
 
         var di = ModuleDebugInfo{
@@ -1289,6 +1289,7 @@ pub const DebugInfo = struct {
             self.allocator.destroy(mdi);
         }
         self.address_map.deinit();
+        if (native_os == .windows) self.modules.deinit(self.allocator);
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
