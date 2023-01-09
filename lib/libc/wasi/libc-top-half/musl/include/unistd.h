@@ -336,7 +336,9 @@ pid_t gettid(void);
 #endif
 #define _POSIX_VDISABLE         0
 
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
 #define _POSIX_THREADS          _POSIX_VERSION
+#endif
 #define _POSIX_THREAD_PROCESS_SHARED _POSIX_VERSION
 #define _POSIX_THREAD_SAFE_FUNCTIONS _POSIX_VERSION
 #define _POSIX_THREAD_ATTR_STACKADDR _POSIX_VERSION

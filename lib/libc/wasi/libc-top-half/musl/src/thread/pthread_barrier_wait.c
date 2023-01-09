@@ -23,7 +23,9 @@ static int pshared_barrier_wait(pthread_barrier_t *b)
 			__wait(&b->_b_count, &b->_b_waiters2, v, 0);
 	}
 
+#ifdef __wasilibc_unmodified_upstream /* WASI does not understand processes or locking between them. */
 	__vm_lock();
+#endif
 
 	/* Ensure all threads have a vm lock before proceeding */
 	if (a_fetch_add(&b->_b_count, -1)==1-limit) {
@@ -44,7 +46,9 @@ static int pshared_barrier_wait(pthread_barrier_t *b)
 	if (v==INT_MIN+1 || (v==1 && w))
 		__wake(&b->_b_lock, 1, 0);
 
+#ifdef __wasilibc_unmodified_upstream /* WASI does not understand processes or locking between them. */
 	__vm_unlock();
+#endif
 
 	return ret;
 }
@@ -84,8 +88,12 @@ int pthread_barrier_wait(pthread_barrier_t *b)
 			a_spin();
 		a_inc(&inst->finished);
 		while (inst->finished == 1)
+#ifdef __wasilibc_unmodified_upstream
 			__syscall(SYS_futex,&inst->finished,FUTEX_WAIT|FUTEX_PRIVATE,1,0) != -ENOSYS
 			|| __syscall(SYS_futex,&inst->finished,FUTEX_WAIT,1,0);
+#else
+			__futexwait(&inst->finished, 1, 0);
+#endif
 		return PTHREAD_BARRIER_SERIAL_THREAD;
 	}
 

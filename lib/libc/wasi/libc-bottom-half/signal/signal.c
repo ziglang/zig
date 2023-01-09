@@ -138,5 +138,5 @@ void (*signal(int sig, void (*func)(int)))(int) {
     return old;
 }
 
-extern __typeof(signal) bsd_signal __attribute__((__weak__, alias("signal")));
-extern __typeof(signal) __sysv_signal __attribute__((__weak__, alias("signal")));
+extern __typeof(signal) bsd_signal __attribute__((weak, alias("signal")));
+extern __typeof(signal) __sysv_signal __attribute__((weak, alias("signal")));

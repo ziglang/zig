@@ -48,7 +48,7 @@ void __wait(volatile int *addr, volatile int *waiters, int val, int priv)
 		__syscall(SYS_futex, addr, FUTEX_WAIT|priv, val, 0) != -ENOSYS
 		|| __syscall(SYS_futex, addr, FUTEX_WAIT, val, 0);
 #else
-		__wasilibc_futex_wait(addr, FUTEX_WAIT, val, 0);
+		__wasilibc_futex_wait(addr, FUTEX_WAIT, val, -1);
 #endif
 	}
 	if (waiters) a_dec(waiters);

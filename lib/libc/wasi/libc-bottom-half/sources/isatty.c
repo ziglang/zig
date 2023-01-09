@@ -19,4 +19,4 @@ int __isatty(int fd) {
 
     return 1;
 }
-extern __typeof(__isatty) isatty __attribute__((__weak__, alias("__isatty")));
+extern __typeof(__isatty) isatty __attribute__((weak, alias("__isatty")));
