@@ -869,21 +869,21 @@ fn linuxLookupName(
         } else {
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
             if (addrs.items.len == 0) {
-                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
-            }
-            if (addrs.items.len == 0) {
-                // RFC 6761 Section 6.3
+                // RFC 6761 Section 6.3.3
                 // Name resolution APIs and libraries SHOULD recognize localhost
                 // names as special and SHOULD always return the IP loopback address
                 // for address queries and negative responses for all other query
                 // types.
 
-                // Check for equal to "localhost" or ends in ".localhost"
-                if (mem.endsWith(u8, name, "localhost") and (name.len == "localhost".len or name[name.len - "localhost".len] == '.')) {
+                // Check for equal to "localhost(.)" or ends in ".localhost(.)"
+                const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
+                if (mem.endsWith(u8, name, localhost) and (name.len == localhost.len or name[name.len - localhost.len] == '.')) {
                     try addrs.append(LookupAddr{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
                     try addrs.append(LookupAddr{ .addr = .{ .in6 = Ip6Address.parse("::1", port) catch unreachable } });
                     return;
                 }
+
+                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
             }
         }
     } else {
