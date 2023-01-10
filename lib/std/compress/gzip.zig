@@ -17,6 +17,9 @@ const FCOMMENT = 1 << 4;
 
 const max_string_len = 1024;
 
+/// TODO: the fully qualified namespace to this declaration is
+/// std.compress.gzip.GzipStream which has a redundant "gzip" in the name.
+/// Instead, it should be `std.compress.gzip.Stream`.
 pub fn GzipStream(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
