@@ -6,6 +6,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const Hash = std.crypto.hash.sha2.Sha256;
+const log = std.log.scoped(.package);
 
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -128,6 +129,9 @@ pub fn addAndAdopt(parent: *Package, gpa: Allocator, name: []const u8, child: *P
     return parent.add(gpa, name, child);
 }
 
+pub const build_zig_basename = "build.zig";
+pub const ini_basename = build_zig_basename ++ ".ini";
+
 pub fn fetchAndAddDependencies(
     pkg: *Package,
     thread_pool: *ThreadPool,
@@ -138,7 +142,7 @@ pub fn fetchAndAddDependencies(
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
-    const build_zig_ini = directory.handle.readFileAlloc(gpa, "build.zig.ini", max_bytes) catch |err| switch (err) {
+    const build_zig_ini = directory.handle.readFileAlloc(gpa, ini_basename, max_bytes) catch |err| switch (err) {
         error.FileNotFound => {
             // Handle the same as no dependencies.
             return;
@@ -154,7 +158,7 @@ pub fn fetchAndAddDependencies(
         var line_it = mem.split(u8, dep, "\n");
         var opt_id: ?[]const u8 = null;
         var opt_url: ?[]const u8 = null;
-        var expected_hash: ?[Hash.digest_length]u8 = null;
+        var expected_hash: ?[]const u8 = null;
         while (line_it.next()) |kv| {
             const eq_pos = mem.indexOfScalar(u8, kv, '=') orelse continue;
             const key = kv[0..eq_pos];
@@ -164,8 +168,7 @@ pub fn fetchAndAddDependencies(
             } else if (mem.eql(u8, key, "url")) {
                 opt_url = value;
             } else if (mem.eql(u8, key, "hash")) {
-                @panic("TODO parse hex digits of value into expected_hash");
-                //expected_hash = value;
+                expected_hash = value;
             } else {
                 const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(key.ptr) - @ptrToInt(ini.bytes.ptr));
                 std.log.warn("{s}/{s}:{d}:{d} unrecognized key: '{s}'", .{
@@ -208,6 +211,8 @@ pub fn fetchAndAddDependencies(
             global_cache_directory,
             url,
             expected_hash,
+            ini,
+            directory,
         );
 
         try sub_pkg.fetchAndAddDependencies(
@@ -229,17 +234,48 @@ fn fetchAndUnpack(
     http_client: *std.http.Client,
     global_cache_directory: Compilation.Directory,
     url: []const u8,
-    expected_hash: ?[Hash.digest_length]u8,
+    expected_hash: ?[]const u8,
+    ini: std.Ini,
+    comp_directory: Compilation.Directory,
 ) !*Package {
     const gpa = http_client.allocator;
+    const s = fs.path.sep_str;
 
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
-    const s = fs.path.sep_str;
-    if (expected_hash) |h| {
-        const pkg_dir_sub_path = "p" ++ s ++ hexDigest(h);
-        _ = pkg_dir_sub_path;
-        @panic("TODO check the p dir for the package");
+    if (expected_hash) |h| cached: {
+        if (h.len != 2 * Hash.digest_length) {
+            return reportError(
+                ini,
+                comp_directory,
+                h.ptr,
+                "wrong hash size. expected: {d}, found: {d}",
+                .{ Hash.digest_length, h.len },
+            );
+        }
+        const hex_digest = h[0 .. 2 * Hash.digest_length];
+        const pkg_dir_sub_path = "p" ++ s ++ hex_digest;
+        var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :cached,
+            else => |e| return e,
+        };
+        errdefer pkg_dir.close();
+
+        const ptr = try gpa.create(Package);
+        errdefer gpa.destroy(ptr);
+
+        const owned_src_path = try gpa.dupe(u8, build_zig_basename);
+        errdefer gpa.free(owned_src_path);
+
+        ptr.* = .{
+            .root_src_directory = .{
+                .path = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path}),
+                .handle = pkg_dir,
+            },
+            .root_src_directory_owned = true,
+            .root_src_path = owned_src_path,
+        };
+        return ptr;
     }
 
     const uri = try std.Uri.parse(url);
@@ -277,9 +313,13 @@ fn fetchAndUnpack(
                 .strip_components = 1,
             });
         } else {
-            // TODO: show the build.zig.ini file and line number
-            std.log.err("{s}: unknown package extension for path '{s}'", .{ url, uri.path });
-            return error.UnknownPackageExtension;
+            return reportError(
+                ini,
+                comp_directory,
+                uri.path.ptr,
+                "unknown file extension for path '{s}'",
+                .{uri.path},
+            );
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
@@ -287,24 +327,13 @@ fn fetchAndUnpack(
         // apply those rules directly to the filesystem right here. This ensures that files
         // not protected by the hash are not present on the file system.
 
-        const actual_hash = try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
-
-        if (expected_hash) |h| {
-            if (!mem.eql(u8, &h, &actual_hash)) {
-                // TODO: show the build.zig.ini file and line number
-                std.log.err("{s}: hash mismatch: expected: {s}, actual: {s}", .{
-                    url, h, actual_hash,
-                });
-                return error.PackageHashMismatch;
-            }
-        }
-
-        break :a actual_hash;
+        break :a try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
     };
+
+    const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
 
     {
         // Rename the temporary directory into the global package cache.
-        const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
         var handled_missing_dir = false;
         while (true) {
             global_cache_directory.handle.rename(tmp_dir_sub_path, pkg_dir_sub_path) catch |err| switch (err) {
@@ -316,27 +345,60 @@ fn fetchAndUnpack(
                     };
                     continue;
                 },
+                error.PathAlreadyExists => {
+                    // Package has been already downloaded and may already be in use on the system.
+                    global_cache_directory.handle.deleteTree(tmp_dir_sub_path) catch |del_err| {
+                        std.log.warn("unable to delete temp directory: {s}", .{@errorName(del_err)});
+                    };
+                },
                 else => |e| return e,
             };
             break;
         }
     }
 
-    if (expected_hash == null) {
-        // TODO: show the build.zig.ini file and line number
-        std.log.err("{s}: missing hash:\nhash={s}", .{
-            url, std.fmt.fmtSliceHexLower(&actual_hash),
-        });
-        return error.PackageDependencyMissingHash;
+    if (expected_hash) |h| {
+        const actual_hex = hexDigest(actual_hash);
+        if (!mem.eql(u8, h, &actual_hex)) {
+            return reportError(
+                ini,
+                comp_directory,
+                h.ptr,
+                "hash mismatch: expected: {s}, found: {s}",
+                .{ h, actual_hex },
+            );
+        }
+    } else {
+        return reportError(
+            ini,
+            comp_directory,
+            url.ptr,
+            "url field is missing corresponding hash field: hash={s}",
+            .{std.fmt.fmtSliceHexLower(&actual_hash)},
+        );
     }
 
-    @panic("TODO create package and set root_src_directory");
-    //return create(gpa, root_src
-    //gpa: Allocator,
-    ///// Null indicates the current working directory
-    //root_src_dir_path: ?[]const u8,
-    ///// Relative to root_src_dir_path
-    //root_src_path: []const u8,
+    return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+}
+
+fn reportError(
+    ini: std.Ini,
+    comp_directory: Compilation.Directory,
+    src_ptr: [*]const u8,
+    comptime fmt_string: []const u8,
+    fmt_args: anytype,
+) error{PackageFetchFailed} {
+    const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(src_ptr) - @ptrToInt(ini.bytes.ptr));
+    if (comp_directory.path) |p| {
+        std.debug.print("{s}{c}{s}:{d}:{d}: error: " ++ fmt_string ++ "\n", .{
+            p, fs.path.sep, ini_basename, loc.line + 1, loc.column + 1,
+        } ++ fmt_args);
+    } else {
+        std.debug.print("{s}:{d}:{d}: error: " ++ fmt_string ++ "\n", .{
+            ini_basename, loc.line + 1, loc.column + 1,
+        } ++ fmt_args);
+    }
+    return error.PackageFetchFailed;
 }
 
 const HashedFile = struct {
@@ -389,9 +451,10 @@ fn computePackageHash(
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
-
             wait_group.start();
             try thread_pool.spawn(workerHashFile, .{ pkg_dir.dir, hashed_file, &wait_group });
+
+            try all_files.append(hashed_file);
         }
     }
 

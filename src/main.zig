@@ -4088,13 +4088,16 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             defer http_client.deinit();
             try http_client.rescanRootCertificates();
 
-            try main_pkg.fetchAndAddDependencies(
+            main_pkg.fetchAndAddDependencies(
                 &thread_pool,
                 &http_client,
                 build_directory,
                 global_cache_directory,
                 local_cache_directory,
-            );
+            ) catch |err| switch (err) {
+                error.PackageFetchFailed => process.exit(1),
+                else => |e| return e,
+            };
         }
 
         const comp = Compilation.create(gpa, .{
