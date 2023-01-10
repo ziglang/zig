@@ -9005,7 +9005,7 @@ fn zirParam(
         else => |e| return e,
     } or comptime_syntax;
     if (sema.inst_map.get(inst)) |arg| {
-        if (is_comptime) {
+        if (is_comptime and sema.preallocated_new_func != null) {
             // We have a comptime value for this parameter so it should be elided from the
             // function type of the function instruction in this block.
             const coerced_arg = try sema.coerce(block, param_ty, arg, src);
