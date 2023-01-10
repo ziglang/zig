@@ -266,6 +266,42 @@
         font-weight: bold;
       }
 
+      details[open] summary .sum-less {
+        display: none;
+      }
+
+      details[open] summary .sum-more {
+        display: block;
+      }
+
+      details summary .sum-more {
+        display: none;
+      }
+
+      details summary {
+        list-style-type: none;
+        position: relative;
+        pointer-events: none;
+      }
+
+      details summary::before {
+        content: "[+] ";
+        font-family: var(--mono);
+        color: var(--link-color);
+        position: sticky;
+        float: left;
+        top: 0px;
+        right: -16px;
+        z-index: 1;
+        margin-left: -2em;
+        pointer-events: all;
+        cursor: pointer;
+      }
+
+      details[open] summary::before {
+        content: "[-] ";
+      }
+
       .examples {
         list-style-type: none;
         margin: 0;
