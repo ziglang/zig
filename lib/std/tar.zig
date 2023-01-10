@@ -1,4 +1,7 @@
-pub const Options = struct {};
+pub const Options = struct {
+    /// Number of directory levels to skip when extracting files.
+    strip_components: u32 = 0,
+};
 
 pub const Header = struct {
     bytes: *const [512]u8,
@@ -69,7 +72,6 @@ pub const Header = struct {
 };
 
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
-    _ = options;
     var file_name_buffer: [255]u8 = undefined;
     var buffer: [512 * 8]u8 = undefined;
     var start: usize = 0;
@@ -92,13 +94,17 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         const file_size = try header.fileSize();
         const rounded_file_size = std.mem.alignForwardGeneric(u64, file_size, 512);
         const pad_len = rounded_file_size - file_size;
-        const file_name = try header.fullFileName(&file_name_buffer);
+        const unstripped_file_name = try header.fullFileName(&file_name_buffer);
         switch (header.fileType()) {
             .directory => {
-                try dir.makeDir(file_name);
+                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                if (file_name.len != 0) {
+                    try dir.makeDir(file_name);
+                }
             },
             .normal => {
-                if (file_size == 0 and file_name.len == 0) return;
+                if (file_size == 0 and unstripped_file_name.len == 0) return;
+                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
 
                 var file = try dir.createFile(file_name, .{});
                 defer file.close();
@@ -138,6 +144,26 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             else => return error.TarUnsupportedFileType,
         }
     }
+}
+
+fn stripComponents(path: []const u8, count: u32) ![]const u8 {
+    var i: usize = 0;
+    var c = count;
+    while (c > 0) : (c -= 1) {
+        if (std.mem.indexOfScalarPos(u8, path, i, '/')) |pos| {
+            i = pos + 1;
+        } else {
+            return error.TarComponentsOutsideStrippedPrefix;
+        }
+    }
+    return path[i..];
+}
+
+test stripComponents {
+    const expectEqualStrings = std.testing.expectEqualStrings;
+    try expectEqualStrings("a/b/c", try stripComponents("a/b/c", 0));
+    try expectEqualStrings("b/c", try stripComponents("a/b/c", 1));
+    try expectEqualStrings("c", try stripComponents("a/b/c", 2));
 }
 
 const std = @import("std.zig");
