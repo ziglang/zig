@@ -1061,65 +1061,55 @@ pub const CoffError = error{
 
 // Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 pub const Coff = struct {
-    allocator: mem.Allocator,
-    data: []const u8 = undefined,
-    is_image: bool = false,
-    coff_header_offset: usize = 0,
+    data: []const u8,
+    is_image: bool,
+    coff_header_offset: usize,
 
     guid: [16]u8 = undefined,
     age: u32 = undefined,
 
-    pub fn deinit(self: *Coff) void {
-        self.allocator.free(self.data);
-    }
-
-    /// Takes ownership of `data`.
-    pub fn parse(self: *Coff, data: []const u8) !void {
-        self.data = data;
-
+    // The lifetime of `data` must be longer than the lifetime of the returned Coff
+    pub fn init(data: []const u8) !Coff {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
-        var stream = std.io.fixedBufferStream(self.data);
+        var stream = std.io.fixedBufferStream(data);
         const reader = stream.reader();
         try stream.seekTo(pe_pointer_offset);
-        const coff_header_offset = try reader.readIntLittle(u32);
+        var coff_header_offset = try reader.readIntLittle(u32);
         try stream.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
-        self.is_image = mem.eql(u8, pe_magic, &buf);
+        const is_image = mem.eql(u8, pe_magic, &buf);
+
+        var coff = @This(){
+            .data = data,
+            .is_image = is_image,
+            .coff_header_offset = coff_header_offset,
+        };
 
         // Do some basic validation upfront
-        if (self.is_image) {
-            self.coff_header_offset = coff_header_offset + 4;
-            const coff_header = self.getCoffHeader();
+        if (is_image) {
+            coff.coff_header_offset = coff.coff_header_offset + 4;
+            const coff_header = coff.getCoffHeader();
             if (coff_header.size_of_optional_header == 0) return error.MissingPEHeader;
         }
 
         // JK: we used to check for architecture here and throw an error if not x86 or derivative.
         // However I am willing to take a leap of faith and let aarch64 have a shot also.
+
+        return coff;
     }
 
     pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
         assert(self.is_image);
 
-        const header = blk: {
-            if (self.getSectionByName(".buildid")) |hdr| {
-                break :blk hdr;
-            } else if (self.getSectionByName(".rdata")) |hdr| {
-                break :blk hdr;
-            } else {
-                return error.MissingCoffSection;
-            }
-        };
-
         const data_dirs = self.getDataDirectories();
         const debug_dir = data_dirs[@enumToInt(DirectoryEntry.DEBUG)];
-        const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
 
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
-        try stream.seekTo(file_offset);
+        try stream.seekTo(debug_dir.virtual_address);
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
         // It can be in any section.
@@ -1128,16 +1118,8 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
-                for (self.getSectionHeaders()) |*section| {
-                    const section_start = section.virtual_address;
-                    const section_size = section.virtual_size;
-                    const rva = debug_dir_entry.address_of_raw_data;
-                    const offset = rva - section_start;
-                    if (section_start <= rva and offset < section_size and debug_dir_entry.size_of_data <= section_size - offset) {
-                        try stream.seekTo(section.pointer_to_raw_data + offset);
-                        break :blk;
-                    }
-                }
+                try stream.seekTo(debug_dir_entry.address_of_raw_data);
+                break :blk;
             }
         }
 
@@ -1238,6 +1220,16 @@ pub const Coff = struct {
         return @ptrCast([*]align(1) const SectionHeader, self.data.ptr + offset)[0..coff_header.number_of_sections];
     }
 
+    pub fn getSectionHeadersAlloc(self: *const Coff, allocator: mem.Allocator) ![]SectionHeader {
+        const section_headers = self.getSectionHeaders();
+        const out_buff = try allocator.alloc(SectionHeader, section_headers.len);
+        for (out_buff) |*section_header, i| {
+            section_header.* = section_headers[i];
+        }
+
+        return out_buff;
+    }
+
     pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) []const u8 {
         const name = sect_hdr.getName() orelse blk: {
             const strtab = self.getStrtab().?;
@@ -1256,12 +1248,15 @@ pub const Coff = struct {
         return null;
     }
 
+    pub fn getSectionData(self: *const Coff, comptime name: []const u8) ![]const u8 {
+        const sec = self.getSectionByName(name) orelse return error.MissingCoffSection;
+        return self.data[sec.pointer_to_raw_data..][0..sec.virtual_size];
+    }
+
     // Return an owned slice full of the section data
     pub fn getSectionDataAlloc(self: *const Coff, comptime name: []const u8, allocator: mem.Allocator) ![]u8 {
-        const sec = self.getSectionByName(name) orelse return error.MissingCoffSection;
-        const out_buff = try allocator.alloc(u8, sec.virtual_size);
-        mem.copy(u8, out_buff, self.data[sec.pointer_to_raw_data..][0..sec.virtual_size]);
-        return out_buff;
+        const section_data = try self.getSectionData(name);
+        return allocator.dupe(u8, section_data);
     }
 };
 

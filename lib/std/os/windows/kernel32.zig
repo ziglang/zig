@@ -66,6 +66,7 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
+const MODULEENTRY32 = windows.MODULEENTRY32;
 
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
@@ -131,6 +132,8 @@ pub extern "kernel32" fn CreateSymbolicLinkW(lpSymlinkFileName: [*:0]const u16, 
 pub extern "kernel32" fn CreateIoCompletionPort(FileHandle: HANDLE, ExistingCompletionPort: ?HANDLE, CompletionKey: ULONG_PTR, NumberOfConcurrentThreads: DWORD) callconv(WINAPI) ?HANDLE;
 
 pub extern "kernel32" fn CreateThread(lpThreadAttributes: ?*SECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?*DWORD) callconv(WINAPI) ?HANDLE;
+
+pub extern "kernel32" fn CreateToolhelp32Snapshot(dwFlags: DWORD, th32ProcessID: DWORD) callconv(WINAPI) HANDLE;
 
 pub extern "kernel32" fn DeviceIoControl(
     h: HANDLE,
@@ -264,6 +267,10 @@ pub extern "kernel32" fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeT
 pub extern "kernel32" fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) callconv(WINAPI) SIZE_T;
 
 pub extern "kernel32" fn LocalFree(hMem: HLOCAL) callconv(WINAPI) ?HLOCAL;
+
+pub extern "kernel32" fn Module32First(hSnapshot: HANDLE, lpme: *MODULEENTRY32) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn Module32Next(hSnapshot: HANDLE, lpme: *MODULEENTRY32) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn MoveFileExW(
     lpExistingFileName: [*:0]const u16,
