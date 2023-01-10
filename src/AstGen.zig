@@ -4487,9 +4487,24 @@ fn structDeclInner(
             .container_field_align,
             .container_field,
             .@"comptime",
+            .test_decl,
             => continue,
             else => {
-                return astgen.failNode(member_node, "tuple declarations cannot contain declarations", .{});
+                const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
+                    .container_field_init,
+                    .container_field_align,
+                    .container_field,
+                    => break maybe_tuple,
+                    else => {},
+                } else unreachable;
+                return astgen.failNodeNotes(
+                    member_node,
+                    "tuple declarations cannot contain declarations",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteNode(tuple_member, "tuple field here", .{}),
+                    },
+                );
             },
         }
     };
