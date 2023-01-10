@@ -5238,6 +5238,18 @@ test "zig fmt: missing const/var before local variable" {
     });
 }
 
+test "zig fmt: missing const/var before local variable" {
+    try testError(
+        \\std = foo,
+        \\std = foo;
+        \\*u32 = foo;
+    , &.{
+        .expected_comma_after_field,
+        .var_const_decl,
+        .expected_comma_after_field,
+    });
+}
+
 test "zig fmt: while continue expr" {
     try testCanonical(
         \\test {
