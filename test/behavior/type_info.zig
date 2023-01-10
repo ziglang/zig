@@ -566,3 +566,27 @@ test "value from struct @typeInfo default_value can be loaded at comptime" {
         try expect(@ptrCast(*const u8, a).* == 1);
     }
 }
+
+test "@typeInfo decls and usingnamespace" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const A = struct {
+        const x = 5;
+        const y = 34;
+
+        comptime {}
+    };
+    const B = struct {
+        usingnamespace A;
+        const z = 56;
+
+        test {}
+    };
+    const decls = @typeInfo(B).Struct.decls;
+    try expect(decls.len == 3);
+    try expectEqualStrings(decls[0].name, "x");
+    try expectEqualStrings(decls[1].name, "y");
+    try expectEqualStrings(decls[2].name, "z");
+}
