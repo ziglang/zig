@@ -10,6 +10,7 @@ const Hash = std.crypto.hash.sha2.Sha256;
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const ThreadPool = @import("ThreadPool.zig");
+const WaitGroup = @import("WaitGroup.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -201,7 +202,13 @@ pub fn fetchAndAddDependencies(
             continue;
         };
 
-        const sub_pkg = try fetchAndUnpack(http_client, global_cache_directory, url, expected_hash);
+        const sub_pkg = try fetchAndUnpack(
+            thread_pool,
+            http_client,
+            global_cache_directory,
+            url,
+            expected_hash,
+        );
 
         try sub_pkg.fetchAndAddDependencies(
             thread_pool,
@@ -218,6 +225,7 @@ pub fn fetchAndAddDependencies(
 }
 
 fn fetchAndUnpack(
+    thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     global_cache_directory: Compilation.Directory,
     url: []const u8,
@@ -225,71 +233,99 @@ fn fetchAndUnpack(
 ) !*Package {
     const gpa = http_client.allocator;
 
-    // TODO check if the expected_hash is already present in the global package cache, and
-    // thereby avoid both fetching and unpacking.
+    // Check if the expected_hash is already present in the global package
+    // cache, and thereby avoid both fetching and unpacking.
+    const s = fs.path.sep_str;
+    if (expected_hash) |h| {
+        const pkg_dir_sub_path = "p" ++ s ++ hexDigest(h);
+        _ = pkg_dir_sub_path;
+        @panic("TODO check the p dir for the package");
+    }
 
     const uri = try std.Uri.parse(url);
 
-    var tmp_directory: Compilation.Directory = d: {
-        const s = fs.path.sep_str;
-        const rand_int = std.crypto.random.int(u64);
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_sub_path = "tmp" ++ s ++ hex64(rand_int);
 
-        const tmp_dir_sub_path = try std.fmt.allocPrint(gpa, "tmp" ++ s ++ "{x}", .{rand_int});
+    const actual_hash = a: {
+        var tmp_directory: Compilation.Directory = d: {
+            const path = try global_cache_directory.join(gpa, &.{tmp_dir_sub_path});
+            errdefer gpa.free(path);
 
-        const path = try global_cache_directory.join(gpa, &.{tmp_dir_sub_path});
-        errdefer gpa.free(path);
+            const iterable_dir = try global_cache_directory.handle.makeOpenPathIterable(tmp_dir_sub_path, .{});
+            errdefer iterable_dir.close();
 
-        const handle = try global_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
-        errdefer handle.close();
-
-        break :d .{
-            .path = path,
-            .handle = handle,
+            break :d .{
+                .path = path,
+                .handle = iterable_dir.dir,
+            };
         };
-    };
-    defer tmp_directory.closeAndFree(gpa);
+        defer tmp_directory.closeAndFree(gpa);
 
-    var req = try http_client.request(uri, .{}, .{});
-    defer req.deinit();
+        var req = try http_client.request(uri, .{}, .{});
+        defer req.deinit();
 
-    if (mem.endsWith(u8, uri.path, ".tar.gz")) {
-        // I observed the gzip stream to read 1 byte at a time, so I am using a
-        // buffered reader on the front of it.
-        var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
+        if (mem.endsWith(u8, uri.path, ".tar.gz")) {
+            // I observed the gzip stream to read 1 byte at a time, so I am using a
+            // buffered reader on the front of it.
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
 
-        var gzip_stream = try std.compress.gzip.gzipStream(gpa, br.reader());
-        defer gzip_stream.deinit();
+            var gzip_stream = try std.compress.gzip.gzipStream(gpa, br.reader());
+            defer gzip_stream.deinit();
 
-        try std.tar.pipeToFileSystem(tmp_directory.handle, gzip_stream.reader(), .{});
-    } else {
-        // TODO: show the build.zig.ini file and line number
-        std.log.err("{s}: unknown package extension for path '{s}'", .{ url, uri.path });
-        return error.UnknownPackageExtension;
-    }
-
-    // TODO: delete files not included in the package prior to computing the package hash.
-    // for example, if the ini file has directives to include/not include certain files,
-    // apply those rules directly to the filesystem right here. This ensures that files
-    // not protected by the hash are not present on the file system.
-
-    const actual_hash = try computePackageHash(tmp_directory);
-
-    if (expected_hash) |h| {
-        if (!mem.eql(u8, &h, &actual_hash)) {
-            // TODO: show the build.zig.ini file and line number
-            std.log.err("{s}: hash mismatch: expected: {s}, actual: {s}", .{
-                url, h, actual_hash,
+            try std.tar.pipeToFileSystem(tmp_directory.handle, gzip_stream.reader(), .{
+                .strip_components = 1,
             });
-            return error.PackageHashMismatch;
+        } else {
+            // TODO: show the build.zig.ini file and line number
+            std.log.err("{s}: unknown package extension for path '{s}'", .{ url, uri.path });
+            return error.UnknownPackageExtension;
+        }
+
+        // TODO: delete files not included in the package prior to computing the package hash.
+        // for example, if the ini file has directives to include/not include certain files,
+        // apply those rules directly to the filesystem right here. This ensures that files
+        // not protected by the hash are not present on the file system.
+
+        const actual_hash = try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
+
+        if (expected_hash) |h| {
+            if (!mem.eql(u8, &h, &actual_hash)) {
+                // TODO: show the build.zig.ini file and line number
+                std.log.err("{s}: hash mismatch: expected: {s}, actual: {s}", .{
+                    url, h, actual_hash,
+                });
+                return error.PackageHashMismatch;
+            }
+        }
+
+        break :a actual_hash;
+    };
+
+    {
+        // Rename the temporary directory into the global package cache.
+        const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
+        var handled_missing_dir = false;
+        while (true) {
+            global_cache_directory.handle.rename(tmp_dir_sub_path, pkg_dir_sub_path) catch |err| switch (err) {
+                error.FileNotFound => {
+                    if (handled_missing_dir) return err;
+                    global_cache_directory.handle.makeDir("p") catch |mkd_err| switch (mkd_err) {
+                        error.PathAlreadyExists => handled_missing_dir = true,
+                        else => |e| return e,
+                    };
+                    continue;
+                },
+                else => |e| return e,
+            };
+            break;
         }
     }
-
-    if (true) @panic("TODO move the tmp dir into place");
 
     if (expected_hash == null) {
         // TODO: show the build.zig.ini file and line number
         std.log.err("{s}: missing hash:\nhash={s}", .{
-            url, actual_hash,
+            url, std.fmt.fmtSliceHexLower(&actual_hash),
         });
         return error.PackageDependencyMissingHash;
     }
@@ -303,7 +339,117 @@ fn fetchAndUnpack(
     //root_src_path: []const u8,
 }
 
-fn computePackageHash(pkg_directory: Compilation.Directory) ![Hash.digest_length]u8 {
-    _ = pkg_directory;
-    @panic("TODO computePackageHash");
+const HashedFile = struct {
+    path: []const u8,
+    hash: [Hash.digest_length]u8,
+    failure: Error!void,
+
+    const Error = fs.File.OpenError || fs.File.ReadError;
+
+    fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
+        _ = context;
+        return mem.lessThan(u8, lhs.path, rhs.path);
+    }
+};
+
+fn computePackageHash(
+    thread_pool: *ThreadPool,
+    pkg_dir: fs.IterableDir,
+) ![Hash.digest_length]u8 {
+    const gpa = thread_pool.allocator;
+
+    // We'll use an arena allocator for the path name strings since they all
+    // need to be in memory for sorting.
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Collect all files, recursively, then sort.
+    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    defer all_files.deinit();
+
+    var walker = try pkg_dir.walk(gpa);
+    defer walker.deinit();
+
+    {
+        // The final hash will be a hash of each file hashed independently. This
+        // allows hashing in parallel.
+        var wait_group: WaitGroup = .{};
+        defer wait_group.wait();
+
+        while (try walker.next()) |entry| {
+            switch (entry.kind) {
+                .Directory => continue,
+                .File => {},
+                else => return error.IllegalFileTypeInPackage,
+            }
+            const hashed_file = try arena.create(HashedFile);
+            hashed_file.* = .{
+                .path = try arena.dupe(u8, entry.path),
+                .hash = undefined, // to be populated by the worker
+                .failure = undefined, // to be populated by the worker
+            };
+
+            wait_group.start();
+            try thread_pool.spawn(workerHashFile, .{ pkg_dir.dir, hashed_file, &wait_group });
+        }
+    }
+
+    std.sort.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
+
+    var hasher = Hash.init(.{});
+    var any_failures = false;
+    for (all_files.items) |hashed_file| {
+        hashed_file.failure catch |err| {
+            any_failures = true;
+            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.path, @errorName(err) });
+        };
+        hasher.update(&hashed_file.hash);
+    }
+    if (any_failures) return error.PackageHashUnavailable;
+    return hasher.finalResult();
+}
+
+fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
+    defer wg.finish();
+    hashed_file.failure = hashFileFallible(dir, hashed_file);
+}
+
+fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
+    var buf: [8000]u8 = undefined;
+    var file = try dir.openFile(hashed_file.path, .{});
+    var hasher = Hash.init(.{});
+    while (true) {
+        const bytes_read = try file.read(&buf);
+        if (bytes_read == 0) break;
+        hasher.update(buf[0..bytes_read]);
+    }
+    hasher.final(&hashed_file.hash);
+}
+
+const hex_charset = "0123456789abcdef";
+
+fn hex64(x: u64) [16]u8 {
+    var result: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
+}
+
+test hex64 {
+    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
+    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
+}
+
+fn hexDigest(digest: [Hash.digest_length]u8) [Hash.digest_length * 2]u8 {
+    var result: [Hash.digest_length * 2]u8 = undefined;
+    for (digest) |byte, i| {
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
 }
