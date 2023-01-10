@@ -9412,7 +9412,9 @@ test "integer truncation" {
           <li>{#link|Enum Literals#}</li>
           <li>{#link|union#}</li>
       </ul>
+<p>
       {#syntax#}@Type{#endsyntax#} is not available for {#link|Functions#}.
+      </p>
       {#header_close#}
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
