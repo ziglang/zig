@@ -379,13 +379,28 @@ pub const TmpIterableDir = struct {
     }
 };
 
+fn getCwdOrWasiPreopen() std.fs.Dir {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var preopens = std.fs.wasi.PreopenList.init(allocator);
+        defer preopens.deinit();
+        preopens.populate(null) catch
+            @panic("unable to make tmp dir for testing: unable to populate preopens");
+        const preopen = preopens.find(std.fs.wasi.PreopenType{ .Dir = "." }) orelse
+            @panic("unable to make tmp dir for testing: didn't find '.' in the preopens");
+
+        return std.fs.Dir{ .fd = preopen.fd };
+    } else {
+        return std.fs.cwd();
+    }
+}
+
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = std.fs.cwd();
+    var cwd = getCwdOrWasiPreopen();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
@@ -407,7 +422,7 @@ pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
     var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = std.fs.cwd();
+    var cwd = getCwdOrWasiPreopen();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
