@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const has_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
+const has_i128 = builtin.cpu.arch != .i386 and !builtin.cpu.arch.isARM() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
 extern fn run_c_tests() void;
@@ -896,7 +896,7 @@ pub export fn zig_ret_DC() DC {
 const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
 
 test "CFF: Zig passes to C" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -909,7 +909,7 @@ test "CFF: Zig returns to C" {
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -942,27 +942,27 @@ pub export fn zig_ret_CFF() CFF {
 const PD = extern struct { v1: ?*anyopaque, v2: f64 };
 
 test "PD: Zig passes to C" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
 test "PD: Zig returns to C" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectOk(c_assert_ret_PD());
 }
 test "PD: C passes to Zig" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectOk(c_send_PD());
 }
 test "PD: C returns to Zig" {
-    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .i386) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
