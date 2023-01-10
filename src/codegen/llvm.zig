@@ -4213,6 +4213,7 @@ pub const DeclGen = struct {
         // verbatim, and the result should test as non-null.
         const target = dg.module.getTarget();
         const int = switch (target.cpu.arch.ptrBitWidth()) {
+            16 => llvm_usize.constInt(0xaaaa, .False),
             32 => llvm_usize.constInt(0xaaaaaaaa, .False),
             64 => llvm_usize.constInt(0xaaaaaaaa_aaaaaaaa, .False),
             else => unreachable,
