@@ -524,11 +524,110 @@ pub const Request = struct {
         req.* = undefined;
     }
 
+    pub const Reader = std.io.Reader(*Request, ReadError, read);
+
+    pub fn reader(req: *Request) Reader {
+        return .{ .context = req };
+    }
+
     pub fn readAll(req: *Request, buffer: []u8) !usize {
         return readAtLeast(req, buffer, buffer.len);
     }
 
-    pub fn read(req: *Request, buffer: []u8) !usize {
+    pub const ReadError = net.Stream.ReadError || error{
+        // From HTTP protocol
+        HttpHeadersInvalid,
+        HttpHeadersExceededSizeLimit,
+        HttpRedirectMissingLocation,
+        HttpTransferEncodingUnsupported,
+        HttpContentLengthUnknown,
+        TooManyHttpRedirects,
+        ShortHttpStatusLine,
+        BadHttpVersion,
+        HttpHeaderContinuationsUnsupported,
+        UnsupportedUrlScheme,
+        UriMissingHost,
+        UnknownHostName,
+
+        // Network problems
+        NetworkUnreachable,
+        HostLacksNetworkAddresses,
+        TemporaryNameServerFailure,
+        NameServerFailure,
+        ProtocolFamilyNotAvailable,
+        ProtocolNotSupported,
+
+        // System resource problems
+        ProcessFdQuotaExceeded,
+        SystemFdQuotaExceeded,
+        OutOfMemory,
+
+        // TLS problems
+        InsufficientEntropy,
+        TlsConnectionTruncated,
+        TlsRecordOverflow,
+        TlsDecodeError,
+        TlsAlert,
+        TlsBadRecordMac,
+        TlsBadLength,
+        TlsIllegalParameter,
+        TlsUnexpectedMessage,
+        TlsDecryptFailure,
+        CertificateFieldHasInvalidLength,
+        CertificateHostMismatch,
+        CertificatePublicKeyInvalid,
+        CertificateExpired,
+        CertificateFieldHasWrongDataType,
+        CertificateIssuerMismatch,
+        CertificateNotYetValid,
+        CertificateSignatureAlgorithmMismatch,
+        CertificateSignatureAlgorithmUnsupported,
+        CertificateSignatureInvalid,
+        CertificateSignatureInvalidLength,
+        CertificateSignatureNamedCurveUnsupported,
+        CertificateSignatureUnsupportedBitCount,
+        TlsCertificateNotVerified,
+        TlsBadSignatureScheme,
+        TlsBadRsaSignatureBitCount,
+        TlsDecryptError,
+        UnsupportedCertificateVersion,
+        CertificateTimeInvalid,
+        CertificateHasUnrecognizedObjectId,
+        CertificateHasInvalidBitString,
+
+        // TODO: convert to higher level errors
+        InvalidFormat,
+        InvalidPort,
+        UnexpectedCharacter,
+        Overflow,
+        InvalidCharacter,
+        AddressFamilyNotSupported,
+        AddressInUse,
+        AddressNotAvailable,
+        ConnectionPending,
+        ConnectionRefused,
+        FileNotFound,
+        PermissionDenied,
+        ServiceUnavailable,
+        SocketTypeNotSupported,
+        FileTooBig,
+        LockViolation,
+        NoSpaceLeft,
+        NotOpenForWriting,
+        InvalidEncoding,
+        IdentityElement,
+        NonCanonical,
+        SignatureVerificationFailed,
+        MessageTooLong,
+        NegativeIntoUnsigned,
+        TargetTooSmall,
+        BufferTooSmall,
+        InvalidSignature,
+        NotSquare,
+        DiskQuota,
+    };
+
+    pub fn read(req: *Request, buffer: []u8) ReadError!usize {
         return readAtLeast(req, buffer, 1);
     }
 
@@ -709,9 +808,13 @@ pub const Request = struct {
     }
 };
 
-pub fn deinit(client: *Client, gpa: Allocator) void {
-    client.ca_bundle.deinit(gpa);
+pub fn deinit(client: *Client) void {
+    client.ca_bundle.deinit(client.allocator);
     client.* = undefined;
+}
+
+pub fn rescanRootCertificates(client: *Client) !void {
+    return client.ca_bundle.rescan(client.allocator);
 }
 
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) !Connection {
