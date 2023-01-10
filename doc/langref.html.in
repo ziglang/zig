@@ -5588,6 +5588,7 @@ test "createFoo" {
       <p>
       To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
       when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
+      </p>
       {#code_begin|test|test_errdefer_block#}
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -9411,8 +9412,9 @@ test "integer truncation" {
           <li>{#link|Enum Literals#}</li>
           <li>{#link|union#}</li>
       </ul>
-      <p>
+<p>
       {#syntax#}@Type{#endsyntax#} is not available for {#link|Functions#}.
+      </p>
       {#header_close#}
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
