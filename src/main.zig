@@ -4082,6 +4082,19 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var thread_pool: ThreadPool = undefined;
         try thread_pool.init(gpa);
         defer thread_pool.deinit();
+
+        var http_client: std.http.Client = .{ .allocator = gpa };
+        defer http_client.deinit();
+        try http_client.rescanRootCertificates();
+
+        try main_pkg.fetchAndAddDependencies(
+            &thread_pool,
+            &http_client,
+            build_directory,
+            global_cache_directory,
+            local_cache_directory,
+        );
+
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
