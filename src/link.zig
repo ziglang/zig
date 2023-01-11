@@ -716,6 +716,7 @@ pub const File = struct {
         InvalidFeatureSet,
         InvalidFormat,
         InvalidIndex,
+        InvalidInitFunc,
         InvalidMagicByte,
         InvalidWasmVersion,
         LLDCrashed,
