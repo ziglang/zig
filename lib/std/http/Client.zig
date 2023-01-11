@@ -625,6 +625,29 @@ pub const Request = struct {
         InvalidSignature,
         NotSquare,
         DiskQuota,
+        InvalidEnd,
+        Incomplete,
+        InvalidIpv4Mapping,
+        InvalidIPAddressFormat,
+        BadPathName,
+        DeviceBusy,
+        FileBusy,
+        FileLocksNotSupported,
+        InvalidHandle,
+        InvalidUtf8,
+        NameTooLong,
+        NoDevice,
+        PathAlreadyExists,
+        PipeBusy,
+        SharingViolation,
+        SymLinkLoop,
+        FileSystem,
+        InterfaceNotFound,
+        AlreadyBound,
+        FileDescriptorNotASocket,
+        NetworkSubsystemFailed,
+        NotDir,
+        ReadOnlyFileSystem,
     };
 
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
@@ -770,7 +793,8 @@ pub const Request = struct {
                     }
                 },
                 .chunk_data => {
-                    const sub_amt = @min(req.response.next_chunk_length, in.len);
+                    // TODO https://github.com/ziglang/zig/issues/14039
+                    const sub_amt = @intCast(usize, @min(req.response.next_chunk_length, in.len));
                     req.response.next_chunk_length -= sub_amt;
                     if (req.response.next_chunk_length > 0) {
                         if (in.ptr == buffer.ptr) {

@@ -93,7 +93,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         start += 512;
         const file_size = try header.fileSize();
         const rounded_file_size = std.mem.alignForwardGeneric(u64, file_size, 512);
-        const pad_len = rounded_file_size - file_size;
+        const pad_len = @intCast(usize, rounded_file_size - file_size);
         const unstripped_file_name = try header.fullFileName(&file_name_buffer);
         switch (header.fileType()) {
             .directory => {
@@ -117,13 +117,15 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                         start = 0;
                     }
                     // Ask for the rounded up file size + 512 for the next header.
-                    const ask = @min(
+                    // TODO: https://github.com/ziglang/zig/issues/14039
+                    const ask = @intCast(usize, @min(
                         buffer.len - end,
                         rounded_file_size + 512 - file_off -| (end - start),
-                    );
+                    ));
                     end += try reader.readAtLeast(buffer[end..], ask);
                     if (end - start < ask) return error.UnexpectedEndOfStream;
-                    const slice = buffer[start..@min(file_size - file_off + start, end)];
+                    // TODO: https://github.com/ziglang/zig/issues/14039
+                    const slice = buffer[start..@intCast(usize, @min(file_size - file_off + start, end))];
                     try file.writeAll(slice);
                     file_off += slice.len;
                     start += slice.len;
@@ -136,8 +138,8 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 }
             },
             .global_extended_header, .extended_header => {
-                start += rounded_file_size;
-                if (start > end) return error.TarHeadersTooBig;
+                if (start + rounded_file_size > end) return error.TarHeadersTooBig;
+                start = @intCast(usize, start + rounded_file_size);
             },
             .hard_link => return error.TarUnsupportedFileType,
             .symbolic_link => return error.TarUnsupportedFileType,
