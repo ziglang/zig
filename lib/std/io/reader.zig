@@ -30,7 +30,7 @@ pub fn Reader(
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
         pub fn readAll(self: Self, buffer: []u8) Error!usize {
-            return readAtLeast(self, buffer, 1);
+            return readAtLeast(self, buffer, buffer.len);
         }
 
         /// Returns the number of bytes read, calling the underlying read
