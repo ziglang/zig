@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const math = std.math;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const native_endian = builtin.target.cpu.arch.endian();
@@ -383,10 +384,72 @@ test "comptime bitcast with fields following f80" {
 }
 
 test "bitcast vector to integer and back" {
-    if (true) return error.SkipZigTest; // TODO: https://github.com/ziglang/zig/issues/13220
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
     var x = @splat(16, true);
     x[1] = false;
     try expect(@bitCast(u16, x) == comptime @bitCast(u16, @as(@Vector(16, bool), arr)));
+}
+
+fn bitCastWrapper16(x: f16) u16 {
+    return @bitCast(u16, x);
+}
+fn bitCastWrapper32(x: f32) u32 {
+    return @bitCast(u32, x);
+}
+fn bitCastWrapper64(x: f64) u64 {
+    return @bitCast(u64, x);
+}
+fn bitCastWrapper128(x: f128) u128 {
+    return @bitCast(u128, x);
+}
+test "bitcast nan float does modify signaling bit" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    // TODO: https://github.com/ziglang/zig/issues/14366
+    if (builtin.cpu.arch == .arm and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
+    // 16 bit
+    const snan_f16_const = math.nan_f16;
+    try expectEqual(math.nan_u16, @bitCast(u16, snan_f16_const));
+    try expectEqual(math.nan_u16, bitCastWrapper16(snan_f16_const));
+
+    var snan_f16_var = math.nan_f16;
+    try expectEqual(math.nan_u16, @bitCast(u16, snan_f16_var));
+    try expectEqual(math.nan_u16, bitCastWrapper16(snan_f16_var));
+
+    // 32 bit
+    const snan_f32_const = math.nan_f32;
+    try expectEqual(math.nan_u32, @bitCast(u32, snan_f32_const));
+    try expectEqual(math.nan_u32, bitCastWrapper32(snan_f32_const));
+
+    var snan_f32_var = math.nan_f32;
+    try expectEqual(math.nan_u32, @bitCast(u32, snan_f32_var));
+    try expectEqual(math.nan_u32, bitCastWrapper32(snan_f32_var));
+
+    // 64 bit
+    const snan_f64_const = math.nan_f64;
+    try expectEqual(math.nan_u64, @bitCast(u64, snan_f64_const));
+    try expectEqual(math.nan_u64, bitCastWrapper64(snan_f64_const));
+
+    var snan_f64_var = math.nan_f64;
+    try expectEqual(math.nan_u64, @bitCast(u64, snan_f64_var));
+    try expectEqual(math.nan_u64, bitCastWrapper64(snan_f64_var));
+
+    // 128 bit
+    const snan_f128_const = math.nan_f128;
+    try expectEqual(math.nan_u128, @bitCast(u128, snan_f128_const));
+    try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_const));
+
+    var snan_f128_var = math.nan_f128;
+    try expectEqual(math.nan_u128, @bitCast(u128, snan_f128_var));
+    try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_var));
 }
