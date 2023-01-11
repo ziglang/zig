@@ -169,7 +169,8 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
 
     // digit generation
     var buf_index: usize = 0;
-    while (true) {
+    const bound = buffer.len - 1;
+    while (buf_index < bound) {
         var hdig = @floatToInt(u8, @floor(high.val));
         if ((high.val == @intToFloat(f64, hdig)) and (high.off < 0)) hdig -= 1;
 
