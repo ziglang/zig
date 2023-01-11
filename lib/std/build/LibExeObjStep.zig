@@ -108,7 +108,7 @@ object_src: []const u8,
 link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
-installed_headers: ArrayList(*std.build.InstallFileStep),
+installed_headers: ArrayList(*std.build.Step),
 output_dir: ?[]const u8,
 is_linking_libc: bool = false,
 is_linking_libcpp: bool = false,
@@ -371,7 +371,7 @@ fn initExtraArgs(
         .lib_paths = ArrayList([]const u8).init(builder.allocator),
         .rpaths = ArrayList([]const u8).init(builder.allocator),
         .framework_dirs = ArrayList([]const u8).init(builder.allocator),
-        .installed_headers = ArrayList(*std.build.InstallFileStep).init(builder.allocator),
+        .installed_headers = ArrayList(*std.build.Step).init(builder.allocator),
         .object_src = undefined,
         .c_std = Builder.CStd.C99,
         .override_lib_dir = null,
@@ -478,7 +478,21 @@ pub fn installHeader(a: *LibExeObjStep, src_path: []const u8) void {
     const basename = fs.path.basename(src_path);
     const install_file = a.builder.addInstallHeaderFile(src_path, basename);
     a.builder.getInstallStep().dependOn(&install_file.step);
-    a.installed_headers.append(install_file) catch unreachable;
+    a.installed_headers.append(&install_file.step) catch unreachable;
+}
+
+pub fn installHeadersDirectory(
+    a: *LibExeObjStep,
+    src_dir_path: []const u8,
+    dest_rel_path: []const u8,
+) void {
+    const install_dir = a.builder.addInstallDirectory(.{
+        .source_dir = src_dir_path,
+        .install_dir = .header,
+        .install_subdir = dest_rel_path,
+    });
+    a.builder.getInstallStep().dependOn(&install_dir.step);
+    a.installed_headers.append(&install_dir.step) catch unreachable;
 }
 
 /// Creates a `RunStep` with an executable built with `addExecutable`.
@@ -1701,9 +1715,9 @@ fn make(step: *Step) !void {
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
                 }
-                if (other.installed_headers.items.len != 0) {
-                    for (other.installed_headers.items) |install_file| {
-                        try install_file.step.make();
+                if (other.installed_headers.items.len > 0) {
+                    for (other.installed_headers.items) |install_step| {
+                        try install_step.make();
                     }
                     try zig_args.append("-I");
                     try zig_args.append(builder.pathJoin(&.{
