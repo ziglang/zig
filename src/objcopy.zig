@@ -432,7 +432,7 @@ const HexWriter = struct {
             }
         }
 
-        fn getPayloadBytes(self: Record) []const u8 {
+        fn getPayloadBytes(self: *const Record) []const u8 {
             return switch (self.payload) {
                 .Data => |d| d,
                 .EOF => @as([]const u8, &.{}),
@@ -516,6 +516,16 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
 fn padFile(f: File, opt_size: ?u64) !void {
     const size = opt_size orelse return;
     try f.setEndPos(size);
+}
+
+test "HexWriter.Record.Address has correct payload and checksum" {
+    const record = HexWriter.Record.Address(0x0800_0000);
+    const payload = record.getPayloadBytes();
+    const sum = record.checksum();
+    try std.testing.expect(sum == 0xF2);
+    try std.testing.expect(payload.len == 2);
+    try std.testing.expect(payload[0] == 8);
+    try std.testing.expect(payload[1] == 0);
 }
 
 test "containsValidAddressRange" {
