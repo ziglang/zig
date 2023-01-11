@@ -311,12 +311,15 @@ pub const Builder = struct {
         return child;
     }
 
-    pub fn applyArgs(b: *Builder, args: anytype) !void {
+    fn applyArgs(b: *Builder, args: anytype) !void {
         // TODO this function is the way that a build.zig file communicates
         // options to its dependencies. It is the programmatic way to give
         // command line arguments to a build.zig script.
-        _ = b;
         _ = args;
+        // TODO create a hash based on the args and the package hash, use this
+        // to compute the install prefix.
+        const install_prefix = b.pathJoin(&.{ b.cache_root, "pkg" });
+        b.resolveInstallPrefix(install_prefix, .{});
     }
 
     pub fn destroy(self: *Builder) void {
@@ -1152,6 +1155,10 @@ pub const Builder = struct {
     ///`dest_rel_path` is relative to lib path
     pub fn addInstallLibFile(self: *Builder, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
+    }
+
+    pub fn addInstallHeaderFile(b: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
+        return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
     }
 
     pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
