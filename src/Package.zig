@@ -12,6 +12,8 @@ const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
+const Cache = @import("Cache.zig");
+const build_options = @import("build_options");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -139,6 +141,9 @@ pub fn fetchAndAddDependencies(
     directory: Compilation.Directory,
     global_cache_directory: Compilation.Directory,
     local_cache_directory: Compilation.Directory,
+    dependencies_source: *std.ArrayList(u8),
+    build_roots_source: *std.ArrayList(u8),
+    name_prefix: []const u8,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
@@ -156,15 +161,15 @@ pub fn fetchAndAddDependencies(
     var it = ini.iterateSection("\n[dependency]\n");
     while (it.next()) |dep| {
         var line_it = mem.split(u8, dep, "\n");
-        var opt_id: ?[]const u8 = null;
+        var opt_name: ?[]const u8 = null;
         var opt_url: ?[]const u8 = null;
         var expected_hash: ?[]const u8 = null;
         while (line_it.next()) |kv| {
             const eq_pos = mem.indexOfScalar(u8, kv, '=') orelse continue;
             const key = kv[0..eq_pos];
             const value = kv[eq_pos + 1 ..];
-            if (mem.eql(u8, key, "id")) {
-                opt_id = value;
+            if (mem.eql(u8, key, "name")) {
+                opt_name = value;
             } else if (mem.eql(u8, key, "url")) {
                 opt_url = value;
             } else if (mem.eql(u8, key, "hash")) {
@@ -181,9 +186,9 @@ pub fn fetchAndAddDependencies(
             }
         }
 
-        const id = opt_id orelse {
+        const name = opt_name orelse {
             const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(dep.ptr) - @ptrToInt(ini.bytes.ptr));
-            std.log.err("{s}/{s}:{d}:{d} missing key: 'id'", .{
+            std.log.err("{s}/{s}:{d}:{d} missing key: 'name'", .{
                 directory.path orelse ".",
                 "build.zig.ini",
                 loc.line,
@@ -195,7 +200,7 @@ pub fn fetchAndAddDependencies(
 
         const url = opt_url orelse {
             const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(dep.ptr) - @ptrToInt(ini.bytes.ptr));
-            std.log.err("{s}/{s}:{d}:{d} missing key: 'id'", .{
+            std.log.err("{s}/{s}:{d}:{d} missing key: 'name'", .{
                 directory.path orelse ".",
                 "build.zig.ini",
                 loc.line,
@@ -205,6 +210,10 @@ pub fn fetchAndAddDependencies(
             continue;
         };
 
+        const sub_prefix = try std.fmt.allocPrint(gpa, "{s}{s}.", .{ name_prefix, name });
+        defer gpa.free(sub_prefix);
+        const fqn = sub_prefix[0 .. sub_prefix.len - 1];
+
         const sub_pkg = try fetchAndUnpack(
             thread_pool,
             http_client,
@@ -213,20 +222,54 @@ pub fn fetchAndAddDependencies(
             expected_hash,
             ini,
             directory,
+            build_roots_source,
+            fqn,
         );
 
-        try sub_pkg.fetchAndAddDependencies(
+        try pkg.fetchAndAddDependencies(
             thread_pool,
             http_client,
             sub_pkg.root_src_directory,
             global_cache_directory,
             local_cache_directory,
+            dependencies_source,
+            build_roots_source,
+            sub_prefix,
         );
 
-        try addAndAdopt(pkg, gpa, id, sub_pkg);
+        try addAndAdopt(pkg, gpa, fqn, sub_pkg);
+
+        try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
+            std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
+        });
     }
 
     if (any_error) return error.InvalidBuildZigIniFile;
+}
+
+pub fn createFilePkg(
+    gpa: Allocator,
+    global_cache_directory: Compilation.Directory,
+    basename: []const u8,
+    contents: []const u8,
+) !*Package {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    {
+        var tmp_dir = try global_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+        defer tmp_dir.close();
+        try tmp_dir.writeFile(basename, contents);
+    }
+
+    var hh: Cache.HashHelper = .{};
+    hh.addBytes(build_options.version);
+    hh.addBytes(contents);
+    const hex_digest = hh.final();
+
+    const o_dir_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
+    try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, o_dir_sub_path);
+
+    return createWithDir(gpa, global_cache_directory, o_dir_sub_path, basename);
 }
 
 fn fetchAndUnpack(
@@ -237,6 +280,8 @@ fn fetchAndUnpack(
     expected_hash: ?[]const u8,
     ini: std.Ini,
     comp_directory: Compilation.Directory,
+    build_roots_source: *std.ArrayList(u8),
+    fqn: []const u8,
 ) !*Package {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
@@ -267,14 +312,22 @@ fn fetchAndUnpack(
         const owned_src_path = try gpa.dupe(u8, build_zig_basename);
         errdefer gpa.free(owned_src_path);
 
+        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
+        errdefer gpa.free(build_root);
+
+        try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
+            std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
+        });
+
         ptr.* = .{
             .root_src_directory = .{
-                .path = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path}),
+                .path = build_root,
                 .handle = pkg_dir,
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
         };
+
         return ptr;
     }
 
@@ -331,31 +384,7 @@ fn fetchAndUnpack(
     };
 
     const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
-
-    {
-        // Rename the temporary directory into the global package cache.
-        var handled_missing_dir = false;
-        while (true) {
-            global_cache_directory.handle.rename(tmp_dir_sub_path, pkg_dir_sub_path) catch |err| switch (err) {
-                error.FileNotFound => {
-                    if (handled_missing_dir) return err;
-                    global_cache_directory.handle.makeDir("p") catch |mkd_err| switch (mkd_err) {
-                        error.PathAlreadyExists => handled_missing_dir = true,
-                        else => |e| return e,
-                    };
-                    continue;
-                },
-                error.PathAlreadyExists => {
-                    // Package has been already downloaded and may already be in use on the system.
-                    global_cache_directory.handle.deleteTree(tmp_dir_sub_path) catch |del_err| {
-                        std.log.warn("unable to delete temp directory: {s}", .{@errorName(del_err)});
-                    };
-                },
-                else => |e| return e,
-            };
-            break;
-        }
-    }
+    try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, pkg_dir_sub_path);
 
     if (expected_hash) |h| {
         const actual_hex = hexDigest(actual_hash);
@@ -377,6 +406,13 @@ fn fetchAndUnpack(
             .{std.fmt.fmtSliceHexLower(&actual_hash)},
         );
     }
+
+    const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
+    defer gpa.free(build_root);
+
+    try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
+        std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
+    });
 
     return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
 }
@@ -515,4 +551,33 @@ fn hexDigest(digest: [Hash.digest_length]u8) [Hash.digest_length * 2]u8 {
         result[i * 2 + 1] = hex_charset[byte & 15];
     }
     return result;
+}
+
+fn renameTmpIntoCache(
+    cache_dir: fs.Dir,
+    tmp_dir_sub_path: []const u8,
+    dest_dir_sub_path: []const u8,
+) !void {
+    assert(dest_dir_sub_path[1] == '/');
+    var handled_missing_dir = false;
+    while (true) {
+        cache_dir.rename(tmp_dir_sub_path, dest_dir_sub_path) catch |err| switch (err) {
+            error.FileNotFound => {
+                if (handled_missing_dir) return err;
+                cache_dir.makeDir(dest_dir_sub_path[0..1]) catch |mkd_err| switch (mkd_err) {
+                    error.PathAlreadyExists => handled_missing_dir = true,
+                    else => |e| return e,
+                };
+                continue;
+            },
+            error.PathAlreadyExists => {
+                // Package has been already downloaded and may already be in use on the system.
+                cache_dir.deleteTree(tmp_dir_sub_path) catch |del_err| {
+                    std.log.warn("unable to delete temp directory: {s}", .{@errorName(del_err)});
+                };
+            },
+            else => |e| return e,
+        };
+        break;
+    }
 }
