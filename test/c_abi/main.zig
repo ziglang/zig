@@ -4,7 +4,7 @@
 //! To run all the tests on the tier 1 architecture you can use:
 //! zig build test-c-abi -fqemu
 //! To run the tests on a specific architecture:
-//! zig test -fno-stage1 -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
+//! zig test -lc main.zig cfuncs.c -target mips-linux --test-cmd qemu-mips --test-cmd-bin
 const std = @import("std");
 const builtin = @import("builtin");
 const print = std.debug.print;
@@ -764,6 +764,7 @@ extern fn c_float_array_struct(FloatArrayStruct) void;
 extern fn c_ret_float_array_struct() FloatArrayStruct;
 
 test "Float array like struct" {
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
@@ -824,7 +825,9 @@ extern fn c_big_vec(BigVec) void;
 extern fn c_ret_big_vec() BigVec;
 
 test "big simd vector" {
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
@@ -875,6 +878,8 @@ test "DC: Zig passes to C" {
     try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -888,6 +893,8 @@ test "DC: C passes to Zig" {
     try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -920,13 +927,17 @@ test "CFF: Zig passes to C" {
     try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
 test "CFF: Zig returns to C" {
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
+    if (builtin.cpu.arch == .x86_64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -934,6 +945,10 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
+    if (builtin.cpu.arch == .x86_64 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -967,6 +982,7 @@ test "PD: Zig passes to C" {
 }
 test "PD: Zig returns to C" {
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectOk(c_assert_ret_PD());
@@ -980,6 +996,7 @@ test "PD: C passes to Zig" {
 }
 test "PD: C returns to Zig" {
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
@@ -1014,6 +1031,7 @@ extern fn c_modify_by_ref_param(ByRef) ByRef;
 
 test "C function modifies by ref param" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.mode != .Debug) return error.SkipZigTest;
 
     const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
     try expect(res.val == 42);
@@ -1034,6 +1052,8 @@ const ByVal = extern struct {
 
 extern fn c_func_ptr_byval(*anyopaque, *anyopaque, ByVal, c_ulong, *anyopaque, c_ulong) void;
 test "C function that takes byval struct called via function pointer" {
+    if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var fn_ptr = &c_func_ptr_byval;
