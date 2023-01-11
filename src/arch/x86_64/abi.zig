@@ -112,7 +112,16 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             return result;
         },
         .Float => switch (ty.floatBits(target)) {
-            16, 32, 64 => {
+            16 => {
+                if (ctx == .other) {
+                    result[0] = .memory;
+                } else {
+                    // TODO clang doesn't allow __fp16 as .ret or .arg
+                    result[0] = .sse;
+                }
+                return result;
+            },
+            32, 64 => {
                 result[0] = .sse;
                 return result;
             },
@@ -120,11 +129,15 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 // "Arguments of types__float128, _Decimal128 and__m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
+                if (ctx == .other) {
+                    result[0] = .memory;
+                    return result;
+                }
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
             },
-            else => {
+            80 => {
                 // "The 64-bit mantissa of arguments of type long double
                 // belongs to classX87, the 16-bit exponent plus 6 bytes
                 // of padding belongs to class X87UP."
@@ -132,6 +145,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 result[1] = .x87up;
                 return result;
             },
+            else => unreachable,
         },
         .Vector => {
             const elem_ty = ty.childType();

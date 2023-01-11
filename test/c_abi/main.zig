@@ -13,6 +13,9 @@ const expectEqual = std.testing.expectEqual;
 const has_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPPC();
 
+const has_f128 = builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin();
+const has_f80 = builtin.cpu.arch.isX86();
+
 extern fn run_c_tests() void;
 
 export fn zig_panic() noreturn {
@@ -1068,4 +1071,81 @@ test "C function that takes byval struct called via function pointer" {
         @intToPtr(*anyopaque, 4),
         @as(c_ulong, 5),
     );
+}
+
+extern fn c_f16(f16) f16;
+test "f16 bare" {
+    if (!comptime builtin.cpu.arch.isAARCH64()) return error.SkipZigTest;
+
+    const a = c_f16(12);
+    try expect(a == 34);
+}
+
+const f16_struct = extern struct {
+    a: f16,
+};
+extern fn c_f16_struct(f16_struct) f16_struct;
+test "f16 struct" {
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isARM() and builtin.mode != .Debug) return error.SkipZigTest;
+
+    const a = c_f16_struct(.{ .a = 12 });
+    try expect(a.a == 34);
+}
+
+extern fn c_f80(f80) f80;
+test "f80 bare" {
+    if (!has_f80) return error.SkipZigTest;
+
+    const a = c_f80(12.34);
+    try expect(@floatCast(f64, a) == 56.78);
+}
+
+const f80_struct = extern struct {
+    a: f80,
+};
+extern fn c_f80_struct(f80_struct) f80_struct;
+test "f80 struct" {
+    if (!has_f80) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.mode != .Debug) return error.SkipZigTest;
+
+    const a = c_f80_struct(.{ .a = 12.34 });
+    try expect(@floatCast(f64, a.a) == 56.78);
+}
+
+const f80_extra_struct = extern struct {
+    a: f80,
+    b: c_int,
+};
+extern fn c_f80_extra_struct(f80_extra_struct) f80_extra_struct;
+test "f80 extra struct" {
+    if (!has_f80) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+
+    const a = c_f80_extra_struct(.{ .a = 12.34, .b = 42 });
+    try expect(@floatCast(f64, a.a) == 56.78);
+    try expect(a.b == 24);
+}
+
+extern fn c_f128(f128) f128;
+test "f128 bare" {
+    if (!has_f128) return error.SkipZigTest;
+
+    const a = c_f128(12.34);
+    try expect(@floatCast(f64, a) == 56.78);
+}
+
+const f128_struct = extern struct {
+    a: f128,
+};
+extern fn c_f128_struct(f128_struct) f128_struct;
+test "f128 struct" {
+    if (!has_f128) return error.SkipZigTest;
+
+    const a = c_f128_struct(.{ .a = 12.34 });
+    try expect(@floatCast(f64, a.a) == 56.78);
 }

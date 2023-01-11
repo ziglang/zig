@@ -10395,7 +10395,12 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .mips, .mipsel => return false,
             .x86_64 => switch (target.os.tag) {
                 .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
-                else => return x86_64_abi.classifySystemV(fn_info.return_type, target, .ret)[0] == .memory,
+                else => {
+                    const class = x86_64_abi.classifySystemV(fn_info.return_type, target, .ret);
+                    if (class[0] == .memory) return true;
+                    if (class[0] == .x87 and class[2] != .none) return true;
+                    return false;
+                },
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target) == .memory,
@@ -10469,22 +10474,18 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                                     llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
                                     llvm_types_index += 1;
                                 },
-                                .sse => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
-                                    llvm_types_index += 1;
-                                },
-                                .sseup => {
+                                .sse, .sseup => {
                                     llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
                                     llvm_types_index += 1;
                                 },
                                 .x87 => {
+                                    if (llvm_types_index != 0 or classes[2] != .none) {
+                                        return dg.context.voidType();
+                                    }
                                     llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
                                     llvm_types_index += 1;
                                 },
-                                .x87up => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                    llvm_types_index += 1;
-                                },
+                                .x87up => continue,
                                 .complex_x87 => {
                                     @panic("TODO");
                                 },
@@ -10689,22 +10690,17 @@ const ParamTypeIterator = struct {
                                         llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
                                         llvm_types_index += 1;
                                     },
-                                    .sse => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
-                                        llvm_types_index += 1;
-                                    },
-                                    .sseup => {
+                                    .sse, .sseup => {
                                         llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
                                         llvm_types_index += 1;
                                     },
                                     .x87 => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                        llvm_types_index += 1;
+                                        it.zig_index += 1;
+                                        it.llvm_index += 1;
+                                        it.byval_attr = true;
+                                        return .byref;
                                     },
-                                    .x87up => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                        llvm_types_index += 1;
-                                    },
+                                    .x87up => unreachable,
                                     .complex_x87 => {
                                         @panic("TODO");
                                     },
