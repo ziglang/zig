@@ -5,7 +5,19 @@ const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
-pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none, win_i128 };
+pub const Class = enum {
+    integer,
+    sse,
+    sseup,
+    x87,
+    x87up,
+    complex_x87,
+    memory,
+    none,
+    win_i128,
+    float,
+    float_combine,
+};
 
 pub fn classifyWindows(ty: Type, target: Target) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
@@ -121,7 +133,11 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 }
                 return result;
             },
-            32, 64 => {
+            32 => {
+                result[0] = .float;
+                return result;
+            },
+            64 => {
                 result[0] = .sse;
                 return result;
             },
@@ -252,6 +268,9 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                     combine: {
                         // "If both classes are equal, this is the resulting class."
                         if (result[result_i] == field_class[0]) {
+                            if (result[result_i] == .float) {
+                                result[result_i] = .float_combine;
+                            }
                             break :combine;
                         }
 

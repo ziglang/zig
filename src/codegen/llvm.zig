@@ -10478,6 +10478,14 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                                     llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
                                     llvm_types_index += 1;
                                 },
+                                .float => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType();
+                                    llvm_types_index += 1;
+                                },
+                                .float_combine => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
+                                    llvm_types_index += 1;
+                                },
                                 .x87 => {
                                     if (llvm_types_index != 0 or classes[2] != .none) {
                                         return dg.context.voidType();
@@ -10692,6 +10700,14 @@ const ParamTypeIterator = struct {
                                     },
                                     .sse, .sseup => {
                                         llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                                        llvm_types_index += 1;
+                                    },
+                                    .float => {
+                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType();
+                                        llvm_types_index += 1;
+                                    },
+                                    .float_combine => {
+                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
                                         llvm_types_index += 1;
                                     },
                                     .x87 => {

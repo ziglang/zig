@@ -937,7 +937,6 @@ test "CFF: Zig returns to C" {
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
-    if (builtin.cpu.arch == .x86_64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
@@ -948,7 +947,6 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
-    if (builtin.cpu.arch == .x86_64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
