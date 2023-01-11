@@ -2508,10 +2508,128 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airPopcount for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        switch (operand_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement airPopcount for Vector type for {}", .{self.target.cpu.arch}),
+            .Int => {
+                if (operand_ty.abiSize(self.target.*) > 8) {
+                    return self.fail("TODO implement genBinOp for {} type for {}", .{ operand_ty.fmtDebug(), self.target.cpu.arch });
+                }
+
+                if (self.target.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.popcnt))) {
+                    const operand_lock: ?RegisterLock = switch (operand) {
+                        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                        else => null,
+                    };
+                    defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    const dst_mcv: MCValue = blk: {
+                        if (operand.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                            break :blk operand;
+                        }
+                        break :blk .{ .register = try self.register_manager.allocReg(null, gp) };
+                    };
+                    const dst_mcv_lock = self.register_manager.lockReg(dst_mcv.register);
+                    defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    try self.genBinOpMir(.popcnt, operand_ty, dst_mcv, operand);
+                    break :result dst_mcv;
+                } else {
+                    const src_reg: Register = blk: {
+                        if (operand.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                            break :blk operand.register;
+                        }
+                        break :blk try self.copyToTmpRegister(operand_ty, operand);
+                    };
+                    const src_reg_lock = self.register_manager.lockReg(src_reg);
+                    defer if (src_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    const dst_mcv: MCValue = blk: {
+                        if (operand.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                            break :blk operand;
+                        }
+                        break :blk .{ .register = try self.register_manager.allocReg(null, gp) };
+                    };
+                    const dst_mcv_lock = self.register_manager.lockReg(dst_mcv.register);
+                    defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    const tmp_reg = try self.register_manager.allocReg(null, gp);
+
+                    // Zero out count
+                    _ = try self.addInst(.{
+                        .tag = .xor,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = dst_mcv.register.to32(),
+                            .reg2 = dst_mcv.register.to32(),
+                        }),
+                        .data = undefined,
+                    });
+
+                    _ = try self.addInst(.{
+                        .tag = .@"test",
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = src_reg,
+                            .reg2 = src_reg,
+                        }),
+                        .data = undefined,
+                    });
+
+                    const zero_test_branch = try self.addInst(.{
+                        .tag = .cond_jmp,
+                        .ops = Mir.Inst.Ops.encode(.{}),
+                        .data = .{
+                            .inst_cc = .{
+                                .inst = undefined,
+                                .cc = .e,
+                            },
+                        },
+                    });
+
+                    const loop_start = try self.addInst(.{
+                        .tag = .add,
+                        .ops = Mir.Inst.Ops.encode(.{ .reg1 = dst_mcv.register }),
+                        .data = .{ .imm = 1 },
+                    });
+
+                    _ = try self.addInst(.{
+                        .tag = .lea,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = tmp_reg,
+                            .reg2 = src_reg,
+                        }),
+                        .data = .{ .imm = (~@intCast(u32, 1)) + 1 },
+                    });
+
+                    _ = try self.addInst(.{
+                        .tag = .@"and",
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = src_reg,
+                            .reg2 = tmp_reg,
+                        }),
+                        .data = undefined,
+                    });
+
+                    _ = try self.addInst(.{
+                        .tag = .cond_jmp,
+                        .ops = Mir.Inst.Ops.encode(.{}),
+                        .data = .{
+                            .inst_cc = .{
+                                .inst = loop_start,
+                                .cc = .ne,
+                            },
+                        },
+                    });
+
+                    try self.performReloc(zero_test_branch);
+                    break :result dst_mcv;
+                }
+            },
+            else => unreachable,
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

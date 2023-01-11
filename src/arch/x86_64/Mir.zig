@@ -394,6 +394,9 @@ pub const Inst = struct {
         /// pop registers
         /// Uses `payload` field with `SaveRegisterList` as payload.
         pop_regs,
+
+        // popcount
+        popcnt,
     };
     /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;

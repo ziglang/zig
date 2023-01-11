@@ -199,6 +199,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .push_regs => try emit.mirPushPopRegisterList(.push, inst),
             .pop_regs => try emit.mirPushPopRegisterList(.pop, inst),
 
+            .popcnt => try emit.mirPopcnt(inst),
+
             else => {
                 return emit.fail("Implement MIR->Emit lowering for x86_64 for pseudo-inst: {}", .{tag});
             },
@@ -299,6 +301,32 @@ fn mirPushPopRegisterList(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerErro
             }
             disp += 8;
         }
+    }
+}
+
+fn mirPopcnt(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst].decode();
+
+    // 0xf3 is a mandatory prefix for POPCNT
+    const encoder = try Encoder.init(emit.code, 1);
+    encoder.legacyPrefixes(.{ .prefix_f3 = true });
+
+    switch (ops.flags) {
+        0b00 => {
+            // mov reg1, reg2
+            // RM
+            return lowerToRmEnc(.popcnt, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        0b01 => {
+            // mov reg1, [reg2 + imm32]
+            // RM
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            return lowerToRmEnc(.popcnt, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        else => unreachable,
     }
 }
 
@@ -1407,6 +1435,7 @@ const Tag = enum {
     vcmpss,
     vucomisd,
     vucomiss,
+    popcnt,
 
     fn isSse(tag: Tag) bool {
         return switch (tag) {
@@ -1816,6 +1845,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) OpCode {
             .addss    =>                  OpCode.init(&.{0xf3,0x0f,0x58}),
             .ucomisd  =>                  OpCode.init(&.{0x66,0x0f,0x2e}),
             .ucomiss  =>                  OpCode.init(&.{0x0f,0x2e}),
+            .popcnt   =>                  OpCode.init(&.{0x0f,0xb8}), 
             else => unreachable,
         },
         .oi => return switch (tag) {
