@@ -796,6 +796,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
         // First we have to map the library name to pkg config name. Unfortunately,
         // there are several examples where this is not straightforward:
         // -lSDL2 -> pkg-config sdl2
+        // -ljpeg -> pkg-config libjpeg
         // -lgdk-3 -> pkg-config gdk-3.0
         // -latk-1.0 -> pkg-config atk
         const pkgs = try getPkgConfigList(b);
@@ -811,6 +812,16 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
         for (pkgs) |pkg| {
             if (std.ascii.eqlIgnoreCase(pkg.name, lib_name)) {
                 break :match pkg.name;
+            }
+        }
+
+        // Try prepending "lib".
+        for (pkgs) |pkg| {
+            if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
+                if (pos != 3) continue;
+                if (mem.eql(u8, pkg.name[0..3], "lib")) {
+                    break :match pkg.name;
+                }
             }
         }
 
