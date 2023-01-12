@@ -4116,7 +4116,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             const deps_pkg = try Package.createFilePkg(
                 gpa,
-                global_cache_directory,
+                local_cache_directory,
                 "dependencies.zig",
                 dependencies_source.items,
             );

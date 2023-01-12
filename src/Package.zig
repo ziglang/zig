@@ -249,14 +249,14 @@ pub fn fetchAndAddDependencies(
 
 pub fn createFilePkg(
     gpa: Allocator,
-    global_cache_directory: Compilation.Directory,
+    cache_directory: Compilation.Directory,
     basename: []const u8,
     contents: []const u8,
 ) !*Package {
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
     {
-        var tmp_dir = try global_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+        var tmp_dir = try cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
         try tmp_dir.writeFile(basename, contents);
     }
@@ -267,9 +267,9 @@ pub fn createFilePkg(
     const hex_digest = hh.final();
 
     const o_dir_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
-    try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, o_dir_sub_path);
+    try renameTmpIntoCache(cache_directory.handle, tmp_dir_sub_path, o_dir_sub_path);
 
-    return createWithDir(gpa, global_cache_directory, o_dir_sub_path, basename);
+    return createWithDir(gpa, cache_directory, o_dir_sub_path, basename);
 }
 
 fn fetchAndUnpack(
@@ -558,7 +558,7 @@ fn renameTmpIntoCache(
     tmp_dir_sub_path: []const u8,
     dest_dir_sub_path: []const u8,
 ) !void {
-    assert(dest_dir_sub_path[1] == '/');
+    assert(dest_dir_sub_path[1] == fs.path.sep);
     var handled_missing_dir = false;
     while (true) {
         cache_dir.rename(tmp_dir_sub_path, dest_dir_sub_path) catch |err| switch (err) {
