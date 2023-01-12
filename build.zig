@@ -185,6 +185,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", false);
 
     if (link_libc) {
         exe.linkLibC();
@@ -567,14 +568,14 @@ fn addCmakeCfgOptionsToExe(
                 // back to -lc++ and cross our fingers.
                 addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
                     error.RequiredLibraryNotFound => {
-                        exe.linkSystemLibrary("c++");
+                        exe.linkLibCpp();
                     },
                     else => |e| return e,
                 };
                 exe.linkSystemLibrary("unwind");
             },
-            .ios, .macos, .watchos, .tvos => {
-                exe.linkSystemLibrary("c++");
+            .ios, .macos, .watchos, .tvos, .windows => {
+                exe.linkLibCpp();
             },
             .freebsd => {
                 if (static) {

@@ -2414,6 +2414,9 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError
 pub const RenameError = error{
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to rename a resource by path relative to it.
+    ///
+    /// On Windows, this error may be returned instead of PathAlreadyExists when
+    /// renaming a directory over an existing directory.
     AccessDenied,
     FileBusy,
     DiskQuota,

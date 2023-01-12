@@ -9,6 +9,8 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 
+pub const dependencies = @import("@dependencies");
+
 pub fn main() !void {
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
@@ -207,7 +209,7 @@ pub fn main() !void {
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
-    try runBuild(builder);
+    try builder.runBuild(root);
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(builder, true, stderr_stream);
@@ -223,19 +225,11 @@ pub fn main() !void {
     };
 }
 
-fn runBuild(builder: *Builder) anyerror!void {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.build)).Fn.return_type.?)) {
-        .Void => root.build(builder),
-        .ErrorUnion => try root.build(builder),
-        else => @compileError("expected return type of build to be 'void' or '!void'"),
-    }
-}
-
 fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.resolveInstallPrefix(null, .{});
-        try runBuild(builder);
+        try builder.runBuild(root);
     }
 
     try out_stream.print(

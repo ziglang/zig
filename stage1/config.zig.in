@@ -12,3 +12,4 @@ pub const have_stage1 = false;
 pub const skip_non_native = false;
 pub const only_c = false;
 pub const force_gpa = false;
+pub const omit_pkg_fetching_code = true;

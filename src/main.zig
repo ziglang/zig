@@ -3983,11 +3983,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         defer zig_lib_directory.handle.close();
 
-        var main_pkg: Package = .{
-            .root_src_directory = zig_lib_directory,
-            .root_src_path = "build_runner.zig",
-        };
-
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
 
@@ -4030,12 +4025,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             }
         };
         child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
-
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
-            .root_src_path = build_zig_basename,
-        };
-        try main_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -4082,6 +4071,66 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var thread_pool: ThreadPool = undefined;
         try thread_pool.init(gpa);
         defer thread_pool.deinit();
+
+        var main_pkg: Package = .{
+            .root_src_directory = zig_lib_directory,
+            .root_src_path = "build_runner.zig",
+        };
+
+        if (!build_options.omit_pkg_fetching_code) {
+            var http_client: std.http.Client = .{ .allocator = gpa };
+            defer http_client.deinit();
+            try http_client.rescanRootCertificates();
+
+            // Here we provide an import to the build runner that allows using reflection to find
+            // all of the dependencies. Without this, there would be no way to use `@import` to
+            // access dependencies by name, since `@import` requires string literals.
+            var dependencies_source = std.ArrayList(u8).init(gpa);
+            defer dependencies_source.deinit();
+            try dependencies_source.appendSlice("pub const imports = struct {\n");
+
+            // This will go into the same package. It contains the file system paths
+            // to all the build.zig files.
+            var build_roots_source = std.ArrayList(u8).init(gpa);
+            defer build_roots_source.deinit();
+
+            // Here we borrow main package's table and will replace it with a fresh
+            // one after this process completes.
+            main_pkg.fetchAndAddDependencies(
+                &thread_pool,
+                &http_client,
+                build_directory,
+                global_cache_directory,
+                local_cache_directory,
+                &dependencies_source,
+                &build_roots_source,
+                "",
+            ) catch |err| switch (err) {
+                error.PackageFetchFailed => process.exit(1),
+                else => |e| return e,
+            };
+
+            try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
+            try dependencies_source.appendSlice(build_roots_source.items);
+            try dependencies_source.appendSlice("};\n");
+
+            const deps_pkg = try Package.createFilePkg(
+                gpa,
+                local_cache_directory,
+                "dependencies.zig",
+                dependencies_source.items,
+            );
+
+            mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
+            try main_pkg.addAndAdopt(gpa, "@dependencies", deps_pkg);
+        }
+
+        var build_pkg: Package = .{
+            .root_src_directory = build_directory,
+            .root_src_path = build_zig_basename,
+        };
+        try main_pkg.addAndAdopt(gpa, "@build", &build_pkg);
+
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,

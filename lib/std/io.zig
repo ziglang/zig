@@ -114,6 +114,7 @@ pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
+pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
 
 pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
 pub const peekStream = @import("io/peek_stream.zig").peekStream;

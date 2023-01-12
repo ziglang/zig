@@ -45,8 +45,12 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
     };
 }
 
-pub fn bufferedReader(underlying_stream: anytype) BufferedReader(4096, @TypeOf(underlying_stream)) {
-    return .{ .unbuffered_reader = underlying_stream };
+pub fn bufferedReader(reader: anytype) BufferedReader(4096, @TypeOf(reader)) {
+    return .{ .unbuffered_reader = reader };
+}
+
+pub fn bufferedReaderSize(comptime size: usize, reader: anytype) BufferedReader(size, @TypeOf(reader)) {
+    return .{ .unbuffered_reader = reader };
 }
 
 test "io.BufferedReader OneByte" {
