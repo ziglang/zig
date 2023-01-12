@@ -475,7 +475,7 @@ fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !Symbol
         .index = undefined,
     });
     try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, loc, {});
-    try wasm.globals.putNoClobber(wasm.base.allocator, name_offset, loc);
+    try wasm.globals.put(wasm.base.allocator, name_offset, loc);
     return loc;
 }
 /// Initializes symbols and atoms for the debug sections
@@ -849,6 +849,35 @@ fn validateFeatures(
     }
 
     to_emit.* = allowed;
+}
+
+/// Creates synthetic linker-symbols, but only if they are being referenced from
+/// any object file. For instance, the `__heap_base` symbol will only be created,
+/// if one or multiple undefined references exist. When none exist, the symbol will
+/// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
+fn resolveLazySymbols(wasm: *Wasm) !void {
+    if (wasm.undefs.fetchSwapRemove("__heap_base")) |kv| {
+        const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
+        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+
+        const atom = try wasm.base.allocator.create(Atom);
+        errdefer wasm.base.allocator.destroy(atom);
+        try wasm.managed_atoms.append(wasm.base.allocator, atom);
+        atom.* = Atom.empty;
+        atom.sym_index = loc.index;
+        atom.alignment = 1;
+
+        try wasm.parseAtom(atom, .{ .data = .synthetic });
+        try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom);
+    }
+}
+
+// Tries to find a global symbol by its name. Returns null when not found,
+/// and its location when it is found.
+fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
+    const offset = wasm.string_table.getOffset(name) orelse return null;
+    return wasm.globals.get(offset);
 }
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
@@ -1458,14 +1487,13 @@ fn mapFunctionTable(wasm: *Wasm) void {
     }
 
     if (wasm.base.options.import_table or wasm.base.options.output_mode == .Obj) {
-        const sym_loc = wasm.globals.get(wasm.string_table.getOffset("__indirect_function_table").?).?;
+        const sym_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const import = wasm.imports.getPtr(sym_loc).?;
         import.kind.table.limits.min = index - 1; // we start at index 1.
     } else if (index > 1) {
         log.debug("Appending indirect function table", .{});
-        const offset = wasm.string_table.getOffset("__indirect_function_table").?;
-        const sym_with_loc = wasm.globals.get(offset).?;
-        const symbol = sym_with_loc.getSymbol(wasm);
+        const sym_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
+        const symbol = sym_loc.getSymbol(wasm);
         const table = &wasm.tables.items[symbol.index - wasm.imported_tables_count];
         table.limits = .{ .min = index, .max = index };
     }
@@ -1544,6 +1572,7 @@ const Kind = union(enum) {
         read_only,
         uninitialized,
         initialized,
+        synthetic,
     },
     function: FnData,
 
@@ -1554,6 +1583,7 @@ const Kind = union(enum) {
             .read_only => return ".rodata.",
             .uninitialized => return ".bss.",
             .initialized => return ".data.",
+            .synthetic => return ".synthetic",
         }
     }
 };
@@ -1690,9 +1720,14 @@ fn allocateAtoms(wasm: *Wasm) !void {
         var offset: u32 = 0;
         while (true) {
             const symbol_loc = atom.symbolLoc();
-            if (!wasm.resolved_symbols.contains(symbol_loc)) {
-                atom = atom.next orelse break;
-                continue;
+            if (wasm.code_section_index) |index| {
+                if (index == entry.key_ptr.*) {
+                    if (!wasm.resolved_symbols.contains(symbol_loc)) {
+                        // only allocate resolved function body's.
+                        atom = atom.next orelse break;
+                        continue;
+                    }
+                }
             }
             offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
             atom.offset = offset;
@@ -1727,6 +1762,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
             if (mem.startsWith(u8, name, ".rodata")) return 0;
             if (mem.startsWith(u8, name, ".data")) return 1;
             if (mem.startsWith(u8, name, ".text")) return 2;
+            if (mem.startsWith(u8, name, ".synthetic")) return 100; // always at end
             return 3;
         }
     };
@@ -1789,7 +1825,7 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
     if (wasm.code_section_index == null) {
         // Make sure to remove it from the resolved symbols so we do not emit
         // it within any section. TODO: Remove this once we implement garbage collection.
-        const loc = wasm.globals.get(wasm.string_table.getOffset("__wasm_call_ctors").?).?;
+        const loc = wasm.findGlobalSymbol("__wasm_call_ctors").?;
         std.debug.assert(wasm.resolved_symbols.swapRemove(loc));
         return;
     }
@@ -1806,11 +1842,6 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
         // call constructors
         for (wasm.init_funcs.items) |init_func_loc| {
             const symbol = init_func_loc.getSymbol(wasm);
-            if (symbol.isUndefined()) {
-                std.debug.print("Undefined symbol '{s}'\n", .{wasm.string_table.get(symbol.name)});
-            }
-            std.debug.print("Symbol: {s}\n", .{init_func_loc.getSymbolLoc().getName(wasm)});
-            std.debug.assert(wasm.resolved_symbols.contains(init_func_loc.getSymbolLoc().finalLoc(wasm)));
             const func = wasm.functions.values()[symbol.index - wasm.imported_functions_count];
             const ty = wasm.func_types.items[func.type_index];
 
@@ -1828,7 +1859,7 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
         try writer.writeByte(std.wasm.opcode(.end));
     }
 
-    const loc = wasm.globals.get(wasm.string_table.getOffset("__wasm_call_ctors").?).?;
+    const loc = wasm.findGlobalSymbol("__wasm_call_ctors").?;
     const symbol = loc.getSymbol(wasm);
     // create type (() -> nil) as we do not have any parameters or return value.
     const ty_index = try wasm.putOrGetFuncType(.{ .params = &[_]std.wasm.Valtype{}, .returns = &[_]std.wasm.Valtype{} });
@@ -2039,12 +2070,7 @@ fn setupExports(wasm: *Wasm) !void {
         var failed_exports = false;
 
         for (force_exp_names) |exp_name| {
-            const name_index = wasm.string_table.getOffset(exp_name) orelse {
-                log.err("could not export '{s}', symbol not found", .{exp_name});
-                failed_exports = true;
-                continue;
-            };
-            const loc = wasm.globals.get(name_index) orelse {
+            const loc = wasm.findGlobalSymbol(exp_name) orelse {
                 log.err("could not export '{s}', symbol not found", .{exp_name});
                 failed_exports = true;
                 continue;
@@ -2100,7 +2126,7 @@ fn setupExports(wasm: *Wasm) !void {
 fn setupStart(wasm: *Wasm) !void {
     const entry_name = wasm.base.options.entry orelse "_start";
 
-    const symbol_name_offset = wasm.string_table.getOffset(entry_name) orelse {
+    const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
         if (wasm.base.options.output_mode == .Exe) {
             if (wasm.base.options.wasi_exec_model == .reactor) return; // Not required for reactors
         } else {
@@ -2110,10 +2136,6 @@ fn setupStart(wasm: *Wasm) !void {
         return error.MissingSymbol;
     };
 
-    const symbol_loc = wasm.globals.get(symbol_name_offset) orelse {
-        log.err("Entry symbol '{s}' not found", .{entry_name});
-        return error.MissingSymbol;
-    };
     const symbol = symbol_loc.getSymbol(wasm);
     if (symbol.tag != .function) {
         log.err("Entry symbol '{s}' is not a function", .{entry_name});
@@ -2133,6 +2155,8 @@ fn setupMemory(wasm: *Wasm) !void {
     // Use the user-provided stack size or else we use 1MB by default
     const stack_size = wasm.base.options.stack_size_override orelse page_size * 16;
     const stack_alignment = 16; // wasm's stack alignment as specified by tool-convention
+    const heap_alignment = 16; // wasm's heap alignment as specified by tool-convention
+
     // Always place the stack at the start by default
     // unless the user specified the global-base flag
     var place_stack_first = true;
@@ -2151,8 +2175,13 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     var offset: u32 = @intCast(u32, memory_ptr);
-    for (wasm.data_segments.values()) |segment_index| {
-        const segment = &wasm.segments.items[segment_index];
+    var data_seg_it = wasm.data_segments.iterator();
+    while (data_seg_it.next()) |entry| {
+        if (mem.eql(u8, entry.key_ptr.*, ".synthetic")) {
+            // do not update synthetic segments as they are not part of the output
+            continue;
+        }
+        const segment = &wasm.segments.items[entry.value_ptr.*];
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, segment.alignment);
         memory_ptr += segment.size;
         segment.offset = offset;
@@ -2163,6 +2192,16 @@ fn setupMemory(wasm: *Wasm) !void {
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
         wasm.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+    }
+
+    // One of the linked object files has a reference to the __heap_base symbol.
+    // We must set its virtual address so it can be used in relocations.
+    if (wasm.findGlobalSymbol("__heap_base")) |loc| {
+        const segment_index = wasm.data_segments.get(".synthetic").?;
+        const segment = &wasm.segments.items[segment_index];
+        segment.offset = 0; // for simplicity we store the entire VA into atom's offset.
+        const atom = wasm.symbol_atom.get(loc).?;
+        atom.offset = @intCast(u32, mem.alignForwardGeneric(u64, memory_ptr, heap_alignment));
     }
 
     // Setup the max amount of pages
@@ -2666,6 +2705,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
+    try wasm.resolveLazySymbols();
     try wasm.checkUndefinedSymbols();
 
     try wasm.setupInitFunctions();
@@ -2749,6 +2789,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
+    try wasm.resolveLazySymbols();
     try wasm.checkUndefinedSymbols();
 
     // When we finish/error we reset the state of the linker
@@ -2992,7 +3033,7 @@ fn writeToFile(
     if (wasm.function_table.count() > 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
-        const table_loc = wasm.globals.get(wasm.string_table.getOffset("__indirect_function_table").?).?;
+        const table_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const table_sym = table_loc.getSymbol(wasm);
 
         var flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
@@ -3031,10 +3072,12 @@ fn writeToFile(
         defer sorted_atoms.deinit();
 
         while (true) {
-            if (!is_obj) {
-                atom.resolveRelocs(wasm);
+            if (wasm.resolved_symbols.contains(atom.symbolLoc())) {
+                if (!is_obj) {
+                    atom.resolveRelocs(wasm);
+                }
+                sorted_atoms.appendAssumeCapacity(atom);
             }
-            sorted_atoms.appendAssumeCapacity(atom);
             atom = atom.next orelse break;
         }
 
@@ -3075,10 +3118,11 @@ fn writeToFile(
             // do not output 'bss' section unless we import memory and therefore
             // want to guarantee the data is zero initialized
             if (!import_memory and std.mem.eql(u8, entry.key_ptr.*, ".bss")) continue;
-            segment_count += 1;
             const atom_index = entry.value_ptr.*;
-            var atom: *Atom = wasm.atoms.getPtr(atom_index).?.*.getFirst();
             const segment = wasm.segments.items[atom_index];
+            if (segment.size == 0) continue; // do not emit empty segments
+            segment_count += 1;
+            var atom: *Atom = wasm.atoms.getPtr(atom_index).?.*.getFirst();
 
             // flag and index to memory section (currently, there can only be 1 memory section in wasm)
             try leb.writeULEB128(binary_writer, @as(u32, 0));
