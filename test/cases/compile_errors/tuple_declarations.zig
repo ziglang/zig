@@ -23,3 +23,4 @@ const T = struct {
 // :5:5: error: union field missing name
 // :8:5: error: tuple field has a name
 // :15:5: error: tuple declarations cannot contain declarations
+// :12:5: note: tuple field here

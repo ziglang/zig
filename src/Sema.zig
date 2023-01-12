@@ -953,6 +953,7 @@ fn analyzeBodyInner(
             .int_type                     => try sema.zirIntType(block, inst),
             .is_non_err                   => try sema.zirIsNonErr(block, inst),
             .is_non_err_ptr               => try sema.zirIsNonErrPtr(block, inst),
+            .ret_is_non_err               => try sema.zirRetIsNonErr(block, inst),
             .is_non_null                  => try sema.zirIsNonNull(block, inst),
             .is_non_null_ptr              => try sema.zirIsNonNullPtr(block, inst),
             .merge_error_sets             => try sema.zirMergeErrorSets(block, inst),
@@ -9004,7 +9005,7 @@ fn zirParam(
         else => |e| return e,
     } or comptime_syntax;
     if (sema.inst_map.get(inst)) |arg| {
-        if (is_comptime) {
+        if (is_comptime and sema.preallocated_new_func != null) {
             // We have a comptime value for this parameter so it should be elided from the
             // function type of the function instruction in this block.
             const coerced_arg = try sema.coerce(block, param_ty, arg, src);
@@ -10288,6 +10289,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .ret_err_value_code,
                         .restore_err_ret_index,
                         .is_non_err,
+                        .ret_is_non_err,
                         .condbr,
                         => {},
                         else => break,
@@ -16215,11 +16217,54 @@ fn typeInfoDecls(
     };
     try sema.queueFullTypeResolution(try declaration_ty.copy(sema.arena));
 
-    const decls_len = if (opt_namespace) |ns| ns.decls.count() else 0;
-    const decls_vals = try decls_anon_decl.arena().alloc(Value, decls_len);
-    for (decls_vals) |*decls_val, i| {
-        const decl_index = opt_namespace.?.decls.keys()[i];
+    var decl_vals = std.ArrayList(Value).init(sema.gpa);
+    defer decl_vals.deinit();
+
+    var seen_namespaces = std.AutoHashMap(*Namespace, void).init(sema.gpa);
+    defer seen_namespaces.deinit();
+
+    if (opt_namespace) |some| {
+        try sema.typeInfoNamespaceDecls(block, decls_anon_decl.arena(), some, &decl_vals, &seen_namespaces);
+    }
+
+    const new_decl = try decls_anon_decl.finish(
+        try Type.Tag.array.create(decls_anon_decl.arena(), .{
+            .len = decl_vals.items.len,
+            .elem_type = declaration_ty,
+        }),
+        try Value.Tag.aggregate.create(
+            decls_anon_decl.arena(),
+            try decls_anon_decl.arena().dupe(Value, decl_vals.items),
+        ),
+        0, // default alignment
+    );
+    return try Value.Tag.slice.create(sema.arena, .{
+        .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+        .len = try Value.Tag.int_u64.create(sema.arena, decl_vals.items.len),
+    });
+}
+
+fn typeInfoNamespaceDecls(
+    sema: *Sema,
+    block: *Block,
+    decls_anon_decl: Allocator,
+    namespace: *Namespace,
+    decl_vals: *std.ArrayList(Value),
+    seen_namespaces: *std.AutoHashMap(*Namespace, void),
+) !void {
+    const gop = try seen_namespaces.getOrPut(namespace);
+    if (gop.found_existing) return;
+    const decls = namespace.decls.keys();
+    for (decls) |decl_index| {
         const decl = sema.mod.declPtr(decl_index);
+        if (decl.kind == .@"usingnamespace") {
+            try sema.mod.ensureDeclAnalyzed(decl_index);
+            var buf: Value.ToTypeBuffer = undefined;
+            const new_ns = decl.val.toType(&buf).getNamespace().?;
+            try sema.typeInfoNamespaceDecls(block, decls_anon_decl, new_ns, decl_vals, seen_namespaces);
+            continue;
+        }
+        if (decl.kind != .named) continue;
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
@@ -16229,37 +16274,21 @@ fn typeInfoDecls(
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                 0, // default alignment
             );
-            break :v try Value.Tag.slice.create(decls_anon_decl.arena(), .{
-                .ptr = try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl),
-                .len = try Value.Tag.int_u64.create(decls_anon_decl.arena(), bytes.len),
+            break :v try Value.Tag.slice.create(decls_anon_decl, .{
+                .ptr = try Value.Tag.decl_ref.create(decls_anon_decl, new_decl),
+                .len = try Value.Tag.int_u64.create(decls_anon_decl, bytes.len),
             });
         };
 
-        const fields = try decls_anon_decl.arena().create([2]Value);
+        const fields = try decls_anon_decl.create([2]Value);
         fields.* = .{
             //name: []const u8,
             name_val,
             //is_pub: bool,
             Value.makeBool(decl.is_pub),
         };
-        decls_val.* = try Value.Tag.aggregate.create(decls_anon_decl.arena(), fields);
+        try decl_vals.append(try Value.Tag.aggregate.create(decls_anon_decl, fields));
     }
-
-    const new_decl = try decls_anon_decl.finish(
-        try Type.Tag.array.create(decls_anon_decl.arena(), .{
-            .len = decls_vals.len,
-            .elem_type = declaration_ty,
-        }),
-        try Value.Tag.aggregate.create(
-            decls_anon_decl.arena(),
-            try decls_anon_decl.arena().dupe(Value, decls_vals),
-        ),
-        0, // default alignment
-    );
-    return try Value.Tag.slice.create(sema.arena, .{
-        .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
-        .len = try Value.Tag.int_u64.create(sema.arena, decls_vals.len),
-    });
 }
 
 fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16577,7 +16606,7 @@ fn zirIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     try sema.checkErrorType(block, src, sema.typeOf(operand));
-    return sema.analyzeIsNonErr(block, inst_data.src(), operand);
+    return sema.analyzeIsNonErr(block, src, operand);
 }
 
 fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16590,6 +16619,16 @@ fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     try sema.checkErrorType(block, src, sema.typeOf(ptr).elemType2());
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsNonErr(block, src, loaded);
+}
+
+fn zirRetIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand = try sema.resolveInst(inst_data.operand);
+    return sema.analyzeIsNonErr(block, src, operand);
 }
 
 fn zirCondbr(
@@ -29847,6 +29886,11 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             },
             .have_layout, .fully_resolved_wip, .fully_resolved => return,
         }
+        const prev_status = struct_obj.status;
+        errdefer if (struct_obj.status == .layout_wip) {
+            struct_obj.status = prev_status;
+        };
+
         struct_obj.status = .layout_wip;
         for (struct_obj.fields.values()) |field, i| {
             sema.resolveTypeLayout(field.ty) catch |err| switch (err) {
@@ -30026,6 +30070,11 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         },
         .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
+    const prev_status = union_obj.status;
+    errdefer if (union_obj.status == .layout_wip) {
+        union_obj.status = prev_status;
+    };
+
     union_obj.status = .layout_wip;
     for (union_obj.fields.values()) |field, i| {
         sema.resolveTypeLayout(field.ty) catch |err| switch (err) {

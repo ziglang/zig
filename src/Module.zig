@@ -528,10 +528,10 @@ pub const Decl = struct {
     /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
     /// deletes the Decl on the spot.
     alive: bool,
-    /// Whether the Decl is a `usingnamespace` declaration.
-    is_usingnamespace: bool,
     /// If true `name` is already fully qualified.
     name_fully_qualified: bool = false,
+    /// What kind of a declaration is this.
+    kind: Kind,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -550,6 +550,14 @@ pub const Decl = struct {
     /// The shallow set of other decls whose typed_value changing indicates that this Decl's
     /// typed_value may need to be regenerated.
     dependencies: DepsTable = .{},
+
+    pub const Kind = enum {
+        @"usingnamespace",
+        @"test",
+        @"comptime",
+        named,
+        anon,
+    };
 
     pub const Index = enum(u32) {
         _,
@@ -4438,7 +4446,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // not the struct itself.
     try sema.resolveTypeLayout(decl_tv.ty);
 
-    if (decl.is_usingnamespace) {
+    if (decl.kind == .@"usingnamespace") {
         if (!decl_tv.ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
                 decl_tv.ty.fmt(mod),
@@ -4964,26 +4972,31 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
 
     // Every Decl needs a name.
     var is_named_test = false;
+    var kind: Decl.Kind = .named;
     const decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
             if (export_bit) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
+                kind = .@"usingnamespace";
                 break :name try std.fmt.allocPrintZ(gpa, "usingnamespace_{d}", .{i});
             } else {
                 const i = iter.comptime_index;
                 iter.comptime_index += 1;
+                kind = .@"comptime";
                 break :name try std.fmt.allocPrintZ(gpa, "comptime_{d}", .{i});
             }
         },
         1 => name: {
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
+            kind = .@"test";
             break :name try std.fmt.allocPrintZ(gpa, "test_{d}", .{i});
         },
         2 => name: {
             is_named_test = true;
             const test_name = zir.nullTerminatedString(decl_doccomment_index);
+            kind = .@"test";
             break :name try std.fmt.allocPrintZ(gpa, "decltest.{s}", .{test_name});
         },
         else => name: {
@@ -4991,6 +5004,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             if (raw_name.len == 0) {
                 is_named_test = true;
                 const test_name = zir.nullTerminatedString(decl_name_index + 1);
+                kind = .@"test";
                 break :name try std.fmt.allocPrintZ(gpa, "test.{s}", .{test_name});
             } else {
                 break :name try gpa.dupeZ(u8, raw_name);
@@ -4998,8 +5012,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         },
     };
     const is_exported = export_bit and decl_name_index != 0;
-    const is_usingnamespace = export_bit and decl_name_index == 0;
-    if (is_usingnamespace) try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
+    if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPutContextAdapted(
@@ -5012,8 +5025,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     if (!gop.found_existing) {
         const new_decl_index = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
         const new_decl = mod.declPtr(new_decl_index);
+        new_decl.kind = kind;
         new_decl.name = decl_name;
-        if (is_usingnamespace) {
+        if (kind == .@"usingnamespace") {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, is_pub);
         }
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
@@ -5058,7 +5072,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         }
         new_decl.is_pub = is_pub;
         new_decl.is_exported = is_exported;
-        new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
         new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -5076,7 +5089,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
-    decl.is_usingnamespace = is_usingnamespace;
+    decl.kind = kind;
     decl.has_align = has_align;
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -5635,7 +5648,7 @@ pub fn allocateNewDecl(
         .has_linksection_or_addrspace = false,
         .has_align = false,
         .alive = false,
-        .is_usingnamespace = false,
+        .kind = .anon,
     };
 
     return decl_and_index.decl_index;

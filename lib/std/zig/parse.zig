@@ -471,6 +471,13 @@ const Parser = struct {
                     // There is not allowed to be a decl after a field with no comma.
                     // Report error but recover parser.
                     try p.warn(.expected_comma_after_field);
+                    if (p.token_tags[p.tok_i] == .semicolon and p.token_tags[identifier] == .identifier) {
+                        try p.warnMsg(.{
+                            .tag = .var_const_decl,
+                            .is_note = true,
+                            .token = identifier,
+                        });
+                    }
                     p.findNextContainerMember();
                     continue;
                 },

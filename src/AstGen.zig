@@ -2463,6 +2463,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .is_non_null_ptr,
             .is_non_err,
             .is_non_err_ptr,
+            .ret_is_non_err,
             .mod_rem,
             .mul,
             .mulwrap,
@@ -4486,9 +4487,24 @@ fn structDeclInner(
             .container_field_align,
             .container_field,
             .@"comptime",
+            .test_decl,
             => continue,
             else => {
-                return astgen.failNode(member_node, "tuple declarations cannot contain declarations", .{});
+                const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
+                    .container_field_init,
+                    .container_field_align,
+                    .container_field,
+                    => break maybe_tuple,
+                    else => {},
+                } else unreachable;
+                return astgen.failNodeNotes(
+                    member_node,
+                    "tuple declarations cannot contain declarations",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteNode(tuple_member, "tuple field here", .{}),
+                    },
+                );
             },
         }
     };
@@ -7012,7 +7028,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
             // Emit conditional branch for generating errdefers.
             const result = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
-            const is_non_err = try gz.addUnNode(.is_non_err, result, node);
+            const is_non_err = try gz.addUnNode(.ret_is_non_err, result, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
