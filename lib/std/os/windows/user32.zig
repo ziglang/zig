@@ -28,7 +28,7 @@ const POINT = windows.POINT;
 const HCURSOR = windows.HCURSOR;
 const HBRUSH = windows.HBRUSH;
 
-fn selectSymbol(comptime function_static: anytype, function_dynamic: @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) @TypeOf(function_static) {
+fn selectSymbol(comptime function_static: anytype, function_dynamic: *const @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) *const @TypeOf(function_static) {
     comptime {
         const sym_ok = builtin.os.isAtLeast(.windows, os);
         if (sym_ok == true) return function_static;
