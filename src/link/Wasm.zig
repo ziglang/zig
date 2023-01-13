@@ -871,6 +871,22 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
         try wasm.parseAtom(atom, .{ .data = .synthetic });
         try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom);
     }
+
+    if (wasm.undefs.fetchSwapRemove("__heap_end")) |kv| {
+        const loc = try wasm.createSyntheticSymbol("__heap_end", .data);
+        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        _ = wasm.resolved_symbols.swapRemove(loc);
+
+        const atom = try wasm.base.allocator.create(Atom);
+        errdefer wasm.base.allocator.destroy(atom);
+        try wasm.managed_atoms.append(wasm.base.allocator, atom);
+        atom.* = Atom.empty;
+        atom.sym_index = loc.index;
+        atom.alignment = 1;
+
+        try wasm.parseAtom(atom, .{ .data = .synthetic });
+        try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom);
+    }
 }
 
 // Tries to find a global symbol by its name. Returns null when not found,
@@ -892,14 +908,8 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
             const file_name = if (undef.file) |file_index| name: {
                 break :name wasm.objects.items[file_index].name;
             } else wasm.name;
-            const import_name = if (undef.file) |file_index| name: {
-                const obj = wasm.objects.items[file_index];
-                const name_index = if (symbol.tag == .function) name_index: {
-                    break :name_index obj.findImport(symbol.tag.externalType(), symbol.index).name;
-                } else symbol.name;
-                break :name obj.string_table.get(name_index);
-            } else wasm.string_table.get(wasm.imports.get(undef).?.name);
-            log.err("could not resolve undefined symbol '{s}'", .{import_name});
+            const symbol_name = undef.getName(wasm);
+            log.err("could not resolve undefined symbol '{s}'", .{symbol_name});
             log.err("  defined in '{s}'", .{file_name});
         }
     }
@@ -2223,11 +2233,19 @@ fn setupMemory(wasm: *Wasm) !void {
         }
         memory_ptr = initial_memory;
     }
-
+    memory_ptr = mem.alignForwardGeneric(u64, memory_ptr, std.wasm.page_size);
     // In case we do not import memory, but define it ourselves,
     // set the minimum amount of pages on the memory section.
-    wasm.memories.limits.min = @intCast(u32, std.mem.alignForwardGeneric(u64, memory_ptr, page_size) / page_size);
+    wasm.memories.limits.min = @intCast(u32, memory_ptr / page_size);
     log.debug("Total memory pages: {d}", .{wasm.memories.limits.min});
+
+    if (wasm.findGlobalSymbol("__heap_end")) |loc| {
+        const segment_index = wasm.data_segments.get(".synthetic").?;
+        const segment = &wasm.segments.items[segment_index];
+        segment.offset = 0;
+        const atom = wasm.symbol_atom.get(loc).?;
+        atom.offset = @intCast(u32, memory_ptr);
+    }
 
     if (wasm.base.options.max_memory) |max_memory| {
         if (!std.mem.isAlignedGeneric(u64, max_memory, page_size)) {
@@ -3392,6 +3410,8 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
         // bss section is not emitted when this condition holds true, so we also
         // do not output a name for it.
         if (!wasm.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        // Synthetic segments are not emitted
+        if (std.mem.eql(u8, key, ".synthetic")) continue;
         segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
         data_segment_index += 1;
     }
