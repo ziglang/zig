@@ -2506,15 +2506,27 @@ fn walkInstruction(
                     };
                 },
                 .variable => {
+                    const extra = file.zir.extraData(Zir.Inst.ExtendedVar, extended.operand);
+
                     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
-                    var extra_index: usize = extended.operand;
+                    var extra_index: usize = extra.end;
                     if (small.has_lib_name) extra_index += 1;
                     if (small.has_align) extra_index += 1;
 
-                    const value: DocData.WalkResult = if (small.has_init) .{
-                        .expr = .{ .void = .{} },
+                    var var_init: ?DocData.WalkResult = null;
+                    if (small.has_init) {
+                        const var_init_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                        var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
+                    }
+
+                    const var_type = try self.walkRef(file, parent_scope, parent_src, extra.data.var_type, need_type);
+
+                    const value: DocData.WalkResult = if (var_init) |vi| .{
+                        .typeRef = var_type.expr,
+                        .expr = vi.expr,
                     } else .{
-                        .expr = .{ .void = .{} },
+                        .typeRef = var_type.expr,
+                        .expr = .{ .undefined = .{} },
                     };
 
                     return value;
@@ -3213,13 +3225,15 @@ fn walkDecls(
         //     .declRef => |d| .{ .declRef = d },
         // };
 
+        const kind: []const u8 = if (try self.declIsVar(file, value_pl_node.src_node, parent_src)) "var" else "const";
+
         self.decls.items[decls_slot_index] = .{
             ._analyzed = true,
             .name = name,
             .src = ast_node_index,
             //.typeRef = decl_type_ref,
             .value = walk_result,
-            .kind = "const", // find where this information can be found
+            .kind = kind,
         };
 
         // Unblock any pending decl path that was waiting for this decl.
@@ -4382,4 +4396,22 @@ fn srcLocInfo(
         .bytes = start,
         .src_node = sn,
     };
+}
+
+fn declIsVar(
+    self: Autodoc,
+    file: *File,
+    src_node: i32,
+    parent_src: SrcLocInfo,
+) !bool {
+    const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
+    const tree = try file.getTree(self.module.gpa);
+    const node_idx = @bitCast(Ast.Node.Index, sn);
+    const tokens = tree.nodes.items(.main_token);
+    const tags = tree.tokens.items(.tag);
+
+    const tok_idx = tokens[node_idx];
+
+    // tags[tok_idx] is the token called 'mut token' in AstGen
+    return (tags[tok_idx] == .keyword_var);
 }
