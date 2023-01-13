@@ -3370,7 +3370,7 @@ pub const DeclGen = struct {
                     return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));
                 },
                 .field_ptr, .opt_payload_ptr, .eu_payload_ptr, .elem_ptr => {
-                    return dg.lowerParentPtr(tv.val);
+                    return dg.lowerParentPtr(tv.val, tv.ty.ptrInfo().data.bit_offset % 8 == 0);
                 },
                 .null_value, .zero => {
                     const llvm_type = try dg.lowerType(tv.ty);
@@ -3378,7 +3378,7 @@ pub const DeclGen = struct {
                 },
                 .opt_payload => {
                     const payload = tv.val.castTag(.opt_payload).?.data;
-                    return dg.lowerParentPtr(payload);
+                    return dg.lowerParentPtr(payload, tv.ty.ptrInfo().data.bit_offset % 8 == 0);
                 },
                 else => |tag| return dg.todo("implement const of pointer type '{}' ({})", .{
                     tv.ty.fmtDebug(), tag,
@@ -3967,7 +3967,7 @@ pub const DeclGen = struct {
         return try dg.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index);
     }
 
-    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value) Error!*llvm.Value {
+    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, byte_aligned: bool) Error!*llvm.Value {
         const target = dg.module.getTarget();
         switch (ptr_val.tag()) {
             .decl_ref_mut => {
@@ -3996,7 +3996,7 @@ pub const DeclGen = struct {
             },
             .field_ptr => {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-                const parent_llvm_ptr = try dg.lowerParentPtr(field_ptr.container_ptr);
+                const parent_llvm_ptr = try dg.lowerParentPtr(field_ptr.container_ptr, byte_aligned);
                 const parent_ty = field_ptr.container_ty;
 
                 const field_index = @intCast(u32, field_ptr.field_index);
@@ -4026,6 +4026,7 @@ pub const DeclGen = struct {
                     },
                     .Struct => {
                         if (parent_ty.containerLayout() == .Packed) {
+                            if (!byte_aligned) return parent_llvm_ptr;
                             const llvm_usize = dg.context.intType(target.cpu.arch.ptrBitWidth());
                             const base_addr = parent_llvm_ptr.constPtrToInt(llvm_usize);
                             // count bits of fields before this one
@@ -4072,7 +4073,7 @@ pub const DeclGen = struct {
             },
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                const parent_llvm_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                const parent_llvm_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr, true);
 
                 const llvm_usize = try dg.lowerType(Type.usize);
                 const indices: [1]*llvm.Value = .{
@@ -4083,7 +4084,7 @@ pub const DeclGen = struct {
             },
             .opt_payload_ptr => {
                 const opt_payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-                const parent_llvm_ptr = try dg.lowerParentPtr(opt_payload_ptr.container_ptr);
+                const parent_llvm_ptr = try dg.lowerParentPtr(opt_payload_ptr.container_ptr, true);
                 var buf: Type.Payload.ElemType = undefined;
 
                 const payload_ty = opt_payload_ptr.container_ty.optionalChild(&buf);
@@ -4105,7 +4106,7 @@ pub const DeclGen = struct {
             },
             .eu_payload_ptr => {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-                const parent_llvm_ptr = try dg.lowerParentPtr(eu_payload_ptr.container_ptr);
+                const parent_llvm_ptr = try dg.lowerParentPtr(eu_payload_ptr.container_ptr, true);
 
                 const payload_ty = eu_payload_ptr.container_ty.errorUnionPayload();
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
