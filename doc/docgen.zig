@@ -28,13 +28,8 @@ pub fn main() !void {
     if (!args_it.skip()) @panic("expected self arg");
 
     const zig_exe = args_it.next() orelse @panic("expected zig exe arg");
-    defer allocator.free(zig_exe);
-
     const in_file_name = args_it.next() orelse @panic("expected input arg");
-    defer allocator.free(in_file_name);
-
     const out_file_name = args_it.next() orelse @panic("expected output arg");
-    defer allocator.free(out_file_name);
 
     var do_code_tests = true;
     if (args_it.next()) |arg| {
