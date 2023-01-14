@@ -1323,10 +1323,12 @@ const c_abi_targets = [_]CrossTarget{
     },
 };
 
-pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool) *build.Step {
+pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool) *build.Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
-    for (c_abi_targets) |c_abi_target| {
+    const modes: [2]Mode = .{ .Debug, .ReleaseFast };
+
+    for (modes[0 .. @as(u8, 1) + @boolToInt(!skip_release)]) |mode| for (c_abi_targets) |c_abi_target| {
         if (skip_non_native and !c_abi_target.isNative())
             continue;
 
@@ -1339,14 +1341,16 @@ pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool) *build.Step {
         }
         test_step.linkLibC();
         test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+        test_step.setBuildMode(mode);
 
         const triple_prefix = c_abi_target.zigTriple(b.allocator) catch unreachable;
-        test_step.setNamePrefix(b.fmt("{s}-{s} ", .{
+        test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
             "test-c-abi",
             triple_prefix,
+            @tagName(mode),
         }));
 
         step.dependOn(&test_step.step);
-    }
+    };
     return step;
 }

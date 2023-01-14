@@ -5,7 +5,19 @@ const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
-pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none, win_i128 };
+pub const Class = enum {
+    integer,
+    sse,
+    sseup,
+    x87,
+    x87up,
+    complex_x87,
+    memory,
+    none,
+    win_i128,
+    float,
+    float_combine,
+};
 
 pub fn classifyWindows(ty: Type, target: Target) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
@@ -112,7 +124,20 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             return result;
         },
         .Float => switch (ty.floatBits(target)) {
-            16, 32, 64 => {
+            16 => {
+                if (ctx == .other) {
+                    result[0] = .memory;
+                } else {
+                    // TODO clang doesn't allow __fp16 as .ret or .arg
+                    result[0] = .sse;
+                }
+                return result;
+            },
+            32 => {
+                result[0] = .float;
+                return result;
+            },
+            64 => {
                 result[0] = .sse;
                 return result;
             },
@@ -120,11 +145,15 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 // "Arguments of types__float128, _Decimal128 and__m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
+                if (ctx == .other) {
+                    result[0] = .memory;
+                    return result;
+                }
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
             },
-            else => {
+            80 => {
                 // "The 64-bit mantissa of arguments of type long double
                 // belongs to classX87, the 16-bit exponent plus 6 bytes
                 // of padding belongs to class X87UP."
@@ -132,6 +161,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 result[1] = .x87up;
                 return result;
             },
+            else => unreachable,
         },
         .Vector => {
             const elem_ty = ty.childType();
@@ -238,6 +268,9 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                     combine: {
                         // "If both classes are equal, this is the resulting class."
                         if (result[result_i] == field_class[0]) {
+                            if (result[result_i] == .float) {
+                                result[result_i] = .float_combine;
+                            }
                             break :combine;
                         }
 
