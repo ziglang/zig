@@ -129,6 +129,7 @@ pub const Segment = struct {
     /// file or binary. When `merge_segments` is true, this will return the
     /// short name. i.e. ".rodata". When false, it returns the entire name instead.
     pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
+        if (std.mem.startsWith(u8, self.name, ".synthetic")) return ".synthetic"; // always merge
         if (!merge_segments) return self.name;
         if (std.mem.startsWith(u8, self.name, ".rodata.")) {
             return ".rodata";
