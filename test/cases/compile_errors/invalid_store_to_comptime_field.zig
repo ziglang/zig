@@ -44,15 +44,15 @@ pub export fn entry5() void {
     comptime var y = .{ 1, 2 };
     y = .{ 3, 4 };
 }
-// pub export fn entry5() void {
-//     var x: u32 = 15;
-//     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
-//     const S = struct {
-//         fn foo(_: T) void {}
-//     };
-//     _ = S.foo(.{ -1234, 5679, x });
-// }
 pub export fn entry6() void {
+    var x: u32 = 15;
+    const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
+    const S = struct {
+        fn foo(_: T) void {}
+    };
+    _ = S.foo(.{ -1234, 5679, x });
+}
+pub export fn entry7() void {
     const State = struct {
         comptime id: bool = true,
         fn init(comptime id: bool) @This() {
@@ -61,7 +61,7 @@ pub export fn entry6() void {
     };
     _ = State.init(false);
 }
-pub export fn entry7() void {
+pub export fn entry8() void {
     const list1 = .{ "sss", 1, 2, 3 };
     const list2 = @TypeOf(list1){ .@"0" = "xxx", .@"1" = 4, .@"2" = 5, .@"3" = 6 };
     _ = list2;
@@ -73,6 +73,7 @@ pub export fn entry7() void {
 //
 // :6:19: error: value stored in comptime field does not match the default value of the field
 // :14:19: error: value stored in comptime field does not match the default value of the field
+// :53:16: error: value stored in comptime field does not match the default value of the field
 // :19:38: error: value stored in comptime field does not match the default value of the field
 // :31:19: error: value stored in comptime field does not match the default value of the field
 // :25:29: note: default value set here
