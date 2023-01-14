@@ -43,6 +43,7 @@ pub fn build(b: *Builder) !void {
     ) catch unreachable;
     const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
+        "--zig",
         rel_zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
