@@ -87,6 +87,17 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
+        /// ArrayList takes ownership of the passed in slice. The slice must have been
+        /// allocated with `allocator`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn fromOwnedSliceSentinel(allocator: Allocator, comptime sentinel: T, slice: [:sentinel]T) Self {
+            return Self{
+                .items = slice,
+                .capacity = slice.len + 1,
+                .allocator = allocator,
+            };
+        }
+
         /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
         /// of this ArrayList. Empties this ArrayList.
         pub fn moveToUnmanaged(self: *Self) ArrayListAlignedUnmanaged(T, alignment) {
@@ -544,6 +555,26 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The returned list has ownership of the underlying memory.
         pub fn toManaged(self: *Self, allocator: Allocator) ArrayListAligned(T, alignment) {
             return .{ .items = self.items, .capacity = self.capacity, .allocator = allocator };
+        }
+
+        /// ArrayListUnmanaged takes ownership of the passed in slice. The slice must have been
+        /// allocated with `allocator`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn fromOwnedSlice(slice: Slice) Self {
+            return Self{
+                .items = slice,
+                .capacity = slice.len,
+            };
+        }
+
+        /// ArrayListUnmanaged takes ownership of the passed in slice. The slice must have been
+        /// allocated with `allocator`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn fromOwnedSliceSentinel(comptime sentinel: T, slice: [:sentinel]T) Self {
+            return Self{
+                .items = slice,
+                .capacity = slice.len + 1,
+            };
         }
 
         /// The caller owns the returned memory. Empties this ArrayList.
@@ -1562,6 +1593,45 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
     }
+}
+
+test "std.ArrayList/ArrayList.fromOwnedSliceSentinel" {
+    const a = testing.allocator;
+
+    var orig_list = ArrayList(u8).init(a);
+    defer orig_list.deinit();
+    try orig_list.appendSlice("foobar");
+    const sentinel_slice = try orig_list.toOwnedSliceSentinel(0);
+
+    var list = ArrayList(u8).fromOwnedSliceSentinel(a, 0, sentinel_slice);
+    defer list.deinit();
+    try testing.expectEqualStrings(list.items, "foobar");
+}
+
+test "std.ArrayList/ArrayListUnmanaged.fromOwnedSlice" {
+    const a = testing.allocator;
+
+    var list = ArrayList(u8).init(a);
+    defer list.deinit();
+    try list.appendSlice("foobar");
+
+    const slice = try list.toOwnedSlice();
+    var unmanaged = ArrayListUnmanaged(u8).fromOwnedSlice(slice);
+    defer unmanaged.deinit(a);
+    try testing.expectEqualStrings(unmanaged.items, "foobar");
+}
+
+test "std.ArrayList/ArrayListUnmanaged.fromOwnedSliceSentinel" {
+    const a = testing.allocator;
+
+    var list = ArrayList(u8).init(a);
+    defer list.deinit();
+    try list.appendSlice("foobar");
+
+    const sentinel_slice = try list.toOwnedSliceSentinel(0);
+    var unmanaged = ArrayListUnmanaged(u8).fromOwnedSliceSentinel(0, sentinel_slice);
+    defer unmanaged.deinit(a);
+    try testing.expectEqualStrings(unmanaged.items, "foobar");
 }
 
 test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
