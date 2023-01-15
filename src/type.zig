@@ -1689,13 +1689,13 @@ pub const Type = extern union {
                         try writer.writeAll("...");
                     }
                     try writer.writeAll(") ");
+                    if (payload.alignment != 0) {
+                        try writer.print("align({d}) ", .{payload.alignment});
+                    }
                     if (payload.cc != .Unspecified) {
                         try writer.writeAll("callconv(.");
                         try writer.writeAll(@tagName(payload.cc));
                         try writer.writeAll(") ");
-                    }
-                    if (payload.alignment != 0) {
-                        try writer.print("align({d}) ", .{payload.alignment});
                     }
                     ty = payload.return_type;
                     continue;
@@ -2084,13 +2084,13 @@ pub const Type = extern union {
                     try writer.writeAll("...");
                 }
                 try writer.writeAll(") ");
+                if (fn_info.alignment != 0) {
+                    try writer.print("align({d}) ", .{fn_info.alignment});
+                }
                 if (fn_info.cc != .Unspecified) {
                     try writer.writeAll("callconv(.");
                     try writer.writeAll(@tagName(fn_info.cc));
                     try writer.writeAll(") ");
-                }
-                if (fn_info.alignment != 0) {
-                    try writer.print("align({d}) ", .{fn_info.alignment});
                 }
                 if (fn_info.return_type.tag() == .generic_poison) {
                     try writer.writeAll("anytype");
