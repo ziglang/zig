@@ -260,7 +260,7 @@ test "sanity checks" {
 
 test "compress data" {
     const allocator = testing.allocator;
-    const rfc1951_txt = @embedFile("rfc1951.txt");
+    const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
     var compressed_data = std.ArrayList(u8).init(allocator);
     defer compressed_data.deinit();
