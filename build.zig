@@ -574,8 +574,11 @@ fn addCmakeCfgOptionsToExe(
                 };
                 exe.linkSystemLibrary("unwind");
             },
-            .ios, .macos, .watchos, .tvos, .windows => {
+            .ios, .macos, .watchos, .tvos => {
                 exe.linkLibCpp();
+            },
+            .windows => {
+                if (exe.target.getAbi() != .msvc) exe.linkLibCpp();
             },
             .freebsd => {
                 if (static) {
