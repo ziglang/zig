@@ -16258,6 +16258,7 @@ fn typeInfoNamespaceDecls(
     for (decls) |decl_index| {
         const decl = sema.mod.declPtr(decl_index);
         if (decl.kind == .@"usingnamespace") {
+            if (decl.analysis == .in_progress) continue;
             try sema.mod.ensureDeclAnalyzed(decl_index);
             var buf: Value.ToTypeBuffer = undefined;
             const new_ns = decl.val.toType(&buf).getNamespace().?;
