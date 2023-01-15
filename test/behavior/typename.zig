@@ -80,11 +80,11 @@ test "basic" {
     try expectEqualStrings("fn(comptime u32) void", @typeName(fn (comptime u32) void));
     try expectEqualStrings("fn(noalias []u8) void", @typeName(fn (noalias []u8) void));
 
-    try expectEqualStrings("fn() align(2) void", @typeName(fn () align(2) void));
+    try expectEqualStrings("fn() align(32) void", @typeName(fn () align(32) void));
     try expectEqualStrings("fn() callconv(.C) void", @typeName(fn () callconv(.C) void));
-    try expectEqualStrings("fn() align(2) callconv(.C) void", @typeName(fn () align(2) callconv(.C) void));
-    try expectEqualStrings("fn(...) align(2) callconv(.C) void", @typeName(fn (...) align(2) callconv(.C) void));
-    try expectEqualStrings("fn(u32, ...) align(2) callconv(.C) void", @typeName(fn (u32, ...) align(2) callconv(.C) void));
+    try expectEqualStrings("fn() align(32) callconv(.C) void", @typeName(fn () align(32) callconv(.C) void));
+    try expectEqualStrings("fn(...) align(32) callconv(.C) void", @typeName(fn (...) align(32) callconv(.C) void));
+    try expectEqualStrings("fn(u32, ...) align(32) callconv(.C) void", @typeName(fn (u32, ...) align(32) callconv(.C) void));
 }
 
 test "top level decl" {
