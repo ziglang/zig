@@ -68,29 +68,93 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
 }
 
 pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
-    var dir = fs.openIterableDirAbsolute("/etc/ssl/certs", .{}) catch |err| switch (err) {
-        error.FileNotFound => return,
-        else => |e| return e,
+    // Possible certificate files; stop after finding one.
+    const cert_file_paths = [_][]const u8{
+        "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
+        "/etc/pki/tls/certs/ca-bundle.crt", // Fedora/RHEL 6
+        "/etc/ssl/ca-bundle.pem", // OpenSUSE
+        "/etc/pki/tls/cacert.pem", // OpenELEC
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+        "/etc/ssl/cert.pem", // Alpine Linux
     };
-    defer dir.close();
+
+    // Possible directories with certificate files; all will be read.
+    const cert_dir_paths = [_][]const u8{
+        "/etc/ssl/certs", // SLES10/SLES11
+        "/etc/pki/tls/certs", // Fedora/RHEL
+        "/system/etc/security/cacerts", // Android
+    };
 
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
-    var it = dir.iterate();
+    scan: {
+        for (cert_file_paths) |cert_file_path| {
+            if (addCertsFromFilePathAbsolute(cb, gpa, cert_file_path)) |_| {
+                break :scan;
+            } else |err| switch (err) {
+                error.FileNotFound => continue,
+                else => |e| return e,
+            }
+        }
+
+        for (cert_dir_paths) |cert_dir_path| {
+            addCertsFromDirPathAbsolute(cb, gpa, cert_dir_path) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => |e| return e,
+            };
+        }
+    }
+
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+pub fn addCertsFromDirPath(
+    cb: *Bundle,
+    gpa: Allocator,
+    dir: fs.Dir,
+    sub_dir_path: []const u8,
+) !void {
+    var iterable_dir = try dir.openIterableDir(sub_dir_path, .{});
+    defer iterable_dir.close();
+    return addCertsFromDir(cb, gpa, iterable_dir);
+}
+
+pub fn addCertsFromDirPathAbsolute(
+    cb: *Bundle,
+    gpa: Allocator,
+    abs_dir_path: []const u8,
+) !void {
+    assert(fs.path.isAbsolute(abs_dir_path));
+    var iterable_dir = try fs.openIterableDirAbsolute(abs_dir_path, .{});
+    defer iterable_dir.close();
+    return addCertsFromDir(cb, gpa, iterable_dir);
+}
+
+pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) !void {
+    var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
             .File, .SymLink => {},
             else => continue,
         }
 
-        try addCertsFromFile(cb, gpa, dir.dir, entry.name);
+        try addCertsFromFilePath(cb, gpa, iterable_dir.dir, entry.name);
     }
-
-    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-pub fn addCertsFromFile(
+pub fn addCertsFromFilePathAbsolute(
+    cb: *Bundle,
+    gpa: Allocator,
+    abs_file_path: []const u8,
+) !void {
+    assert(fs.path.isAbsolute(abs_file_path));
+    var file = try fs.openFileAbsolute(abs_file_path, .{});
+    defer file.close();
+    return addCertsFromFile(cb, gpa, file);
+}
+
+pub fn addCertsFromFilePath(
     cb: *Bundle,
     gpa: Allocator,
     dir: fs.Dir,
@@ -98,7 +162,10 @@ pub fn addCertsFromFile(
 ) !void {
     var file = try dir.openFile(sub_file_path, .{});
     defer file.close();
+    return addCertsFromFile(cb, gpa, file);
+}
 
+pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) !void {
     const size = try file.getEndPos();
 
     // We borrow `bytes` as a temporary buffer for the base64-encoded data.
@@ -152,6 +219,7 @@ pub fn addCertsFromFile(
 
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const crypto = std.crypto;
