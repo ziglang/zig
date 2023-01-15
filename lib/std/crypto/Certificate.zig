@@ -3,6 +3,8 @@ index: u32,
 
 pub const Bundle = @import("Certificate/Bundle.zig");
 
+pub const Version = enum { v1, v2, v3 };
+
 pub const Algorithm = enum {
     sha1WithRSAEncryption,
     sha224WithRSAEncryption,
@@ -130,6 +132,7 @@ pub const Parsed = struct {
     message_slice: Slice,
     subject_alt_name_slice: Slice,
     validity: Validity,
+    version: Version,
 
     pub const PubKeyAlgo = union(AlgorithmCategory) {
         rsaEncryption: void,
@@ -299,9 +302,12 @@ pub fn parse(cert: Certificate) !Parsed {
     const cert_bytes = cert.buffer;
     const certificate = try der.Element.parse(cert_bytes, cert.index);
     const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
-    const version = try der.Element.parse(cert_bytes, tbs_certificate.slice.start);
-    try checkVersion(cert_bytes, version);
-    const serial_number = try der.Element.parse(cert_bytes, version.slice.end);
+    const version_elem = try der.Element.parse(cert_bytes, tbs_certificate.slice.start);
+    const version = try parseVersion(cert_bytes, version_elem);
+    const serial_number = if (@bitCast(u8, version_elem.identifier) == 0xa0)
+        try der.Element.parse(cert_bytes, version_elem.slice.end)
+    else
+        version_elem;
     // RFC 5280, section 4.1.2.3:
     // "This field MUST contain the same algorithm identifier as
     // the signatureAlgorithm field in the sequence Certificate."
@@ -370,6 +376,9 @@ pub fn parse(cert: Certificate) !Parsed {
     // Extensions
     var subject_alt_name_slice = der.Element.Slice.empty;
     ext: {
+        if (version == .v1)
+            break :ext;
+
         if (pub_key_info.slice.end >= tbs_certificate.slice.end)
             break :ext;
 
@@ -415,6 +424,7 @@ pub fn parse(cert: Certificate) !Parsed {
             .not_after = not_after_utc,
         },
         .subject_alt_name_slice = subject_alt_name_slice,
+        .version = version,
     };
 }
 
@@ -588,12 +598,24 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) !E {
     return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
-pub fn checkVersion(bytes: []const u8, version: der.Element) !void {
-    if (@bitCast(u8, version.identifier) != 0xa0 or
-        !mem.eql(u8, bytes[version.slice.start..version.slice.end], "\x02\x01\x02"))
-    {
-        return error.UnsupportedCertificateVersion;
+pub fn parseVersion(bytes: []const u8, version_elem: der.Element) !Version {
+    if (@bitCast(u8, version_elem.identifier) != 0xa0)
+        return .v1;
+
+    if (version_elem.slice.end - version_elem.slice.start != 3)
+        return error.CertificateFieldHasInvalidLength;
+
+    const encoded_version = bytes[version_elem.slice.start..version_elem.slice.end];
+
+    if (mem.eql(u8, encoded_version, "\x02\x01\x02")) {
+        return .v3;
+    } else if (mem.eql(u8, encoded_version, "\x02\x01\x01")) {
+        return .v2;
+    } else if (mem.eql(u8, encoded_version, "\x02\x01\x00")) {
+        return .v1;
     }
+
+    return error.UnsupportedCertificateVersion;
 }
 
 fn verifyRsa(
