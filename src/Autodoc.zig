@@ -2513,21 +2513,18 @@ fn walkInstruction(
                     if (small.has_lib_name) extra_index += 1;
                     if (small.has_align) extra_index += 1;
 
-                    var var_init: ?DocData.WalkResult = null;
-                    if (small.has_init) {
-                        const var_init_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                        var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
-                    }
-
                     const var_type = try self.walkRef(file, parent_scope, parent_src, extra.data.var_type, need_type);
-
-                    const value: DocData.WalkResult = if (var_init) |vi| .{
-                        .typeRef = var_type.expr,
-                        .expr = vi.expr,
-                    } else .{
+                    
+                    var value: DocData.WalkResult = .{
                         .typeRef = var_type.expr,
                         .expr = .{ .undefined = .{} },
                     };
+                    
+                    if (small.has_init) {
+                        const var_init_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                        const var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
+                        value.expr = var_init.expr;
+                    }
 
                     return value;
                 },
