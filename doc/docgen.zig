@@ -17,6 +17,24 @@ const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
+const usage =
+    \\Usage: docgen [--zig] [--skip-code-test] input output"
+    \\
+    \\   Generates an HTML document from a docgen template.
+    \\
+    \\Options:
+    \\   -h, --help             Print this help and exit
+    \\   --skip-code-test       Skip the doctests
+    \\
+;
+
+fn errorf(comptime format: []const u8, args: anytype) noreturn {
+    const stderr = io.getStdErr().writer();
+
+    stderr.print("error: " ++ format, args) catch {};
+    process.exit(1);
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -24,38 +42,54 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     var args_it = try process.argsWithAllocator(allocator);
-
     if (!args_it.skip()) @panic("expected self arg");
 
-    const zig_exe = args_it.next() orelse @panic("expected zig exe arg");
-    defer allocator.free(zig_exe);
-
-    const in_file_name = args_it.next() orelse @panic("expected input arg");
-    defer allocator.free(in_file_name);
-
-    const out_file_name = args_it.next() orelse @panic("expected output arg");
-    defer allocator.free(out_file_name);
-
+    var zig_exe: []const u8 = "zig";
     var do_code_tests = true;
-    if (args_it.next()) |arg| {
-        if (mem.eql(u8, arg, "--skip-code-tests")) {
-            do_code_tests = false;
+    var files = [_][]const u8{ "", "" };
+
+    var i: usize = 0;
+    while (args_it.next()) |arg| {
+        if (mem.startsWith(u8, arg, "-")) {
+            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                const stdout = io.getStdOut().writer();
+                try stdout.writeAll(usage);
+                process.exit(0);
+            } else if (mem.eql(u8, arg, "--zig")) {
+                if (args_it.next()) |param| {
+                    zig_exe = param;
+                } else {
+                    errorf("expected parameter after --zig\n", .{});
+                }
+            } else if (mem.eql(u8, arg, "--skip-code-tests")) {
+                do_code_tests = false;
+            } else {
+                errorf("unrecognized option: '{s}'\n", .{arg});
+            }
         } else {
-            @panic("unrecognized arg");
+            if (i > 1) {
+                errorf("too many arguments\n", .{});
+            }
+            files[i] = arg;
+            i += 1;
         }
     }
+    if (i < 2) {
+        errorf("not enough arguments\n", .{});
+        process.exit(1);
+    }
 
-    var in_file = try fs.cwd().openFile(in_file_name, .{ .mode = .read_only });
+    var in_file = try fs.cwd().openFile(files[0], .{ .mode = .read_only });
     defer in_file.close();
 
-    var out_file = try fs.cwd().createFile(out_file_name, .{});
+    var out_file = try fs.cwd().createFile(files[1], .{});
     defer out_file.close();
 
     const input_file_bytes = try in_file.reader().readAllAlloc(allocator, max_doc_file_size);
 
     var buffered_writer = io.bufferedWriter(out_file.writer());
 
-    var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
+    var tokenizer = Tokenizer.init(files[0], input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
 
     try fs.cwd().makePath(tmp_dir_name);
