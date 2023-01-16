@@ -11480,6 +11480,10 @@ fn readU32Be() u32 {}
       but use of hard tabs is discouraged. See {#link|Grammar#}.
       </p>
       <p>
+      For compatibility with other tools, the compiler ignores a UTF-8-encoded byte order mark (U+FEFF)
+      if it is the first Unicode code point in the source text. A byte order mark is not allowed anywhere else in the source.
+      </p>
+      <p>
       Note that running <kbd>zig fmt</kbd> on a source file will implement all recommendations mentioned here.
       Note also that the stage1 compiler does <a href="https://github.com/ziglang/zig/wiki/FAQ#why-does-zig-force-me-to-use-spaces-instead-of-tabs">not yet support CR or HT</a> control characters.
       </p>
