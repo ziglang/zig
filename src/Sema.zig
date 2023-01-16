@@ -26067,7 +26067,8 @@ fn coerceVarArgParam(
 ) !Air.Inst.Ref {
     if (block.is_typeof) return inst;
 
-    const coerced = switch (sema.typeOf(inst).zigTypeTag()) {
+    const uncasted_ty = sema.typeOf(inst);
+    const coerced = switch (uncasted_ty.zigTypeTag()) {
         // TODO consider casting to c_int/f64 if they fit
         .ComptimeInt, .ComptimeFloat => return sema.fail(
             block,
@@ -26081,6 +26082,17 @@ fn coerceVarArgParam(
             break :blk try sema.analyzeDeclRef(fn_decl);
         },
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
+        .Float => float: {
+            const target = sema.mod.getTarget();
+            const double_bits = @import("type.zig").CType.sizeInBits(.double, target);
+            const inst_bits = uncasted_ty.floatBits(sema.mod.getTarget());
+            if (inst_bits >= double_bits) break :float inst;
+            switch (double_bits) {
+                32 => break :float try sema.coerce(block, Type.f32, inst, inst_src),
+                64 => break :float try sema.coerce(block, Type.f64, inst, inst_src),
+                else => unreachable,
+            }
+        },
         else => inst,
     };
 
