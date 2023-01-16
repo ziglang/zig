@@ -10668,8 +10668,7 @@ const ParamTypeIterator = struct {
                             .memory => {
                                 it.zig_index += 1;
                                 it.llvm_index += 1;
-                                it.byval_attr = true;
-                                return .byref;
+                                return .byref_mut;
                             },
                             .sse => {
                                 it.zig_index += 1;
