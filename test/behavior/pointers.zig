@@ -522,3 +522,13 @@ test "ptrToInt on a generic function" {
     };
     try S.doTheTest(&S.generic);
 }
+
+test "pointer alignment and element type include call expression" {
+    const S = struct {
+        fn T() type {
+            return struct { _: i32 };
+        }
+        const P = *align(@alignOf(T())) [@sizeOf(T())]u8;
+    };
+    try expect(@alignOf(S.P) > 0);
+}
