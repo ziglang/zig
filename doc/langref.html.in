@@ -11508,6 +11508,17 @@ fn readU32Be() u32 {}
         <tbody>
         <tr>
           <th scope="row">
+            <pre>{#syntax#}addrspace{#endsyntax#}</pre>
+          </th>
+          <td>
+            The {#syntax#}addrspace{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for addrspace</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
             <pre>{#syntax#}align{#endsyntax#}</pre>
           </th>
           <td>
@@ -11787,6 +11798,17 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
+            <pre>{#syntax#}linksection{#endsyntax#}</pre>
+          </th>
+          <td>
+            The {#syntax#}linksection{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for linksection</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
             <pre>{#syntax#}noalias{#endsyntax#}</pre>
           </th>
           <td>
@@ -11876,17 +11898,6 @@ fn readU32Be() u32 {}
             {#syntax#}return{#endsyntax#} exits a function with a value.
             <ul>
               <li>See also {#link|Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}linksection{#endsyntax#}</pre>
-          </th>
-          <td>
-            The {#syntax#}linksection{#endsyntax#} keyword.
-            <ul>
-              <li>TODO add documentation for linksection</li>
             </ul>
           </td>
         </tr>
