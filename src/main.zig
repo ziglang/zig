@@ -4098,7 +4098,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         if (!build_options.omit_pkg_fetching_code) {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
-            try http_client.rescanRootCertificates();
 
             // Here we provide an import to the build runner that allows using reflection to find
             // all of the dependencies. Without this, there would be no way to use `@import` to

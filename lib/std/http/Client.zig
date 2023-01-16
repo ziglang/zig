@@ -1,5 +1,7 @@
 //! TODO: send connection: keep-alive and LRU cache a configurable number of
 //! open connections to skip DNS and TLS handshake for subsequent requests.
+//!
+//! This API is *not* thread safe.
 
 const std = @import("../std.zig");
 const mem = std.mem;
@@ -15,6 +17,9 @@ const testing = std.testing;
 /// managed buffer is not provided.
 allocator: Allocator,
 ca_bundle: std.crypto.Certificate.Bundle = .{},
+/// When this is `true`, the next time this client performs an HTTPS request,
+/// it will first rescan the system for root certificates.
+next_https_rescan_certs: bool = true,
 
 pub const Connection = struct {
     stream: net.Stream,
@@ -594,6 +599,7 @@ pub const Request = struct {
         CertificateTimeInvalid,
         CertificateHasUnrecognizedObjectId,
         CertificateHasInvalidBitString,
+        CertificateAuthorityBundleTooBig,
 
         // TODO: convert to higher level errors
         InvalidFormat,
@@ -648,6 +654,10 @@ pub const Request = struct {
         NetworkSubsystemFailed,
         NotDir,
         ReadOnlyFileSystem,
+        Unseekable,
+        MissingEndCertificateMarker,
+        InvalidPadding,
+        EndOfStream,
     };
 
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
@@ -837,10 +847,6 @@ pub fn deinit(client: *Client) void {
     client.* = undefined;
 }
 
-pub fn rescanRootCertificates(client: *Client) !void {
-    return client.ca_bundle.rescan(client.allocator);
-}
-
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) !Connection {
     var conn: Connection = .{
         .stream = try net.tcpConnectToHost(client.allocator, host, port),
@@ -875,6 +881,11 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Req
     };
 
     const host = uri.host orelse return error.UriMissingHost;
+
+    if (client.next_https_rescan_certs and protocol == .tls) {
+        try client.ca_bundle.rescan(client.allocator);
+        client.next_https_rescan_certs = false;
+    }
 
     var req: Request = .{
         .client = client,
