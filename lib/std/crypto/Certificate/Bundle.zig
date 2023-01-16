@@ -60,12 +60,12 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
         .windows => {
             // TODO
         },
-        .macos => {
-            // TODO
-        },
+        .macos => return rescanMac(cb, gpa),
         else => {},
     }
 }
+
+pub const rescanMac = @import("Bundle/macos.zig").rescanMac;
 
 pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
     // Possible certificate files; stop after finding one.
@@ -195,25 +195,29 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) !void {
         const decoded_start = @intCast(u32, cb.bytes.items.len);
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
-        // Even though we could only partially parse the certificate to find
-        // the subject name, we pre-parse all of them to make sure and only
-        // include in the bundle ones that we know will parse. This way we can
-        // use `catch unreachable` later.
-        const parsed_cert = try Certificate.parse(.{
-            .buffer = cb.bytes.items,
-            .index = decoded_start,
-        });
-        if (now_sec > parsed_cert.validity.not_after) {
-            // Ignore expired cert.
-            cb.bytes.items.len = decoded_start;
-            continue;
-        }
-        const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
-        if (gop.found_existing) {
-            cb.bytes.items.len = decoded_start;
-        } else {
-            gop.value_ptr.* = decoded_start;
-        }
+        try cb.parseCert(gpa, decoded_start, now_sec);
+    }
+}
+
+pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) !void {
+    // Even though we could only partially parse the certificate to find
+    // the subject name, we pre-parse all of them to make sure and only
+    // include in the bundle ones that we know will parse. This way we can
+    // use `catch unreachable` later.
+    const parsed_cert = try Certificate.parse(.{
+        .buffer = cb.bytes.items,
+        .index = decoded_start,
+    });
+    if (now_sec > parsed_cert.validity.not_after) {
+        // Ignore expired cert.
+        cb.bytes.items.len = decoded_start;
+        return;
+    }
+    const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
+    if (gop.found_existing) {
+        cb.bytes.items.len = decoded_start;
+    } else {
+        gop.value_ptr.* = decoded_start;
     }
 }
 

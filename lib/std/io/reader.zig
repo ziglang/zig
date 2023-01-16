@@ -3,6 +3,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 pub fn Reader(
     comptime Context: type,
@@ -349,6 +350,14 @@ pub fn Reader(
             var res: [1]T = undefined;
             try self.readNoEof(mem.sliceAsBytes(res[0..]));
             return res[0];
+        }
+
+        pub fn readStructBig(self: Self, comptime T: type) !T {
+            var res = try self.readStruct(T);
+            if (native_endian != std.builtin.Endian.Big) {
+                mem.byteSwapAllFields(T, &res);
+            }
+            return res;
         }
 
         /// Reads an integer with the same size as the given enum's tag type. If the integer matches
