@@ -2514,12 +2514,12 @@ fn walkInstruction(
                     if (small.has_align) extra_index += 1;
 
                     const var_type = try self.walkRef(file, parent_scope, parent_src, extra.data.var_type, need_type);
-                    
+
                     var value: DocData.WalkResult = .{
                         .typeRef = var_type.expr,
                         .expr = .{ .undefined = .{} },
                     };
-                    
+
                     if (small.has_init) {
                         const var_init_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
                         const var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
