@@ -486,11 +486,18 @@ pub fn installHeadersDirectory(
     src_dir_path: []const u8,
     dest_rel_path: []const u8,
 ) void {
-    const install_dir = a.builder.addInstallDirectory(.{
+    return a.builder.addInstallDirectoryOptions(.{
         .source_dir = src_dir_path,
         .install_dir = .header,
         .install_subdir = dest_rel_path,
     });
+}
+
+pub fn installHeadersDirectoryOptions(
+    a: *LibExeObjStep,
+    options: std.build.InstallDirStep.Options,
+) void {
+    const install_dir = a.builder.addInstallDirectory(options);
     a.builder.getInstallStep().dependOn(&install_dir.step);
     a.installed_headers.append(&install_dir.step) catch unreachable;
 }
