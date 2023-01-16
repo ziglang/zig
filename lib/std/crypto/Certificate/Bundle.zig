@@ -111,25 +111,29 @@ pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
-    const store = try os.windows.crypt32.certOpenSystemStoreW(null, &[4:0]u16{ 'R', 'O', 'O', 'T' });
-    defer os.windows.crypt32.certCloseStore(store, 0) catch unreachable;
+    const w = std.os.windows;
+    const GetLastError = w.kernel32.GetLastError;
+    const root = [4:0]u16{ 'R', 'O', 'O', 'T' };
+    const store = w.crypt32.CertOpenSystemStoreW(null, &root) orelse switch (GetLastError()) {
+        .FILE_NOT_FOUND => return error.FileNotFound,
+        else => |err| return w.unexpectedError(err),
+    };
+    defer _ = w.crypt32.CertCloseStore(store, 0);
 
-    var ctx = os.windows.crypt32.CertEnumCertificatesInStore(store, null);
-    while (ctx) |context| : (ctx = os.windows.crypt32.CertEnumCertificatesInStore(store, ctx)) {
-        var start = @intCast(u32, cb.bytes.items.len);
-        try cb.bytes.appendSlice(gpa, context.pbCertEncoded[0..context.cbCertEncoded]);
-        var parsed = Certificate.parse(.{
+    var ctx = w.crypt32.CertEnumCertificatesInStore(store, null);
+    while (ctx) |context| : (ctx = w.crypt32.CertEnumCertificatesInStore(store, ctx)) {
+        const decoded_start = @intCast(u32, cb.bytes.items.len);
+        const encoded_cert = context.pbCertEncoded[0..context.cbCertEncoded];
+        try cb.bytes.appendSlice(gpa, encoded_cert);
+        const parsed_cert = try Certificate.parse(.{
             .buffer = cb.bytes.items,
-            .index = start,
-        }) catch {
-            cb.bytes.items.len = start;
-            continue;
-        };
-        const gop = try cb.map.getOrPutContext(gpa, parsed.subject_slice, .{ .cb = cb });
+            .index = decoded_start,
+        });
+        const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
         if (gop.found_existing) {
-            cb.bytes.items.len = start;
+            cb.bytes.items.len = decoded_start;
         } else {
-            gop.value_ptr.* = start;
+            gop.value_ptr.* = decoded_start;
         }
     }
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
@@ -250,7 +254,6 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
-const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const crypto = std.crypto;
