@@ -1,9 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const log = std.log.scoped(.archive);
 const macho = std.macho;
 const mem = std.mem;
-const native_endian = builtin.target.cpu.arch.endian();
 
 pub fn decodeArch(cputype: macho.cpu_type_t, comptime logError: bool) !std.Target.Cpu.Arch {
     const cpu_arch: std.Target.Cpu.Arch = switch (cputype) {
@@ -19,23 +17,13 @@ pub fn decodeArch(cputype: macho.cpu_type_t, comptime logError: bool) !std.Targe
     return cpu_arch;
 }
 
-fn readFatStruct(reader: anytype, comptime T: type) !T {
-    // Fat structures (fat_header & fat_arch) are always written and read to/from
-    // disk in big endian order.
-    var res = try reader.readStruct(T);
-    if (native_endian != std.builtin.Endian.Big) {
-        mem.byteSwapAllFields(T, &res);
-    }
-    return res;
-}
-
 pub fn getLibraryOffset(reader: anytype, cpu_arch: std.Target.Cpu.Arch) !u64 {
-    const fat_header = try readFatStruct(reader, macho.fat_header);
+    const fat_header = try reader.readStructBig(macho.fat_header);
     if (fat_header.magic != macho.FAT_MAGIC) return 0;
 
     var fat_arch_index: u32 = 0;
     while (fat_arch_index < fat_header.nfat_arch) : (fat_arch_index += 1) {
-        const fat_arch = try readFatStruct(reader, macho.fat_arch);
+        const fat_arch = try reader.readStructBig(macho.fat_arch);
         // If we come across an architecture that we do not know how to handle, that's
         // fine because we can keep looking for one that might match.
         const lib_arch = decodeArch(fat_arch.cputype, false) catch |err| switch (err) {
