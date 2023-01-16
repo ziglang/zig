@@ -11288,6 +11288,7 @@ fn resolveSwitchItemVal(
     // Only if we know for sure we need to report a compile error do we resolve the
     // full source locations.
     if (sema.resolveConstValue(block, .unneeded, item, "")) |val| {
+        try sema.resolveLazyValue(val);
         return TypedValue{ .ty = item_ty, .val = val };
     } else |err| switch (err) {
         error.NeededSourceLocation => {

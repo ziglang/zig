@@ -686,3 +686,17 @@ test "enum value without tag name used as switch item" {
         _ => return error.TestFailed,
     }
 }
+
+test "switch item sizeof" {
+    const S = struct {
+        fn doTheTest() !void {
+            var a: usize = 0;
+            switch (a) {
+                @sizeOf(struct {}) => {},
+                else => return error.TestFailed,
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
