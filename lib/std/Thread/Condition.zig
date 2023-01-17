@@ -164,14 +164,14 @@ const WindowsImpl = struct {
         const rc = blk: {
             if (comptime builtin.mode == .Debug) {
                 // The internal state of the DebugMutex needs to be handled here as well.
-                mutex.impl.locking_thread = null;
+                mutex.impl.locking_thread.store(0, .Unordered);
                 const result = os.windows.kernel32.SleepConditionVariableSRW(
                     &self.condition,
                     &mutex.impl.impl.srwlock,
                     timeout_ms,
                     0, // the srwlock was assumed to acquired in exclusive mode not shared
                 );
-                mutex.impl.locking_thread = std.Thread.getCurrentId();
+                mutex.impl.locking_thread.store(std.Thread.getCurrentId(), .Unordered);
                 break :blk result;
             } else {
                 break :blk os.windows.kernel32.SleepConditionVariableSRW(

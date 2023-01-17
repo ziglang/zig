@@ -67,29 +67,29 @@ else
     FutexImpl;
 
 const DebugImpl = struct {
-    locking_thread: ?Thread.Id = null,
+    locking_thread: Atomic(Thread.Id) = Atomic(Thread.Id).init(0), // 0 means it's not locked.
     impl: ReleaseImpl = .{},
 
     inline fn tryLock(self: *@This()) bool {
         const locking = self.impl.tryLock();
         if (locking) {
-            self.locking_thread = Thread.getCurrentId();
+            self.locking_thread.store(Thread.getCurrentId(), .Unordered);
         }
         return locking;
     }
 
     inline fn lock(self: *@This()) void {
         const current_id = Thread.getCurrentId();
-        if (self.locking_thread == current_id) {
+        if (self.locking_thread.load(.Unordered) == current_id and current_id != 0) {
             @panic("Deadlock detected");
         }
         self.impl.lock();
-        self.locking_thread = current_id;
+        self.locking_thread.store(current_id, .Unordered);
     }
 
     inline fn unlock(self: *@This()) void {
-        assert(self.locking_thread != null);
-        self.locking_thread = null;
+        assert(self.locking_thread.load(.Unordered) > 0 or Thread.getCurrentId() == 0);
+        self.locking_thread.store(0, .Unordered);
         self.impl.unlock();
     }
 };
