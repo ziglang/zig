@@ -1555,3 +1555,21 @@ test "optional generic function label struct field" {
     };
     try expect((Options{}).isFoo.?(u8) == 123);
 }
+
+test "struct fields get automatically reordered" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S1 = struct {
+        a: u32,
+        b: u32,
+        c: bool,
+        d: bool,
+    };
+    const S2 = struct {
+        a: u32,
+        b: bool,
+        c: u32,
+        d: bool,
+    };
+    try expect(@sizeOf(S1) == @sizeOf(S2));
+}

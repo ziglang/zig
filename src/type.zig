@@ -5741,10 +5741,14 @@ pub const Type = extern union {
         target: Target,
 
         pub fn next(it: *StructOffsetIterator) ?FieldOffset {
-            const i = it.field;
+            var i = it.field;
             if (it.struct_obj.fields.count() <= i)
                 return null;
 
+            if (it.struct_obj.optimized_order) |some| {
+                i = some[i];
+                if (i == Module.Struct.omitted_field) return null;
+            }
             const field = it.struct_obj.fields.values()[i];
             it.field += 1;
 

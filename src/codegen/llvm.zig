@@ -2083,15 +2083,15 @@ pub const Object = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
 
-                for (fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_size = field.ty.abiSize(target);
                     const field_align = field.alignment(target, layout);
                     const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                     offset = field_offset + field_size;
 
-                    const field_name = try gpa.dupeZ(u8, fields.keys()[i]);
+                    const field_name = try gpa.dupeZ(u8, fields.keys()[field_and_index.index]);
                     defer gpa.free(field_name);
 
                     try di_fields.append(gpa, dib.createMemberType(
@@ -2985,9 +2985,9 @@ pub const DeclGen = struct {
                 var big_align: u32 = 1;
                 var any_underaligned_fields = false;
 
-                for (struct_obj.fields.values()) |field| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = struct_obj.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_align = field.alignment(target, struct_obj.layout);
                     const field_ty_align = field.ty.abiAlignment(target);
                     any_underaligned_fields = any_underaligned_fields or
@@ -3714,9 +3714,9 @@ pub const DeclGen = struct {
                 var big_align: u32 = 0;
                 var need_unnamed = false;
 
-                for (struct_obj.fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = struct_obj.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_align = field.alignment(target, struct_obj.layout);
                     big_align = @max(big_align, field_align);
                     const prev_offset = offset;
@@ -3732,7 +3732,7 @@ pub const DeclGen = struct {
 
                     const field_llvm_val = try dg.lowerValue(.{
                         .ty = field.ty,
-                        .val = field_vals[i],
+                        .val = field_vals[field_and_index.index],
                     });
 
                     need_unnamed = need_unnamed or dg.isUnnamedType(field.ty, field_llvm_val);
@@ -10354,9 +10354,9 @@ fn llvmFieldIndex(
     assert(layout != .Packed);
 
     var llvm_field_index: c_uint = 0;
-    for (ty.structFields().values()) |field, i| {
-        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+    var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator();
+    while (it.next()) |field_and_index| {
+        const field = field_and_index.field;
         const field_align = field.alignment(target, layout);
         big_align = @max(big_align, field_align);
         const prev_offset = offset;
@@ -10367,7 +10367,7 @@ fn llvmFieldIndex(
             llvm_field_index += 1;
         }
 
-        if (field_index <= i) {
+        if (field_index == field_and_index.index) {
             ptr_pl_buf.* = .{
                 .data = .{
                     .pointee_type = field.ty,

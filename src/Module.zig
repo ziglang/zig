@@ -941,7 +941,8 @@ pub const Struct = struct {
     owner_decl: Decl.Index,
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
-
+    /// Indexes into `fields` sorted to be most memory efficient.
+    optimized_order: ?[*]u32 = null,
     layout: std.builtin.Type.ContainerLayout,
     /// If the layout is not packed, this is the noreturn type.
     /// If the layout is packed, this is the backing integer type of the packed struct.
@@ -1023,6 +1024,10 @@ pub const Struct = struct {
         }
     };
 
+    /// Used in `optimized_order` to indicate field that is not present in the
+    /// runtime version of the struct.
+    pub const omitted_field = std.math.maxInt(u32);
+
     pub fn getFullyQualifiedName(s: *Struct, mod: *Module) ![:0]u8 {
         return mod.declPtr(s.owner_decl).getFullyQualifiedName(mod);
     }
@@ -1097,6 +1102,39 @@ pub const Struct = struct {
             bit_sum += field.ty.bitSize(target);
         }
         unreachable; // index out of bounds
+    }
+
+    pub const RuntimeFieldIterator = struct {
+        struct_obj: *const Struct,
+        index: u32 = 0,
+
+        pub const FieldAndIndex = struct {
+            field: Field,
+            index: u32,
+        };
+
+        pub fn next(it: *RuntimeFieldIterator) ?FieldAndIndex {
+            while (true) {
+                var i = it.index;
+                it.index += 1;
+                if (it.struct_obj.fields.count() <= i)
+                    return null;
+
+                if (it.struct_obj.optimized_order) |some| {
+                    i = some[i];
+                    if (i == Module.Struct.omitted_field) return null;
+                }
+                const field = it.struct_obj.fields.values()[i];
+
+                if (!field.is_comptime and field.ty.hasRuntimeBits()) {
+                    return FieldAndIndex{ .index = i, .field = field };
+                }
+            }
+        }
+    };
+
+    pub fn runtimeFieldIterator(s: *const Struct) RuntimeFieldIterator {
+        return .{ .struct_obj = s };
     }
 };
 
@@ -6481,6 +6519,7 @@ pub const Feature = enum {
     error_return_trace,
     is_named_enum_value,
     error_set_has_value,
+    field_reordering,
 };
 
 pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
@@ -6493,5 +6532,6 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .error_return_trace => mod.comp.bin_file.options.use_llvm,
         .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
         .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+        .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
 }

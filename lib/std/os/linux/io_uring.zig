@@ -954,7 +954,7 @@ pub const IO_Uring = struct {
     pub fn register_files_update(self: *IO_Uring, offset: u32, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
 
-        const FilesUpdate = struct {
+        const FilesUpdate = extern struct {
             offset: u32,
             resv: u32,
             fds: u64 align(8),
