@@ -237,11 +237,13 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
                 else => @intCast(usize, ctx.mcontext.pc),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
                 else => @intCast(usize, ctx.mcontext.regs[29]),
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };

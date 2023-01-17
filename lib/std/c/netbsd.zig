@@ -1061,17 +1061,37 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** SIG.WORDS };
 
-// XXX x86_64 specific
-pub const mcontext_t = extern struct {
-    gregs: [26]u64,
-    mc_tlsbase: u64,
-    fpregs: [512]u8 align(8),
+pub const mcontext_t = switch (builtin.cpu.arch) {
+    .aarch64 => extern struct {
+        gregs: [35]u64,
+        fregs: [528]u8 align(16),
+        spare: [8]u64,
+    },
+    .x86_64 => extern struct {
+        gregs: [26]u64,
+        mc_tlsbase: u64,
+        fpregs: [512]u8 align(8),
+    },
+    else => struct {},
 };
 
-pub const REG = struct {
-    pub const RBP = 12;
-    pub const RIP = 21;
-    pub const RSP = 24;
+pub const REG = switch (builtin.cpu.arch) {
+    .aarch64 => struct {
+        pub const FP = 29;
+        pub const SP = 31;
+        pub const PC = 32;
+    },
+    .arm => struct {
+        pub const FP = 11;
+        pub const SP = 13;
+        pub const PC = 15;
+    },
+    .x86_64 => struct {
+        pub const RBP = 12;
+        pub const RIP = 21;
+        pub const RSP = 24;
+    },
+    else => struct {},
 };
 
 pub const ucontext_t = extern struct {
