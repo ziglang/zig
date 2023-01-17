@@ -1296,6 +1296,23 @@ pub fn WSACleanup() !void {
 
 var wsa_startup_mutex: std.Thread.Mutex = .{};
 
+pub fn callWSAStartup() !void {
+    wsa_startup_mutex.lock();
+    defer wsa_startup_mutex.unlock();
+
+    // Here we could use a flag to prevent multiple threads to prevent
+    // multiple calls to WSAStartup, but it doesn't matter. We're globally
+    // leaking the resource intentionally, and the mutex already prevents
+    // data races within the WSAStartup function.
+    _ = WSAStartup(2, 2) catch |err| switch (err) {
+        error.SystemNotAvailable => return error.SystemResources,
+        error.VersionNotSupported => return error.Unexpected,
+        error.BlockingOperationInProgress => return error.Unexpected,
+        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
+        error.Unexpected => return error.Unexpected,
+    };
+}
+
 /// Microsoft requires WSAStartup to be called to initialize, or else
 /// WSASocketW will return WSANOTINITIALISED.
 /// Since this is a standard library, we do not have the luxury of
@@ -1338,21 +1355,7 @@ pub fn WSASocketW(
                 .WSANOTINITIALISED => {
                     if (!first) return error.Unexpected;
                     first = false;
-
-                    wsa_startup_mutex.lock();
-                    defer wsa_startup_mutex.unlock();
-
-                    // Here we could use a flag to prevent multiple threads to prevent
-                    // multiple calls to WSAStartup, but it doesn't matter. We're globally
-                    // leaking the resource intentionally, and the mutex already prevents
-                    // data races within the WSAStartup function.
-                    _ = WSAStartup(2, 2) catch |err| switch (err) {
-                        error.SystemNotAvailable => return error.SystemResources,
-                        error.VersionNotSupported => return error.Unexpected,
-                        error.BlockingOperationInProgress => return error.Unexpected,
-                        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-                        error.Unexpected => return error.Unexpected,
-                    };
+                    try callWSAStartup();
                     continue;
                 },
                 else => |err| return unexpectedWSAError(err),
