@@ -488,7 +488,7 @@ pub fn main() !void {
         purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
         substitution in the {#syntax#}print{#endsyntax#} function. The curly-braces inside of the first argument
         are substituted with the compile-time known value inside of the second argument
-        (known as an {#link|anonymous struct literal|Anonymous Struct Literals#}). The <code>\n</code>
+        (known as an {#link|tuple|Tuples#}). The <code>\n</code>
         inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
         newline character. The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}.
         If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
