@@ -61,8 +61,10 @@ pub const Attribute = enum {
     countryName,
     localityName,
     stateOrProvinceName,
+    streetAddress,
     organizationName,
     organizationalUnitName,
+    postalCode,
     organizationIdentifier,
     pkcs9_emailAddress,
     domainComponent,
@@ -73,8 +75,10 @@ pub const Attribute = enum {
         .{ &[_]u8{ 0x55, 0x04, 0x06 }, .countryName },
         .{ &[_]u8{ 0x55, 0x04, 0x07 }, .localityName },
         .{ &[_]u8{ 0x55, 0x04, 0x08 }, .stateOrProvinceName },
+        .{ &[_]u8{ 0x55, 0x04, 0x09 }, .streetAddress },
         .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
         .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
+        .{ &[_]u8{ 0x55, 0x04, 0x11 }, .postalCode },
         .{ &[_]u8{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
         .{ &[_]u8{ 0x09, 0x92, 0x26, 0x89, 0x93, 0xF2, 0x2C, 0x64, 0x01, 0x19 }, .domainComponent },
@@ -389,13 +393,16 @@ pub fn parse(cert: Certificate) !Parsed {
             var atav_i = atav.slice.start;
             while (atav_i < atav.slice.end) {
                 const ty_elem = try der.Element.parse(cert_bytes, atav_i);
-                const ty = try parseAttribute(cert_bytes, ty_elem);
                 const val = try der.Element.parse(cert_bytes, ty_elem.slice.end);
+                atav_i = val.slice.end;
+                const ty = parseAttribute(cert_bytes, ty_elem) catch |err| switch (err) {
+                    error.CertificateHasUnrecognizedObjectId => continue,
+                    else => |e| return e,
+                };
                 switch (ty) {
                     .commonName => common_name = val.slice,
                     else => {},
                 }
-                atav_i = val.slice.end;
             }
             rdn_i = atav.slice.end;
         }
