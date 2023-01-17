@@ -57,10 +57,8 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
 pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
-        .windows => {
-            // TODO
-        },
         .macos => return rescanMac(cb, gpa),
+        .windows => return rescanWindows(cb, gpa),
         else => {},
     }
 }
@@ -106,6 +104,38 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
         }
     }
 
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+
+    const w = std.os.windows;
+    const GetLastError = w.kernel32.GetLastError;
+    const root = [4:0]u16{ 'R', 'O', 'O', 'T' };
+    const store = w.crypt32.CertOpenSystemStoreW(null, &root) orelse switch (GetLastError()) {
+        .FILE_NOT_FOUND => return error.FileNotFound,
+        else => |err| return w.unexpectedError(err),
+    };
+    defer _ = w.crypt32.CertCloseStore(store, 0);
+
+    var ctx = w.crypt32.CertEnumCertificatesInStore(store, null);
+    while (ctx) |context| : (ctx = w.crypt32.CertEnumCertificatesInStore(store, ctx)) {
+        const decoded_start = @intCast(u32, cb.bytes.items.len);
+        const encoded_cert = context.pbCertEncoded[0..context.cbCertEncoded];
+        try cb.bytes.appendSlice(gpa, encoded_cert);
+        const parsed_cert = try Certificate.parse(.{
+            .buffer = cb.bytes.items,
+            .index = decoded_start,
+        });
+        const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
+        if (gop.found_existing) {
+            cb.bytes.items.len = decoded_start;
+        } else {
+            gop.value_ptr.* = decoded_start;
+        }
+    }
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
