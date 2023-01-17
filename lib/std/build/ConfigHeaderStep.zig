@@ -188,34 +188,7 @@ fn render_autoconf(
             any_errors = true;
             continue;
         };
-        switch (kv.value) {
-            .undef => {
-                try output.appendSlice("/* #undef ");
-                try output.appendSlice(name);
-                try output.appendSlice(" */\n");
-            },
-            .defined => {
-                try output.appendSlice("#define ");
-                try output.appendSlice(name);
-                try output.appendSlice("\n");
-            },
-            .boolean => |b| {
-                try output.appendSlice("#define ");
-                try output.appendSlice(name);
-                try output.appendSlice(" ");
-                try output.appendSlice(if (b) "true\n" else "false\n");
-            },
-            .int => |i| {
-                try output.writer().print("#define {s} {d}\n", .{ name, i });
-            },
-            .ident => |ident| {
-                try output.writer().print("#define {s} {s}\n", .{ name, ident });
-            },
-            .string => |string| {
-                // TODO: use C-specific escaping instead of zig string literals
-                try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
-            },
-        }
+        try renderValue(output, name, kv.value);
     }
 
     {
@@ -237,9 +210,79 @@ fn render_cmake(
     values_copy: *std.StringHashMap(Value),
     src_path: []const u8,
 ) !void {
-    _ = contents;
-    _ = output;
-    _ = values_copy;
-    _ = src_path;
-    @panic("TODO: render_cmake is not implemented yet");
+    var any_errors = false;
+    var line_index: u32 = 0;
+    var line_it = std.mem.split(u8, contents, "\n");
+    while (line_it.next()) |line| : (line_index += 1) {
+        if (!std.mem.startsWith(u8, line, "#")) {
+            try output.appendSlice(line);
+            try output.appendSlice("\n");
+            continue;
+        }
+        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        const cmakedefine = it.next().?;
+        if (!std.mem.eql(u8, cmakedefine, "cmakedefine")) {
+            try output.appendSlice(line);
+            try output.appendSlice("\n");
+            continue;
+        }
+        const name = it.next() orelse {
+            std.debug.print("{s}:{d}: error: missing define name\n", .{
+                src_path, line_index + 1,
+            });
+            any_errors = true;
+            continue;
+        };
+        const kv = values_copy.fetchRemove(name) orelse {
+            std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
+                src_path, line_index + 1, name,
+            });
+            any_errors = true;
+            continue;
+        };
+        try renderValue(output, name, kv.value);
+    }
+
+    {
+        var it = values_copy.iterator();
+        while (it.next()) |entry| {
+            const name = entry.key_ptr.*;
+            std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
+        }
+    }
+
+    if (any_errors) {
+        return error.HeaderConfigFailed;
+    }
+}
+
+fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
+    switch (value) {
+        .undef => {
+            try output.appendSlice("/* #undef ");
+            try output.appendSlice(name);
+            try output.appendSlice(" */\n");
+        },
+        .defined => {
+            try output.appendSlice("#define ");
+            try output.appendSlice(name);
+            try output.appendSlice("\n");
+        },
+        .boolean => |b| {
+            try output.appendSlice("#define ");
+            try output.appendSlice(name);
+            try output.appendSlice(" ");
+            try output.appendSlice(if (b) "true\n" else "false\n");
+        },
+        .int => |i| {
+            try output.writer().print("#define {s} {d}\n", .{ name, i });
+        },
+        .ident => |ident| {
+            try output.writer().print("#define {s} {s}\n", .{ name, ident });
+        },
+        .string => |string| {
+            // TODO: use C-specific escaping instead of zig string literals
+            try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
+        },
+    }
 }

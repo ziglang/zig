@@ -474,9 +474,8 @@ pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8, options: Inst
     return self.builder.installRaw(self, dest_filename, options);
 }
 
-pub fn installHeader(a: *LibExeObjStep, src_path: []const u8) void {
-    const basename = fs.path.basename(src_path);
-    const install_file = a.builder.addInstallHeaderFile(src_path, basename);
+pub fn installHeader(a: *LibExeObjStep, src_path: []const u8, dest_rel_path: []const u8) void {
+    const install_file = a.builder.addInstallHeaderFile(src_path, dest_rel_path);
     a.builder.getInstallStep().dependOn(&install_file.step);
     a.installed_headers.append(&install_file.step) catch unreachable;
 }
@@ -486,7 +485,7 @@ pub fn installHeadersDirectory(
     src_dir_path: []const u8,
     dest_rel_path: []const u8,
 ) void {
-    return a.builder.addInstallDirectoryOptions(.{
+    return installHeadersDirectoryOptions(a, .{
         .source_dir = src_dir_path,
         .install_dir = .header,
         .install_subdir = dest_rel_path,
