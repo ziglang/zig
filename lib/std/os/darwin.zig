@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const log = std.log;
 const mem = std.mem;
 
+pub const cssm = @import("darwin/cssm.zig");
+
 pub usingnamespace std.c;
 pub usingnamespace mach_task;
 

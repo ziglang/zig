@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const mem = std.mem;
 const fs = std.fs;
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const Bundle = @import("../Bundle.zig");
 
@@ -40,7 +40,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) !void {
 
         const table_header = try reader.readStructBig(TableHeader);
 
-        if (@intToEnum(TableId, table_header.table_id) != TableId.CSSM_DL_DB_RECORD_X509_CERTIFICATE) {
+        if (@intToEnum(std.os.darwin.cssm.DB_RECORDTYPE, table_header.table_id) != .X509_CERTIFICATE) {
             continue;
         }
 
@@ -91,35 +91,6 @@ const TableHeader = extern struct {
     indexes_offset: u32,
     free_list_head: u32,
     record_numbers_count: u32,
-};
-
-const TableId = enum(u32) {
-    CSSM_DL_DB_SCHEMA_INFO = 0x00000000,
-    CSSM_DL_DB_SCHEMA_INDEXES = 0x00000001,
-    CSSM_DL_DB_SCHEMA_ATTRIBUTES = 0x00000002,
-    CSSM_DL_DB_SCHEMA_PARSING_MODULE = 0x00000003,
-
-    CSSM_DL_DB_RECORD_ANY = 0x0000000a,
-    CSSM_DL_DB_RECORD_CERT = 0x0000000b,
-    CSSM_DL_DB_RECORD_CRL = 0x0000000c,
-    CSSM_DL_DB_RECORD_POLICY = 0x0000000d,
-    CSSM_DL_DB_RECORD_GENERIC = 0x0000000e,
-    CSSM_DL_DB_RECORD_PUBLIC_KEY = 0x0000000f,
-    CSSM_DL_DB_RECORD_PRIVATE_KEY = 0x00000010,
-    CSSM_DL_DB_RECORD_SYMMETRIC_KEY = 0x00000011,
-    CSSM_DL_DB_RECORD_ALL_KEYS = 0x00000012,
-
-    CSSM_DL_DB_RECORD_GENERIC_PASSWORD = 0x80000000,
-    CSSM_DL_DB_RECORD_INTERNET_PASSWORD = 0x80000001,
-    CSSM_DL_DB_RECORD_APPLESHARE_PASSWORD = 0x80000002,
-    CSSM_DL_DB_RECORD_USER_TRUST = 0x80000003,
-    CSSM_DL_DB_RECORD_X509_CRL = 0x80000004,
-    CSSM_DL_DB_RECORD_UNLOCK_REFERRAL = 0x80000005,
-    CSSM_DL_DB_RECORD_EXTENDED_ATTRIBUTE = 0x80000006,
-    CSSM_DL_DB_RECORD_X509_CERTIFICATE = 0x80001000,
-    CSSM_DL_DB_RECORD_METADATA = 0x80008000,
-
-    _,
 };
 
 const X509CertHeader = extern struct {
