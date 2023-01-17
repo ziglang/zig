@@ -87,10 +87,12 @@ pub const Attribute = enum {
 
 pub const NamedCurve = enum {
     secp384r1,
+    secp521r1,
     X9_62_prime256v1,
 
     pub const map = std.ComptimeStringMap(NamedCurve, .{
         .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x22 }, .secp384r1 },
+        .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
     });
 };
@@ -754,6 +756,9 @@ fn verify_ecdsa(
     };
 
     switch (sig_named_curve) {
+        .secp521r1 => {
+            return error.CertificateSignatureNamedCurveUnsupported;
+        },
         .secp384r1 => {
             const P = crypto.ecc.P384;
             const Ecdsa = crypto.sign.ecdsa.Ecdsa(P, Hash);
