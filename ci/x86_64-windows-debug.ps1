@@ -30,17 +30,17 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
 }
 
 Write-Output "Building from source..."
-Remove-Item -Path 'build-release' -Recurse -Force -ErrorAction Ignore
-New-Item -Path 'build-release' -ItemType Directory
-Set-Location -Path 'build-release'
+Remove-Item -Path 'build-debug' -Recurse -Force -ErrorAction Ignore
+New-Item -Path 'build-debug' -ItemType Directory
+Set-Location -Path 'build-debug'
 
 # CMake gives a syntax error when file paths with backward slashes are used.
 # Here, we use forward slashes only to work around this.
 & cmake .. `
   -GNinja `
-  -DCMAKE_INSTALL_PREFIX="stage3-release" `
+  -DCMAKE_INSTALL_PREFIX="stage3-debug" `
   -DCMAKE_PREFIX_PATH="$($PREFIX_PATH -Replace "\\", "/")" `
-  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_BUILD_TYPE=Debug `
   -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DZIG_TARGET_TRIPLE="$TARGET" `
@@ -52,7 +52,7 @@ ninja install
 CheckLastExitCode
 
 Write-Output "Main test suite..."
-& "stage3-release\bin\zig.exe" build test docs `
+& "stage3-debug\bin\zig.exe" build test docs `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
@@ -61,23 +61,23 @@ Write-Output "Main test suite..."
 CheckLastExitCode
 
 Write-Output "Testing Autodocs..."
-& "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
+& "stage3-debug\bin\zig.exe" test "..\lib\std\std.zig" `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -femit-docs `
   -fno-emit-bin
 CheckLastExitCode
 
-Write-Output "Build behaviour tests using the C backend..."
-& "stage3-release\bin\zig.exe" test `
+Write-Output "Build behavior tests using the C backend..."
+& "stage3-debug\bin\zig.exe" test `
   ..\test\behavior.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -I..\test `
   -I..\lib `
   -ofmt=c `
-  -femit-bin="test_behaviour.c"
+  -femit-bin="test_behavior.c"
 CheckLastExitCode
 
-& "stage3-release\bin\zig.exe" build-obj `
+& "stage3-debug\bin\zig.exe" build-obj `
   ..\lib\compiler_rt.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -ofmt=c `
@@ -95,9 +95,9 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\E
   -StartInPath $(Get-Location)
 CheckLastExitCode
 
-Write-Output "Build and run behaviour tests with msvc..."
-& cl.exe -I..\lib test_behaviour.c compiler_rt.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
+Write-Output "Build and run behavior tests with msvc..."
+& cl.exe -I..\lib test_behavior.c compiler_rt.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
 CheckLastExitCode
 
-& .\test_behaviour.exe
+& .\test_behavior.exe
 CheckLastExitCode
