@@ -37,6 +37,24 @@ test "truncate to non-power-of-two integers" {
     try testTrunc(i32, i5, std.math.maxInt(i32), -1);
 }
 
+test "truncate to non-power-of-two integers from 128-bit" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010101, 0x01);
+    try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010110, 0x00);
+    try testTrunc(u128, u2, 0xffffffff_ffffffff_ffffffff_01010101, 0x01);
+    try testTrunc(u128, u2, 0xffffffff_ffffffff_ffffffff_01010102, 0x02);
+    try testTrunc(i128, i5, -4, -4);
+    try testTrunc(i128, i5, 4, 4);
+    try testTrunc(i128, i5, -28, 4);
+    try testTrunc(i128, i5, 28, -4);
+    try testTrunc(i128, i5, std.math.maxInt(i128), -1);
+}
+
 fn testTrunc(comptime Big: type, comptime Little: type, big: Big, little: Little) !void {
     try expect(@truncate(Little, big) == little);
 }
@@ -872,7 +890,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 }
 
 test "try in labeled block doesn't cast to wrong type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -1018,7 +1035,6 @@ comptime {
 }
 
 test "switch inside @as gets correct type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u32 = 0;

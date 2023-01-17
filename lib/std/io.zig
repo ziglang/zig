@@ -19,14 +19,7 @@ pub const Mode = enum {
     evented,
 };
 
-/// The application's chosen I/O mode. This defaults to `Mode.blocking` but can be overridden
-/// by `root.event_loop`.
-pub const mode: Mode = if (@hasDecl(root, "io_mode"))
-    root.io_mode
-else if (@hasDecl(root, "event_loop"))
-    Mode.evented
-else
-    Mode.blocking;
+const mode = std.options.io_mode;
 pub const is_async = mode != .blocking;
 
 /// This is an enum value to use for I/O mode at runtime, since it takes up zero bytes at runtime,
@@ -121,6 +114,7 @@ pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
+pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
 
 pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
 pub const peekStream = @import("io/peek_stream.zig").peekStream;

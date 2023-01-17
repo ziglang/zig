@@ -13,12 +13,10 @@ const Decl = Module.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;
 
-/// To use these crash report diagnostics, publish these symbols in your main file.
+/// To use these crash report diagnostics, publish this panic in your main file
+/// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const root_decls = struct {
-    pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
-    pub const enable_segfault_handler = false;
-};
+pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {

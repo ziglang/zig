@@ -520,6 +520,10 @@ pub const Object = struct {
         if (options.pie) llvm_module.setModulePIELevel();
         if (code_model != .Default) llvm_module.setModuleCodeModel(code_model);
 
+        if (options.opt_bisect_limit >= 0) {
+            context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
+        }
+
         return Object{
             .gpa = gpa,
             .module = options.module.?,
@@ -1459,7 +1463,8 @@ pub const Object = struct {
                     .signed => DW.ATE.signed,
                     .unsigned => DW.ATE.unsigned,
                 };
-                const di_type = dib.createBasicType(name, info.bits, dwarf_encoding);
+                const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType(name, di_bits, dwarf_encoding);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1550,7 +1555,8 @@ pub const Object = struct {
                 return di_type;
             },
             .Bool => {
-                const di_type = dib.createBasicType("bool", 1, DW.ATE.boolean);
+                const di_bits = 8; // lldb cannot handle non-byte sized types
+                const di_type = dib.createBasicType("bool", di_bits, DW.ATE.boolean);
                 gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
                 return di_type;
             },
@@ -1723,10 +1729,31 @@ pub const Object = struct {
                 return array_di_ty;
             },
             .Vector => {
+                const elem_ty = ty.elemType2();
+                // Vector elements cannot be padded since that would make
+                // @bitSizOf(elem) * len > @bitSizOf(vec).
+                // Neither gdb nor lldb seem to be able to display non-byte sized
+                // vectors properly.
+                const elem_di_type = switch (elem_ty.zigTypeTag()) {
+                    .Int => blk: {
+                        const info = elem_ty.intInfo(target);
+                        assert(info.bits != 0);
+                        const name = try ty.nameAlloc(gpa, o.module);
+                        defer gpa.free(name);
+                        const dwarf_encoding: c_uint = switch (info.signedness) {
+                            .signed => DW.ATE.signed,
+                            .unsigned => DW.ATE.unsigned,
+                        };
+                        break :blk dib.createBasicType(name, info.bits, dwarf_encoding);
+                    },
+                    .Bool => dib.createBasicType("bool", 1, DW.ATE.boolean),
+                    else => try o.lowerDebugType(ty.childType(), .full),
+                };
+
                 const vector_di_ty = dib.createVectorType(
                     ty.abiSize(target) * 8,
                     ty.abiAlignment(target) * 8,
-                    try o.lowerDebugType(ty.childType(), .full),
+                    elem_di_type,
                     ty.vectorLen(),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -1739,7 +1766,8 @@ pub const Object = struct {
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
                 if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
-                    const di_ty = dib.createBasicType(name, 1, DW.ATE.boolean);
+                    const di_bits = 8; // lldb cannot handle non-byte sized types
+                    const di_ty = dib.createBasicType(name, di_bits, DW.ATE.boolean);
                     gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                     return di_ty;
                 }
@@ -1934,7 +1962,8 @@ pub const Object = struct {
                             .signed => DW.ATE.signed,
                             .unsigned => DW.ATE.unsigned,
                         };
-                        const di_ty = dib.createBasicType(name, info.bits, dwarf_encoding);
+                        const di_bits = ty.abiSize(target) * 8; // lldb cannot handle non-byte sized types
+                        const di_ty = dib.createBasicType(name, di_bits, dwarf_encoding);
                         gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                         return di_ty;
                     }
@@ -2054,15 +2083,15 @@ pub const Object = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
 
-                for (fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_size = field.ty.abiSize(target);
                     const field_align = field.alignment(target, layout);
                     const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                     offset = field_offset + field_size;
 
-                    const field_name = try gpa.dupeZ(u8, fields.keys()[i]);
+                    const field_name = try gpa.dupeZ(u8, fields.keys()[field_and_index.index]);
                     defer gpa.free(field_name);
 
                     try di_fields.append(gpa, dib.createMemberType(
@@ -2956,9 +2985,9 @@ pub const DeclGen = struct {
                 var big_align: u32 = 1;
                 var any_underaligned_fields = false;
 
-                for (struct_obj.fields.values()) |field| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = struct_obj.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_align = field.alignment(target, struct_obj.layout);
                     const field_ty_align = field.ty.abiAlignment(target);
                     any_underaligned_fields = any_underaligned_fields or
@@ -3258,15 +3287,24 @@ pub const DeclGen = struct {
             .Float => {
                 const llvm_ty = try dg.lowerType(tv.ty);
                 switch (tv.ty.floatBits(target)) {
-                    16 => if (intrinsicsAllowed(tv.ty, target)) {
-                        return llvm_ty.constReal(tv.val.toFloat(f16));
-                    } else {
+                    16 => {
                         const repr = @bitCast(u16, tv.val.toFloat(f16));
                         const llvm_i16 = dg.context.intType(16);
                         const int = llvm_i16.constInt(repr, .False);
                         return int.constBitCast(llvm_ty);
                     },
-                    32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
+                    32 => {
+                        const repr = @bitCast(u32, tv.val.toFloat(f32));
+                        const llvm_i32 = dg.context.intType(32);
+                        const int = llvm_i32.constInt(repr, .False);
+                        return int.constBitCast(llvm_ty);
+                    },
+                    64 => {
+                        const repr = @bitCast(u64, tv.val.toFloat(f64));
+                        const llvm_i64 = dg.context.intType(64);
+                        const int = llvm_i64.constInt(repr, .False);
+                        return int.constBitCast(llvm_ty);
+                    },
                     80 => {
                         const float = tv.val.toFloat(f80);
                         const repr = std.math.break_f80(float);
@@ -3676,9 +3714,9 @@ pub const DeclGen = struct {
                 var big_align: u32 = 0;
                 var need_unnamed = false;
 
-                for (struct_obj.fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+                var it = struct_obj.runtimeFieldIterator();
+                while (it.next()) |field_and_index| {
+                    const field = field_and_index.field;
                     const field_align = field.alignment(target, struct_obj.layout);
                     big_align = @max(big_align, field_align);
                     const prev_offset = offset;
@@ -3694,7 +3732,7 @@ pub const DeclGen = struct {
 
                     const field_llvm_val = try dg.lowerValue(.{
                         .ty = field.ty,
-                        .val = field_vals[i],
+                        .val = field_vals[field_and_index.index],
                     });
 
                     need_unnamed = need_unnamed or dg.isUnnamedType(field.ty, field_llvm_val);
@@ -4175,6 +4213,7 @@ pub const DeclGen = struct {
         // verbatim, and the result should test as non-null.
         const target = dg.module.getTarget();
         const int = switch (target.cpu.arch.ptrBitWidth()) {
+            16 => llvm_usize.constInt(0xaaaa, .False),
             32 => llvm_usize.constInt(0xaaaaaaaa, .False),
             64 => llvm_usize.constInt(0xaaaaaaaa_aaaaaaaa, .False),
             else => unreachable,
@@ -8062,7 +8101,7 @@ pub const FuncGen = struct {
                 return arg_val;
             }
 
-            const src_index = self.getSrcArgIndex(self.arg_index - 1);
+            const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
             const func = self.dg.decl.getFunction().?;
             const lbrace_line = self.dg.module.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
             const lbrace_col = func.lbrace_column + 1;
@@ -8093,16 +8132,6 @@ pub const FuncGen = struct {
         }
 
         return arg_val;
-    }
-
-    fn getSrcArgIndex(self: *FuncGen, runtime_index: u32) u32 {
-        const fn_info = self.dg.decl.ty.fnInfo();
-        var i: u32 = 0;
-        for (fn_info.param_types) |param_ty, src_index| {
-            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-            if (i == runtime_index) return @intCast(u32, src_index);
-            i += 1;
-        } else unreachable;
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -10222,6 +10251,16 @@ fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: std.Targe
             .local => llvm.address_space.amdgpu.private,
             else => unreachable,
         },
+        .avr => switch (address_space) {
+            .generic => llvm.address_space.default,
+            .flash => llvm.address_space.avr.flash,
+            .flash1 => llvm.address_space.avr.flash1,
+            .flash2 => llvm.address_space.avr.flash2,
+            .flash3 => llvm.address_space.avr.flash3,
+            .flash4 => llvm.address_space.avr.flash4,
+            .flash5 => llvm.address_space.avr.flash5,
+            else => unreachable,
+        },
         else => switch (address_space) {
             .generic => llvm.address_space.default,
             else => unreachable,
@@ -10315,9 +10354,9 @@ fn llvmFieldIndex(
     assert(layout != .Packed);
 
     var llvm_field_index: c_uint = 0;
-    for (ty.structFields().values()) |field, i| {
-        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-
+    var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator();
+    while (it.next()) |field_and_index| {
+        const field = field_and_index.field;
         const field_align = field.alignment(target, layout);
         big_align = @max(big_align, field_align);
         const prev_offset = offset;
@@ -10328,7 +10367,7 @@ fn llvmFieldIndex(
             llvm_field_index += 1;
         }
 
-        if (field_index <= i) {
+        if (field_index == field_and_index.index) {
             ptr_pl_buf.* = .{
                 .data = .{
                     .pointee_type = field.ty,
@@ -10356,7 +10395,12 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .mips, .mipsel => return false,
             .x86_64 => switch (target.os.tag) {
                 .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
-                else => return x86_64_abi.classifySystemV(fn_info.return_type, target, .ret)[0] == .memory,
+                else => {
+                    const class = x86_64_abi.classifySystemV(fn_info.return_type, target, .ret);
+                    if (class[0] == .memory) return true;
+                    if (class[0] == .x87 and class[2] != .none) return true;
+                    return false;
+                },
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target) == .memory,
@@ -10430,22 +10474,26 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                                     llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
                                     llvm_types_index += 1;
                                 },
-                                .sse => {
+                                .sse, .sseup => {
                                     llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
                                     llvm_types_index += 1;
                                 },
-                                .sseup => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                                .float => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType();
+                                    llvm_types_index += 1;
+                                },
+                                .float_combine => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
                                     llvm_types_index += 1;
                                 },
                                 .x87 => {
+                                    if (llvm_types_index != 0 or classes[2] != .none) {
+                                        return dg.context.voidType();
+                                    }
                                     llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
                                     llvm_types_index += 1;
                                 },
-                                .x87up => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                    llvm_types_index += 1;
-                                },
+                                .x87up => continue,
                                 .complex_x87 => {
                                     @panic("TODO");
                                 },
@@ -10650,22 +10698,25 @@ const ParamTypeIterator = struct {
                                         llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
                                         llvm_types_index += 1;
                                     },
-                                    .sse => {
+                                    .sse, .sseup => {
                                         llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
                                         llvm_types_index += 1;
                                     },
-                                    .sseup => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                                    .float => {
+                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType();
+                                        llvm_types_index += 1;
+                                    },
+                                    .float_combine => {
+                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
                                         llvm_types_index += 1;
                                     },
                                     .x87 => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                        llvm_types_index += 1;
+                                        it.zig_index += 1;
+                                        it.llvm_index += 1;
+                                        it.byval_attr = true;
+                                        return .byref;
                                     },
-                                    .x87up => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                        llvm_types_index += 1;
-                                    },
+                                    .x87up => unreachable,
                                     .complex_x87 => {
                                         @panic("TODO");
                                     },

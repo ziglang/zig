@@ -174,6 +174,14 @@ pub const AddressSpace = enum {
     param,
     shared,
     local,
+
+    // AVR address spaces.
+    flash,
+    flash1,
+    flash2,
+    flash3,
+    flash4,
+    flash5,
 };
 
 /// This data structure is used by the Zig language code generation and

@@ -1390,6 +1390,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.z_nocopyreloc);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        man.hash.add(self.base.options.z_common_page_size orelse 0);
+        man.hash.add(self.base.options.z_max_page_size orelse 0);
         man.hash.add(self.base.options.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
@@ -1593,6 +1595,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (!self.base.options.z_relro) {
             // LLD defaults to -zrelro
             try argv.append("-znorelro");
+        }
+        if (self.base.options.z_common_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "common-page-size={d}", .{size}));
+        }
+        if (self.base.options.z_max_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "max-page-size={d}", .{size}));
         }
 
         if (getLDMOption(target)) |ldm| {
@@ -3058,27 +3068,22 @@ const CsuObjects = struct {
 
         var result: CsuObjects = .{};
 
-        // TODO: https://github.com/ziglang/zig/issues/4629
-        // - use inline enum type
-        // - reduce to enum-literals for values
-        const Mode = enum {
+        // Flatten crt cases.
+        const mode: enum {
             dynamic_lib,
             dynamic_exe,
             dynamic_pie,
             static_exe,
             static_pie,
-        };
-
-        // Flatten crt case types.
-        const mode: Mode = switch (link_options.output_mode) {
+        } = switch (link_options.output_mode) {
             .Obj => return CsuObjects{},
             .Lib => switch (link_options.link_mode) {
-                .Dynamic => Mode.dynamic_lib,
+                .Dynamic => .dynamic_lib,
                 .Static => return CsuObjects{},
             },
             .Exe => switch (link_options.link_mode) {
-                .Dynamic => if (link_options.pie) Mode.dynamic_pie else Mode.dynamic_exe,
-                .Static => if (link_options.pie) Mode.static_pie else Mode.static_exe,
+                .Dynamic => if (link_options.pie) .dynamic_pie else .dynamic_exe,
+                .Static => if (link_options.pie) .static_pie else .static_exe,
             },
         };
 
@@ -3108,7 +3113,6 @@ const CsuObjects = struct {
                         // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
                         // and they are not known at comptime. For now null-out crtbegin/end objects;
                         // there is no feature loss, zig has never linked those objects in before.
-                        // TODO: probe for paths, ie. `cc -print-file-name`
                         result.crtbegin = null;
                         result.crtend = null;
                     } else {

@@ -4,7 +4,7 @@ set -x
 set -e
 
 # Script assumes the presence of the following:
-# s3cmd 
+# s3cmd
 
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"

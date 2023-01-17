@@ -68,6 +68,10 @@ else()
   FIND_AND_ADD_CLANG_LIB(clangSupport)
 endif()
 
+if (MSVC)
+  set(CLANG_LIBRARIES ${CLANG_LIBRARIES} "version.lib")
+endif()
+
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(clang DEFAULT_MSG CLANG_LIBRARIES CLANG_INCLUDE_DIRS)
 

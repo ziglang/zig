@@ -250,31 +250,142 @@ test "atomicrmw with ints" {
         return error.SkipZigTest;
     }
 
-    try testAtomicRmwInt();
-    comptime try testAtomicRmwInt();
+    try testAtomicRmwInts();
+    comptime try testAtomicRmwInts();
 }
 
-fn testAtomicRmwInt() !void {
-    var x: u8 = 1;
-    var res = @atomicRmw(u8, &x, .Xchg, 3, .SeqCst);
-    try expect(x == 3 and res == 1);
-    _ = @atomicRmw(u8, &x, .Add, 3, .SeqCst);
-    try expect(x == 6);
-    _ = @atomicRmw(u8, &x, .Sub, 1, .SeqCst);
-    try expect(x == 5);
-    _ = @atomicRmw(u8, &x, .And, 4, .SeqCst);
-    try expect(x == 4);
-    _ = @atomicRmw(u8, &x, .Nand, 4, .SeqCst);
-    try expect(x == 0xfb);
-    _ = @atomicRmw(u8, &x, .Or, 6, .SeqCst);
-    try expect(x == 0xff);
-    _ = @atomicRmw(u8, &x, .Xor, 2, .SeqCst);
-    try expect(x == 0xfd);
+fn testAtomicRmwInts() !void {
+    // TODO: Use the max atomic bit size for the target, maybe builtin?
+    try testAtomicRmwInt(.unsigned, 8);
 
-    _ = @atomicRmw(u8, &x, .Max, 1, .SeqCst);
-    try expect(x == 0xfd);
-    _ = @atomicRmw(u8, &x, .Min, 1, .SeqCst);
-    try expect(x == 1);
+    if (builtin.cpu.arch == .x86_64) {
+        try testAtomicRmwInt(.unsigned, 16);
+        try testAtomicRmwInt(.unsigned, 32);
+        try testAtomicRmwInt(.unsigned, 64);
+    }
+}
+
+fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usize) !void {
+    const int = std.meta.Int(signedness, N);
+
+    var x: int = 1;
+    var res = @atomicRmw(int, &x, .Xchg, 3, .SeqCst);
+    try expect(x == 3 and res == 1);
+
+    res = @atomicRmw(int, &x, .Add, 3, .SeqCst);
+    var y: int = 3;
+    try expect(res == y);
+    y = y + 3;
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Sub, 1, .SeqCst);
+    try expect(res == y);
+    y = y - 1;
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .And, 4, .SeqCst);
+    try expect(res == y);
+    y = y & 4;
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Nand, 4, .SeqCst);
+    try expect(res == y);
+    y = ~(y & 4);
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Or, 6, .SeqCst);
+    try expect(res == y);
+    y = y | 6;
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Xor, 2, .SeqCst);
+    try expect(res == y);
+    y = y ^ 2;
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Max, 1, .SeqCst);
+    try expect(res == y);
+    y = @max(y, 1);
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Min, 1, .SeqCst);
+    try expect(res == y);
+    y = @min(y, 1);
+    try expect(x == y);
+}
+
+test "atomicrmw with 128-bit ints" {
+    if (builtin.cpu.arch != .x86_64) {
+        // TODO: Ideally this could use target.atomicPtrAlignment and check for IntTooBig
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    // TODO "ld.lld: undefined symbol: __sync_lock_test_and_set_16" on -mcpu x86_64
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
+    try testAtomicRmwInt128(.unsigned);
+    comptime try testAtomicRmwInt128(.unsigned);
+}
+
+fn testAtomicRmwInt128(comptime signedness: std.builtin.Signedness) !void {
+    const int = std.meta.Int(signedness, 128);
+
+    const initial: int = 0xaaaaaaaa_bbbbbbbb_cccccccc_dddddddd;
+    const replacement: int = 0x00000000_00000005_00000000_00000003;
+
+    var x: int align(16) = initial;
+    var res = @atomicRmw(int, &x, .Xchg, replacement, .SeqCst);
+    try expect(x == replacement and res == initial);
+
+    var operator: int = 0x00000001_00000000_20000000_00000000;
+    res = @atomicRmw(int, &x, .Add, operator, .SeqCst);
+    var y: int = replacement;
+    try expect(res == y);
+    y = y + operator;
+    try expect(x == y);
+
+    operator = 0x00000000_10000000_00000000_20000000;
+    res = @atomicRmw(int, &x, .Sub, operator, .SeqCst);
+    try expect(res == y);
+    y = y - operator;
+    try expect(x == y);
+
+    operator = 0x12345678_87654321_12345678_87654321;
+    res = @atomicRmw(int, &x, .And, operator, .SeqCst);
+    try expect(res == y);
+    y = y & operator;
+    try expect(x == y);
+
+    operator = 0x00000000_10000000_00000000_20000000;
+    res = @atomicRmw(int, &x, .Nand, operator, .SeqCst);
+    try expect(res == y);
+    y = ~(y & operator);
+    try expect(x == y);
+
+    operator = 0x12340000_56780000_67890000_98760000;
+    res = @atomicRmw(int, &x, .Or, operator, .SeqCst);
+    try expect(res == y);
+    y = y | operator;
+    try expect(x == y);
+
+    operator = 0x0a0b0c0d_0e0f0102_03040506_0708090a;
+    res = @atomicRmw(int, &x, .Xor, operator, .SeqCst);
+    try expect(res == y);
+    y = y ^ operator;
+    try expect(x == y);
+
+    operator = 0x00000000_10000000_00000000_20000000;
+    res = @atomicRmw(int, &x, .Max, operator, .SeqCst);
+    try expect(res == y);
+    y = @max(y, operator);
+    try expect(x == y);
+
+    res = @atomicRmw(int, &x, .Min, operator, .SeqCst);
+    try expect(res == y);
+    y = @min(y, operator);
+    try expect(x == y);
 }
 
 test "atomics with different types" {

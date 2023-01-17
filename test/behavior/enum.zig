@@ -1185,3 +1185,13 @@ test "runtime int to enum with one possible value" {
         @compileError("test failed");
     }
 }
+
+test "enum tag from a local variable" {
+    const S = struct {
+        fn Int(comptime Inner: type) type {
+            return enum(Inner) { _ };
+        }
+    };
+    const i = @intToEnum(S.Int(u32), 0);
+    try std.testing.expect(@enumToInt(i) == 0);
+}

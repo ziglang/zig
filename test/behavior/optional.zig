@@ -448,3 +448,46 @@ test "Optional slice size is optimized" {
     a = "hello";
     try expectEqualStrings(a.?, "hello");
 }
+
+test "peer type resolution in nested if expressions" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const Thing = struct { n: i32 };
+    var a = false;
+    var b = false;
+
+    var result1 = if (a)
+        Thing{ .n = 1 }
+    else
+        null;
+    try expect(result1 == null);
+    try expect(@TypeOf(result1) == ?Thing);
+
+    var result2 = if (a)
+        Thing{ .n = 0 }
+    else if (b)
+        Thing{ .n = 1 }
+    else
+        null;
+    try expect(result2 == null);
+    try expect(@TypeOf(result2) == ?Thing);
+}
+
+test "cast slice to const slice nested in error union and optional" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        fn inner() !?[]u8 {
+            return error.Foo;
+        }
+        fn outer() !?[]const u8 {
+            return inner();
+        }
+    };
+    try std.testing.expectError(error.Foo, S.outer());
+}

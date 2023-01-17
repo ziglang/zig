@@ -273,7 +273,7 @@ pub const Target = struct {
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 1 },
                         },
                     },
                     .macos => return switch (arch) {
@@ -312,19 +312,19 @@ pub const Target = struct {
                     .netbsd => return .{
                         .semver = .{
                             .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 9, .minor = 1 },
+                            .max = .{ .major = 10, .minor = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 9 },
+                            .max = .{ .major = 7, .minor = 2 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
                             .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 0 },
+                            .max = .{ .major = 6, .minor = 4 },
                         },
                     },
                     .solaris => return .{
@@ -1186,6 +1186,8 @@ pub const Target = struct {
                     .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                     .global, .constant, .local, .shared => is_gpu,
                     .param => is_nvptx,
+                    // TODO this should also check how many flash banks the cpu has
+                    .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
                 };
             }
 

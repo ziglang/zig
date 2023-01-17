@@ -50,7 +50,9 @@ int __pthread_key_delete(pthread_key_t k)
 	sigset_t set;
 	pthread_t self = __pthread_self(), td=self;
 
+#ifdef __wasilibc_unmodified_upstream
 	__block_app_sigs(&set);
+#endif
 	__pthread_rwlock_wrlock(&key_lock);
 
 	__tl_lock();
@@ -61,7 +63,9 @@ int __pthread_key_delete(pthread_key_t k)
 	keys[k] = 0;
 
 	__pthread_rwlock_unlock(&key_lock);
+#ifdef __wasilibc_unmodified_upstream
 	__restore_sigs(&set);
+#endif
 
 	return 0;
 }

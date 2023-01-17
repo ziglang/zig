@@ -25,11 +25,23 @@ const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const crash_report = @import("crash_report.zig");
 
-// Crash report needs to override the panic handler and other root decls
-pub usingnamespace crash_report.root_decls;
+pub const std_options = struct {
+    pub const wasiCwd = wasi_cwd;
+    pub const logFn = log;
+    pub const enable_segfault_handler = false;
+
+    pub const log_level: std.log.Level = switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe, .ReleaseFast => .info,
+        .ReleaseSmall => .err,
+    };
+};
+
+// Crash report needs to override the panic handler
+pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
-pub inline fn wasi_cwd() fs.Dir {
+pub fn wasi_cwd() fs.Dir {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.os.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
@@ -111,12 +123,6 @@ const debug_usage = normal_usage ++
 
 const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 
-pub const log_level: std.log.Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe, .ReleaseFast => .info,
-    .ReleaseSmall => .err,
-};
-
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
 pub fn log(
@@ -128,7 +134,7 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.log.level) or
+    if (@enumToInt(level) > @enumToInt(std.options.log_level) or
         @enumToInt(level) > @enumToInt(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;
@@ -385,6 +391,7 @@ const usage_build_generic =
     \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
     \\            small|kernel|
     \\            medium|large]
+    \\  -x language               Treat subsequent input files as having type <language>
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
@@ -489,6 +496,8 @@ const usage_build_generic =
     \\    lazy                         Don't force all relocations to be processed on load
     \\    relro                        (default) Force all relocations to be read-only after processing
     \\    norelro                      Don't force all relocations to be read-only after processing
+    \\    common-page-size=[bytes]     Set the common page size for ELF binaries
+    \\    max-page-size=[bytes]        Set the max page size for ELF binaries
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -517,6 +526,7 @@ const usage_build_generic =
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     \\  --import-memory                (WebAssembly) import memory from the environment
+    \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
@@ -535,6 +545,7 @@ const usage_build_generic =
     \\  --test-runner [path]           Specify a custom test runner
     \\
     \\Debug Options (Zig Compiler Development):
+    \\  -fopt-bisect-limit [limit]   Only run [limit] first LLVM optimization passes
     \\  -ftime-report                Print timing diagnostics
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
@@ -627,6 +638,10 @@ const Emit = union(enum) {
 };
 
 fn optionalStringEnvVar(arena: Allocator, name: []const u8) !?[]const u8 {
+    // Env vars aren't used in the bootstrap stage.
+    if (build_options.only_c) {
+        return null;
+    }
     if (std.process.getEnvVarOwned(arena, name)) |value| {
         return value;
     } else |err| switch (err) {
@@ -666,8 +681,8 @@ fn buildOutputType(
     var no_builtin = false;
     var watch = false;
     var debug_compile_errors = false;
-    var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
-    var verbose_cc = std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
+    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
+    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
@@ -718,6 +733,7 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_memory: ?bool = null;
+    var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
     var linker_initial_memory: ?u64 = null;
@@ -727,6 +743,7 @@ fn buildOutputType(
     var linker_print_gc_sections: bool = false;
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
+    var linker_opt_bisect_limit: i32 = -1;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -734,10 +751,13 @@ fn buildOutputType(
     var linker_z_origin = false;
     var linker_z_now = true;
     var linker_z_relro = true;
+    var linker_z_common_page_size: ?u64 = null;
+    var linker_z_max_page_size: ?u64 = null;
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
     var linker_optimization: ?u8 = null;
+    var linker_module_definition_file: ?[]const u8 = null;
     var test_evented_io = false;
     var test_no_exec = false;
     var entry: ?[]const u8 = null;
@@ -777,6 +797,7 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var reference_trace: ?u32 = null;
+    var pdb_out_path: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -843,7 +864,8 @@ fn buildOutputType(
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
-    color = if (std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
+    color = if (builtin.os.tag == .wasi or std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -892,6 +914,7 @@ fn buildOutputType(
             var cssan = ClangSearchSanitizer.init(gpa, &clang_argv);
             defer cssan.map.deinit();
 
+            var file_ext: ?Compilation.FileExt = null;
             args_loop: while (args_iter.next()) |arg| {
                 if (mem.startsWith(u8, arg, "@")) {
                     // This is a "compiler response file". We must parse the file and treat its
@@ -1283,6 +1306,8 @@ fn buildOutputType(
                         no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
                         no_builtin = true;
+                    } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
+                        linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
@@ -1311,11 +1336,17 @@ fn buildOutputType(
                             linker_z_relro = true;
                         } else if (mem.eql(u8, z_arg, "norelro")) {
                             linker_z_relro = false;
+                        } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
+                            linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
+                        } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
+                            linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                         } else {
                             warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "--import-symbols")) {
+                        linker_import_symbols = true;
                     } else if (mem.eql(u8, arg, "--import-table")) {
                         linker_import_table = true;
                     } else if (mem.eql(u8, arg, "--export-table")) {
@@ -1372,6 +1403,15 @@ fn buildOutputType(
                         try clang_argv.append(arg);
                     } else if (mem.startsWith(u8, arg, "-I")) {
                         try cssan.addIncludePath(.I, arg, arg[2..], true);
+                    } else if (mem.eql(u8, arg, "-x")) {
+                        const lang = args_iter.nextOrFatal();
+                        if (mem.eql(u8, lang, "none")) {
+                            file_ext = null;
+                        } else if (Compilation.LangToExt.get(lang)) |got_ext| {
+                            file_ext = got_ext;
+                        } else {
+                            fatal("language not recognized: '{s}'", .{lang});
+                        }
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
                         wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
@@ -1379,24 +1419,23 @@ fn buildOutputType(
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
-                } else switch (Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => {
-                        try link_objects.append(.{ .path = arg });
-                    },
-                    .assembly, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
+                } else switch (file_ext orelse
+                    Compilation.classifyFileExt(arg)) {
+                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
+                            // duped when parsing the args.
+                            .ext = file_ext,
                         });
                     },
                     .zig => {
                         if (root_src_file) |other| {
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
-                        } else {
-                            root_src_file = arg;
-                        }
+                        } else root_src_file = arg;
                     },
-                    .unknown => {
+                    .def, .unknown => {
                         fatal("unrecognized file extension of parameter '{s}'", .{arg});
                     },
                 }
@@ -1435,6 +1474,7 @@ fn buildOutputType(
             var needed = false;
             var must_link = false;
             var force_static_libs = false;
+            var file_ext: ?Compilation.FileExt = null;
             while (it.has_next) {
                 it.next() catch |err| {
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
@@ -1455,29 +1495,39 @@ fn buildOutputType(
                     .asm_only => c_out_mode = .assembly, // -S
                     .preprocess_only => c_out_mode = .preprocessor, // -E
                     .emit_llvm => emit_llvm = true,
+                    .x => {
+                        const lang = mem.sliceTo(it.only_arg, 0);
+                        if (mem.eql(u8, lang, "none")) {
+                            file_ext = null;
+                        } else if (Compilation.LangToExt.get(lang)) |got_ext| {
+                            file_ext = got_ext;
+                        } else {
+                            fatal("language not recognized: '{s}'", .{lang});
+                        }
+                    },
                     .other => {
                         try clang_argv.appendSlice(it.other_args);
                     },
-                    .positional => {
-                        const file_ext = Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0));
-                        switch (file_ext) {
-                            .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
-                                try c_source_files.append(.{ .src_path = it.only_arg });
-                            },
-                            .unknown, .shared_library, .object, .static_library => {
-                                try link_objects.append(.{
-                                    .path = it.only_arg,
-                                    .must_link = must_link,
-                                });
-                            },
-                            .zig => {
-                                if (root_src_file) |other| {
-                                    fatal("found another zig file '{s}' after root source file '{s}'", .{ it.only_arg, other });
-                                } else {
-                                    root_src_file = it.only_arg;
-                                }
-                            },
-                        }
+                    .positional => switch (file_ext orelse
+                        Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
+                            try c_source_files.append(.{
+                                .src_path = it.only_arg,
+                                .ext = file_ext, // duped while parsing the args.
+                            });
+                        },
+                        .unknown, .shared_library, .object, .static_library => try link_objects.append(.{
+                            .path = it.only_arg,
+                            .must_link = must_link,
+                        }),
+                        .def => {
+                            linker_module_definition_file = it.only_arg;
+                        },
+                        .zig => {
+                            if (root_src_file) |other| {
+                                fatal("found another zig file '{s}' after root source file '{s}'", .{ it.only_arg, other });
+                            } else root_src_file = it.only_arg;
+                        },
                     },
                     .l => {
                         // -l
@@ -1529,7 +1579,10 @@ fn buildOutputType(
                     .no_stack_protector => want_stack_protector = 0,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
-                    .nostdlib => ensure_libc_on_non_freestanding = false,
+                    .nostdlib => {
+                        ensure_libc_on_non_freestanding = false;
+                        ensure_libcpp_on_non_freestanding = false;
+                    },
                     .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
                     .shared => {
                         link_mode = .Dynamic;
@@ -1839,6 +1892,8 @@ fn buildOutputType(
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     linker_import_memory = true;
+                } else if (mem.eql(u8, arg, "--import-symbols")) {
+                    linker_import_symbols = true;
                 } else if (mem.eql(u8, arg, "--import-table")) {
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
@@ -1899,6 +1954,10 @@ fn buildOutputType(
                         stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                             fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
+                    } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
+                        linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
+                    } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
+                        linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                     } else {
                         warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
@@ -2106,6 +2165,24 @@ fn buildOutputType(
                             next_arg,
                         });
                     };
+                } else if (mem.startsWith(u8, arg, "/subsystem:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    subsystem = try parseSubSystem(split_it.first());
+                } else if (mem.startsWith(u8, arg, "/implib:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    emit_implib = .{ .yes = split_it.first() };
+                    emit_implib_arg_provided = true;
+                } else if (mem.startsWith(u8, arg, "/pdb:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    pdb_out_path = split_it.first();
+                } else if (mem.startsWith(u8, arg, "/version:")) {
+                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    const version_arg = split_it.first();
+                    version = std.builtin.Version.parse(version_arg) catch |err| {
+                        fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+
+                    have_version = true;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2981,6 +3058,7 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_import_memory = linker_import_memory,
+        .linker_import_symbols = linker_import_symbols,
         .linker_import_table = linker_import_table,
         .linker_export_table = linker_export_table,
         .linker_initial_memory = linker_initial_memory,
@@ -2989,6 +3067,7 @@ fn buildOutputType(
         .linker_print_gc_sections = linker_print_gc_sections,
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
+        .linker_opt_bisect_limit = linker_opt_bisect_limit,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nocopyreloc = linker_z_nocopyreloc,
@@ -2998,11 +3077,14 @@ fn buildOutputType(
         .linker_z_origin = linker_z_origin,
         .linker_z_now = linker_z_now,
         .linker_z_relro = linker_z_relro,
+        .linker_z_common_page_size = linker_z_common_page_size,
+        .linker_z_max_page_size = linker_z_max_page_size,
         .linker_tsaware = linker_tsaware,
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
         .linker_optimization = linker_optimization,
         .linker_compress_debug_sections = linker_compress_debug_sections,
+        .linker_module_definition_file = linker_module_definition_file,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
@@ -3052,6 +3134,7 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .reference_trace = reference_trace,
+        .pdb_out_path = pdb_out_path,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
@@ -3394,8 +3477,7 @@ fn runOrTest(
                         } else if (watch) {
                             warn("process exited with code {d}", .{code});
                         } else {
-                            // TODO https://github.com/ziglang/zig/issues/6342
-                            process.exit(1);
+                            process.exit(code);
                         }
                     },
                     else => {
@@ -3919,11 +4001,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         defer zig_lib_directory.handle.close();
 
-        var main_pkg: Package = .{
-            .root_src_directory = zig_lib_directory,
-            .root_src_path = "build_runner.zig",
-        };
-
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
 
@@ -3966,12 +4043,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             }
         };
         child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
-
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
-            .root_src_path = build_zig_basename,
-        };
-        try main_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -4018,6 +4089,65 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var thread_pool: ThreadPool = undefined;
         try thread_pool.init(gpa);
         defer thread_pool.deinit();
+
+        var main_pkg: Package = .{
+            .root_src_directory = zig_lib_directory,
+            .root_src_path = "build_runner.zig",
+        };
+
+        if (!build_options.omit_pkg_fetching_code) {
+            var http_client: std.http.Client = .{ .allocator = gpa };
+            defer http_client.deinit();
+
+            // Here we provide an import to the build runner that allows using reflection to find
+            // all of the dependencies. Without this, there would be no way to use `@import` to
+            // access dependencies by name, since `@import` requires string literals.
+            var dependencies_source = std.ArrayList(u8).init(gpa);
+            defer dependencies_source.deinit();
+            try dependencies_source.appendSlice("pub const imports = struct {\n");
+
+            // This will go into the same package. It contains the file system paths
+            // to all the build.zig files.
+            var build_roots_source = std.ArrayList(u8).init(gpa);
+            defer build_roots_source.deinit();
+
+            // Here we borrow main package's table and will replace it with a fresh
+            // one after this process completes.
+            main_pkg.fetchAndAddDependencies(
+                &thread_pool,
+                &http_client,
+                build_directory,
+                global_cache_directory,
+                local_cache_directory,
+                &dependencies_source,
+                &build_roots_source,
+                "",
+            ) catch |err| switch (err) {
+                error.PackageFetchFailed => process.exit(1),
+                else => |e| return e,
+            };
+
+            try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
+            try dependencies_source.appendSlice(build_roots_source.items);
+            try dependencies_source.appendSlice("};\n");
+
+            const deps_pkg = try Package.createFilePkg(
+                gpa,
+                local_cache_directory,
+                "dependencies.zig",
+                dependencies_source.items,
+            );
+
+            mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
+            try main_pkg.addAndAdopt(gpa, "@dependencies", deps_pkg);
+        }
+
+        var build_pkg: Package = .{
+            .root_src_directory = build_directory,
+            .root_src_path = build_zig_basename,
+        };
+        try main_pkg.addAndAdopt(gpa, "@build", &build_pkg);
+
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
@@ -4747,6 +4877,7 @@ pub const ClangArgIterator = struct {
         o,
         c,
         m,
+        x,
         other,
         positional,
         l,

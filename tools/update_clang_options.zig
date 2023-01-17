@@ -500,6 +500,10 @@ const known_options = [_]KnownOpt{
         .name = "undefined",
         .ident = "undefined",
     },
+    .{
+        .name = "x",
+        .ident = "x",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

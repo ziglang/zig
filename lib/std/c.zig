@@ -206,7 +206,7 @@ pub extern "c" fn sendto(
     dest_addr: ?*const c.sockaddr,
     addrlen: c.socklen_t,
 ) isize;
-pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const c.msghdr_const, flags: u32) isize;
 
 pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
 pub extern "c" fn recvfrom(
@@ -217,7 +217,7 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*c.sockaddr,
     noalias addrlen: ?*c.socklen_t,
 ) isize;
-pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;

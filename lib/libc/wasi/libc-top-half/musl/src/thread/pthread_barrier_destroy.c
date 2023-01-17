@@ -9,7 +9,9 @@ int pthread_barrier_destroy(pthread_barrier_t *b)
 			while ((v = b->_b_lock) & INT_MAX)
 				__wait(&b->_b_lock, 0, v, 0);
 		}
+#ifdef __wasilibc_unmodified_upstream /* WASI does not understand processes or locking between them. */
 		__vm_wait();
+#endif
 	}
 	return 0;
 }

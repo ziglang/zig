@@ -814,7 +814,6 @@ pub const Value = extern union {
             .float_80 => return out_stream.print("{}", .{val.castTag(.float_80).?.data}),
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
-            // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
             .eu_payload => {
                 try out_stream.writeAll("(eu_payload) ");
                 val = val.castTag(.eu_payload).?.data;
@@ -989,8 +988,7 @@ pub const Value = extern union {
         switch (val.tag()) {
             .enum_field_index => {
                 const field_index = val.castTag(.enum_field_index).?.data;
-                // TODO should `@intToEnum` do this `@intCast` for you?
-                return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+                return @intToEnum(E, field_index);
             },
             .the_only_possible_value => {
                 const fields = std.meta.fields(E);
@@ -2195,8 +2193,16 @@ pub const Value = extern union {
                 const payload_ty = ty.errorUnionPayload();
                 return eqlAdvanced(a_payload, payload_ty, b_payload, payload_ty, mod, opt_sema);
             },
-            .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
-            .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
+            .eu_payload_ptr => {
+                const a_payload = a.castTag(.eu_payload_ptr).?.data;
+                const b_payload = b.castTag(.eu_payload_ptr).?.data;
+                return eqlAdvanced(a_payload.container_ptr, ty, b_payload.container_ptr, ty, mod, opt_sema);
+            },
+            .opt_payload_ptr => {
+                const a_payload = a.castTag(.opt_payload_ptr).?.data;
+                const b_payload = b.castTag(.opt_payload_ptr).?.data;
+                return eqlAdvanced(a_payload.container_ptr, ty, b_payload.container_ptr, ty, mod, opt_sema);
+            },
             .function => {
                 const a_payload = a.castTag(.function).?.data;
                 const b_payload = b.castTag(.function).?.data;

@@ -20,6 +20,12 @@ pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 
+const memory_pool = @import("heap/memory_pool.zig");
+pub const MemoryPool = memory_pool.MemoryPool;
+pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
+pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+pub const MemoryPoolOptions = memory_pool.Options;
+
 /// TODO Utilize this on Windows.
 pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
 
@@ -181,9 +187,13 @@ fn rawCAlloc(
 ) ?[*]u8 {
     _ = ret_addr;
     assert(log2_ptr_align <= comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t)));
-    // TODO: change the language to make @ptrCast also do alignment cast
-    const ptr = @alignCast(@alignOf(std.c.max_align_t), c.malloc(len));
-    return @ptrCast(?[*]align(@alignOf(std.c.max_align_t)) u8, ptr);
+    // Note that this pointer cannot be aligncasted to max_align_t because if
+    // len is < max_align_t then the alignment can be smaller. For example, if
+    // max_align_t is 16, but the user requests 8 bytes, there is no built-in
+    // type in C that is size 8 and has 16 byte alignment, so the alignment may
+    // be 8 bytes rather than 16. Similarly if only 1 byte is requested, malloc
+    // is allowed to return a 1-byte aligned pointer.
+    return @ptrCast(?[*]u8, c.malloc(len));
 }
 
 fn rawCResize(
@@ -847,6 +857,7 @@ test {
     _ = LoggingAllocator;
     _ = LogToWriterAllocator;
     _ = ScopedLoggingAllocator;
+    _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
     if (comptime builtin.target.isWasm()) {

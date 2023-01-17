@@ -431,34 +431,48 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
         .Struct => |struct_info| {
             switch (@typeInfo(Init)) {
                 .Struct => |init_info| {
-                    var value = std.mem.zeroes(T);
+                    if (init_info.is_tuple) {
+                        if (init_info.fields.len > struct_info.fields.len) {
+                            @compileError("Tuple initializer has more elments than there are fields in `" ++ @typeName(T) ++ "`");
+                        }
+                    } else {
+                        inline for (init_info.fields) |field| {
+                            if (!@hasField(T, field.name)) {
+                                @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                            }
+                        }
+                    }
 
-                    inline for (struct_info.fields) |field| {
-                        if (field.default_value) |default_value_ptr| {
+                    var value: T = undefined;
+
+                    inline for (struct_info.fields) |field, i| {
+                        if (field.is_comptime) {
+                            continue;
+                        }
+
+                        if (init_info.is_tuple and init_info.fields.len > i) {
+                            @field(value, field.name) = @field(init, init_info.fields[i].name);
+                        } else if (@hasField(@TypeOf(init), field.name)) {
+                            switch (@typeInfo(field.type)) {
+                                .Struct => {
+                                    @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
+                                },
+                                else => {
+                                    @field(value, field.name) = @field(init, field.name);
+                                },
+                            }
+                        } else if (field.default_value) |default_value_ptr| {
                             const default_value = @ptrCast(*align(1) const field.type, default_value_ptr).*;
                             @field(value, field.name) = default_value;
-                        }
-                    }
-
-                    if (init_info.is_tuple) {
-                        inline for (init_info.fields) |field, i| {
-                            @field(value, struct_info.fields[i].name) = @field(init, field.name);
-                        }
-                        return value;
-                    }
-
-                    inline for (init_info.fields) |field| {
-                        if (!@hasField(T, field.name)) {
-                            @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
-                        }
-
-                        switch (@typeInfo(field.type)) {
-                            .Struct => {
-                                @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
-                            },
-                            else => {
-                                @field(value, field.name) = @field(init, field.name);
-                            },
+                        } else {
+                            switch (@typeInfo(field.type)) {
+                                .Struct => {
+                                    @field(value, field.name) = std.mem.zeroInit(field.type, .{});
+                                },
+                                else => {
+                                    @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                },
+                            }
                         }
                     }
 
@@ -538,6 +552,24 @@ test "zeroInit" {
         .foo = 69,
         .bar = 420,
     }, b);
+
+    const Baz = struct {
+        foo: [:0]const u8 = "bar",
+    };
+
+    const baz1 = zeroInit(Baz, .{});
+    try testing.expectEqual(Baz{}, baz1);
+
+    const baz2 = zeroInit(Baz, .{ .foo = "zab" });
+    try testing.expectEqualSlices(u8, "zab", baz2.foo);
+
+    const NestedBaz = struct {
+        bbb: Baz,
+    };
+    const nested_baz = zeroInit(NestedBaz, .{});
+    try testing.expectEqual(NestedBaz{
+        .bbb = Baz{},
+    }, nested_baz);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
@@ -3771,7 +3803,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
         .Bool => doNotOptimizeAway(@boolToInt(val)),
         .Int => {
             const bits = t.Int.bits;
-            if (bits <= max_gp_register_bits) {
+            if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
                 const val2 = @as(
                     std.meta.Int(t.Int.signedness, @max(8, std.math.ceilPowerOfTwoAssert(u16, bits))),
                     val,
@@ -3783,18 +3815,24 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else doNotOptimizeAway(&val);
         },
         .Float => {
-            if (t.Float.bits == 32 or t.Float.bits == 64) {
+            if ((t.Float.bits == 32 or t.Float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
                     : [val] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
-        .Pointer => asm volatile (""
-            :
-            : [val] "m" (val),
-            : "memory"
-        ),
+        .Pointer => {
+            if (builtin.zig_backend == .stage2_c) {
+                doNotOptimizeAwayC(val);
+            } else {
+                asm volatile (""
+                    :
+                    : [val] "m" (val),
+                    : "memory"
+                );
+            }
+        },
         .Array => {
             if (t.Array.len * @sizeOf(t.Array.child) <= 64) {
                 for (val) |v| doNotOptimizeAway(v);
@@ -3802,6 +3840,16 @@ pub fn doNotOptimizeAway(val: anytype) void {
         },
         else => doNotOptimizeAway(&val),
     }
+}
+
+/// .stage2_c doesn't support asm blocks yet, so use volatile stores instead
+var deopt_target: if (builtin.zig_backend == .stage2_c) u8 else void = undefined;
+fn doNotOptimizeAwayC(ptr: anytype) void {
+    const dest = @ptrCast(*volatile u8, &deopt_target);
+    for (asBytes(ptr)) |b| {
+        dest.* = b;
+    }
+    dest.* = 0;
 }
 
 test "doNotOptimizeAway" {

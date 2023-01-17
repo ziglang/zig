@@ -2474,8 +2474,8 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (func.debug_output) {
         .dwarf => |dwarf| {
-            // TODO: Get the original arg index rather than wasm arg index
-            const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, arg_index);
+            const src_index = func.air.instructions.items(.data)[inst].arg.src_index;
+            const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, src_index);
             try dwarf.genArgDbgInfo(name, arg_ty, .wasm, func.mod_fn.owner_decl, .{
                 .wasm_local = arg.local.value,
             });

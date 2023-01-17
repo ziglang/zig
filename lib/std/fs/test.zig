@@ -446,8 +446,8 @@ test "file operations on directories" {
     try testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
     try testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
     switch (builtin.os.tag) {
-        // NetBSD does not error when reading a directory.
-        .netbsd => {},
+        // no error when reading a directory.
+        .dragonfly, .netbsd => {},
         // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
         // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
         .wasi => {},

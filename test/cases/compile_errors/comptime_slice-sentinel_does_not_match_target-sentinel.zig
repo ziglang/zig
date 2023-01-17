@@ -53,6 +53,21 @@ export fn foo_slice() void {
         _ = slice;
     }
 }
+export fn undefined_slice() void {
+    const arr: [100]u16 = undefined;
+    const slice = arr[0..12 :0];
+    _ = slice;
+}
+export fn string_slice() void {
+    const str = "abcdefg";
+    const slice = str[0..1 :12];
+    _ = slice;
+}
+export fn typeName_slice() void {
+    const arr = @typeName(usize);
+    const slice = arr[0..2 :0];
+    _ = slice;
+}
 
 // error
 // backend=stage2
@@ -72,3 +87,9 @@ export fn foo_slice() void {
 // :44:29: note: expected '255', found '0'
 // :52:29: error: value in memory does not match slice sentinel
 // :52:29: note: expected '255', found '0'
+// :58:22: error: value in memory does not match slice sentinel
+// :58:22: note: expected '0', found 'undefined'
+// :63:22: error: value in memory does not match slice sentinel
+// :63:22: note: expected '12', found '98'
+// :68:22: error: value in memory does not match slice sentinel
+// :68:22: note: expected '0', found '105'

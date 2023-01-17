@@ -784,15 +784,31 @@ fn testOverflow() !void {
 /// See also: `absCast`
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
-    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
-    comptime assert(@typeInfo(T).Int.signedness == .signed); // must pass a signed integer to absInt
-
-    if (x == minInt(T)) {
-        return error.Overflow;
-    } else {
-        @setRuntimeSafety(false);
-        return if (x < 0) -x else x;
-    }
+    return switch (@typeInfo(T)) {
+        .Int => |info| {
+            comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+            if (x == minInt(T)) {
+                return error.Overflow;
+            } else {
+                @setRuntimeSafety(false);
+                return if (x < 0) -x else x;
+            }
+        },
+        .Vector => |vinfo| blk: {
+            switch (@typeInfo(vinfo.child)) {
+                .Int => |info| {
+                    comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                        return error.Overflow;
+                    }
+                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    break :blk @select(vinfo.child, x > zero, x, -x);
+                },
+                else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
+            }
+        },
+        else => @compileError("Expected an int or vector, found " ++ @typeName(T)),
+    };
 }
 
 test "absInt" {
@@ -802,6 +818,10 @@ test "absInt" {
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
     try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
+    try testing.expectEqual(@Vector(3, i32){ 10, 10, 0 }, (absInt(@Vector(3, i32){ -10, 10, 0 }) catch unreachable));
+
+    try testing.expectError(error.Overflow, absInt(@as(i32, minInt(i32))));
+    try testing.expectError(error.Overflow, absInt(@Vector(3, i32){ 10, -10, minInt(i32) }));
 }
 
 /// Divide numerator by denominator, rounding toward zero. Returns an

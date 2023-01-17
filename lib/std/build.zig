@@ -21,6 +21,7 @@ const ThisModule = @This();
 
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
+pub const ConfigHeaderStep = @import("build/ConfigHeaderStep.zig");
 pub const EmulatableRunStep = @import("build/EmulatableRunStep.zig");
 pub const FmtStep = @import("build/FmtStep.zig");
 pub const InstallArtifactStep = @import("build/InstallArtifactStep.zig");
@@ -68,13 +69,15 @@ pub const Builder = struct {
     search_prefixes: ArrayList([]const u8),
     libc_file: ?[]const u8 = null,
     installed_files: ArrayList(InstalledFile),
+    /// Path to the directory containing build.zig.
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
     release_mode: ?std.builtin.Mode,
     is_release: bool,
+    /// zig lib dir
     override_lib_dir: ?[]const u8,
-    vcpkg_root: VcpkgRoot,
+    vcpkg_root: VcpkgRoot = .unattempted,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
     debug_log_scopes: []const []const u8 = &.{},
@@ -98,6 +101,8 @@ pub const Builder = struct {
 
     /// Information about the native target. Computed before build() is invoked.
     host: NativeTargetInfo,
+
+    dep_prefix: []const u8 = "",
 
     pub const ExecError = error{
         ReadFailure,
@@ -222,7 +227,6 @@ pub const Builder = struct {
             .is_release = false,
             .override_lib_dir = null,
             .install_path = undefined,
-            .vcpkg_root = VcpkgRoot{ .unattempted = {} },
             .args = null,
             .host = host,
         };
@@ -230,6 +234,92 @@ pub const Builder = struct {
         try self.top_level_steps.append(&self.uninstall_tls);
         self.default_step = &self.install_tls.step;
         return self;
+    }
+
+    fn createChild(
+        parent: *Builder,
+        dep_name: []const u8,
+        build_root: []const u8,
+        args: anytype,
+    ) !*Builder {
+        const child = try createChildOnly(parent, dep_name, build_root);
+        try applyArgs(child, args);
+        return child;
+    }
+
+    fn createChildOnly(parent: *Builder, dep_name: []const u8, build_root: []const u8) !*Builder {
+        const allocator = parent.allocator;
+        const child = try allocator.create(Builder);
+        child.* = .{
+            .allocator = allocator,
+            .install_tls = .{
+                .step = Step.initNoOp(.top_level, "install", allocator),
+                .description = "Copy build artifacts to prefix path",
+            },
+            .uninstall_tls = .{
+                .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
+                .description = "Remove build artifacts from prefix path",
+            },
+            .user_input_options = UserInputOptionsMap.init(allocator),
+            .available_options_map = AvailableOptionsMap.init(allocator),
+            .available_options_list = ArrayList(AvailableOption).init(allocator),
+            .verbose = parent.verbose,
+            .verbose_link = parent.verbose_link,
+            .verbose_cc = parent.verbose_cc,
+            .verbose_air = parent.verbose_air,
+            .verbose_llvm_ir = parent.verbose_llvm_ir,
+            .verbose_cimport = parent.verbose_cimport,
+            .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
+            .prominent_compile_errors = parent.prominent_compile_errors,
+            .color = parent.color,
+            .reference_trace = parent.reference_trace,
+            .invalid_user_input = false,
+            .zig_exe = parent.zig_exe,
+            .default_step = undefined,
+            .env_map = parent.env_map,
+            .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
+            .install_prefix = undefined,
+            .dest_dir = parent.dest_dir,
+            .lib_dir = parent.lib_dir,
+            .exe_dir = parent.exe_dir,
+            .h_dir = parent.h_dir,
+            .install_path = parent.install_path,
+            .sysroot = parent.sysroot,
+            .search_prefixes = ArrayList([]const u8).init(allocator),
+            .libc_file = parent.libc_file,
+            .installed_files = ArrayList(InstalledFile).init(allocator),
+            .build_root = build_root,
+            .cache_root = parent.cache_root,
+            .global_cache_root = parent.global_cache_root,
+            .release_mode = parent.release_mode,
+            .is_release = parent.is_release,
+            .override_lib_dir = parent.override_lib_dir,
+            .debug_log_scopes = parent.debug_log_scopes,
+            .debug_compile_errors = parent.debug_compile_errors,
+            .enable_darling = parent.enable_darling,
+            .enable_qemu = parent.enable_qemu,
+            .enable_rosetta = parent.enable_rosetta,
+            .enable_wasmtime = parent.enable_wasmtime,
+            .enable_wine = parent.enable_wine,
+            .glibc_runtimes_dir = parent.glibc_runtimes_dir,
+            .host = parent.host,
+            .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
+        };
+        try child.top_level_steps.append(&child.install_tls);
+        try child.top_level_steps.append(&child.uninstall_tls);
+        child.default_step = &child.install_tls.step;
+        return child;
+    }
+
+    fn applyArgs(b: *Builder, args: anytype) !void {
+        // TODO this function is the way that a build.zig file communicates
+        // options to its dependencies. It is the programmatic way to give
+        // command line arguments to a build.zig script.
+        _ = args;
+        // TODO create a hash based on the args and the package hash, use this
+        // to compute the install prefix.
+        const install_prefix = b.pathJoin(&.{ b.cache_root, "pkg" });
+        b.resolveInstallPrefix(install_prefix, .{});
     }
 
     pub fn destroy(self: *Builder) void {
@@ -362,6 +452,17 @@ pub const Builder = struct {
         const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
         run_step.addArgs(argv);
         return run_step;
+    }
+
+    pub fn addConfigHeader(
+        b: *Builder,
+        source: FileSource,
+        style: ConfigHeaderStep.Style,
+        values: anytype,
+    ) *ConfigHeaderStep {
+        const config_header_step = ConfigHeaderStep.create(b, source, style);
+        config_header_step.addValues(values);
+        return config_header_step;
     }
 
     /// Allocator.dupe without the need to handle out of memory.
@@ -1056,6 +1157,10 @@ pub const Builder = struct {
         return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
     }
 
+    pub fn addInstallHeaderFile(b: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
+        return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
+    }
+
     pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
         return InstallRawStep.create(self, artifact, dest_filename, options);
     }
@@ -1288,6 +1393,70 @@ pub const Builder = struct {
             &[_][]const u8{ base_dir, dest_rel_path },
         ) catch unreachable;
     }
+
+    pub const Dependency = struct {
+        builder: *Builder,
+
+        pub fn artifact(d: *Dependency, name: []const u8) *LibExeObjStep {
+            var found: ?*LibExeObjStep = null;
+            for (d.builder.install_tls.step.dependencies.items) |dep_step| {
+                const inst = dep_step.cast(InstallArtifactStep) orelse continue;
+                if (mem.eql(u8, inst.artifact.name, name)) {
+                    if (found != null) panic("artifact name '{s}' is ambiguous", .{name});
+                    found = inst.artifact;
+                }
+            }
+            return found orelse {
+                for (d.builder.install_tls.step.dependencies.items) |dep_step| {
+                    const inst = dep_step.cast(InstallArtifactStep) orelse continue;
+                    log.info("available artifact: '{s}'", .{inst.artifact.name});
+                }
+                panic("unable to find artifact '{s}'", .{name});
+            };
+        }
+    };
+
+    pub fn dependency(b: *Builder, name: []const u8, args: anytype) *Dependency {
+        const build_runner = @import("root");
+        const deps = build_runner.dependencies;
+
+        inline for (@typeInfo(deps.imports).Struct.decls) |decl| {
+            if (mem.startsWith(u8, decl.name, b.dep_prefix) and
+                mem.endsWith(u8, decl.name, name) and
+                decl.name.len == b.dep_prefix.len + name.len)
+            {
+                const build_zig = @field(deps.imports, decl.name);
+                const build_root = @field(deps.build_root, decl.name);
+                return dependencyInner(b, name, build_root, build_zig, args);
+            }
+        }
+
+        const full_path = b.pathFromRoot("build.zig.ini");
+        std.debug.print("no dependency named '{s}' in '{s}'\n", .{ name, full_path });
+        std.process.exit(1);
+    }
+
+    fn dependencyInner(
+        b: *Builder,
+        name: []const u8,
+        build_root: []const u8,
+        comptime build_zig: type,
+        args: anytype,
+    ) *Dependency {
+        const sub_builder = b.createChild(name, build_root, args) catch unreachable;
+        sub_builder.runBuild(build_zig) catch unreachable;
+        const dep = b.allocator.create(Dependency) catch unreachable;
+        dep.* = .{ .builder = sub_builder };
+        return dep;
+    }
+
+    pub fn runBuild(b: *Builder, build_zig: anytype) anyerror!void {
+        switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).Fn.return_type.?)) {
+            .Void => build_zig.build(b),
+            .ErrorUnion => try build_zig.build(b),
+            else => @compileError("expected return type of build to be 'void' or '!void'"),
+        }
+    }
 };
 
 test "builder.findProgram compiles" {
@@ -1427,6 +1596,7 @@ pub const Step = struct {
         emulatable_run,
         check_file,
         check_object,
+        config_header,
         install_raw,
         options,
         custom,

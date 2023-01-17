@@ -28,8 +28,11 @@ pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const gdi32 = @import("windows/gdi32.zig");
 pub const winmm = @import("windows/winmm.zig");
+pub const crypt32 = @import("windows/crypt32.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
+
+const Self = @This();
 
 pub const OpenError = error{
     IsDir,
@@ -1293,6 +1296,23 @@ pub fn WSACleanup() !void {
 
 var wsa_startup_mutex: std.Thread.Mutex = .{};
 
+pub fn callWSAStartup() !void {
+    wsa_startup_mutex.lock();
+    defer wsa_startup_mutex.unlock();
+
+    // Here we could use a flag to prevent multiple threads to prevent
+    // multiple calls to WSAStartup, but it doesn't matter. We're globally
+    // leaking the resource intentionally, and the mutex already prevents
+    // data races within the WSAStartup function.
+    _ = WSAStartup(2, 2) catch |err| switch (err) {
+        error.SystemNotAvailable => return error.SystemResources,
+        error.VersionNotSupported => return error.Unexpected,
+        error.BlockingOperationInProgress => return error.Unexpected,
+        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
+        error.Unexpected => return error.Unexpected,
+    };
+}
+
 /// Microsoft requires WSAStartup to be called to initialize, or else
 /// WSASocketW will return WSANOTINITIALISED.
 /// Since this is a standard library, we do not have the luxury of
@@ -1335,21 +1355,7 @@ pub fn WSASocketW(
                 .WSANOTINITIALISED => {
                     if (!first) return error.Unexpected;
                     first = false;
-
-                    wsa_startup_mutex.lock();
-                    defer wsa_startup_mutex.unlock();
-
-                    // Here we could use a flag to prevent multiple threads to prevent
-                    // multiple calls to WSAStartup, but it doesn't matter. We're globally
-                    // leaking the resource intentionally, and the mutex already prevents
-                    // data races within the WSAStartup function.
-                    _ = WSAStartup(2, 2) catch |err| switch (err) {
-                        error.SystemNotAvailable => return error.SystemResources,
-                        error.VersionNotSupported => return error.Unexpected,
-                        error.BlockingOperationInProgress => return error.Unexpected,
-                        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-                        error.Unexpected => return error.Unexpected,
-                    };
+                    try callWSAStartup();
                     continue;
                 },
                 else => |err| return unexpectedWSAError(err),
@@ -1493,9 +1499,9 @@ pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
-pub const VirtualQuerryError = error{Unexpected};
+pub const VirtualQueryError = error{Unexpected};
 
-pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQuerryError!SIZE_T {
+pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
     const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
@@ -1776,16 +1782,26 @@ pub fn UnlockFile(
     }
 }
 
+/// This is a workaround for the C backend until zig has the ability to put
+/// C code in inline assembly.
+extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
+
 pub fn teb() *TEB {
     return switch (native_arch) {
         .x86 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB),
         ),
-        .x86_64 => asm volatile (
-            \\ movq %%gs:0x30, %[ptr]
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .x86_64 => blk: {
+            if (builtin.zig_backend == .stage2_c) {
+                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_64_windows_teb()));
+            } else {
+                break :blk asm volatile (
+                    \\ movq %%gs:0x30, %[ptr]
+                    : [ptr] "=r" (-> *TEB),
+                );
+            }
+        },
         .aarch64 => asm volatile (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
@@ -2065,7 +2081,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
         );
         _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
         std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
@@ -2079,7 +2095,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
@@ -3272,7 +3288,7 @@ pub usingnamespace switch (native_arch) {
         };
 
         pub const CONTEXT = extern struct {
-            P1Home: DWORD64,
+            P1Home: DWORD64 align(16),
             P2Home: DWORD64,
             P3Home: DWORD64,
             P4Home: DWORD64,
@@ -3342,9 +3358,28 @@ pub usingnamespace switch (native_arch) {
             LastExceptionToRip: DWORD64,
             LastExceptionFromRip: DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip, .sp = ctx.Rsp };
             }
+
+            pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+                ctx.Rip = ip;
+            }
+
+            pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+                ctx.Rsp = sp;
+            }
+        };
+
+        pub const RUNTIME_FUNCTION = extern struct {
+            BeginAddress: DWORD,
+            EndAddress: DWORD,
+            UnwindData: DWORD,
+        };
+
+        pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
+            FloatingContext: [16]?*M128A,
+            IntegerContext: [16]?*ULONG64,
         };
     },
     .aarch64 => struct {
@@ -3360,7 +3395,7 @@ pub usingnamespace switch (native_arch) {
         };
 
         pub const CONTEXT = extern struct {
-            ContextFlags: ULONG,
+            ContextFlags: ULONG align(16),
             Cpsr: ULONG,
             DUMMYUNIONNAME: extern union {
                 DUMMYSTRUCTNAME: extern struct {
@@ -3408,12 +3443,60 @@ pub usingnamespace switch (native_arch) {
             Wcr: [2]DWORD,
             Wvr: [2]DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
                 return .{
                     .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
                     .ip = ctx.Pc,
+                    .sp = ctx.Sp,
                 };
             }
+
+            pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+                ctx.Pc = ip;
+            }
+
+            pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+                ctx.Sp = sp;
+            }
+        };
+
+        pub const RUNTIME_FUNCTION = extern struct {
+            BeginAddress: DWORD,
+            DUMMYUNIONNAME: extern union {
+                UnwindData: DWORD,
+                DUMMYSTRUCTNAME: packed struct {
+                    Flag: u2,
+                    FunctionLength: u11,
+                    RegF: u3,
+                    RegI: u4,
+                    H: u1,
+                    CR: u2,
+                    FrameSize: u9,
+                },
+            },
+        };
+
+        pub const KNONVOLATILE_CONTEXT_POINTERS = extern struct {
+            X19: ?*DWORD64,
+            X20: ?*DWORD64,
+            X21: ?*DWORD64,
+            X22: ?*DWORD64,
+            X23: ?*DWORD64,
+            X24: ?*DWORD64,
+            X25: ?*DWORD64,
+            X26: ?*DWORD64,
+            X27: ?*DWORD64,
+            X28: ?*DWORD64,
+            Fp: ?*DWORD64,
+            Lr: ?*DWORD64,
+            D8: ?*DWORD64,
+            D9: ?*DWORD64,
+            D10: ?*DWORD64,
+            D11: ?*DWORD64,
+            D12: ?*DWORD64,
+            D13: ?*DWORD64,
+            D14: ?*DWORD64,
+            D15: ?*DWORD64,
         };
     },
     else => struct {},
@@ -3425,6 +3508,36 @@ pub const EXCEPTION_POINTERS = extern struct {
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+
+pub const EXCEPTION_DISPOSITION = i32;
+pub const EXCEPTION_ROUTINE = *const fn (
+    ExceptionRecord: ?*EXCEPTION_RECORD,
+    EstablisherFrame: PVOID,
+    ContextRecord: *(Self.CONTEXT),
+    DispatcherContext: PVOID,
+) callconv(WINAPI) EXCEPTION_DISPOSITION;
+
+pub const UNWIND_HISTORY_TABLE_SIZE = 12;
+pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
+    ImageBase: ULONG64,
+    FunctionEntry: *Self.RUNTIME_FUNCTION,
+};
+
+pub const UNWIND_HISTORY_TABLE = extern struct {
+    Count: ULONG,
+    LocalHint: BYTE,
+    GlobalHint: BYTE,
+    Search: BYTE,
+    Once: BYTE,
+    LowAddress: ULONG64,
+    HighAddress: ULONG64,
+    Entry: [UNWIND_HISTORY_TABLE_SIZE]UNWIND_HISTORY_TABLE_ENTRY,
+};
+
+pub const UNW_FLAG_NHANDLER = 0x0;
+pub const UNW_FLAG_EHANDLER = 0x1;
+pub const UNW_FLAG_UHANDLER = 0x2;
+pub const UNW_FLAG_CHAININFO = 0x4;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
@@ -3455,6 +3568,21 @@ pub const ASSEMBLY_STORAGE_MAP = opaque {};
 pub const FLS_CALLBACK_INFO = opaque {};
 pub const RTL_BITMAP = opaque {};
 pub const KAFFINITY = usize;
+pub const KPRIORITY = i32;
+
+pub const CLIENT_ID = extern struct {
+    UniqueProcess: HANDLE,
+    UniqueThread: HANDLE,
+};
+
+pub const THREAD_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    TebBaseAddress: PVOID,
+    ClientId: CLIENT_ID,
+    AffinityMask: KAFFINITY,
+    Priority: KPRIORITY,
+    BasePriority: KPRIORITY,
+};
 
 pub const TEB = extern struct {
     Reserved1: [12]PVOID,
@@ -3467,6 +3595,21 @@ pub const TEB = extern struct {
     ReservedForOle: PVOID,
     Reserved6: [4]PVOID,
     TlsExpansionSlots: PVOID,
+};
+
+pub const EXCEPTION_REGISTRATION_RECORD = extern struct {
+    Next: ?*EXCEPTION_REGISTRATION_RECORD,
+    Handler: ?*EXCEPTION_DISPOSITION,
+};
+
+pub const NT_TIB = extern struct {
+    ExceptionList: ?*EXCEPTION_REGISTRATION_RECORD,
+    StackBase: PVOID,
+    StackLimit: PVOID,
+    SubSystemTib: PVOID,
+    DUMMYUNIONNAME: extern union { FiberData: PVOID, Version: DWORD },
+    ArbitraryUserPointer: PVOID,
+    Self: ?*@This(),
 };
 
 /// Process Environment Block
@@ -3660,6 +3803,26 @@ pub const PEB_LDR_DATA = extern struct {
     /// It is picked up from the UniqueThread member of the CLIENT_ID in the
     /// TEB of the thread that asks to terminate the process.
     ShutdownThreadId: HANDLE,
+};
+
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
+///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
+pub const LDR_DATA_TABLE_ENTRY = extern struct {
+    Reserved1: [2]PVOID,
+    InMemoryOrderLinks: LIST_ENTRY,
+    Reserved2: [2]PVOID,
+    DllBase: PVOID,
+    EntryPoint: PVOID,
+    SizeOfImage: ULONG,
+    FullDllName: UNICODE_STRING,
+    Reserved4: [8]BYTE,
+    Reserved5: [3]PVOID,
+    DUMMYUNIONNAME: extern union {
+        CheckSum: ULONG,
+        Reserved6: PVOID,
+    },
+    TimeDateStamp: ULONG,
 };
 
 pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
@@ -4210,3 +4373,25 @@ pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
     return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
 }
+
+pub const TH32CS_SNAPHEAPLIST = 0x00000001;
+pub const TH32CS_SNAPPROCESS = 0x00000002;
+pub const TH32CS_SNAPTHREAD = 0x00000004;
+pub const TH32CS_SNAPMODULE = 0x00000008;
+pub const TH32CS_SNAPMODULE32 = 0x00000010;
+pub const TH32CS_SNAPALL = TH32CS_SNAPHEAPLIST | TH32CS_SNAPPROCESS | TH32CS_SNAPTHREAD | TH32CS_SNAPMODULE;
+pub const TH32CS_INHERIT = 0x80000000;
+
+pub const MAX_MODULE_NAME32 = 255;
+pub const MODULEENTRY32 = extern struct {
+    dwSize: DWORD,
+    th32ModuleID: DWORD,
+    th32ProcessID: DWORD,
+    GlblcntUsage: DWORD,
+    ProccntUsage: DWORD,
+    modBaseAddr: *BYTE,
+    modBaseSize: DWORD,
+    hModule: HMODULE,
+    szModule: [MAX_MODULE_NAME32 + 1]CHAR,
+    szExePath: [MAX_PATH]CHAR,
+};

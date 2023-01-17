@@ -100,8 +100,7 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
-    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
+    return @ptrCast([]Inst.Ref, raw_slice);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -482,6 +481,9 @@ pub const Inst = struct {
         /// Return a boolean false if dereferenced pointer is an error
         /// Uses the `un_node` field.
         is_non_err_ptr,
+        /// Same as `is_non_er` but doesn't validate that the type can be an error.
+        /// Uses the `un_node` field.
+        ret_is_non_err,
         /// A labeled block of code that loops forever. At the end of the body will have either
         /// a `repeat` instruction or a `repeat_inline` instruction.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
@@ -1084,6 +1086,7 @@ pub const Inst = struct {
                 .is_non_null_ptr,
                 .is_non_err,
                 .is_non_err_ptr,
+                .ret_is_non_err,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -1387,6 +1390,7 @@ pub const Inst = struct {
                 .is_non_null_ptr,
                 .is_non_err,
                 .is_non_err_ptr,
+                .ret_is_non_err,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -1641,6 +1645,7 @@ pub const Inst = struct {
                 .is_non_null_ptr = .un_node,
                 .is_non_err = .un_node,
                 .is_non_err_ptr = .un_node,
+                .ret_is_non_err = .un_node,
                 .loop = .pl_node,
                 .repeat = .node,
                 .repeat_inline = .node,

@@ -437,20 +437,22 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
             std.os.linux.pie.relocate(phdrs);
         }
 
-        // ARMv6 targets (and earlier) have no support for TLS in hardware.
-        // FIXME: Elide the check for targets >= ARMv7 when the target feature API
-        // becomes less verbose (and more usable).
-        if (comptime native_arch.isARM()) {
-            if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
-                // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-                // For the time being use a simple abort instead of a @panic call to
-                // keep the binary bloat under control.
-                std.os.abort();
+        if (!builtin.single_threaded) {
+            // ARMv6 targets (and earlier) have no support for TLS in hardware.
+            // FIXME: Elide the check for targets >= ARMv7 when the target feature API
+            // becomes less verbose (and more usable).
+            if (comptime native_arch.isARM()) {
+                if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
+                    // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
+                    // For the time being use a simple abort instead of a @panic call to
+                    // keep the binary bloat under control.
+                    std.os.abort();
+                }
             }
-        }
 
-        // Initialize the TLS area.
-        std.os.linux.tls.initStaticTLS(phdrs);
+            // Initialize the TLS area.
+            std.os.linux.tls.initStaticTLS(phdrs);
+        }
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
@@ -525,7 +527,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 // and we want fewer call frames in stack traces.
 inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -554,7 +556,7 @@ inline fn initEventLoopAndCallMain() u8 {
 // because it is working around stage1 compiler bugs.
 inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {

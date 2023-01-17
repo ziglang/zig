@@ -69,9 +69,22 @@ test "basic" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try expectEqualStrings(@typeName(i64), "i64");
-    try expectEqualStrings(@typeName(*usize), "*usize");
-    try expectEqualStrings(@typeName([]u8), "[]u8");
+    try expectEqualStrings("i64", @typeName(i64));
+    try expectEqualStrings("*usize", @typeName(*usize));
+    try expectEqualStrings("[]u8", @typeName([]u8));
+
+    try expectEqualStrings("fn() void", @typeName(fn () void));
+    try expectEqualStrings("fn(u32) void", @typeName(fn (u32) void));
+    try expectEqualStrings("fn(u32) void", @typeName(fn (a: u32) void));
+
+    try expectEqualStrings("fn(comptime u32) void", @typeName(fn (comptime u32) void));
+    try expectEqualStrings("fn(noalias []u8) void", @typeName(fn (noalias []u8) void));
+
+    try expectEqualStrings("fn() align(32) void", @typeName(fn () align(32) void));
+    try expectEqualStrings("fn() callconv(.C) void", @typeName(fn () callconv(.C) void));
+    try expectEqualStrings("fn() align(32) callconv(.C) void", @typeName(fn () align(32) callconv(.C) void));
+    try expectEqualStrings("fn(...) align(32) callconv(.C) void", @typeName(fn (...) align(32) callconv(.C) void));
+    try expectEqualStrings("fn(u32, ...) align(32) callconv(.C) void", @typeName(fn (u32, ...) align(32) callconv(.C) void));
 }
 
 test "top level decl" {

@@ -67,3 +67,37 @@ Write-Output "Testing Autodocs..."
   -fno-emit-bin
 CheckLastExitCode
 
+Write-Output "Build behaviour tests using the C backend..."
+& "stage3-release\bin\zig.exe" test `
+  ..\test\behavior.zig `
+  --zig-lib-dir "$ZIG_LIB_DIR" `
+  -I..\test `
+  -I..\lib `
+  -ofmt=c `
+  -femit-bin="test_behaviour.c"
+CheckLastExitCode
+
+& "stage3-release\bin\zig.exe" build-obj `
+  ..\lib\compiler_rt.zig `
+  --zig-lib-dir "$ZIG_LIB_DIR" `
+  -ofmt=c `
+  -OReleaseSmall `
+  --name compiler_rt `
+  -femit-bin="compiler_rt.c" `
+  --pkg-begin build_options config.zig --pkg-end
+CheckLastExitCode
+
+Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+CheckLastExitCode
+
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" `
+  -DevCmdArguments '-arch=x64 -no_logo' `
+  -StartInPath $(Get-Location)
+CheckLastExitCode
+
+Write-Output "Build and run behaviour tests with msvc..."
+& cl.exe -I..\lib test_behaviour.c compiler_rt.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
+CheckLastExitCode
+
+& .\test_behaviour.exe
+CheckLastExitCode

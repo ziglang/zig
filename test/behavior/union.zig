@@ -1471,3 +1471,36 @@ test "union int tag type is properly managed" {
     };
     try expect(@sizeOf(Bar) + 1 == 3);
 }
+
+test "no dependency loop when function pointer in union returns the union" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        const U = @This();
+        a: u8,
+        b: *const fn (x: U) void,
+        c: *const fn (x: U) U,
+        d: *const fn (x: u8) U,
+        e: *const fn (x: *U) void,
+        f: *const fn (x: *U) U,
+        fn foo(x: u8) U {
+            return .{ .a = x };
+        }
+    };
+    var b: U = .{ .d = U.foo };
+    try expect(b.d(2).a == 2);
+}
+
+test "union reassignment can use previous value" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const U = union {
+        a: u32,
+        b: u32,
+    };
+    var a = U{ .a = 32 };
+    a = U{ .b = a.a };
+    try expect(a.b == 32);
+}

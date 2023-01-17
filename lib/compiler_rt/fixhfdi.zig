@@ -4,7 +4,7 @@ const floatToInt = @import("./float_to_int.zig").floatToInt;
 pub const panic = common.panic;
 
 comptime {
-    @export(__fixhfdi, .{ .name = "__fixhfdi", .linkage = common.linkage });
+    @export(__fixhfdi, .{ .name = "__fixhfdi", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __fixhfdi(a: f16) callconv(.C) i64 {

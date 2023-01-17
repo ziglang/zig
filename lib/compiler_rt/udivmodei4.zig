@@ -7,8 +7,8 @@ const shl = std.math.shl;
 const max_limbs = std.math.divCeil(usize, 65535, 32) catch unreachable; // max supported type is u65535
 
 comptime {
-    @export(__udivei4, .{ .name = "__udivei4", .linkage = common.linkage });
-    @export(__umodei4, .{ .name = "__umodei4", .linkage = common.linkage });
+    @export(__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__umodei4, .{ .name = "__umodei4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 const endian = builtin.cpu.arch.endian();
@@ -129,6 +129,8 @@ pub fn __umodei4(r_p: [*c]u32, u_p: [*c]const u32, v_p: [*c]const u32, bits: usi
 }
 
 test "__udivei4/__umodei4" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const RndGen = std.rand.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: usize = 10000;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 
@@ -527,25 +528,43 @@ const CpuidLeaf = packed struct {
     edx: u32,
 };
 
+/// This is a workaround for the C backend until zig has the ability to put
+/// C code in inline assembly.
+extern fn zig_x86_cpuid(leaf_id: u32, subid: u32, eax: *u32, ebx: *u32, ecx: *u32, edx: *u32) callconv(.C) void;
+
 fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     // valid for both x86 and x86_64
     var eax: u32 = undefined;
     var ebx: u32 = undefined;
     var ecx: u32 = undefined;
     var edx: u32 = undefined;
-    asm volatile ("cpuid"
-        : [_] "={eax}" (eax),
-          [_] "={ebx}" (ebx),
-          [_] "={ecx}" (ecx),
-          [_] "={edx}" (edx),
-        : [_] "{eax}" (leaf_id),
-          [_] "{ecx}" (subid),
-    );
+
+    if (builtin.zig_backend == .stage2_c) {
+        zig_x86_cpuid(leaf_id, subid, &eax, &ebx, &ecx, &edx);
+    } else {
+        asm volatile ("cpuid"
+            : [_] "={eax}" (eax),
+              [_] "={ebx}" (ebx),
+              [_] "={ecx}" (ecx),
+              [_] "={edx}" (edx),
+            : [_] "{eax}" (leaf_id),
+              [_] "{ecx}" (subid),
+        );
+    }
+
     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
+/// This is a workaround for the C backend until zig has the ability to put
+/// C code in inline assembly.
+extern fn zig_x86_get_xcr0() callconv(.C) u32;
+
 // Read control register 0 (XCR0). Used to detect features such as AVX.
 fn getXCR0() u32 {
+    if (builtin.zig_backend == .stage2_c) {
+        return zig_x86_get_xcr0();
+    }
+
     return asm volatile (
         \\ xor %%ecx, %%ecx
         \\ xgetbv

@@ -43,6 +43,7 @@ pub fn build(b: *Builder) !void {
     ) catch unreachable;
     const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
+        "--zig",
         rel_zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
@@ -185,6 +186,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", false);
 
     if (link_libc) {
         exe.linkLibC();
@@ -439,7 +441,7 @@ pub fn build(b: *Builder) !void {
         b.enable_wine,
         enable_symlinks_windows,
     ));
-    test_step.dependOn(tests.addCAbiTests(b, skip_non_native));
+    test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
     test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
@@ -532,6 +534,10 @@ fn addCmakeCfgOptionsToExe(
     exe: *std.build.LibExeObjStep,
     use_zig_libcxx: bool,
 ) !void {
+    if (exe.target.isDarwin()) {
+        // useful for package maintainers
+        exe.headerpad_max_install_names = true;
+    }
     exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
@@ -552,32 +558,50 @@ fn addCmakeCfgOptionsToExe(
     if (use_zig_libcxx) {
         exe.linkLibCpp();
     } else {
-        const need_cpp_includes = true;
-        const lib_suffix = switch (cfg.llvm_linkage) {
-            .static => exe.target.staticLibSuffix()[1..],
-            .dynamic => exe.target.dynamicLibSuffix()[1..],
-        };
-
         // System -lc++ must be used because in this code path we are attempting to link
         // against system-provided LLVM, Clang, LLD.
-        if (exe.target.getOsTag() == .linux) {
-            // First we try to link against gcc libstdc++. If that doesn't work, we fall
-            // back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
-                error.RequiredLibraryNotFound => {
-                    exe.linkSystemLibrary("c++");
-                },
-                else => |e| return e,
-            };
-            exe.linkSystemLibrary("unwind");
-        } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-        } else if (exe.target.getOsTag() == .openbsd) {
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
-        } else if (exe.target.isDarwin()) {
-            exe.linkSystemLibrary("c++");
+        const need_cpp_includes = true;
+        const static = cfg.llvm_linkage == .static;
+        const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
+        switch (exe.target.getOsTag()) {
+            .linux => {
+                // First we try to link against gcc libstdc++. If that doesn't work, we fall
+                // back to -lc++ and cross our fingers.
+                addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        exe.linkLibCpp();
+                    },
+                    else => |e| return e,
+                };
+                exe.linkSystemLibrary("unwind");
+            },
+            .ios, .macos, .watchos, .tvos => {
+                exe.linkLibCpp();
+            },
+            .windows => {
+                if (exe.target.getAbi() != .msvc) exe.linkLibCpp();
+            },
+            .freebsd => {
+                if (static) {
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+                } else {
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                }
+            },
+            .openbsd => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            .netbsd, .dragonfly => {
+                if (static) {
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+                } else {
+                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                }
+            },
+            else => {},
         }
     }
 
@@ -610,8 +634,16 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     exe.linkSystemLibrary("z");
     exe.linkSystemLibrary("zstd");
 
-    // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
-    exe.linkSystemLibrary("c++");
+    if (exe.target.getOs().tag != .windows or exe.target.getAbi() != .msvc) {
+        // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
+        exe.linkSystemLibrary("c++");
+    }
+
+    if (exe.target.getOs().tag == .windows) {
+        exe.linkSystemLibrary("version");
+        exe.linkSystemLibrary("uuid");
+        exe.linkSystemLibrary("ole32");
+    }
 }
 
 fn addCxxKnownPath(
@@ -655,6 +687,8 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
+        } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
+            exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
             exe.addObjectFile(lib);
         }

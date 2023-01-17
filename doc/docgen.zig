@@ -17,6 +17,24 @@ const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
+const usage =
+    \\Usage: docgen [--zig] [--skip-code-test] input output"
+    \\
+    \\   Generates an HTML document from a docgen template.
+    \\
+    \\Options:
+    \\   -h, --help             Print this help and exit
+    \\   --skip-code-test       Skip the doctests
+    \\
+;
+
+fn errorf(comptime format: []const u8, args: anytype) noreturn {
+    const stderr = io.getStdErr().writer();
+
+    stderr.print("error: " ++ format, args) catch {};
+    process.exit(1);
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -24,38 +42,54 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     var args_it = try process.argsWithAllocator(allocator);
-
     if (!args_it.skip()) @panic("expected self arg");
 
-    const zig_exe = args_it.next() orelse @panic("expected zig exe arg");
-    defer allocator.free(zig_exe);
-
-    const in_file_name = args_it.next() orelse @panic("expected input arg");
-    defer allocator.free(in_file_name);
-
-    const out_file_name = args_it.next() orelse @panic("expected output arg");
-    defer allocator.free(out_file_name);
-
+    var zig_exe: []const u8 = "zig";
     var do_code_tests = true;
-    if (args_it.next()) |arg| {
-        if (mem.eql(u8, arg, "--skip-code-tests")) {
-            do_code_tests = false;
+    var files = [_][]const u8{ "", "" };
+
+    var i: usize = 0;
+    while (args_it.next()) |arg| {
+        if (mem.startsWith(u8, arg, "-")) {
+            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                const stdout = io.getStdOut().writer();
+                try stdout.writeAll(usage);
+                process.exit(0);
+            } else if (mem.eql(u8, arg, "--zig")) {
+                if (args_it.next()) |param| {
+                    zig_exe = param;
+                } else {
+                    errorf("expected parameter after --zig\n", .{});
+                }
+            } else if (mem.eql(u8, arg, "--skip-code-tests")) {
+                do_code_tests = false;
+            } else {
+                errorf("unrecognized option: '{s}'\n", .{arg});
+            }
         } else {
-            @panic("unrecognized arg");
+            if (i > 1) {
+                errorf("too many arguments\n", .{});
+            }
+            files[i] = arg;
+            i += 1;
         }
     }
+    if (i < 2) {
+        errorf("not enough arguments\n", .{});
+        process.exit(1);
+    }
 
-    var in_file = try fs.cwd().openFile(in_file_name, .{ .mode = .read_only });
+    var in_file = try fs.cwd().openFile(files[0], .{ .mode = .read_only });
     defer in_file.close();
 
-    var out_file = try fs.cwd().createFile(out_file_name, .{});
+    var out_file = try fs.cwd().createFile(files[1], .{});
     defer out_file.close();
 
     const input_file_bytes = try in_file.reader().readAllAlloc(allocator, max_doc_file_size);
 
     var buffered_writer = io.bufferedWriter(out_file.writer());
 
-    var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
+    var tokenizer = Tokenizer.init(files[0], input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
 
     try fs.cwd().makePath(tmp_dir_name);
@@ -760,17 +794,6 @@ fn writeEscaped(out: anytype, input: []const u8) !void {
 //#define VT_BOLD "\x1b[0;1m"
 //#define VT_RESET "\x1b[0m"
 
-const TermState = enum {
-    Start,
-    Escape,
-    LBracket,
-    Number,
-    AfterNumber,
-    Arg,
-    ArgNumber,
-    ExpectEnd,
-};
-
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.testing.allocator, input_bytes);
@@ -787,61 +810,80 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     var first_number: usize = undefined;
     var second_number: usize = undefined;
     var i: usize = 0;
-    var state = TermState.Start;
+    var state: enum {
+        start,
+        escape,
+        lbracket,
+        number,
+        after_number,
+        arg,
+        arg_number,
+        expect_end,
+    } = .start;
+    var last_new_line: usize = 0;
     var open_span_count: usize = 0;
     while (i < input.len) : (i += 1) {
         const c = input[i];
         switch (state) {
-            TermState.Start => switch (c) {
-                '\x1b' => state = TermState.Escape,
+            .start => switch (c) {
+                '\x1b' => state = .escape,
+                '\n' => {
+                    try out.writeByte(c);
+                    last_new_line = buf.items.len;
+                },
                 else => try out.writeByte(c),
             },
-            TermState.Escape => switch (c) {
-                '[' => state = TermState.LBracket,
+            .escape => switch (c) {
+                '[' => state = .lbracket,
                 else => return error.UnsupportedEscape,
             },
-            TermState.LBracket => switch (c) {
+            .lbracket => switch (c) {
                 '0'...'9' => {
                     number_start_index = i;
-                    state = TermState.Number;
+                    state = .number;
                 },
                 else => return error.UnsupportedEscape,
             },
-            TermState.Number => switch (c) {
+            .number => switch (c) {
                 '0'...'9' => {},
                 else => {
                     first_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
                     second_number = 0;
-                    state = TermState.AfterNumber;
+                    state = .after_number;
                     i -= 1;
                 },
             },
 
-            TermState.AfterNumber => switch (c) {
-                ';' => state = TermState.Arg,
+            .after_number => switch (c) {
+                ';' => state = .arg,
+                'D' => state = .start,
+                'K' => {
+                    buf.items.len = last_new_line;
+                    state = .start;
+                },
                 else => {
-                    state = TermState.ExpectEnd;
+                    state = .expect_end;
                     i -= 1;
                 },
             },
-            TermState.Arg => switch (c) {
+            .arg => switch (c) {
                 '0'...'9' => {
                     number_start_index = i;
-                    state = TermState.ArgNumber;
+                    state = .arg_number;
                 },
                 else => return error.UnsupportedEscape,
             },
-            TermState.ArgNumber => switch (c) {
+            .arg_number => switch (c) {
                 '0'...'9' => {},
                 else => {
                     second_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
-                    state = TermState.ExpectEnd;
+                    state = .expect_end;
                     i -= 1;
                 },
             },
-            TermState.ExpectEnd => switch (c) {
+            .expect_end => switch (c) {
                 'm' => {
-                    state = TermState.Start;
+                    state = .start;
                     while (open_span_count != 0) : (open_span_count -= 1) {
                         try out.writeAll("</span>");
                     }

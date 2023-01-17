@@ -4037,8 +4037,9 @@ fn genInlineMemsetCode(
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMemory}!void {
     const mcv = self.args[arg_index];
-    const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
+    const arg = self.air.instructions.items(.data)[inst].arg;
+    const ty = self.air.getRefType(arg.ty);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg.src_index);
 
     switch (self.debug_output) {
         .dwarf => |dw| {

@@ -148,3 +148,14 @@ test "simple else prong doesn't emit an error for unreachable else prong" {
     };
     try expect(a == 1);
 }
+
+test "errdefer used in function that doesn't return an error" {
+    const S = struct {
+        fn foo() u8 {
+            var a: u8 = 5;
+            errdefer a += 1;
+            return a;
+        }
+    };
+    try expect(S.foo() == 5);
+}
