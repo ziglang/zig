@@ -6,6 +6,9 @@ const Allocator = std.mem.Allocator;
 const Bundle = @import("../Bundle.zig");
 
 pub fn rescanMac(cb: *Bundle, gpa: Allocator) !void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+
     const file = try fs.openFileAbsolute("/System/Library/Keychains/SystemRootCertificates.keychain", .{});
     defer file.close();
 
@@ -63,6 +66,8 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) !void {
             try cb.parseCert(gpa, cert_start, now_sec);
         }
     }
+
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
 const ApplDbHeader = extern struct {
