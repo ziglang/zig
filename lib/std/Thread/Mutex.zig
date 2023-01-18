@@ -88,7 +88,7 @@ const DebugImpl = struct {
     }
 
     inline fn unlock(self: *@This()) void {
-        assert(self.locking_thread.load(.Unordered) > 0 or Thread.getCurrentId() == 0);
+        assert(self.locking_thread.load(.Unordered) == Thread.getCurrentId());
         self.locking_thread.store(0, .Unordered);
         self.impl.unlock();
     }
