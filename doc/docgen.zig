@@ -539,12 +539,15 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                 } else if (mem.eql(u8, tag_name, "code_begin")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const code_kind_tok = try eatToken(tokenizer, Token.Id.TagContent);
-                    var name: []const u8 = "test";
+                    _ = try eatToken(tokenizer, Token.Id.Separator);
+                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
+                    var error_str: []const u8 = "";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
                         Token.Id.Separator => {
-                            const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
-                            name = tokenizer.buffer[name_tok.start..name_tok.end];
+                            const error_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                            error_str = tokenizer.buffer[error_tok.start..error_tok.end];
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                         },
                         Token.Id.BracketClose => {},
@@ -562,16 +565,13 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     } else if (mem.eql(u8, code_kind_str, "test")) {
                         code_kind_id = Code.Id.Test;
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
-                        code_kind_id = Code.Id{ .TestError = name };
-                        name = "test";
+                        code_kind_id = Code.Id{ .TestError = error_str };
                     } else if (mem.eql(u8, code_kind_str, "test_safety")) {
-                        code_kind_id = Code.Id{ .TestSafety = name };
-                        name = "test";
+                        code_kind_id = Code.Id{ .TestSafety = error_str };
                     } else if (mem.eql(u8, code_kind_str, "obj")) {
                         code_kind_id = Code.Id{ .Obj = null };
                     } else if (mem.eql(u8, code_kind_str, "obj_err")) {
-                        code_kind_id = Code.Id{ .Obj = name };
-                        name = "test";
+                        code_kind_id = Code.Id{ .Obj = error_str };
                     } else if (mem.eql(u8, code_kind_str, "lib")) {
                         code_kind_id = Code.Id.Lib;
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
