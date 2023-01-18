@@ -927,6 +927,12 @@ pub const File = struct {
     /// Reads all the bytes from the current position to the end of the file.
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    /// `max_bytes` is not "number of bytes to read", but a maximum.
+    ///
+    /// Note:
+    /// It's imperative to choose a reasonable value for `max_bytes`. The least desirable value to
+    /// use is `std.math.maxInt(usize)`, as it will read until there is no more memory left, and should
+    /// only be used for prototyping.
     pub fn readToEndAlloc(self: File, allocator: mem.Allocator, max_bytes: usize) ![]u8 {
         return self.readToEndAllocOptions(allocator, max_bytes, null, @alignOf(u8), null);
     }
