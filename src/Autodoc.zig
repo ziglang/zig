@@ -7,6 +7,7 @@ const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const File = Module.File;
 const Package = @import("Package.zig");
+const Tokenizer = std.zig.Tokenizer;
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
@@ -214,8 +215,13 @@ pub fn generateZirData(self: *Autodoc) !void {
         .enclosing_type = main_type_index,
     };
 
-    try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
+    const maybe_tldoc_comment = try self.getTLDocComment(file);
+    try self.ast_nodes.append(self.arena, .{
+        .name = "(root)",
+        .docs = maybe_tldoc_comment,
+    });
     try self.files.put(self.arena, file, main_type_index);
+
     _ = try self.walkInstruction(file, &root_scope, .{}, Zir.main_struct_inst, false);
 
     if (self.ref_paths_pending_on_decls.count() > 0) {
@@ -247,21 +253,14 @@ pub fn generateZirData(self: *Autodoc) !void {
         .comptimeExprs = self.comptime_exprs.items,
     };
 
-    if (self.doc_location.directory) |d| {
-        d.handle.makeDir(
-            self.doc_location.basename,
-        ) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => |err| return err,
-        };
-    } else {
-        self.module.zig_cache_artifact_directory.handle.makeDir(
-            self.doc_location.basename,
-        ) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => |err| return err,
-        };
-    }
+    const base_dir = self.doc_location.directory orelse
+        self.module.zig_cache_artifact_directory;
+
+    base_dir.handle.makeDir(self.doc_location.basename) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => |err| return err,
+    };
+
     const output_dir = if (self.doc_location.directory) |d|
         try d.handle.openDir(self.doc_location.basename, .{})
     else
@@ -914,7 +913,11 @@ fn walkInstruction(
                     .parent = null,
                     .enclosing_type = main_type_index,
                 };
-                try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
+                const maybe_tldoc_comment = try self.getTLDocComment(file);
+                try self.ast_nodes.append(self.arena, .{
+                    .name = "(root)",
+                    .docs = maybe_tldoc_comment,
+                });
                 try self.files.put(self.arena, new_file, main_type_index);
                 return self.walkInstruction(
                     new_file,
@@ -4411,4 +4414,16 @@ fn declIsVar(
 
     // tags[tok_idx] is the token called 'mut token' in AstGen
     return (tags[tok_idx] == .keyword_var);
+}
+
+fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
+    const source = (try file.getSource(self.module.gpa)).bytes;
+    var tokenizer = Tokenizer.init(source);
+    var tok = tokenizer.next();
+    var comment = std.ArrayList(u8).init(self.arena);
+    while (tok.tag == .container_doc_comment) : (tok = tokenizer.next()) {
+        try comment.appendSlice(source[tok.loc.start + 3 .. tok.loc.end + 1]);
+    }
+
+    return comment.items;
 }
