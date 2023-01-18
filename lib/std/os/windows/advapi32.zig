@@ -4,11 +4,20 @@ const BOOL = windows.BOOL;
 const DWORD = windows.DWORD;
 const HKEY = windows.HKEY;
 const BYTE = windows.BYTE;
+const LPCSTR = windows.LPCSTR;
 const LPCWSTR = windows.LPCWSTR;
 const LSTATUS = windows.LSTATUS;
 const REGSAM = windows.REGSAM;
 const ULONG = windows.ULONG;
 const WINAPI = windows.WINAPI;
+
+pub extern "advapi32" fn RegOpenKeyExA(
+    hKey: HKEY,
+    lpSubKey: LPCSTR,
+    ulOptions: DWORD,
+    samDesired: REGSAM,
+    phkResult: *HKEY,
+) callconv(WINAPI) LSTATUS;
 
 pub extern "advapi32" fn RegOpenKeyExW(
     hKey: HKEY,
@@ -16,6 +25,15 @@ pub extern "advapi32" fn RegOpenKeyExW(
     ulOptions: DWORD,
     samDesired: REGSAM,
     phkResult: *HKEY,
+) callconv(WINAPI) LSTATUS;
+
+pub extern "advapi32" fn RegQueryValueExA(
+    hKey: HKEY,
+    lpValueName: LPCSTR,
+    lpReserved: *DWORD,
+    lpType: *DWORD,
+    lpData: *BYTE,
+    lpcbData: *DWORD,
 ) callconv(WINAPI) LSTATUS;
 
 pub extern "advapi32" fn RegQueryValueExW(
