@@ -310,6 +310,7 @@ pub const StreamingParser = struct {
         InvalidUtf8Byte,
         InvalidTopLevelTrailing,
         InvalidControlCharacter,
+        InsufficientSpace,
     };
 
     /// Give another byte to the parser and obtain any new tokens. This may (rarely) return two
@@ -1626,7 +1627,7 @@ fn parseInternal(
                     var r: T = undefined;
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     switch (stringToken.escapes) {
-                        .None => mem.copy(u8, &r, source_slice),
+                        .None => if (r.len >= source_slice.len) mem.copy(u8, &r, source_slice) else return error.InsufficientSpace,
                         .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
@@ -1680,7 +1681,7 @@ fn parseInternal(
                             const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => mem.copy(u8, output, source_slice),
+                                .None => if (output.len >= source_slice.len) mem.copy(u8, output, source_slice) else return error.InsufficientSpace,
                                 .Some => try unescapeValidString(output, source_slice),
                             }
 
