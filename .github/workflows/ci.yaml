@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   x86_64-linux-debug:
+    timeout-minutes: 420
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
