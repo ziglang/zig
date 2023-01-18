@@ -1986,12 +1986,14 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
             const ip = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.pc),
                 .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+                .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
                 else => @intCast(usize, ctx.mcontext.pc),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.fp),
                 .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+                .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
                 else => @intCast(usize, ctx.mcontext.regs[29]),
             };
             dumpStackTraceFromBase(bp, ip);
