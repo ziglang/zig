@@ -120,21 +120,14 @@ pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
     };
     defer _ = w.crypt32.CertCloseStore(store, 0);
 
+    const now_sec = std.time.timestamp();
+
     var ctx = w.crypt32.CertEnumCertificatesInStore(store, null);
     while (ctx) |context| : (ctx = w.crypt32.CertEnumCertificatesInStore(store, ctx)) {
         const decoded_start = @intCast(u32, cb.bytes.items.len);
         const encoded_cert = context.pbCertEncoded[0..context.cbCertEncoded];
         try cb.bytes.appendSlice(gpa, encoded_cert);
-        const parsed_cert = try Certificate.parse(.{
-            .buffer = cb.bytes.items,
-            .index = decoded_start,
-        });
-        const gop = try cb.map.getOrPutContext(gpa, parsed_cert.subject_slice, .{ .cb = cb });
-        if (gop.found_existing) {
-            cb.bytes.items.len = decoded_start;
-        } else {
-            gop.value_ptr.* = decoded_start;
-        }
+        try cb.parseCert(gpa, decoded_start, now_sec);
     }
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
