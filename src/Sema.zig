@@ -7514,7 +7514,7 @@ fn resolveGenericInstantiationType(
 }
 
 fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
-    if (!ty.isSimpleTuple()) return;
+    if (!ty.isSimpleTupleOrAnonStruct()) return;
     const tuple = ty.tupleFields();
     for (tuple.values) |field_val, i| {
         try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
@@ -11771,8 +11771,8 @@ fn zirShl(
     // TODO coerce rhs if air_tag is not shl_sat
     const rhs_is_comptime_int = try sema.checkIntType(block, rhs_src, scalar_rhs_ty);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
 
     if (maybe_rhs_val) |rhs_val| {
         if (rhs_val.isUndef()) {
@@ -11959,8 +11959,8 @@ fn zirShr(
     const target = sema.mod.getTarget();
     const scalar_ty = lhs_ty.scalarType();
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
 
     const runtime_src = if (maybe_rhs_val) |rhs_val| rs: {
         if (rhs_val.isUndef()) {
@@ -19697,7 +19697,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
     }
 
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveMaybeUndefValIntable(operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(dest_ty);
         if (!is_vector) {
             return sema.addConstant(
@@ -19901,7 +19901,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
+    const scalar_ty = try sema.checkIntOrVector(block, operand, operand_src);
 
     if (try sema.typeHasOnePossibleValue(operand_ty)) |val| {
         return sema.addConstant(operand_ty, val);
@@ -19909,7 +19909,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 
     const target = sema.mod.getTarget();
     switch (operand_ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {
+        .Int => {
             const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(operand_ty);
                 const result_val = try val.bitReverse(operand_ty, target, sema.arena);
@@ -19929,7 +19929,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 const elems = try sema.arena.alloc(Value, vec_len);
                 for (elems) |*elem, i| {
                     const elem_val = val.elemValueBuffer(sema.mod, i, &elem_buf);
-                    elem.* = try elem_val.bitReverse(operand_ty, target, sema.arena);
+                    elem.* = try elem_val.bitReverse(scalar_ty, target, sema.arena);
                 }
                 return sema.addConstant(
                     operand_ty,
