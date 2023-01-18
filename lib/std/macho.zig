@@ -2004,96 +2004,55 @@ pub const UnwindInfoCompressedEntry = packed struct {
     encodingIndex: u8,
 };
 
-// TODO add corresponding x86_64 tagged union
-pub const UnwindEncodingArm64 = union(enum) {
-    frame: Frame,
-    frameless: Frameless,
-    dwarf: Dwarf,
+pub const UNWIND_IS_NOT_FUNCTION_START: u32 = 0x80000000;
+pub const UNWIND_HAS_LSDA: u32 = 0x40000000;
+pub const UNWIND_PERSONALITY_MASK: u32 = 0x30000000;
 
-    pub const Frame = packed struct {
-        x_reg_pairs: packed struct {
-            x19_x20: u1,
-            x21_x22: u1,
-            x23_x24: u1,
-            x25_x26: u1,
-            x27_x28: u1,
-        },
-        d_reg_pairs: packed struct {
-            d8_d9: u1,
-            d10_d11: u1,
-            d12_d13: u1,
-            d14_d15: u1,
-        },
-        unused: u15,
-        mode: Mode = .frame,
-        personality_index: u2,
-        has_lsda: u1,
-        start: u1,
-    };
-
-    pub const Frameless = packed struct {
-        unused: u12 = 0,
-        stack_size: u12,
-        mode: Mode = .frameless,
-        personality_index: u2,
-        has_lsda: u1,
-        start: u1,
-    };
-
-    pub const Dwarf = packed struct {
-        section_offset: u24,
-        mode: Mode = .dwarf,
-        personality_index: u2,
-        has_lsda: u1,
-        start: u1,
-    };
-
-    pub const Mode = enum(u4) {
-        frameless = 0x2,
-        dwarf = 0x3,
-        frame = 0x4,
-        _,
-    };
-
-    pub const mode_mask: u32 = 0x0F000000;
-
-    pub fn fromU32(enc: u32) !UnwindEncodingArm64 {
-        const m = (enc & mode_mask) >> 24;
-        return switch (@intToEnum(Mode, m)) {
-            .frame => .{ .frame = @bitCast(Frame, enc) },
-            .frameless => .{ .frameless = @bitCast(Frameless, enc) },
-            .dwarf => .{ .dwarf = @bitCast(Dwarf, enc) },
-            else => return error.UnknownEncoding,
-        };
-    }
-
-    pub fn toU32(enc: UnwindEncodingArm64) u32 {
-        return switch (enc) {
-            inline else => |x| @bitCast(u32, x),
-        };
-    }
-
-    pub fn start(enc: UnwindEncodingArm64) bool {
-        return switch (enc) {
-            inline else => |x| x.start == 0b1,
-        };
-    }
-
-    pub fn hasLsda(enc: UnwindEncodingArm64) bool {
-        return switch (enc) {
-            inline else => |x| x.has_lsda == 0b1,
-        };
-    }
-
-    pub fn personalityIndex(enc: UnwindEncodingArm64) u2 {
-        return switch (enc) {
-            inline else => |x| x.personality_index,
-        };
-    }
-
-    pub fn mode(enc: UnwindEncodingArm64) Mode {
-        return switch (enc) {
-            inline else => |x| x.mode,
-        };
-    }
+// x86_64
+pub const UNWIND_X86_64_MODE_MASK: u32 = 0x0F000000;
+pub const UNWIND_X86_64_MODE = enum(u4) {
+    RBP_FRAME = 1,
+    STACK_IMMD = 2,
+    STACK_IND = 3,
+    DWARF = 4,
 };
+pub const UNWIND_X86_64_RBP_FRAME_REGISTERS: u32 = 0x00007FFF;
+pub const UNWIND_X86_64_RBP_FRAME_OFFSET: u32 = 0x00FF0000;
+
+pub const UNWIND_X86_64_FRAMELESS_STACK_SIZE: u32 = 0x00FF0000;
+pub const UNWIND_X86_64_FRAMELESS_STACK_ADJUST: u32 = 0x0000E000;
+pub const UNWIND_X86_64_FRAMELESS_STACK_REG_COUNT: u32 = 0x00001C00;
+pub const UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION: u32 = 0x000003FF;
+
+pub const UNWIND_X86_64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
+
+pub const UNWIND_X86_64_REG = enum(u3) {
+    NONE = 0,
+    RBX = 1,
+    R12 = 2,
+    R13 = 3,
+    R14 = 4,
+    R15 = 5,
+    RBP = 6,
+};
+
+// arm64
+pub const UNWIND_ARM64_MODE_MASK: u32 = 0x0F000000;
+pub const UNWIND_ARM64_MODE = enum(u4) {
+    FRAMELESS = 2,
+    DWARF = 3,
+    FRAME = 4,
+};
+
+pub const UNWIND_ARM64_FRAME_X19_X20_PAIR: u32 = 0x00000001;
+pub const UNWIND_ARM64_FRAME_X21_X22_PAIR: u32 = 0x00000002;
+pub const UNWIND_ARM64_FRAME_X23_X24_PAIR: u32 = 0x00000004;
+pub const UNWIND_ARM64_FRAME_X25_X26_PAIR: u32 = 0x00000008;
+pub const UNWIND_ARM64_FRAME_X27_X28_PAIR: u32 = 0x00000010;
+pub const UNWIND_ARM64_FRAME_D8_D9_PAIR: u32 = 0x00000100;
+pub const UNWIND_ARM64_FRAME_D10_D11_PAIR: u32 = 0x00000200;
+pub const UNWIND_ARM64_FRAME_D12_D13_PAIR: u32 = 0x00000400;
+pub const UNWIND_ARM64_FRAME_D14_D15_PAIR: u32 = 0x00000800;
+
+pub const UNWIND_ARM64_FRAMELESS_STACK_SIZE_MASK: u32 = 0x00FFF000;
+pub const UNWIND_ARM64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
