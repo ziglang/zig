@@ -11288,6 +11288,7 @@ fn resolveSwitchItemVal(
     // Only if we know for sure we need to report a compile error do we resolve the
     // full source locations.
     if (sema.resolveConstValue(block, .unneeded, item, "")) |val| {
+        try sema.resolveLazyValue(val);
         return TypedValue{ .ty = item_ty, .val = val };
     } else |err| switch (err) {
         error.NeededSourceLocation => {
@@ -16258,6 +16259,7 @@ fn typeInfoNamespaceDecls(
     for (decls) |decl_index| {
         const decl = sema.mod.declPtr(decl_index);
         if (decl.kind == .@"usingnamespace") {
+            if (decl.analysis == .in_progress) continue;
             try sema.mod.ensureDeclAnalyzed(decl_index);
             var buf: Value.ToTypeBuffer = undefined;
             const new_ns = decl.val.toType(&buf).getNamespace().?;
@@ -24820,8 +24822,13 @@ fn coerceExtra(
                     // empty tuple to zero-length slice
                     // note that this allows coercing to a mutable slice.
                     if (inst_child_ty.structFieldCount() == 0) {
+                        // Optional slice is represented with a null pointer so
+                        // we use a dummy pointer value with the required alignment.
                         const slice_val = try Value.Tag.slice.create(sema.arena, .{
-                            .ptr = Value.undef,
+                            .ptr = if (dest_info.@"align" != 0)
+                                try Value.Tag.int_u64.create(sema.arena, dest_info.@"align")
+                            else
+                                try inst_child_ty.lazyAbiAlignment(target, sema.arena),
                             .len = Value.zero,
                         });
                         return sema.addConstant(dest_ty, slice_val);
@@ -26065,7 +26072,8 @@ fn coerceVarArgParam(
 ) !Air.Inst.Ref {
     if (block.is_typeof) return inst;
 
-    const coerced = switch (sema.typeOf(inst).zigTypeTag()) {
+    const uncasted_ty = sema.typeOf(inst);
+    const coerced = switch (uncasted_ty.zigTypeTag()) {
         // TODO consider casting to c_int/f64 if they fit
         .ComptimeInt, .ComptimeFloat => return sema.fail(
             block,
@@ -26079,6 +26087,17 @@ fn coerceVarArgParam(
             break :blk try sema.analyzeDeclRef(fn_decl);
         },
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
+        .Float => float: {
+            const target = sema.mod.getTarget();
+            const double_bits = @import("type.zig").CType.sizeInBits(.double, target);
+            const inst_bits = uncasted_ty.floatBits(sema.mod.getTarget());
+            if (inst_bits >= double_bits) break :float inst;
+            switch (double_bits) {
+                32 => break :float try sema.coerce(block, Type.f32, inst, inst_src),
+                64 => break :float try sema.coerce(block, Type.f64, inst, inst_src),
+                else => unreachable,
+            }
+        },
         else => inst,
     };
 
@@ -27316,7 +27335,7 @@ fn coerceCompatiblePtrs(
         return sema.addConstant(dest_ty, val);
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
-    const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
+    const inst_allows_zero = inst_ty.zigTypeTag() != .Pointer or inst_ty.ptrAllowsZero();
     if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
         try sema.typeHasRuntimeBits(dest_ty.elemType2()))
     {

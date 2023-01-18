@@ -1151,7 +1151,13 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            self.index += 1;
+                        }
+                        break;
+                    },
                     '\n' => {
                         state = .start;
                         result.loc.start = self.index + 1;
@@ -1865,6 +1871,9 @@ test "null byte before eof" {
     try testTokenize("//\x00", &.{.invalid});
     try testTokenize("\\\\\x00", &.{ .multiline_string_literal_line, .invalid });
     try testTokenize("\x00", &.{.invalid});
+    try testTokenize("// NUL\x00\n", &.{.invalid});
+    try testTokenize("///\x00\n", &.{ .doc_comment, .invalid });
+    try testTokenize("/// NUL\x00\n", &.{ .doc_comment, .invalid });
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {

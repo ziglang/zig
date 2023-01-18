@@ -599,3 +599,29 @@ test "packed struct initialized in bitcast" {
     const t = @bitCast(u8, T{ .val = val });
     try expect(t == val);
 }
+
+test "pointer to container level packed struct field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const S = packed struct(u32) {
+        test_bit: bool,
+        someother_data: u12,
+        other_test_bit: bool,
+        someother_more_different_data: u12,
+        other_bits: packed struct(u6) {
+            enable_1: bool,
+            enable_2: bool,
+            enable_3: bool,
+            enable_4: bool,
+            enable_5: bool,
+            enable_6: bool,
+        },
+        var arr = [_]u32{0} ** 2;
+    };
+    @ptrCast(*S, &S.arr[0]).other_bits.enable_3 = true;
+    try expect(S.arr[0] == 0x10000000);
+}

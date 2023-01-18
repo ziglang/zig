@@ -590,3 +590,16 @@ test "@typeInfo decls and usingnamespace" {
     try expectEqualStrings(decls[1].name, "y");
     try expectEqualStrings(decls[2].name, "z");
 }
+
+test "@typeInfo decls ignore dependency loops" {
+    const S = struct {
+        fn Def(comptime T: type) type {
+            std.debug.assert(@typeInfo(T).Struct.decls.len == 1);
+            return struct {
+                const foo = u32;
+            };
+        }
+        usingnamespace Def(@This());
+    };
+    _ = S.foo;
+}

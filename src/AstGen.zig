@@ -3341,6 +3341,9 @@ fn ptrType(
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
     }
 
+    const source_offset = gz.astgen.source_offset;
+    const source_line = gz.astgen.source_line;
+    const source_column = gz.astgen.source_column;
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
     var sentinel_ref: Zir.Inst.Ref = .none;
@@ -3351,15 +3354,29 @@ fn ptrType(
     var trailing_count: u32 = 0;
 
     if (ptr_info.ast.sentinel != 0) {
+        // These attributes can appear in any order and they all come before the
+        // element type so we need to reset the source cursor before generating them.
+        gz.astgen.source_offset = source_offset;
+        gz.astgen.source_line = source_line;
+        gz.astgen.source_column = source_column;
+
         sentinel_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, ptr_info.ast.sentinel);
         trailing_count += 1;
     }
-    if (ptr_info.ast.align_node != 0) {
-        align_ref = try expr(gz, scope, coerced_align_ri, ptr_info.ast.align_node);
+    if (ptr_info.ast.addrspace_node != 0) {
+        gz.astgen.source_offset = source_offset;
+        gz.astgen.source_line = source_line;
+        gz.astgen.source_column = source_column;
+
+        addrspace_ref = try expr(gz, scope, .{ .rl = .{ .ty = .address_space_type } }, ptr_info.ast.addrspace_node);
         trailing_count += 1;
     }
-    if (ptr_info.ast.addrspace_node != 0) {
-        addrspace_ref = try expr(gz, scope, .{ .rl = .{ .ty = .address_space_type } }, ptr_info.ast.addrspace_node);
+    if (ptr_info.ast.align_node != 0) {
+        gz.astgen.source_offset = source_offset;
+        gz.astgen.source_line = source_line;
+        gz.astgen.source_column = source_column;
+
+        align_ref = try expr(gz, scope, coerced_align_ri, ptr_info.ast.align_node);
         trailing_count += 1;
     }
     if (ptr_info.ast.bit_range_start != 0) {

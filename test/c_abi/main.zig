@@ -1032,7 +1032,6 @@ extern fn c_modify_by_ref_param(ByRef) ByRef;
 
 test "C function modifies by ref param" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.mode != .Debug) return error.SkipZigTest;
 
     const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
     try expect(res.val == 42);
