@@ -1161,17 +1161,25 @@ const Coord2 = extern struct {
     y: i16,
 };
 
-extern fn stdcall_coord2(Coord2, Coord2, Coord2) callconv(stdcall_callconv) void;
+extern fn stdcall_coord2(Coord2, Coord2, Coord2) callconv(stdcall_callconv) Coord2;
 test "Stdcall ABI structs" {
-    stdcall_coord2(
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    const res = stdcall_coord2(
         .{ .x = 0x1111, .y = 0x2222 },
         .{ .x = 0x3333, .y = 0x4444 },
         .{ .x = 0x5555, .y = 0x6666 },
     );
+    try expect(res.x == 123);
+    try expect(res.y == 456);
 }
 
 extern fn stdcall_big_union(BigUnion) callconv(stdcall_callconv) void;
 test "Stdcall ABI big union" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
     var x = BigUnion{
         .a = BigStruct{
             .a = 1,

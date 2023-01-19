@@ -999,13 +999,14 @@ typedef struct {
     short y;
 } Coord2;
 
-void __attribute__((stdcall)) stdcall_coord2(Coord2 a, Coord2 b, Coord2 c) {
+Coord2 __attribute__((stdcall)) stdcall_coord2(Coord2 a, Coord2 b, Coord2 c) {
     assert_or_panic(a.x == 0x1111);
     assert_or_panic(a.y == 0x2222);
     assert_or_panic(b.x == 0x3333);
     assert_or_panic(b.y == 0x4444);
     assert_or_panic(c.x == 0x5555);
     assert_or_panic(c.y == 0x6666);
+    return (Coord2){123, 456};
 }
 
 void __attribute__((stdcall)) stdcall_big_union(union BigUnion x) {
