@@ -3421,11 +3421,11 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void 
     const header = section.header;
     var atom = section.last_atom.?;
 
-    var index: usize = lazy_bind.offsets.items.len;
-    while (index > 0) : (index -= 1) {
+    var index: usize = 0;
+    while (index < lazy_bind.offsets.items.len) : (index += 1) {
         const sym = atom.getSymbol(self);
         const file_offset = header.offset + sym.n_value - header.addr + stub_offset;
-        const bind_offset = lazy_bind.offsets.items[index - 1];
+        const bind_offset = lazy_bind.offsets.items[index];
 
         log.debug("writing lazy bind offset 0x{x} in stub helper at 0x{x}", .{ bind_offset, file_offset });
 
