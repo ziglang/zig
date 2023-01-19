@@ -9,7 +9,6 @@ const math = std.math;
 const mem = std.mem;
 
 const aarch64 = @import("../../arch/aarch64/bits.zig");
-const bind = @import("bind.zig");
 const dead_strip = @import("dead_strip.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
@@ -31,6 +30,10 @@ const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const StringTable = @import("../strtab.zig").StringTable;
 const Trie = @import("Trie.zig");
+
+const Bind = @import("dyld_info/bind.zig").Bind(*const Zld, SymbolWithLoc);
+const LazyBind = @import("dyld_info/bind.zig").LazyBind(*const Zld, SymbolWithLoc);
+const Rebase = @import("dyld_info/Rebase.zig");
 
 pub const Zld = struct {
     gpa: Allocator,
@@ -1778,14 +1781,14 @@ pub const Zld = struct {
     fn collectRebaseDataFromContainer(
         self: *Zld,
         sect_id: u8,
-        pointers: *std.ArrayList(bind.Pointer),
+        rebase: *Rebase,
         container: anytype,
     ) !void {
         const slice = self.sections.slice();
         const segment_index = slice.items(.segment_index)[sect_id];
         const seg = self.getSegment(sect_id);
 
-        try pointers.ensureUnusedCapacity(container.items.len);
+        try rebase.entries.ensureUnusedCapacity(self.gpa, container.items.len);
 
         for (container.items) |entry| {
             const target_sym = entry.getTargetSymbol(self);
@@ -1796,19 +1799,19 @@ pub const Zld = struct {
 
             log.debug("    | rebase at {x}", .{base_offset});
 
-            pointers.appendAssumeCapacity(.{
+            rebase.entries.appendAssumeCapacity(.{
                 .offset = base_offset,
                 .segment_id = segment_index,
             });
         }
     }
 
-    fn collectRebaseData(self: *Zld, pointers: *std.ArrayList(bind.Pointer)) !void {
+    fn collectRebaseData(self: *Zld, rebase: *Rebase, reverse_lookups: [][]u32) !void {
         log.debug("collecting rebase data", .{});
 
         // First, unpack GOT entries
         if (self.getSectionByName("__DATA_CONST", "__got")) |sect_id| {
-            try self.collectRebaseDataFromContainer(sect_id, pointers, self.got_entries);
+            try self.collectRebaseDataFromContainer(sect_id, rebase, self.got_entries);
         }
 
         const slice = self.sections.slice();
@@ -1820,7 +1823,7 @@ pub const Zld = struct {
             const seg = self.getSegment(sect_id);
             var atom_index = slice.items(.first_atom_index)[sect_id];
 
-            try pointers.ensureUnusedCapacity(self.stubs.items.len);
+            try rebase.entries.ensureUnusedCapacity(self.gpa, self.stubs.items.len);
 
             while (true) {
                 const atom = self.getAtom(atom_index);
@@ -1829,7 +1832,7 @@ pub const Zld = struct {
 
                 log.debug("    | rebase at {x}", .{base_offset});
 
-                pointers.appendAssumeCapacity(.{
+                rebase.entries.appendAssumeCapacity(.{
                     .offset = base_offset,
                     .segment_id = segment_index,
                 });
@@ -1896,13 +1899,16 @@ pub const Zld = struct {
                             },
                             else => unreachable,
                         }
+                        const target = Atom.parseRelocTarget(self, atom_index, rel, reverse_lookups[atom.getFile().?]);
+                        const target_sym = self.getSymbol(target);
+                        if (target_sym.undf()) continue;
 
                         const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
                         const rel_offset = rel.r_address - base_rel_offset;
                         const offset = @intCast(u64, base_offset + rel_offset);
                         log.debug("    | rebase at {x}", .{offset});
 
-                        try pointers.append(.{
+                        try rebase.entries.append(self.gpa, .{
                             .offset = offset,
                             .segment_id = segment_index,
                         });
@@ -1914,19 +1920,21 @@ pub const Zld = struct {
                 } else break;
             }
         }
+
+        try rebase.finalize(self.gpa);
     }
 
     fn collectBindDataFromContainer(
         self: *Zld,
         sect_id: u8,
-        pointers: *std.ArrayList(bind.Pointer),
+        bind: *Bind,
         container: anytype,
     ) !void {
         const slice = self.sections.slice();
         const segment_index = slice.items(.segment_index)[sect_id];
         const seg = self.getSegment(sect_id);
 
-        try pointers.ensureUnusedCapacity(container.items.len);
+        try bind.entries.ensureUnusedCapacity(self.gpa, container.items.len);
 
         for (container.items) |entry| {
             const bind_sym_name = entry.getTargetSymbolName(self);
@@ -1937,7 +1945,6 @@ pub const Zld = struct {
             const base_offset = sym.n_value - seg.vmaddr;
 
             const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
-            var flags: u4 = 0;
             log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
                 base_offset,
                 bind_sym_name,
@@ -1945,29 +1952,27 @@ pub const Zld = struct {
             });
             if (bind_sym.weakRef()) {
                 log.debug("    | marking as weak ref ", .{});
-                flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
             }
-            pointers.appendAssumeCapacity(.{
+            bind.entries.appendAssumeCapacity(.{
+                .target = entry.target,
                 .offset = base_offset,
                 .segment_id = segment_index,
-                .dylib_ordinal = dylib_ordinal,
-                .name = bind_sym_name,
-                .bind_flags = flags,
+                .addend = 0,
             });
         }
     }
 
-    fn collectBindData(self: *Zld, pointers: *std.ArrayList(bind.Pointer), reverse_lookups: [][]u32) !void {
+    fn collectBindData(self: *Zld, bind: *Bind, reverse_lookups: [][]u32) !void {
         log.debug("collecting bind data", .{});
 
         // First, unpack GOT section
         if (self.getSectionByName("__DATA_CONST", "__got")) |sect_id| {
-            try self.collectBindDataFromContainer(sect_id, pointers, self.got_entries);
+            try self.collectBindDataFromContainer(sect_id, bind, self.got_entries);
         }
 
         // Next, unpack TLV pointers section
         if (self.getSectionByName("__DATA", "__thread_ptrs")) |sect_id| {
-            try self.collectBindDataFromContainer(sect_id, pointers, self.tlv_ptr_entries);
+            try self.collectBindDataFromContainer(sect_id, bind, self.tlv_ptr_entries);
         }
 
         // Finally, unpack the rest.
@@ -2033,27 +2038,27 @@ pub const Zld = struct {
                         const bind_sym = self.getSymbol(global);
                         if (!bind_sym.undf()) continue;
 
-                        const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
-                        const rel_offset = rel.r_address - base_rel_offset;
+                        const base_offset = sym.n_value - segment.vmaddr;
+                        const rel_offset = @intCast(u32, rel.r_address - base_rel_offset);
                         const offset = @intCast(u64, base_offset + rel_offset);
+                        const code = Atom.getAtomCode(self, atom_index);
+                        const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
 
                         const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
-                        var flags: u4 = 0;
                         log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
                             base_offset,
                             bind_sym_name,
                             dylib_ordinal,
                         });
+                        log.debug("    | with addend {x}", .{addend});
                         if (bind_sym.weakRef()) {
                             log.debug("    | marking as weak ref ", .{});
-                            flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
                         }
-                        try pointers.append(.{
+                        try bind.entries.append(self.gpa, .{
+                            .target = global,
                             .offset = offset,
                             .segment_id = segment_index,
-                            .dylib_ordinal = dylib_ordinal,
-                            .name = bind_sym_name,
-                            .bind_flags = flags,
+                            .addend = addend,
                         });
                     }
                 }
@@ -2062,9 +2067,11 @@ pub const Zld = struct {
                 } else break;
             }
         }
+
+        try bind.finalize(self.gpa, self);
     }
 
-    fn collectLazyBindData(self: *Zld, pointers: *std.ArrayList(bind.Pointer)) !void {
+    fn collectLazyBindData(self: *Zld, lazy_bind: *LazyBind) !void {
         const sect_id = self.getSectionByName("__DATA", "__la_symbol_ptr") orelse return;
 
         log.debug("collecting lazy bind data", .{});
@@ -2075,7 +2082,7 @@ pub const Zld = struct {
         var atom_index = slice.items(.first_atom_index)[sect_id];
 
         // TODO: we actually don't need to store lazy pointer atoms as they are synthetically generated by the linker
-        try pointers.ensureUnusedCapacity(self.stubs.items.len);
+        try lazy_bind.entries.ensureUnusedCapacity(self.gpa, self.stubs.items.len);
 
         var count: u32 = 0;
         while (true) : (count += 1) {
@@ -2090,7 +2097,6 @@ pub const Zld = struct {
             const bind_sym = stub_entry.getTargetSymbol(self);
             const bind_sym_name = stub_entry.getTargetSymbolName(self);
             const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
-            var flags: u4 = 0;
             log.debug("    | lazy bind at {x}, import('{s}') in dylib({d})", .{
                 base_offset,
                 bind_sym_name,
@@ -2098,20 +2104,20 @@ pub const Zld = struct {
             });
             if (bind_sym.weakRef()) {
                 log.debug("    | marking as weak ref ", .{});
-                flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
             }
-            pointers.appendAssumeCapacity(.{
+            lazy_bind.entries.appendAssumeCapacity(.{
+                .target = stub_entry.target,
                 .offset = base_offset,
                 .segment_id = segment_index,
-                .dylib_ordinal = dylib_ordinal,
-                .name = bind_sym_name,
-                .bind_flags = flags,
+                .addend = 0,
             });
 
             if (atom.next_index) |next_index| {
                 atom_index = next_index;
             } else break;
         }
+
+        try lazy_bind.finalize(self.gpa, self);
     }
 
     fn collectExportData(self: *Zld, trie: *Trie) !void {
@@ -2161,17 +2167,17 @@ pub const Zld = struct {
     fn writeDyldInfoData(self: *Zld, reverse_lookups: [][]u32) !void {
         const gpa = self.gpa;
 
-        var rebase_pointers = std.ArrayList(bind.Pointer).init(gpa);
-        defer rebase_pointers.deinit();
-        try self.collectRebaseData(&rebase_pointers);
+        var rebase = Rebase{};
+        defer rebase.deinit(gpa);
+        try self.collectRebaseData(&rebase, reverse_lookups);
 
-        var bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
-        defer bind_pointers.deinit();
-        try self.collectBindData(&bind_pointers, reverse_lookups);
+        var bind = Bind{};
+        defer bind.deinit(gpa);
+        try self.collectBindData(&bind, reverse_lookups);
 
-        var lazy_bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
-        defer lazy_bind_pointers.deinit();
-        try self.collectLazyBindData(&lazy_bind_pointers);
+        var lazy_bind = LazyBind{};
+        defer lazy_bind.deinit(gpa);
+        try self.collectLazyBindData(&lazy_bind);
 
         var trie = Trie{};
         defer trie.deinit(gpa);
@@ -2180,17 +2186,17 @@ pub const Zld = struct {
         const link_seg = self.getLinkeditSegmentPtr();
         assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
         const rebase_off = link_seg.fileoff;
-        const rebase_size = try bind.rebaseInfoSize(rebase_pointers.items);
+        const rebase_size = rebase.size();
         const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
         log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
         const bind_off = rebase_off + rebase_size_aligned;
-        const bind_size = try bind.bindInfoSize(bind_pointers.items);
+        const bind_size = bind.size();
         const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
         log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
         const lazy_bind_off = bind_off + bind_size_aligned;
-        const lazy_bind_size = try bind.lazyBindInfoSize(lazy_bind_pointers.items);
+        const lazy_bind_size = lazy_bind.size();
         const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
         log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
             lazy_bind_off,
@@ -2214,13 +2220,13 @@ pub const Zld = struct {
         var stream = std.io.fixedBufferStream(buffer);
         const writer = stream.writer();
 
-        try bind.writeRebaseInfo(rebase_pointers.items, writer);
+        try rebase.write(writer);
         try stream.seekTo(bind_off - rebase_off);
 
-        try bind.writeBindInfo(bind_pointers.items, writer);
+        try bind.write(writer);
         try stream.seekTo(lazy_bind_off - rebase_off);
 
-        try bind.writeLazyBindInfo(lazy_bind_pointers.items, writer);
+        try lazy_bind.write(writer);
         try stream.seekTo(export_off - rebase_off);
 
         _ = try trie.write(writer);
@@ -2231,10 +2237,7 @@ pub const Zld = struct {
         });
 
         try self.file.pwriteAll(buffer, rebase_off);
-
-        const offset = math.cast(usize, lazy_bind_off - rebase_off) orelse return error.Overflow;
-        const size = math.cast(usize, lazy_bind_size) orelse return error.Overflow;
-        try self.populateLazyBindOffsetsInStubHelper(buffer[offset..][0..size]);
+        try self.populateLazyBindOffsetsInStubHelper(lazy_bind);
 
         self.dyld_info_cmd.rebase_off = @intCast(u32, rebase_off);
         self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size_aligned);
@@ -2246,116 +2249,37 @@ pub const Zld = struct {
         self.dyld_info_cmd.export_size = @intCast(u32, export_size_aligned);
     }
 
-    fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
-        const gpa = self.gpa;
+    fn populateLazyBindOffsetsInStubHelper(self: *Zld, lazy_bind: LazyBind) !void {
+        if (lazy_bind.size() == 0) return;
 
-        const stub_helper_section_index = self.getSectionByName("__TEXT", "__stub_helper") orelse return;
-        const la_symbol_ptr_section_index = self.getSectionByName("__DATA", "__la_symbol_ptr") orelse return;
-
-        if (self.stub_helper_preamble_sym_index == null) return;
+        const stub_helper_section_index = self.getSectionByName("__TEXT", "__stub_helper").?;
+        assert(self.stub_helper_preamble_sym_index != null);
 
         const section = self.sections.get(stub_helper_section_index);
-        const last_atom_index = section.last_atom_index;
-
-        var table = std.AutoHashMap(i64, AtomIndex).init(gpa);
-        defer table.deinit();
-
-        {
-            var stub_atom_index = last_atom_index;
-            var laptr_atom_index = self.sections.items(.last_atom_index)[la_symbol_ptr_section_index];
-
-            const base_addr = blk: {
-                const segment_index = self.getSegmentByName("__DATA").?;
-                const seg = self.segments.items[segment_index];
-                break :blk seg.vmaddr;
-            };
-
-            while (true) {
-                const stub_atom = self.getAtom(stub_atom_index);
-                const laptr_atom = self.getAtom(laptr_atom_index);
-                const laptr_off = blk: {
-                    const sym = self.getSymbolPtr(laptr_atom.getSymbolWithLoc());
-                    break :blk @intCast(i64, sym.n_value - base_addr);
-                };
-
-                try table.putNoClobber(laptr_off, stub_atom_index);
-
-                if (laptr_atom.prev_index) |prev_index| {
-                    laptr_atom_index = prev_index;
-                    stub_atom_index = stub_atom.prev_index.?;
-                } else break;
-            }
-        }
-
-        var stream = std.io.fixedBufferStream(buffer);
-        var reader = stream.reader();
-        var offsets = std.ArrayList(struct { sym_offset: i64, offset: u32 }).init(gpa);
-        try offsets.append(.{ .sym_offset = undefined, .offset = 0 });
-        defer offsets.deinit();
-        var valid_block = false;
-
-        while (true) {
-            const inst = reader.readByte() catch |err| switch (err) {
-                error.EndOfStream => break,
-            };
-            const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
-
-            switch (opcode) {
-                macho.BIND_OPCODE_DO_BIND => {
-                    valid_block = true;
-                },
-                macho.BIND_OPCODE_DONE => {
-                    if (valid_block) {
-                        const offset = try stream.getPos();
-                        try offsets.append(.{ .sym_offset = undefined, .offset = @intCast(u32, offset) });
-                    }
-                    valid_block = false;
-                },
-                macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
-                    var next = try reader.readByte();
-                    while (next != @as(u8, 0)) {
-                        next = try reader.readByte();
-                    }
-                },
-                macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
-                    var inserted = offsets.pop();
-                    inserted.sym_offset = try std.leb.readILEB128(i64, reader);
-                    try offsets.append(inserted);
-                },
-                macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
-                    _ = try std.leb.readULEB128(u64, reader);
-                },
-                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                    _ = try std.leb.readILEB128(i64, reader);
-                },
-                else => {},
-            }
-        }
-
-        const header = self.sections.items(.header)[stub_helper_section_index];
         const stub_offset: u4 = switch (self.options.target.cpu.arch) {
             .x86_64 => 1,
             .aarch64 => 2 * @sizeOf(u32),
             else => unreachable,
         };
-        var buf: [@sizeOf(u32)]u8 = undefined;
-        _ = offsets.pop();
+        const header = section.header;
+        var atom_index = section.first_atom_index;
+        atom_index = self.getAtom(atom_index).next_index.?; // skip preamble
 
-        while (offsets.popOrNull()) |bind_offset| {
-            const atom_index = table.get(bind_offset.sym_offset).?;
+        var index: usize = 0;
+        while (true) {
             const atom = self.getAtom(atom_index);
-            const sym = self.getSymbol(atom.getSymbolWithLoc());
+            const atom_sym = self.getSymbol(atom.getSymbolWithLoc());
+            const file_offset = header.offset + atom_sym.n_value - header.addr + stub_offset;
+            const bind_offset = lazy_bind.offsets.items[index];
 
-            const file_offset = header.offset + sym.n_value - header.addr + stub_offset;
-            mem.writeIntLittle(u32, &buf, bind_offset.offset);
+            log.debug("writing lazy bind offset 0x{x} in stub helper at 0x{x}", .{ bind_offset, file_offset });
 
-            log.debug("writing lazy bind offset in stub helper of 0x{x} for symbol {s} at offset 0x{x}", .{
-                bind_offset.offset,
-                self.getSymbolName(atom.getSymbolWithLoc()),
-                file_offset,
-            });
+            try self.file.pwriteAll(mem.asBytes(&bind_offset), file_offset);
 
-            try self.file.pwriteAll(&buf, file_offset);
+            if (atom.next_index) |next_index| {
+                atom_index = next_index;
+                index += 1;
+            } else break;
         }
     }
 
@@ -3018,12 +2942,17 @@ pub const Zld = struct {
     }
 
     /// Returns symbol described by `sym_with_loc` descriptor.
-    pub fn getSymbol(self: *Zld, sym_with_loc: SymbolWithLoc) macho.nlist_64 {
-        return self.getSymbolPtr(sym_with_loc).*;
+    pub fn getSymbol(self: *const Zld, sym_with_loc: SymbolWithLoc) macho.nlist_64 {
+        if (sym_with_loc.getFile()) |file| {
+            const object = &self.objects.items[file];
+            return object.symtab[sym_with_loc.sym_index];
+        } else {
+            return self.locals.items[sym_with_loc.sym_index];
+        }
     }
 
     /// Returns name of the symbol described by `sym_with_loc` descriptor.
-    pub fn getSymbolName(self: *Zld, sym_with_loc: SymbolWithLoc) []const u8 {
+    pub fn getSymbolName(self: *const Zld, sym_with_loc: SymbolWithLoc) []const u8 {
         if (sym_with_loc.getFile()) |file| {
             const object = self.objects.items[file];
             return object.getSymbolName(sym_with_loc.sym_index);
