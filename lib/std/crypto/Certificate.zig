@@ -275,7 +275,7 @@ pub const Parsed = struct {
     // Check hostname according to RFC2818 specification:
     //
     // If more than one identity of a given type is present in
-    // the certificate (e.g., more than one dNSName name, a match in any one
+    // the certificate (e.g., more than one DNSName name, a match in any one
     // of the set is considered acceptable.) Names may contain the wildcard
     // character * which is considered to match any single domain name
     // component or component fragment. E.g., *.a.com matches foo.a.com but
@@ -283,14 +283,6 @@ pub const Parsed = struct {
     fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
         if (mem.eql(u8, dns_name, host_name)) {
             return true; // exact match
-        }
-
-        // In the case of the wildcard not being
-        // in the subdomain.
-        if (mem.indexOf(u8, dns_name, "*")) |idx| {
-            if (idx > 0) {
-                return mem.eql(u8, host_name[0..idx], dns_name[0..idx]);
-            }
         }
 
         var it_host = std.mem.split(u8, host_name, ".");
@@ -323,7 +315,7 @@ test "Parsed.checkHostName" {
     try expectEqual(true, Parsed.checkHostName("ziglang.org", "ziglang.org"));
     try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.ziglang.org"));
     try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
-    try expectEqual(true, Parsed.checkHostName("ziglang.org", "zig*.org"));
+    try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
 }
 
