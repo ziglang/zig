@@ -316,28 +316,52 @@ pub const Parsed = struct {
         return error.CertificateHostMismatch;
     }
 
+    // Check hostname according to RFC2818 specification:
+    //
+    // If more than one identity of a given type is present in
+    // the certificate (e.g., more than one DNSName name, a match in any one
+    // of the set is considered acceptable.) Names may contain the wildcard
+    // character * which is considered to match any single domain name
+    // component or component fragment. E.g., *.a.com matches foo.a.com but
+    // not bar.foo.a.com. f*.com matches foo.com but not bar.com.
     fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
         if (mem.eql(u8, dns_name, host_name)) {
             return true; // exact match
         }
 
-        if (mem.startsWith(u8, dns_name, "*.")) {
-            // wildcard certificate, matches any subdomain
-            // TODO: I think wildcards are not supposed to match any prefix but
-            // only match exactly one subdomain.
-            if (mem.endsWith(u8, host_name, dns_name[1..])) {
-                // The host_name has a subdomain, but the important part matches.
-                return true;
-            }
-            if (mem.eql(u8, dns_name[2..], host_name)) {
-                // The host_name has no subdomain and matches exactly.
-                return true;
-            }
-        }
+        var it_host = std.mem.split(u8, host_name, ".");
+        var it_dns = std.mem.split(u8, dns_name, ".");
 
-        return false;
+        const len_match = while (true) {
+            const host = it_host.next();
+            const dns = it_dns.next();
+
+            if (host == null or dns == null) {
+                break host == null and dns == null;
+            }
+
+            // If not a wildcard and they dont
+            // match then there is no match.
+            if (mem.eql(u8, dns.?, "*") == false and mem.eql(u8, dns.?, host.?) == false) {
+                return false;
+            }
+        };
+
+        // If the components are not the same
+        // length then there is no match.
+        return len_match;
     }
 };
+
+test "Parsed.checkHostName" {
+    const expectEqual = std.testing.expectEqual;
+
+    try expectEqual(true, Parsed.checkHostName("ziglang.org", "ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.ziglang.org"));
+    try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
+    try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
+    try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
+}
 
 pub fn parse(cert: Certificate) !Parsed {
     const cert_bytes = cert.buffer;
