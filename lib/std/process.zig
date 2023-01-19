@@ -293,6 +293,10 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
+        if (environ_count == 0) {
+            return result;
+        }
+
         var environ = try allocator.alloc([*:0]u8, environ_count);
         defer allocator.free(environ);
         var environ_buf = try allocator.alloc(u8, environ_buf_size);
@@ -466,6 +470,10 @@ pub const ArgIteratorWasi = struct {
         switch (w.args_sizes_get(&count, &buf_size)) {
             .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
+        }
+
+        if (count == 0) {
+            return &[_][:0]u8{};
         }
 
         var argv = try allocator.alloc([*:0]u8, count);
