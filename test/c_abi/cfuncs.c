@@ -985,3 +985,32 @@ f128_struct c_f128_struct(f128_struct a) {
     return (f128_struct){56.78};
 }
 #endif
+
+void __attribute__((stdcall)) stdcall_scalars(char a, short b, int c, float d, double e) {
+    assert_or_panic(a == 1);
+    assert_or_panic(b == 2);
+    assert_or_panic(c == 3);
+    assert_or_panic(d == 4.0);
+    assert_or_panic(e == 5.0);
+}
+
+typedef struct {
+    short x;
+    short y;
+} Coord2;
+
+void __attribute__((stdcall)) stdcall_coord2(Coord2 a, Coord2 b, Coord2 c) {
+    assert_or_panic(a.x == 0x1111);
+    assert_or_panic(a.y == 0x2222);
+    assert_or_panic(b.x == 0x3333);
+    assert_or_panic(b.y == 0x4444);
+    assert_or_panic(c.x == 0x5555);
+    assert_or_panic(c.y == 0x6666);
+}
+
+void __attribute__((stdcall)) stdcall_big_union(union BigUnion x) {
+    assert_or_panic(x.a.a == 1);
+    assert_or_panic(x.a.b == 2);
+    assert_or_panic(x.a.c == 3);
+    assert_or_panic(x.a.d == 4);
+}

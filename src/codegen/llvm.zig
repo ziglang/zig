@@ -10798,6 +10798,22 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
+            .Stdcall => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+
+                if (it.target.cpu.arch != .x86 or it.target.os.tag != .windows) {
+                    return .byval;
+                }
+
+                const is_scalar = isScalar(ty);
+                if (is_scalar) {
+                    return .byval;
+                } else {
+                    it.byval_attr = true;
+                    return .byref;
+                }
+            },
             else => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
