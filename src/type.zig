@@ -3789,6 +3789,39 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns true if the type's layout is already resolved and it is safe
+    /// to use `abiSize`, `abiAlignment` and `bitSize` on it.
+    pub fn layoutIsResolved(ty: Type) bool {
+        switch (ty.zigTypeTag()) {
+            .Struct => {
+                if (ty.castTag(.@"struct")) |struct_ty| {
+                    return struct_ty.data.haveLayout();
+                }
+                return true;
+            },
+            .Union => {
+                if (ty.cast(Payload.Union)) |union_ty| {
+                    return union_ty.data.haveLayout();
+                }
+                return true;
+            },
+            .Array => {
+                if (ty.arrayLenIncludingSentinel() == 0) return true;
+                return ty.childType().layoutIsResolved();
+            },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_ty = ty.optionalChild(&buf);
+                return payload_ty.layoutIsResolved();
+            },
+            .ErrorUnion => {
+                const payload_ty = ty.errorUnionPayload();
+                return payload_ty.layoutIsResolved();
+            },
+            else => return true,
+        }
+    }
+
     pub fn isSinglePointer(self: Type) bool {
         return switch (self.tag()) {
             .single_const_pointer,
@@ -6498,12 +6531,7 @@ pub const Type = extern union {
         // pointee type needs to be resolved more, that needs to be done before calling
         // this ptr() function.
         if (d.@"align" != 0) canonicalize: {
-            if (d.pointee_type.castTag(.@"struct")) |struct_ty| {
-                if (!struct_ty.data.haveLayout()) break :canonicalize;
-            }
-            if (d.pointee_type.cast(Payload.Union)) |union_ty| {
-                if (!union_ty.data.haveLayout()) break :canonicalize;
-            }
+            if (!d.pointee_type.layoutIsResolved()) break :canonicalize;
             if (d.@"align" == d.pointee_type.abiAlignment(target)) {
                 d.@"align" = 0;
             }
