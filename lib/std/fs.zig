@@ -1321,7 +1321,7 @@ pub const Dir = struct {
 
         const O_LARGEFILE = if (@hasDecl(os.O, "LARGEFILE")) os.O.LARGEFILE else 0;
         const os_flags = lock_flag | O_LARGEFILE | os.O.CREAT | os.O.CLOEXEC |
-            (if (flags.truncate) @as(u32, os.O.TRUNC) else 0) |
+            (if (flags.truncate) @as(u32, os.O.TRUNC) else os.O.APPEND) |
             (if (flags.read) @as(u32, os.O.RDWR) else os.O.WRONLY) |
             (if (flags.exclusive) @as(u32, os.O.EXCL) else 0);
         const fd = if (flags.intended_io_mode != .blocking)
