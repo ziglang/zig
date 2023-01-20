@@ -12,9 +12,9 @@ pub fn build(b: *Builder) void {
         .os_tag = .macos,
     };
 
-    testUuid(b, test_step, .ReleaseSafe, aarch64_macos, "af0f4c21a07c30daba59213d80262e45");
-    testUuid(b, test_step, .ReleaseFast, aarch64_macos, "af0f4c21a07c30daba59213d80262e45");
-    testUuid(b, test_step, .ReleaseSmall, aarch64_macos, "af0f4c21a07c30daba59213d80262e45");
+    testUuid(b, test_step, .ReleaseSafe, aarch64_macos, "675bb6ba8e5d3d3191f7936d7168f0e9");
+    testUuid(b, test_step, .ReleaseFast, aarch64_macos, "675bb6ba8e5d3d3191f7936d7168f0e9");
+    testUuid(b, test_step, .ReleaseSmall, aarch64_macos, "675bb6ba8e5d3d3191f7936d7168f0e9");
 
     const x86_64_macos = std.zig.CrossTarget{
         .cpu_arch = .x86_64,
