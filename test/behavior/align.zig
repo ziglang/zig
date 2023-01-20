@@ -65,6 +65,9 @@ test "alignment and size of structs with 128-bit fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    // https://github.com/ziglang/zig/issues/14371
+    if (builtin.zig_backend == .stage2_c and builtin.target.cpu.arch == .x86) return error.SkipZigTest;
+
     const A = struct {
         x: u128,
     };
