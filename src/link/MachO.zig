@@ -1393,7 +1393,7 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWi
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, atom.size, @alignOf(u64));
-    log.debug("allocated lazy pointer atom at 0x{x}", .{sym.n_value});
+    log.warn("allocated lazy pointer atom at 0x{x} ({s})", .{ sym.n_value, self.getSymbolName(target) });
     try self.writePtrWidthAtom(atom);
 
     return atom;
@@ -3422,13 +3422,17 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void 
     const header = section.header;
     var atom = section.last_atom.?;
 
-    var index: usize = 0;
-    while (index < lazy_bind.offsets.items.len) : (index += 1) {
+    var index: usize = lazy_bind.offsets.items.len;
+    while (index > 0) : (index -= 1) {
         const sym = atom.getSymbol(self);
         const file_offset = header.offset + sym.n_value - header.addr + stub_offset;
-        const bind_offset = lazy_bind.offsets.items[index];
+        const bind_offset = lazy_bind.offsets.items[index - 1];
 
-        log.debug("writing lazy bind offset 0x{x} in stub helper at 0x{x}", .{ bind_offset, file_offset });
+        log.warn("writing lazy bind offset 0x{x} ({s}) in stub helper at 0x{x}", .{
+            bind_offset,
+            self.getSymbolName(lazy_bind.entries.items[index - 1].target),
+            file_offset,
+        });
 
         try self.base.file.?.pwriteAll(mem.asBytes(&bind_offset), file_offset);
 
