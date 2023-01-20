@@ -238,10 +238,10 @@ const Entry = struct {
     }
 };
 
-const BindingTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Atom.Binding));
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
-const RebaseTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
-const RelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Relocation));
+const BindingTable = std.AutoArrayHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Atom.Binding));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
+const RebaseTable = std.AutoArrayHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
+const RelocationTable = std.AutoArrayHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Relocation));
 
 const PendingUpdate = union(enum) {
     resolve_undef: u32,
@@ -547,11 +547,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.allocateSpecialSymbols();
 
-    {
-        var it = self.relocs.keyIterator();
-        while (it.next()) |atom| {
-            try atom.*.resolveRelocations(self);
-        }
+    for (self.relocs.keys()) |atom| {
+        try atom.resolveRelocations(self);
     }
 
     if (build_options.enable_logging) {
@@ -1018,8 +1015,7 @@ fn writePtrWidthAtom(self: *MachO, atom: *Atom) !void {
 
 fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
     // TODO: reverse-lookup might come in handy here
-    var it = self.relocs.valueIterator();
-    while (it.next()) |relocs| {
+    for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             if (!reloc.target.eql(target)) continue;
             reloc.dirty = true;
@@ -1028,8 +1024,7 @@ fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
-    var it = self.relocs.valueIterator();
-    while (it.next()) |relocs| {
+    for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_atom = reloc.getTargetAtom(self) orelse continue;
             const target_sym = target_atom.getSymbol(self);
@@ -1785,47 +1780,32 @@ pub fn deinit(self: *MachO) void {
         assert(self.decls.count() == 0);
     }
 
-    {
-        var it = self.unnamed_const_atoms.valueIterator();
-        while (it.next()) |atoms| {
-            atoms.deinit(gpa);
-        }
-        self.unnamed_const_atoms.deinit(gpa);
+    for (self.unnamed_const_atoms.values()) |*atoms| {
+        atoms.deinit(gpa);
     }
+    self.unnamed_const_atoms.deinit(gpa);
 
     self.atom_by_index_table.deinit(gpa);
 
-    {
-        var it = self.relocs.valueIterator();
-        while (it.next()) |relocs| {
-            relocs.deinit(gpa);
-        }
-        self.relocs.deinit(gpa);
+    for (self.relocs.values()) |*relocs| {
+        relocs.deinit(gpa);
     }
+    self.relocs.deinit(gpa);
 
-    {
-        var it = self.rebases.valueIterator();
-        while (it.next()) |rebases| {
-            rebases.deinit(gpa);
-        }
-        self.rebases.deinit(gpa);
+    for (self.rebases.values()) |*rebases| {
+        rebases.deinit(gpa);
     }
+    self.rebases.deinit(gpa);
 
-    {
-        var it = self.bindings.valueIterator();
-        while (it.next()) |bindings| {
-            bindings.deinit(gpa);
-        }
-        self.bindings.deinit(gpa);
+    for (self.bindings.values()) |*bindings| {
+        bindings.deinit(gpa);
     }
+    self.bindings.deinit(gpa);
 
-    {
-        var it = self.lazy_bindings.valueIterator();
-        while (it.next()) |bindings| {
-            bindings.deinit(gpa);
-        }
-        self.lazy_bindings.deinit(gpa);
+    for (self.lazy_bindings.values()) |*bindings| {
+        bindings.deinit(gpa);
     }
+    self.lazy_bindings.deinit(gpa);
 }
 
 fn freeAtom(self: *MachO, atom: *Atom) void {
@@ -2580,13 +2560,13 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 fn freeRelocationsForAtom(self: *MachO, atom: *Atom) void {
-    var removed_relocs = self.relocs.fetchRemove(atom);
+    var removed_relocs = self.relocs.fetchOrderedRemove(atom);
     if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
-    var removed_rebases = self.rebases.fetchRemove(atom);
+    var removed_rebases = self.rebases.fetchOrderedRemove(atom);
     if (removed_rebases) |*rebases| rebases.value.deinit(self.base.allocator);
-    var removed_bindings = self.bindings.fetchRemove(atom);
+    var removed_bindings = self.bindings.fetchOrderedRemove(atom);
     if (removed_bindings) |*bindings| bindings.value.deinit(self.base.allocator);
-    var removed_lazy_bindings = self.lazy_bindings.fetchRemove(atom);
+    var removed_lazy_bindings = self.lazy_bindings.fetchOrderedRemove(atom);
     if (removed_lazy_bindings) |*lazy_bindings| lazy_bindings.value.deinit(self.base.allocator);
 }
 
@@ -3199,11 +3179,8 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
 fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
-    var it = self.rebases.keyIterator();
 
-    while (it.next()) |key_ptr| {
-        const atom = key_ptr.*;
-
+    for (self.rebases.keys()) |atom, i| {
         log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
 
         const sym = atom.getSymbol(self);
@@ -3212,7 +3189,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
 
         const base_offset = sym.n_value - seg.vmaddr;
 
-        const rebases = self.rebases.get(atom).?;
+        const rebases = self.rebases.values()[i];
         try rebase.entries.ensureUnusedCapacity(gpa, rebases.items.len);
 
         for (rebases.items) |offset| {
@@ -3231,11 +3208,8 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
 fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
-    var it = raw_bindings.keyIterator();
 
-    while (it.next()) |key_ptr| {
-        const atom = key_ptr.*;
-
+    for (raw_bindings.keys()) |atom, i| {
         log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
 
         const sym = atom.getSymbol(self);
@@ -3244,7 +3218,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
 
         const base_offset = sym.n_value - seg.vmaddr;
 
-        const bindings = raw_bindings.get(atom).?;
+        const bindings = raw_bindings.values()[i];
         try bind.entries.ensureUnusedCapacity(gpa, bindings.items.len);
 
         for (bindings.items) |binding| {
