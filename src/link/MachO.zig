@@ -469,10 +469,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     const cache_dir_handle = module.zig_cache_artifact_directory.handle;
     var man: Cache.Manifest = undefined;
-    defer if (!self.base.options.disable_lld_caching) man.deinit();
+    defer man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
     man = comp.cache_parent.obtain();
+    man.want_shared_lock = false;
     self.base.releaseLock();
 
     man.hash.addListOfBytes(libs.keys());
