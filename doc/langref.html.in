@@ -6627,7 +6627,7 @@ test "peer type resolution: *const T and ?*T" {
           <li>{#link|Arrays#} and {#link|Vectors#} with len 0, or with an element type that is a zero bit type.</li>
           <li>An {#link|enum#} with only 1 tag.</li>
           <li>A {#link|struct#} with all fields being zero bit types.</li>
-          <li>A {#link|union#} with only 1 field which is a zero bit type.</li>
+          <li>An {#link|union#} with all fields being zero bit types.</li>
       </ul>
       <p>
       These types can only ever have one possible value, and thus
@@ -6650,6 +6650,9 @@ export fn entry() void {
   15:	c3                   	retq   </code></pre>
       <p>These assembly instructions do not have any code associated with the void values -
       they only perform the function call prologue and epilogue.</p>
+      <p>Using empty {#link|struct#}, empty {#link|enum#}, empty {#link|union#},
+      and empty {#link|Error Set Type#} is problematic, and may be a compile error in the future.
+      For details on this subscribe to <a href="https://github.com/ziglang/zig/issues/13807">this issue</a>.
 
       {#header_open|void#}
       <p>
