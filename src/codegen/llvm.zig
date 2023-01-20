@@ -10413,6 +10413,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .riscv32, .riscv64 => return riscv_c_abi.classifyType(fn_info.return_type, target) == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
+        .Stdcall => return !isScalar(fn_info.return_type),
         else => return false,
     }
 }
@@ -10566,6 +10567,13 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                 },
                 // TODO investigate C ABI for other architectures
                 else => return dg.lowerType(fn_info.return_type),
+            }
+        },
+        .Stdcall => {
+            if (isScalar(fn_info.return_type)) {
+                return dg.lowerType(fn_info.return_type);
+            } else {
+                return dg.context.voidType();
             }
         },
         else => return dg.lowerType(fn_info.return_type),
@@ -10796,6 +10804,17 @@ const ParamTypeIterator = struct {
                         it.llvm_index += 1;
                         return .byval;
                     },
+                }
+            },
+            .Stdcall => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+
+                if (isScalar(ty)) {
+                    return .byval;
+                } else {
+                    it.byval_attr = true;
+                    return .byref;
                 }
             },
             else => {

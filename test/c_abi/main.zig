@@ -1146,3 +1146,47 @@ test "f128 struct" {
     const a = c_f128_struct(.{ .a = 12.34 });
     try expect(@floatCast(f64, a.a) == 56.78);
 }
+
+// The stdcall attribute on C functions is ignored when compiled on non-x86
+const stdcall_callconv: std.builtin.CallingConvention = if (builtin.cpu.arch == .x86) .Stdcall else .C;
+
+extern fn stdcall_scalars(i8, i16, i32, f32, f64) callconv(stdcall_callconv) void;
+test "Stdcall ABI scalars" {
+    stdcall_scalars(1, 2, 3, 4.0, 5.0);
+}
+
+const Coord2 = extern struct {
+    x: i16,
+    y: i16,
+};
+
+extern fn stdcall_coord2(Coord2, Coord2, Coord2) callconv(stdcall_callconv) Coord2;
+test "Stdcall ABI structs" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    const res = stdcall_coord2(
+        .{ .x = 0x1111, .y = 0x2222 },
+        .{ .x = 0x3333, .y = 0x4444 },
+        .{ .x = 0x5555, .y = 0x6666 },
+    );
+    try expect(res.x == 123);
+    try expect(res.y == 456);
+}
+
+extern fn stdcall_big_union(BigUnion) callconv(stdcall_callconv) void;
+test "Stdcall ABI big union" {
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    var x = BigUnion{
+        .a = BigStruct{
+            .a = 1,
+            .b = 2,
+            .c = 3,
+            .d = 4,
+            .e = 5,
+        },
+    };
+    stdcall_big_union(x);
+}

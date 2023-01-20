@@ -1321,6 +1321,16 @@ const c_abi_targets = [_]CrossTarget{
         .os_tag = .linux,
         .abi = .musl,
     },
+    .{
+        .cpu_arch = .x86,
+        .os_tag = .windows,
+        .abi = .gnu,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .gnu,
+    },
 };
 
 pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool) *build.Step {
@@ -1342,6 +1352,12 @@ pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool
         test_step.linkLibC();
         test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
         test_step.setBuildMode(mode);
+
+        if (c_abi_target.isWindows() and (c_abi_target.getCpuArch() == .x86 or builtin.target.os.tag == .linux)) {
+            // LTO currently incorrectly strips stdcall name-mangled functions
+            // LLD crashes in LTO here when cross compiling for windows on linux
+            test_step.want_lto = false;
+        }
 
         const triple_prefix = c_abi_target.zigTriple(b.allocator) catch unreachable;
         test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
