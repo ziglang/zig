@@ -312,7 +312,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
 
     var dwarf: ?Dwarf = if (!options.strip and options.module != null)
-        Dwarf.init(gpa, .elf, options.target)
+        Dwarf.init(gpa, &self.base, options.target)
     else
         null;
 
@@ -328,8 +328,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .page_size = page_size,
     };
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.have_stage1 and options.use_stage1;
-    if (use_llvm and !use_stage1) {
+    if (use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
@@ -932,7 +931,105 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 }
 
-pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn growAllocSection(self: *Elf, shdr_index: u16, phdr_index: u16, needed_size: u64) !void {
+    // TODO Also detect virtual address collisions.
+    const shdr = &self.sections.items[shdr_index];
+    const phdr = &self.program_headers.items[phdr_index];
+
+    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const existing_size = if (self.atoms.get(phdr_index)) |last| blk: {
+            const sym = self.local_symbols.items[last.local_sym_index];
+            break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
+        } else if (shdr_index == self.got_section_index.?) blk: {
+            break :blk shdr.sh_size;
+        } else 0;
+        shdr.sh_size = 0;
+
+        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+            self.getString(shdr.sh_name),
+            new_offset,
+            new_offset + existing_size,
+        });
+
+        const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
+        if (amt != existing_size) return error.InputOutput;
+
+        shdr.sh_offset = new_offset;
+        phdr.p_offset = new_offset;
+    }
+
+    shdr.sh_size = needed_size;
+    phdr.p_memsz = needed_size;
+    phdr.p_filesz = needed_size;
+
+    self.markDirty(shdr_index, phdr_index);
+}
+
+pub fn growNonAllocSection(
+    self: *Elf,
+    shdr_index: u16,
+    needed_size: u64,
+    min_alignment: u32,
+    requires_file_copy: bool,
+) !void {
+    const shdr = &self.sections.items[shdr_index];
+
+    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+        const existing_size = if (self.symtab_section_index.? == shdr_index) blk: {
+            const sym_size: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Sym),
+                .p64 => @sizeOf(elf.Elf64_Sym),
+            };
+            break :blk @as(u64, shdr.sh_info) * sym_size;
+        } else shdr.sh_size;
+        shdr.sh_size = 0;
+        // Move all the symbols to a new file location.
+        const new_offset = self.findFreeSpace(needed_size, min_alignment);
+        log.debug("moving '{s}' from 0x{x} to 0x{x}", .{ self.getString(shdr.sh_name), shdr.sh_offset, new_offset });
+
+        if (requires_file_copy) {
+            const amt = try self.base.file.?.copyRangeAll(
+                shdr.sh_offset,
+                self.base.file.?,
+                new_offset,
+                existing_size,
+            );
+            if (amt != existing_size) return error.InputOutput;
+        }
+
+        shdr.sh_offset = new_offset;
+    }
+
+    shdr.sh_size = needed_size; // anticipating adding the global symbols later
+
+    self.markDirty(shdr_index, null);
+}
+
+pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
+    self.shdr_table_dirty = true; // TODO look into only writing one section
+
+    if (phdr_index) |_| {
+        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
+    }
+
+    if (self.dwarf) |_| {
+        if (self.debug_info_section_index.? == shdr_index) {
+            self.debug_info_header_dirty = true;
+        } else if (self.debug_line_section_index.? == shdr_index) {
+            self.debug_line_header_dirty = true;
+        } else if (self.debug_abbrev_section_index.? == shdr_index) {
+            self.debug_abbrev_section_dirty = true;
+        } else if (self.debug_str_section_index.? == shdr_index) {
+            self.debug_strtab_dirty = true;
+        } else if (self.debug_aranges_section_index.? == shdr_index) {
+            self.debug_aranges_section_dirty = true;
+        }
+    }
+}
+
+pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
@@ -951,7 +1048,7 @@ pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !voi
     }
 }
 
-pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -973,7 +1070,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
 
     if (self.dwarf) |*dw| {
-        try dw.flushModule(&self.base, module);
+        try dw.flushModule(module);
     }
 
     {
@@ -1021,7 +1118,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
-            try dw.writeDbgAbbrev(&self.base);
+            try dw.writeDbgAbbrev();
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
                 try self.writeSectHeader(self.debug_abbrev_section_index.?);
@@ -1035,7 +1132,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
             const low_pc = text_phdr.p_vaddr;
             const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-            try dw.writeDbgInfoHeader(&self.base, module, low_pc, high_pc);
+            try dw.writeDbgInfoHeader(module, low_pc, high_pc);
             self.debug_info_header_dirty = false;
         }
 
@@ -1043,7 +1140,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             // Currently only one compilation unit is supported, so the address range is simply
             // identical to the main program header virtual address and memory size.
             const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-            try dw.writeDbgAranges(&self.base, text_phdr.p_vaddr, text_phdr.p_memsz);
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
                 try self.writeSectHeader(self.debug_aranges_section_index.?);
@@ -1052,7 +1149,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
 
         if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader(&self.base, module);
+            try dw.writeDbgLineHeader();
             self.debug_line_header_dirty = false;
         }
     }
@@ -1104,45 +1201,21 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     {
-        const shstrtab_sect = &self.sections.items[self.shstrtab_index.?];
-        if (self.shstrtab_dirty or self.shstrtab.items.len != shstrtab_sect.sh_size) {
-            const allocated_size = self.allocatedSize(shstrtab_sect.sh_offset);
-            const needed_size = self.shstrtab.items.len;
-
-            if (needed_size > allocated_size) {
-                shstrtab_sect.sh_size = 0; // free the space
-                shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
-            }
-            shstrtab_sect.sh_size = needed_size;
-            log.debug("writing shstrtab start=0x{x} end=0x{x}", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
-
+        const shdr_index = self.shstrtab_index.?;
+        if (self.shstrtab_dirty or self.shstrtab.items.len != self.sections.items[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, self.shstrtab.items.len, 1, false);
+            const shstrtab_sect = self.sections.items[shdr_index];
             try self.base.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.shstrtab_index.?);
-            }
             self.shstrtab_dirty = false;
         }
     }
 
     if (self.dwarf) |dwarf| {
-        const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        if (self.debug_strtab_dirty or dwarf.strtab.items.len != debug_strtab_sect.sh_size) {
-            const allocated_size = self.allocatedSize(debug_strtab_sect.sh_offset);
-            const needed_size = dwarf.strtab.items.len;
-
-            if (needed_size > allocated_size) {
-                debug_strtab_sect.sh_size = 0; // free the space
-                debug_strtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
-            }
-            debug_strtab_sect.sh_size = needed_size;
-            log.debug("debug_strtab start=0x{x} end=0x{x}", .{ debug_strtab_sect.sh_offset, debug_strtab_sect.sh_offset + needed_size });
-
+        const shdr_index = self.debug_str_section_index.?;
+        if (self.debug_strtab_dirty or dwarf.strtab.items.len != self.sections.items[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, dwarf.strtab.items.len, 1, false);
+            const debug_strtab_sect = self.sections.items[shdr_index];
             try self.base.file.?.pwriteAll(dwarf.strtab.items, debug_strtab_sect.sh_offset);
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.debug_str_section_index.?);
-            }
             self.debug_strtab_dirty = false;
         }
     }
@@ -1228,25 +1301,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        // stage1 puts the object file in the cache directory.
-        if (self.base.options.use_stage1) {
-            const obj_basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = self.base.options.root_name,
-                .target = self.base.options.target,
-                .output_mode = .Obj,
-            });
-            switch (self.base.options.cache_mode) {
-                .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                    arena,
-                    &[_][]const u8{obj_basename},
-                ),
-                .whole => break :blk try fs.path.join(arena, &.{
-                    fs.path.dirname(full_out_path).?, obj_basename,
-                }),
-            }
-        }
-
+    const module_obj_path: ?[]const u8 = if (self.base.options.module != null) blk: {
         try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -1282,7 +1337,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // linked are in the hash that namespaces the directory we are outputting to. Therefore,
     // we must hash those now, and the resulting digest will form the "id" of the linking
     // job we are about to perform.
-    // After a successful link, we store the id in the metadata of a symlink named "id.txt" in
+    // After a successful link, we store the id in the metadata of a symlink named "lld.id" in
     // the artifact directory. So, now, we check if this symlink exists, and if it matches
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
     const id_symlink_basename = "lld.id";
@@ -1335,6 +1390,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.z_nocopyreloc);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        man.hash.add(self.base.options.z_common_page_size orelse 0);
+        man.hash.add(self.base.options.z_max_page_size orelse 0);
         man.hash.add(self.base.options.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
@@ -1422,7 +1479,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
-        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld.lld" });
+        const linker_command = "ld.lld";
+        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
         if (is_obj) {
             try argv.append("-r");
         }
@@ -1537,6 +1595,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (!self.base.options.z_relro) {
             // LLD defaults to -zrelro
             try argv.append("-znorelro");
+        }
+        if (self.base.options.z_common_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "common-page-size={d}", .{size}));
+        }
+        if (self.base.options.z_max_page_size) |size| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "max-page-size={d}", .{size}));
         }
 
         if (getLDMOption(target)) |ldm| {
@@ -1697,11 +1763,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(ssp.full_object_path);
         }
 
-        // compiler-rt
-        if (compiler_rt_path) |p| {
-            try argv.append(p);
-        }
-
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             const system_libs = self.base.options.system_libs.keys();
@@ -1780,6 +1841,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
+        // compiler-rt. Since compiler_rt exports symbols like `memset`, it needs
+        // to be after the shared libraries, so they are picked up from the shared
+        // libraries, not libcompiler_rt.
+        if (compiler_rt_path) |p| {
+            try argv.append(p);
+        }
+
         // crt postlude
         if (csu.crtend) |v| try argv.append(v);
         if (csu.crtn) |v| try argv.append(v);
@@ -1841,9 +1909,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 switch (term) {
                     .Exited => |code| {
                         if (code != 0) {
-                            // TODO parse this output and surface with the Compilation API rather than
-                            // directly outputting to stderr here.
-                            std.debug.print("{s}", .{stderr});
+                            comp.lockAndParseLldStderr(linker_command, stderr);
                             return error.LLDReportedFailure;
                         }
                     },
@@ -2154,26 +2220,9 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
-        const text_capacity = self.allocatedSize(shdr.sh_offset);
         const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
-        if (needed_size > text_capacity) {
-            // Must move the entire section.
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const text_size = if (self.atoms.get(phdr_index)) |last| blk: {
-                const sym = self.local_symbols.items[last.local_sym_index];
-                break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
-            } else 0;
-            log.debug("new PT_LOAD file offset 0x{x} to 0x{x}", .{ new_offset, new_offset + text_size });
-            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, text_size);
-            if (amt != text_size) return error.InputOutput;
-            shdr.sh_offset = new_offset;
-            phdr.p_offset = new_offset;
-        }
+        try self.growAllocSection(shdr_index, phdr_index, needed_size);
         _ = try self.atoms.put(self.base.allocator, phdr_index, text_block);
-
-        shdr.sh_size = needed_size;
-        phdr.p_memsz = needed_size;
-        phdr.p_filesz = needed_size;
 
         if (self.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
@@ -2185,9 +2234,6 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // model each package as a different compilation unit.
             self.debug_aranges_section_dirty = true;
         }
-
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
     }
     shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
 
@@ -2421,7 +2467,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const decl = module.declPtr(decl_index);
     self.freeUnnamedConsts(decl_index);
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
@@ -2442,18 +2488,17 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            &self.base,
             module,
-            decl,
+            decl_index,
             local_sym.st_value,
             local_sym.st_size,
             ds,
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -2484,7 +2529,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
@@ -2519,18 +2564,17 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            &self.base,
             module,
-            decl,
+            decl_index,
             local_sym.st_value,
             local_sym.st_size,
             ds,
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -2712,7 +2756,7 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl: *const Module.Decl) 
 
     if (self.llvm_object) |_| return;
     if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(&self.base, decl);
+        try dw.updateDeclLineNumber(decl);
     }
 }
 
@@ -2769,31 +2813,14 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
 }
 
 fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
-    const shdr = &self.sections.items[self.got_section_index.?];
-    const phdr = &self.program_headers.items[self.phdr_got_index.?];
     const entry_size: u16 = self.archPtrWidthBytes();
     if (self.offset_table_count_dirty) {
-        // TODO Also detect virtual address collisions.
-        const allocated_size = self.allocatedSize(shdr.sh_offset);
         const needed_size = self.offset_table.items.len * entry_size;
-        if (needed_size > allocated_size) {
-            // Must move the entire got section.
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, shdr.sh_size);
-            if (amt != shdr.sh_size) return error.InputOutput;
-            shdr.sh_offset = new_offset;
-            phdr.p_offset = new_offset;
-        }
-        shdr.sh_size = needed_size;
-        phdr.p_memsz = needed_size;
-        phdr.p_filesz = needed_size;
-
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-
+        try self.growAllocSection(self.got_section_index.?, self.phdr_got_index.?, needed_size);
         self.offset_table_count_dirty = false;
     }
     const endian = self.base.options.target.cpu.arch.endian();
+    const shdr = &self.sections.items[self.got_section_index.?];
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
     switch (entry_size) {
         2 => {
@@ -2832,23 +2859,8 @@ fn writeSymbol(self: *Elf, index: usize) !void {
             .p64 => @alignOf(elf.Elf64_Sym),
         };
         const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-        if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
-            // Move all the symbols to a new file location.
-            const new_offset = self.findFreeSpace(needed_size, sym_align);
-            log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
-            const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-            const amt = try self.base.file.?.copyRangeAll(
-                syms_sect.sh_offset,
-                self.base.file.?,
-                new_offset,
-                existing_size,
-            );
-            if (amt != existing_size) return error.InputOutput;
-            syms_sect.sh_offset = new_offset;
-        }
+        try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
         syms_sect.sh_info = @intCast(u32, self.local_symbols.items.len);
-        syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
-        self.shdr_table_dirty = true; // TODO look into only writing one section
     }
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const off = switch (self.ptr_width) {
@@ -2896,22 +2908,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Sym),
     };
     const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-    if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
-        // Move all the symbols to a new file location.
-        const new_offset = self.findFreeSpace(needed_size, sym_align);
-        log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
-        const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-        const amt = try self.base.file.?.copyRangeAll(
-            syms_sect.sh_offset,
-            self.base.file.?,
-            new_offset,
-            existing_size,
-        );
-        if (amt != existing_size) return error.InputOutput;
-        syms_sect.sh_offset = new_offset;
-    }
-    syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
-    self.shdr_table_dirty = true; // TODO look into only writing one section
+    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
@@ -3004,7 +3001,7 @@ fn sectHeaderTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
 
 fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
-        .i386 => return "elf_i386",
+        .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
         .aarch64_be => return "aarch64_be_linux",
         .arm, .thumb => return "armelf_linux_eabi",
@@ -3045,9 +3042,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
 }
 
 fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
-    // TODO https://github.com/ziglang/zig/issues/1284
-    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
-        std.math.maxInt(@TypeOf(actual_size));
+    return actual_size +| (actual_size / ideal_factor);
 }
 
 // Provide a blueprint of csu (c-runtime startup) objects for supported
@@ -3073,27 +3068,22 @@ const CsuObjects = struct {
 
         var result: CsuObjects = .{};
 
-        // TODO: https://github.com/ziglang/zig/issues/4629
-        // - use inline enum type
-        // - reduce to enum-literals for values
-        const Mode = enum {
+        // Flatten crt cases.
+        const mode: enum {
             dynamic_lib,
             dynamic_exe,
             dynamic_pie,
             static_exe,
             static_pie,
-        };
-
-        // Flatten crt case types.
-        const mode: Mode = switch (link_options.output_mode) {
+        } = switch (link_options.output_mode) {
             .Obj => return CsuObjects{},
             .Lib => switch (link_options.link_mode) {
-                .Dynamic => Mode.dynamic_lib,
+                .Dynamic => .dynamic_lib,
                 .Static => return CsuObjects{},
             },
             .Exe => switch (link_options.link_mode) {
-                .Dynamic => if (link_options.pie) Mode.dynamic_pie else Mode.dynamic_exe,
-                .Static => if (link_options.pie) Mode.static_pie else Mode.static_exe,
+                .Dynamic => if (link_options.pie) .dynamic_pie else .dynamic_exe,
+                .Static => if (link_options.pie) .static_pie else .static_exe,
             },
         };
 
@@ -3123,7 +3113,6 @@ const CsuObjects = struct {
                         // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
                         // and they are not known at comptime. For now null-out crtbegin/end objects;
                         // there is no feature loss, zig has never linked those objects in before.
-                        // TODO: probe for paths, ie. `cc -print-file-name`
                         result.crtbegin = null;
                         result.crtend = null;
                     } else {

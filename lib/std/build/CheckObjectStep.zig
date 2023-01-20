@@ -45,7 +45,9 @@ pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
     const exe = exe_step.cast(std.build.LibExeObjStep).?;
-    return EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
+    const emulatable_step = EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
+    emulatable_step.step.dependOn(&self.step);
+    return emulatable_step;
 }
 
 /// There two types of actions currently suported:
@@ -124,22 +126,30 @@ const Action = struct {
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
     fn computeCmp(act: Action, gpa: Allocator, global_vars: anytype) !bool {
-        var op_stack = std.ArrayList(enum { add }).init(gpa);
+        var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
         var it = mem.tokenize(u8, act.phrase, " ");
         while (it.next()) |next| {
             if (mem.eql(u8, next, "+")) {
                 try op_stack.append(.add);
+            } else if (mem.eql(u8, next, "-")) {
+                try op_stack.append(.sub);
+            } else if (mem.eql(u8, next, "%")) {
+                try op_stack.append(.mod);
+            } else if (mem.eql(u8, next, "*")) {
+                try op_stack.append(.mul);
             } else {
-                const val = global_vars.get(next) orelse {
-                    std.debug.print(
-                        \\
-                        \\========= Variable was not extracted: ===========
-                        \\{s}
-                        \\
-                    , .{next});
-                    return error.UnknownVariable;
+                const val = std.fmt.parseInt(u64, next, 0) catch blk: {
+                    break :blk global_vars.get(next) orelse {
+                        std.debug.print(
+                            \\
+                            \\========= Variable was not extracted: ===========
+                            \\{s}
+                            \\
+                        , .{next});
+                        return error.UnknownVariable;
+                    };
                 };
                 try values.append(val);
             }
@@ -153,7 +163,17 @@ const Action = struct {
                 .add => {
                     reduced += other;
                 },
+                .sub => {
+                    reduced -= other;
+                },
+                .mod => {
+                    reduced %= other;
+                },
+                .mul => {
+                    reduced *= other;
+                },
             }
+            op_i += 1;
         }
 
         const exp_value = switch (act.expected.?.value) {
@@ -185,7 +205,7 @@ const ComputeCompareExpected = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
         _ = options;
         try writer.print("{s} ", .{@tagName(value.op)});
         switch (value.value) {
@@ -358,7 +378,7 @@ fn make(step: *Step) !void {
                         std.debug.print(
                             \\
                             \\========= Comparison failed for action: ===========
-                            \\{s} {s}
+                            \\{s} {}
                             \\========= From parsed file: =======================
                             \\{s}
                             \\
@@ -436,6 +456,7 @@ const MachODumper = struct {
         }
 
         if (opts.dump_symtab) {
+            try writer.print("{s}\n", .{symtab_label});
             for (symtab) |sym| {
                 if (sym.stab()) continue;
                 const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
@@ -568,6 +589,92 @@ const MachODumper = struct {
                 });
             },
 
+            .UUID => {
+                const uuid = lc.cast(macho.uuid_command).?;
+                try writer.writeByte('\n');
+                try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+            },
+
+            .DATA_IN_CODE,
+            .FUNCTION_STARTS,
+            .CODE_SIGNATURE,
+            => {
+                const llc = lc.cast(macho.linkedit_data_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\dataoff {x}
+                    \\datasize {x}
+                , .{ llc.dataoff, llc.datasize });
+            },
+
+            .DYLD_INFO_ONLY => {
+                const dlc = lc.cast(macho.dyld_info_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\rebaseoff {x}
+                    \\rebasesize {x}
+                    \\bindoff {x}
+                    \\bindsize {x}
+                    \\weakbindoff {x}
+                    \\weakbindsize {x}
+                    \\lazybindoff {x}
+                    \\lazybindsize {x}
+                    \\exportoff {x}
+                    \\exportsize {x}
+                , .{
+                    dlc.rebase_off,
+                    dlc.rebase_size,
+                    dlc.bind_off,
+                    dlc.bind_size,
+                    dlc.weak_bind_off,
+                    dlc.weak_bind_size,
+                    dlc.lazy_bind_off,
+                    dlc.lazy_bind_size,
+                    dlc.export_off,
+                    dlc.export_size,
+                });
+            },
+
+            .SYMTAB => {
+                const slc = lc.cast(macho.symtab_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\symoff {x}
+                    \\nsyms {x}
+                    \\stroff {x}
+                    \\strsize {x}
+                , .{
+                    slc.symoff,
+                    slc.nsyms,
+                    slc.stroff,
+                    slc.strsize,
+                });
+            },
+
+            .DYSYMTAB => {
+                const dlc = lc.cast(macho.dysymtab_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\ilocalsym {x}
+                    \\nlocalsym {x}
+                    \\iextdefsym {x}
+                    \\nextdefsym {x}
+                    \\iundefsym {x}
+                    \\nundefsym {x}
+                    \\indirectsymoff {x}
+                    \\nindirectsyms {x}
+                , .{
+                    dlc.ilocalsym,
+                    dlc.nlocalsym,
+                    dlc.iextdefsym,
+                    dlc.nextdefsym,
+                    dlc.iundefsym,
+                    dlc.nundefsym,
+                    dlc.indirectsymoff,
+                    dlc.nindirectsyms,
+                });
+            },
+
             else => {},
         }
     }
@@ -644,6 +751,10 @@ const WasmDumper = struct {
 
                 if (mem.eql(u8, name, "name")) {
                     try parseDumpNames(reader, writer, data);
+                } else if (mem.eql(u8, name, "producers")) {
+                    try parseDumpProducers(reader, writer, data);
+                } else if (mem.eql(u8, name, "target_features")) {
+                    try parseDumpFeatures(reader, writer, data);
                 }
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
@@ -861,6 +972,55 @@ const WasmDumper = struct {
                 , .{ index, name });
                 try writer.writeByte('\n');
             }
+        }
+    }
+
+    fn parseDumpProducers(reader: anytype, writer: anytype, data: []const u8) !void {
+        const field_count = try std.leb.readULEB128(u32, reader);
+        try writer.print("fields {d}\n", .{field_count});
+        var current_field: u32 = 0;
+        while (current_field < field_count) : (current_field += 1) {
+            const field_name_length = try std.leb.readULEB128(u32, reader);
+            const field_name = data[reader.context.pos..][0..field_name_length];
+            reader.context.pos += field_name_length;
+
+            const value_count = try std.leb.readULEB128(u32, reader);
+            try writer.print(
+                \\field_name {s}
+                \\values {d}
+            , .{ field_name, value_count });
+            try writer.writeByte('\n');
+            var current_value: u32 = 0;
+            while (current_value < value_count) : (current_value += 1) {
+                const value_length = try std.leb.readULEB128(u32, reader);
+                const value = data[reader.context.pos..][0..value_length];
+                reader.context.pos += value_length;
+
+                const version_length = try std.leb.readULEB128(u32, reader);
+                const version = data[reader.context.pos..][0..version_length];
+                reader.context.pos += version_length;
+
+                try writer.print(
+                    \\value_name {s}
+                    \\version {s}
+                , .{ value, version });
+                try writer.writeByte('\n');
+            }
+        }
+    }
+
+    fn parseDumpFeatures(reader: anytype, writer: anytype, data: []const u8) !void {
+        const feature_count = try std.leb.readULEB128(u32, reader);
+        try writer.print("features {d}\n", .{feature_count});
+
+        var index: u32 = 0;
+        while (index < feature_count) : (index += 1) {
+            const prefix_byte = try std.leb.readULEB128(u8, reader);
+            const name_length = try std.leb.readULEB128(u32, reader);
+            const feature_name = data[reader.context.pos..][0..name_length];
+            reader.context.pos += name_length;
+
+            try writer.print("{c} {s}\n", .{ prefix_byte, feature_name });
         }
     }
 };

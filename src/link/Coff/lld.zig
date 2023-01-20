@@ -30,25 +30,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.have_stage1 and self.base.options.use_stage1;
-        if (use_stage1) {
-            const obj_basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = self.base.options.root_name,
-                .target = self.base.options.target,
-                .output_mode = .Obj,
-            });
-            switch (self.base.options.cache_mode) {
-                .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                    arena,
-                    &[_][]const u8{obj_basename},
-                ),
-                .whole => break :blk try fs.path.join(arena, &.{
-                    fs.path.dirname(full_out_path).?, obj_basename,
-                }),
-            }
-        }
-
+    const module_obj_path: ?[]const u8 = if (self.base.options.module != null) blk: {
         try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -116,6 +98,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
+        man.hash.addOptional(self.base.options.version);
+        try man.addOptionalFile(self.base.options.module_definition_file);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -175,12 +159,24 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
-        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "lld-link" });
+        const linker_command = "lld-link";
+        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
 
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
         if (!self.base.options.strip) {
             try argv.append("-DEBUG");
+
+            const out_ext = std.fs.path.extension(full_out_path);
+            const out_pdb = self.base.options.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
+                full_out_path[0 .. full_out_path.len - out_ext.len],
+            });
+
+            try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
+            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
+        }
+        if (self.base.options.version) |version| {
+            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
@@ -197,7 +193,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{image_base}));
         }
 
-        if (target.cpu.arch == .i386) {
+        if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
@@ -268,6 +264,10 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (self.base.options.module_definition_file) |def| {
+            try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
         }
 
         const resolved_subsystem: ?std.Target.SubSystem = blk: {
@@ -371,7 +371,6 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 "-OPT:REF",
                 "-SAFESEH:NO",
                 "-MERGE:.rdata=.data",
-                "-ALIGN:32",
                 "-NODEFAULTLIB",
                 "-SECTION:.xdata,D",
             }),
@@ -380,7 +379,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     if (target.abi.isGnu()) {
                         try argv.append("-lldmingw");
 
-                        if (target.cpu.arch == .i386) {
+                        if (target.cpu.arch == .x86) {
                             try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
                         } else {
                             try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
@@ -388,7 +387,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
                         if (is_dyn_lib) {
                             try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.obj"));
-                            if (target.cpu.arch == .i386) {
+                            if (target.cpu.arch == .x86) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
@@ -434,7 +433,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     }
                 } else {
                     try argv.append("-NODEFAULTLIB");
-                    if (!is_lib) {
+                    if (!is_lib and self.base.options.entry == null) {
                         if (self.base.options.module) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
@@ -497,6 +496,11 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     continue;
                 }
             }
+            if (target.abi == .msvc) {
+                argv.appendAssumeCapacity(lib_basename);
+                continue;
+            }
+
             log.err("DLL import library for -l{s} not found", .{key});
             return error.DllImportLibraryNotFound;
         }
@@ -545,9 +549,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 switch (term) {
                     .Exited => |code| {
                         if (code != 0) {
-                            // TODO parse this output and surface with the Compilation API rather than
-                            // directly outputting to stderr here.
-                            std.debug.print("{s}", .{stderr});
+                            comp.lockAndParseLldStderr(linker_command, stderr);
                             return error.LLDReportedFailure;
                         }
                     },

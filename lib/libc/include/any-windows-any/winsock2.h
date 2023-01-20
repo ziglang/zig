@@ -1011,6 +1011,9 @@ typedef unsigned int GROUP;
 #ifndef __INSIDE_CYGWIN__
   WINSOCK_API_LINKAGE u_long WSAAPI htonl(u_long hostlong);
   WINSOCK_API_LINKAGE u_short WSAAPI htons(u_short hostshort);
+#if _WIN32_WINNT >= _WIN32_WINNT_WIN8
+  __forceinline unsigned __int64 htonll(unsigned __int64 Value) { return (((unsigned __int64)htonl(Value & 0xFFFFFFFFUL)) << 32) | htonl((u_long)(Value >> 32)); }
+#endif
 #endif /* !__INSIDE_CYGWIN__ */
   WINSOCK_API_LINKAGE unsigned __LONG32 WSAAPI inet_addr(const char *cp);
   WINSOCK_API_LINKAGE char *WSAAPI inet_ntoa(struct in_addr in);
@@ -1018,6 +1021,9 @@ typedef unsigned int GROUP;
 #ifndef __INSIDE_CYGWIN__
   WINSOCK_API_LINKAGE u_long WSAAPI ntohl(u_long netlong);
   WINSOCK_API_LINKAGE u_short WSAAPI ntohs(u_short netshort);
+#if _WIN32_WINNT >= _WIN32_WINNT_WIN8
+  __forceinline unsigned __int64 ntohll(unsigned __int64 Value) { return (((unsigned __int64)ntohl(Value & 0xFFFFFFFFUL)) << 32) | ntohl((u_long)(Value >> 32)); }
+#endif
 #endif /* !__INSIDE_CYGWIN__ */
   WINSOCK_API_LINKAGE int WSAAPI recv(SOCKET s,char *buf,int len,int flags);
   WINSOCK_API_LINKAGE int WSAAPI recvfrom(SOCKET s,char *buf,int len,int flags,struct sockaddr *from,int *fromlen);
@@ -1032,6 +1038,7 @@ typedef unsigned int GROUP;
   WINSOCK_API_LINKAGE struct hostent *WSAAPI gethostbyaddr(const char *addr,int len,int type);
   WINSOCK_API_LINKAGE struct hostent *WSAAPI gethostbyname(const char *name);
   WINSOCK_API_LINKAGE int WSAAPI gethostname(char *name,int namelen);
+  WINSOCK_API_LINKAGE int WSAAPI GetHostNameW(PWSTR name, int namelen);
   WINSOCK_API_LINKAGE struct servent *WSAAPI getservbyport(int port,const char *proto);
   WINSOCK_API_LINKAGE struct servent *WSAAPI getservbyname(const char *name,const char *proto);
   WINSOCK_API_LINKAGE struct protoent *WSAAPI getprotobynumber(int number);

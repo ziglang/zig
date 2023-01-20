@@ -35,7 +35,7 @@ export fn __chk_fail() callconv(.C) noreturn {
     @panic("buffer overflow detected");
 }
 
-// Emitted when targeting some architectures (eg. i386)
+// Emitted when targeting some architectures (eg. x86)
 // XXX: This symbol should be hidden
 export fn __stack_chk_fail_local() callconv(.C) noreturn {
     __stack_chk_fail();

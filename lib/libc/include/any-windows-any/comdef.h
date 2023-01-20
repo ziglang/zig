@@ -29,8 +29,6 @@
 #ifdef __cplusplus
 
 class _com_error;
-void WINAPI _com_raise_error(HRESULT hr,IErrorInfo *perrinfo = 0);
-void WINAPI _set_com_error_handler(void (WINAPI *pHandler)(HRESULT hr,IErrorInfo *perrinfo));
 void WINAPI _com_issue_errorex(HRESULT,IUnknown*,REFIID);
 HRESULT WINAPI _com_dispatch_propget(IDispatch*,DISPID,VARTYPE,void*);
 HRESULT __cdecl _com_dispatch_propput(IDispatch*,DISPID,VARTYPE,...);
@@ -165,13 +163,23 @@ inline void _com_error::Ctor(const _com_error &that) throw() {
   if(m_perrinfo!=NULL) m_perrinfo->AddRef();
 }
 
-inline void _com_issue_error(HRESULT hr) {
+inline void WINAPI _com_raise_error(HRESULT hr, IErrorInfo *perrinfo = 0) {
 #if __EXCEPTIONS
-    throw _com_error(hr);
+    throw _com_error(hr, perrinfo);
 #else
     /* This is designed to use exceptions. If exceptions are disabled, there is not much we can do here. */
     __debugbreak();
 #endif
+}
+
+__MINGW_SELECTANY void (WINAPI *__mingw_com_error_handler)(HRESULT hr,IErrorInfo *perrinfo) = _com_raise_error;
+
+inline void WINAPI _set_com_error_handler(void (WINAPI *pHandler)(HRESULT hr,IErrorInfo *perrinfo)) {
+  __mingw_com_error_handler = pHandler;
+}
+
+inline void WINAPI _com_issue_error(HRESULT hr) {
+  __mingw_com_error_handler(hr, NULL);
 }
 
 

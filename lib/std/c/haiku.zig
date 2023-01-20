@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
@@ -266,6 +267,7 @@ pub const area_info = extern struct {
 };
 
 pub const MAXPATHLEN = PATH_MAX;
+pub const MAXNAMLEN = NAME_MAX;
 
 pub const image_info = extern struct {
     id: u32,
@@ -338,7 +340,16 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -371,6 +382,9 @@ pub const KERN = struct {};
 pub const IOV_MAX = 1024;
 
 pub const PATH_MAX = 1024;
+/// NOTE: Contains room for the terminating null character (despite the POSIX
+/// definition saying that NAME_MAX does not include the terminating null).
+pub const NAME_MAX = 256; // limits.h
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -738,7 +752,7 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (i32) callconv(.C) void);
+    pub const handler_fn = *const fn (i32) align(1) callconv(.C) void;
 
     /// signal handler
     __sigaction_u: extern union {

@@ -82,7 +82,7 @@ pub fn next(self: *Tokenizer) ?Token {
                     // silently ignore null target
                     self.state = .lhs;
                 },
-                '\\' => {
+                '/', '\\' => {
                     self.state = .target_colon_reverse_solidus;
                     self.index += 1;
                 },
@@ -706,7 +706,7 @@ test "windows mixed prereqs" {
     );
 }
 
-test "funky targets" {
+test "windows funky targets" {
     try depTokenizer(
         \\C:\Users\anon\foo.o:
         \\C:\Users\anon\foo\ .o:
@@ -725,6 +725,16 @@ test "funky targets" {
         \\target = {C:\Users\anon\#foo.o}
         \\target = {C:\Users\anon\$foo.o}
         \\target = {C:\Users\anon\     foo.o}
+    );
+}
+
+test "windows drive and forward slashes" {
+    try depTokenizer(
+        \\C:/msys64/what/zig-cache\tmp\48ac4d78dd531abd-cxa_thread_atexit.obj: \
+        \\  C:/msys64/opt/zig3/lib/zig/libc/mingw/crt/cxa_thread_atexit.c
+    ,
+        \\target = {C:/msys64/what/zig-cache\tmp\48ac4d78dd531abd-cxa_thread_atexit.obj}
+        \\prereq = {C:/msys64/opt/zig3/lib/zig/libc/mingw/crt/cxa_thread_atexit.c}
     );
 }
 
@@ -856,7 +866,7 @@ test "error target - continuation expecting end-of-line" {
     );
     try depTokenizer("foo.o: \\ ",
         \\target = {foo.o}
-        \\ERROR: illegal char \x20 at position 8: continuation expecting end-of-line
+        \\ERROR: illegal char ' ' at position 8: continuation expecting end-of-line
     );
     try depTokenizer("foo.o: \\x",
         \\target = {foo.o}
@@ -1043,10 +1053,10 @@ fn printCharValues(out: anytype, bytes: []const u8) !void {
 }
 
 fn printUnderstandableChar(out: anytype, char: u8) !void {
-    if (!std.ascii.isPrint(char) or char == ' ') {
-        try out.print("\\x{X:0>2}", .{char});
+    if (std.ascii.isPrint(char)) {
+        try out.print("'{c}'", .{char});
     } else {
-        try out.print("'{c}'", .{printable_char_tab[char]});
+        try out.print("\\x{X:0>2}", .{char});
     }
 }
 

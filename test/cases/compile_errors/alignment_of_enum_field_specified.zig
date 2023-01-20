@@ -11,4 +11,4 @@ export fn entry1() void {
 // backend=stage2
 // target=native
 //
-// :3:7: error: expected ',' after field
+// :3:13: error: enum fields cannot be aligned

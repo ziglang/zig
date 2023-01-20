@@ -8,4 +8,4 @@ export fn entry() void { f(); }
 // backend=stage2
 // target=native
 //
-// :3:9: error: cannot assign to constant
+// :3:5: error: cannot assign to constant

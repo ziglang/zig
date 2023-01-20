@@ -18,19 +18,19 @@ comptime {
         if (is_mingw) {
             @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
             @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
+
+            if (arch.isAARCH64()) {
+                @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            }
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
             @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
             @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
         }
-
-        if (arch.isAARCH64()) {
-            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
-        }
     }
 
     switch (arch) {
-        .i386,
+        .x86,
         .x86_64,
         => {
             @export(zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage });
@@ -69,7 +69,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
                 \\        ret
             );
         },
-        .i386 => {
+        .x86 => {
             // %eax = probe length, %esp = stack pointer
             asm volatile (
                 \\        push   %%ecx
@@ -121,7 +121,7 @@ fn win_probe_stack_only() void {
                 \\         ret
             );
         },
-        .i386 => {
+        .x86 => {
             asm volatile (
                 \\         push   %%ecx
                 \\         push   %%eax
@@ -191,7 +191,7 @@ fn win_probe_stack_adjust_sp() void {
                 \\         ret
             );
         },
-        .i386 => {
+        .x86 => {
             asm volatile (
                 \\         push   %%ecx
                 \\         cmp    $0x1000,%%eax
@@ -236,27 +236,27 @@ fn win_probe_stack_adjust_sp() void {
 
 pub fn _chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
+    @call(.always_inline, win_probe_stack_adjust_sp, .{});
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
     if (comptime arch.isAARCH64()) {
-        @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+        @call(.always_inline, win_probe_stack_only, .{});
     } else switch (arch) {
-        .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
-        .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
+        .x86 => @call(.always_inline, win_probe_stack_adjust_sp, .{}),
+        .x86_64 => @call(.always_inline, win_probe_stack_only, .{}),
         else => unreachable,
     }
 }
 pub fn ___chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
+    @call(.always_inline, win_probe_stack_adjust_sp, .{});
 }
 pub fn __chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+    @call(.always_inline, win_probe_stack_only, .{});
 }
 pub fn ___chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+    @call(.always_inline, win_probe_stack_only, .{});
 }

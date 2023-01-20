@@ -1,5 +1,6 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
+const AddressSpace = std.builtin.AddressSpace;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
@@ -17,6 +18,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0 } },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
@@ -33,9 +35,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .windows, .abi = .gnu },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .i386, .os = .linux, .abi = .gnu },
-    .{ .arch = .i386, .os = .linux, .abi = .musl },
-    .{ .arch = .i386, .os = .windows, .abi = .gnu },
+    .{ .arch = .x86, .os = .linux, .abi = .gnu },
+    .{ .arch = .x86, .os = .linux, .abi = .musl },
+    .{ .arch = .x86, .os = .windows, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .musl },
     .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64 },
@@ -69,9 +71,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 0 } },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0 } },
 };
 
 pub fn libCGenericName(target: std.Target) [:0]const u8 {
@@ -135,7 +137,7 @@ pub fn osArchName(target: std.Target) [:0]const u8 {
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
             .riscv32, .riscv64 => "riscv",
             .sparc, .sparcel, .sparc64 => "sparc",
-            .i386, .x86_64 => "x86",
+            .x86, .x86_64 => "x86",
             else => @tagName(target.cpu.arch),
         },
         else => @tagName(target.cpu.arch),
@@ -209,7 +211,12 @@ pub fn isSingleThreaded(target: std.Target) bool {
 /// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
     switch (target.cpu.arch) {
-        .x86_64 => {
+        .x86,
+        .x86_64,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        => {
             return target.os.tag == .linux or target.os.tag == .solaris or
                 (target.os.tag == .windows and target.abi != .msvc);
         },
@@ -276,7 +283,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .tcele,
         .thumb,
         .thumbeb,
-        .i386,
+        .x86,
         .x86_64,
         .xcore,
         .nvptx,
@@ -317,12 +324,12 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
 
 pub fn supportsStackProbing(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi and
-        (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
+        (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
 }
 
 pub fn supportsStackProtector(target: std.Target) bool {
-    // TODO: investigate whether stack-protector works on wasm
-    return !target.isWasm();
+    _ = target;
+    return true;
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
@@ -410,7 +417,11 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    _ = target;
+    if (target.cpu.arch.isNvptx()) {
+        // TODO: not sure how to test "ptx >= 7.5" with featureset
+        return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
+    }
+
     return true;
 }
 
@@ -425,10 +436,7 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
 pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64,
-        .i386,
-        .powerpc,
-        .powerpc64,
-        .powerpc64le,
+        .x86,
         .aarch64,
         .aarch64_be,
         .aarch64_32,
@@ -512,13 +520,13 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 /// If ABI alignment of `ty` is OK for atomic operations, returns 0.
 /// Otherwise returns the alignment required on a pointer for the target
 /// to perform atomic operations.
+// TODO this function does not take into account CPU features, which can affect
+// this value. Audit this!
 pub fn atomicPtrAlignment(
     target: std.Target,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!u32 {
-    // TODO this was ported from stage1 but it does not take into account CPU features,
-    // which can affect this value. Audit this!
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
@@ -544,7 +552,7 @@ pub fn atomicPtrAlignment(
         .tcele,
         .thumb,
         .thumbeb,
-        .i386,
+        .x86,
         .xcore,
         .amdil,
         .hsail,
@@ -635,10 +643,28 @@ pub fn defaultAddressSpace(
         /// Query the default address space for functions themselves.
         function,
     },
-) std.builtin.AddressSpace {
+) AddressSpace {
     _ = target;
     _ = context;
     return .generic;
+}
+
+/// Returns true if pointers in `from` can be converted to a pointer in `to`.
+pub fn addrSpaceCastIsValid(
+    target: std.Target,
+    from: AddressSpace,
+    to: AddressSpace,
+) bool {
+    const arch = target.cpu.arch;
+    switch (arch) {
+        .x86_64, .x86 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
+        .nvptx64, .nvptx, .amdgcn => {
+            const to_generic = arch.supportsAddressSpace(from) and to == .generic;
+            const from_generic = arch.supportsAddressSpace(to) and from == .generic;
+            return to_generic or from_generic;
+        },
+        else => return from == .generic and to == .generic,
+    }
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
@@ -699,4 +725,44 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
         .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
         else => return false,
     }
+}
+
+pub fn libcFloatPrefix(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16, 80 => "__",
+        32, 64, 128 => "",
+        else => unreachable,
+    };
+}
+
+pub fn libcFloatSuffix(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16 => "h", // Non-standard
+        32 => "f",
+        64 => "",
+        80 => "x", // Non-standard
+        128 => "q", // Non-standard (mimics convention in GCC libquadmath)
+        else => unreachable,
+    };
+}
+
+pub fn compilerRtFloatAbbrev(float_bits: u16) []const u8 {
+    return switch (float_bits) {
+        16 => "h",
+        32 => "s",
+        64 => "d",
+        80 => "x",
+        128 => "t",
+        else => unreachable,
+    };
+}
+
+pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
+    return switch (bits) {
+        16 => "h",
+        32 => "s",
+        64 => "d",
+        128 => "t",
+        else => "o", // Non-standard
+    };
 }

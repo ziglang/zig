@@ -1941,10 +1941,7 @@ const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *se
 
 bool ZigClangRecordDecl_getPackedAttribute(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
-    if (record_decl->getAttr<clang::PackedAttr>()) {
-      return true;
-    }
-  return false;
+    return record_decl->hasAttr<clang::PackedAttr>();
 }
 
 unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx) {
@@ -1983,6 +1980,16 @@ unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionD
     }
     // Zero means no explicit alignment factor was specified
     return 0;
+}
+
+bool ZigClangVarDecl_getPackedAttribute(const struct ZigClangVarDecl *self) {
+    auto casted_self = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted_self->hasAttr<clang::PackedAttr>();
+}
+
+bool ZigClangFieldDecl_getPackedAttribute(const struct ZigClangFieldDecl *self) {
+    auto casted_self = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted_self->hasAttr<clang::PackedAttr>();
 }
 
 ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self) {

@@ -15,175 +15,157 @@ const minInt = std.math.minInt;
 ///
 /// Special Cases:
 ///  - ilogb(+-inf) = maxInt(i32)
-///  - ilogb(0)     = maxInt(i32)
-///  - ilogb(nan)   = maxInt(i32)
+///  - ilogb(+-0)   = minInt(i32)
+///  - ilogb(nan)   = minInt(i32)
 pub fn ilogb(x: anytype) i32 {
     const T = @TypeOf(x);
-    return switch (T) {
-        f32 => ilogb32(x),
-        f64 => ilogb64(x),
-        f128 => ilogb128(x),
-        else => @compileError("ilogb not implemented for " ++ @typeName(T)),
-    };
+    return ilogbX(T, x);
 }
 
-// TODO: unify these implementations with generics
+pub const fp_ilogbnan = minInt(i32);
+pub const fp_ilogb0 = minInt(i32);
 
-// NOTE: Should these be exposed publicly?
-const fp_ilogbnan = -1 - @as(i32, maxInt(u32) >> 1);
-const fp_ilogb0 = fp_ilogbnan;
+fn ilogbX(comptime T: type, x: T) i32 {
+    const typeWidth = @typeInfo(T).Float.bits;
+    const significandBits = math.floatMantissaBits(T);
+    const exponentBits = math.floatExponentBits(T);
 
-fn ilogb32(x: f32) i32 {
-    var u = @bitCast(u32, x);
-    var e = @intCast(i32, (u >> 23) & 0xFF);
+    const Z = std.meta.Int(.unsigned, typeWidth);
 
-    // TODO: We should be able to merge this with the lower check.
-    if (math.isNan(x)) {
-        return maxInt(i32);
-    }
+    const signBit = (@as(Z, 1) << (significandBits + exponentBits));
+    const maxExponent = ((1 << exponentBits) - 1);
+    const exponentBias = (maxExponent >> 1);
+
+    const absMask = signBit - 1;
+
+    var u = @bitCast(Z, x) & absMask;
+    var e = @intCast(i32, u >> significandBits);
 
     if (e == 0) {
-        u <<= 9;
         if (u == 0) {
             math.raiseInvalid();
             return fp_ilogb0;
         }
 
-        // subnormal
-        e = -0x7F;
-        while (u >> 31 == 0) : (u <<= 1) {
-            e -= 1;
-        }
-        return e;
+        // offset sign bit, exponent bits, and integer bit (if present) + bias
+        const offset = 1 + exponentBits + @boolToInt(T == f80) - exponentBias;
+        return offset - @intCast(i32, @clz(u));
     }
 
-    if (e == 0xFF) {
+    if (e == maxExponent) {
         math.raiseInvalid();
-        if (u << 9 != 0) {
-            return fp_ilogbnan;
-        } else {
-            return maxInt(i32);
-        }
+        if (u > @bitCast(Z, math.inf(T))) {
+            return fp_ilogbnan; // u is a NaN
+        } else return maxInt(i32);
     }
 
-    return e - 0x7F;
-}
-
-fn ilogb64(x: f64) i32 {
-    var u = @bitCast(u64, x);
-    var e = @intCast(i32, (u >> 52) & 0x7FF);
-
-    if (math.isNan(x)) {
-        return maxInt(i32);
-    }
-
-    if (e == 0) {
-        u <<= 12;
-        if (u == 0) {
-            math.raiseInvalid();
-            return fp_ilogb0;
-        }
-
-        // subnormal
-        e = -0x3FF;
-        while (u >> 63 == 0) : (u <<= 1) {
-            e -= 1;
-        }
-        return e;
-    }
-
-    if (e == 0x7FF) {
-        math.raiseInvalid();
-        if (u << 12 != 0) {
-            return fp_ilogbnan;
-        } else {
-            return maxInt(i32);
-        }
-    }
-
-    return e - 0x3FF;
-}
-
-fn ilogb128(x: f128) i32 {
-    var u = @bitCast(u128, x);
-    var e = @intCast(i32, (u >> 112) & 0x7FFF);
-
-    if (math.isNan(x)) {
-        return maxInt(i32);
-    }
-
-    if (e == 0) {
-        u <<= 16;
-        if (u == 0) {
-            math.raiseInvalid();
-            return fp_ilogb0;
-        }
-
-        // subnormal x
-        return ilogb128(x * 0x1p120) - 120;
-    }
-
-    if (e == 0x7FFF) {
-        math.raiseInvalid();
-        if (u << 16 != 0) {
-            return fp_ilogbnan;
-        } else {
-            return maxInt(i32);
-        }
-    }
-
-    return e - 0x3FFF;
+    return e - exponentBias;
 }
 
 test "type dispatch" {
-    try expect(ilogb(@as(f32, 0.2)) == ilogb32(0.2));
-    try expect(ilogb(@as(f64, 0.2)) == ilogb64(0.2));
+    try expect(ilogb(@as(f32, 0.2)) == ilogbX(f32, 0.2));
+    try expect(ilogb(@as(f64, 0.2)) == ilogbX(f64, 0.2));
+}
+
+test "16" {
+    try expect(ilogbX(f16, 0.0) == fp_ilogb0);
+    try expect(ilogbX(f16, 0.5) == -1);
+    try expect(ilogbX(f16, 0.8923) == -1);
+    try expect(ilogbX(f16, 10.0) == 3);
+    try expect(ilogbX(f16, -65504) == 15);
+    try expect(ilogbX(f16, 2398.23) == 11);
+
+    try expect(ilogbX(f16, 0x1p-1) == -1);
+    try expect(ilogbX(f16, 0x1p-17) == -17);
+    try expect(ilogbX(f16, 0x1p-24) == -24);
 }
 
 test "32" {
-    try expect(ilogb32(0.0) == fp_ilogb0);
-    try expect(ilogb32(0.5) == -1);
-    try expect(ilogb32(0.8923) == -1);
-    try expect(ilogb32(10.0) == 3);
-    try expect(ilogb32(-123984) == 16);
-    try expect(ilogb32(2398.23) == 11);
+    try expect(ilogbX(f32, 0.0) == fp_ilogb0);
+    try expect(ilogbX(f32, 0.5) == -1);
+    try expect(ilogbX(f32, 0.8923) == -1);
+    try expect(ilogbX(f32, 10.0) == 3);
+    try expect(ilogbX(f32, -123984) == 16);
+    try expect(ilogbX(f32, 2398.23) == 11);
+
+    try expect(ilogbX(f32, 0x1p-1) == -1);
+    try expect(ilogbX(f32, 0x1p-122) == -122);
+    try expect(ilogbX(f32, 0x1p-127) == -127);
 }
 
 test "64" {
-    try expect(ilogb64(0.0) == fp_ilogb0);
-    try expect(ilogb64(0.5) == -1);
-    try expect(ilogb64(0.8923) == -1);
-    try expect(ilogb64(10.0) == 3);
-    try expect(ilogb64(-123984) == 16);
-    try expect(ilogb64(2398.23) == 11);
+    try expect(ilogbX(f64, 0.0) == fp_ilogb0);
+    try expect(ilogbX(f64, 0.5) == -1);
+    try expect(ilogbX(f64, 0.8923) == -1);
+    try expect(ilogbX(f64, 10.0) == 3);
+    try expect(ilogbX(f64, -123984) == 16);
+    try expect(ilogbX(f64, 2398.23) == 11);
+
+    try expect(ilogbX(f64, 0x1p-1) == -1);
+    try expect(ilogbX(f64, 0x1p-127) == -127);
+    try expect(ilogbX(f64, 0x1p-1012) == -1012);
+    try expect(ilogbX(f64, 0x1p-1023) == -1023);
+}
+
+test "80" {
+    try expect(ilogbX(f80, 0.0) == fp_ilogb0);
+    try expect(ilogbX(f80, 0.5) == -1);
+    try expect(ilogbX(f80, 0.8923) == -1);
+    try expect(ilogbX(f80, 10.0) == 3);
+    try expect(ilogbX(f80, -123984) == 16);
+    try expect(ilogbX(f80, 2398.23) == 11);
+
+    try expect(ilogbX(f80, 0x1p-1) == -1);
+    try expect(ilogbX(f80, 0x1p-127) == -127);
+    try expect(ilogbX(f80, 0x1p-1023) == -1023);
+    try expect(ilogbX(f80, 0x1p-16383) == -16383);
 }
 
 test "128" {
-    try expect(ilogb128(0.0) == fp_ilogb0);
-    try expect(ilogb128(0.5) == -1);
-    try expect(ilogb128(0.8923) == -1);
-    try expect(ilogb128(10.0) == 3);
-    try expect(ilogb128(-123984) == 16);
-    try expect(ilogb128(2398.23) == 11);
+    try expect(ilogbX(f128, 0.0) == fp_ilogb0);
+    try expect(ilogbX(f128, 0.5) == -1);
+    try expect(ilogbX(f128, 0.8923) == -1);
+    try expect(ilogbX(f128, 10.0) == 3);
+    try expect(ilogbX(f128, -123984) == 16);
+    try expect(ilogbX(f128, 2398.23) == 11);
+
+    try expect(ilogbX(f128, 0x1p-1) == -1);
+    try expect(ilogbX(f128, 0x1p-127) == -127);
+    try expect(ilogbX(f128, 0x1p-1023) == -1023);
+    try expect(ilogbX(f128, 0x1p-16383) == -16383);
+}
+
+test "16 special" {
+    try expect(ilogbX(f16, math.inf(f16)) == maxInt(i32));
+    try expect(ilogbX(f16, -math.inf(f16)) == maxInt(i32));
+    try expect(ilogbX(f16, 0.0) == minInt(i32));
+    try expect(ilogbX(f16, math.nan(f16)) == fp_ilogbnan);
 }
 
 test "32 special" {
-    try expect(ilogb32(math.inf(f32)) == maxInt(i32));
-    try expect(ilogb32(-math.inf(f32)) == maxInt(i32));
-    try expect(ilogb32(0.0) == minInt(i32));
-    try expect(ilogb32(math.nan(f32)) == maxInt(i32));
+    try expect(ilogbX(f32, math.inf(f32)) == maxInt(i32));
+    try expect(ilogbX(f32, -math.inf(f32)) == maxInt(i32));
+    try expect(ilogbX(f32, 0.0) == minInt(i32));
+    try expect(ilogbX(f32, math.nan(f32)) == fp_ilogbnan);
 }
 
 test "64 special" {
-    try expect(ilogb64(math.inf(f64)) == maxInt(i32));
-    try expect(ilogb64(-math.inf(f64)) == maxInt(i32));
-    try expect(ilogb64(0.0) == minInt(i32));
-    try expect(ilogb64(math.nan(f64)) == maxInt(i32));
+    try expect(ilogbX(f64, math.inf(f64)) == maxInt(i32));
+    try expect(ilogbX(f64, -math.inf(f64)) == maxInt(i32));
+    try expect(ilogbX(f64, 0.0) == minInt(i32));
+    try expect(ilogbX(f64, math.nan(f64)) == fp_ilogbnan);
+}
+
+test "80 special" {
+    try expect(ilogbX(f80, math.inf(f80)) == maxInt(i32));
+    try expect(ilogbX(f80, -math.inf(f80)) == maxInt(i32));
+    try expect(ilogbX(f80, 0.0) == minInt(i32));
+    try expect(ilogbX(f80, math.nan(f80)) == fp_ilogbnan);
 }
 
 test "128 special" {
-    try expect(ilogb128(math.inf(f128)) == maxInt(i32));
-    try expect(ilogb128(-math.inf(f128)) == maxInt(i32));
-    try expect(ilogb128(0.0) == minInt(i32));
-    try expect(ilogb128(math.nan(f128)) == maxInt(i32));
+    try expect(ilogbX(f128, math.inf(f128)) == maxInt(i32));
+    try expect(ilogbX(f128, -math.inf(f128)) == maxInt(i32));
+    try expect(ilogbX(f128, 0.0) == minInt(i32));
+    try expect(ilogbX(f128, math.nan(f128)) == fp_ilogbnan);
 }

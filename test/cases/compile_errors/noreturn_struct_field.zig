@@ -9,4 +9,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :2:5: error: struct fields cannot be 'noreturn'
+// :2:8: error: struct fields cannot be 'noreturn'

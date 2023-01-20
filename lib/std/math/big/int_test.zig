@@ -69,6 +69,14 @@ test "big.int set negative minimum" {
     try testing.expect((try a.to(i64)) == minInt(i64));
 }
 
+test "big.int set double-width maximum then zero" {
+    var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer a.deinit();
+    try a.set(@as(DoubleLimb, 0));
+
+    try testing.expectEqual(@as(DoubleLimb, 0), try a.to(DoubleLimb));
+}
+
 test "big.int to target too small error" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff);
     defer a.deinit();
@@ -508,8 +516,8 @@ test "big.int add multi-single" {
 }
 
 test "big.int add multi-multi" {
-    const op1 = 0xefefefef7f7f7f7f;
-    const op2 = 0xfefefefe9f9f9f9f;
+    var op1: u128 = 0xefefefef7f7f7f7f;
+    var op2: u128 = 0xfefefefe9f9f9f9f;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -573,7 +581,7 @@ test "big.int add sign" {
     try testing.expect((try a.to(i32)) == -3);
 }
 
-test "big.int add scalar" {
+test "big.int add comptime scalar" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
 
@@ -582,6 +590,17 @@ test "big.int add scalar" {
     try b.addScalar(&a, 5);
 
     try testing.expect((try b.to(u32)) == 55);
+}
+
+test "big.int add scalar" {
+    var a = try Managed.initSet(testing.allocator, 123);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+    try b.addScalar(&a, @as(u32, 31));
+
+    try testing.expect((try b.to(u32)) == 154);
 }
 
 test "big.int addWrap single-single, unsigned" {
@@ -811,8 +830,8 @@ test "big.int sub multi-single" {
 }
 
 test "big.int sub multi-multi" {
-    const op1 = 0xefefefefefefefefefefefef;
-    const op2 = 0xabababababababababababab;
+    var op1: u128 = 0xefefefefefefefefefefefef;
+    var op2: u128 = 0xabababababababababababab;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -895,8 +914,8 @@ test "big.int mul multi-single" {
 }
 
 test "big.int mul multi-multi" {
-    const op1 = 0x998888efefefefefefefef;
-    const op2 = 0x333000abababababababab;
+    var op1: u256 = 0x998888efefefefefefefef;
+    var op2: u256 = 0x333000abababababababab;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1014,8 +1033,8 @@ test "big.int mulWrap single-single signed" {
 }
 
 test "big.int mulWrap multi-multi unsigned" {
-    const op1 = 0x998888efefefefefefefef;
-    const op2 = 0x333000abababababababab;
+    var op1: u256 = 0x998888efefefefefefefef;
+    var op2: u256 = 0x333000abababababababab;
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1025,7 +1044,7 @@ test "big.int mulWrap multi-multi unsigned" {
     defer c.deinit();
     try c.mulWrap(&a, &b, .unsigned, 65);
 
-    try testing.expect((try c.to(u128)) == (op1 * op2) & ((1 << 65) - 1));
+    try testing.expect((try c.to(u256)) == (op1 * op2) & ((1 << 65) - 1));
 }
 
 test "big.int mulWrap multi-multi signed" {
@@ -1131,8 +1150,8 @@ test "big.int div single-single with rem" {
 }
 
 test "big.int div multi-single no rem" {
-    const op1 = 0xffffeeeeddddcccc;
-    const op2 = 34;
+    var op1: u128 = 0xffffeeeeddddcccc;
+    var op2: u128 = 34;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1150,8 +1169,8 @@ test "big.int div multi-single no rem" {
 }
 
 test "big.int div multi-single with rem" {
-    const op1 = 0xffffeeeeddddcccf;
-    const op2 = 34;
+    var op1: u128 = 0xffffeeeeddddcccf;
+    var op2: u128 = 34;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1169,8 +1188,8 @@ test "big.int div multi-single with rem" {
 }
 
 test "big.int div multi>2-single" {
-    const op1 = 0xfefefefefefefefefefefefefefefefe;
-    const op2 = 0xefab8;
+    var op1: u128 = 0xfefefefefefefefefefefefefefefefe;
+    var op2: u128 = 0xefab8;
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1962,22 +1981,22 @@ test "big.int shift-right negative" {
     var arg = try Managed.initSet(testing.allocator, -20);
     defer arg.deinit();
     try a.shiftRight(&arg, 2);
-    try testing.expect((try a.to(i32)) == -20 >> 2);
+    try testing.expect((try a.to(i32)) == -5); // -20 >> 2 == -5
 
     var arg2 = try Managed.initSet(testing.allocator, -5);
     defer arg2.deinit();
     try a.shiftRight(&arg2, 10);
-    try testing.expect((try a.to(i32)) == -5 >> 10);
+    try testing.expect((try a.to(i32)) == -1); // -5 >> 10 == -1
 }
 
-test "big.int shift-left negative" {
+test "big.int shift-right negative" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
     var arg = try Managed.initSet(testing.allocator, -10);
     defer arg.deinit();
     try a.shiftRight(&arg, 1232);
-    try testing.expect((try a.to(i32)) == -10 >> 1232);
+    try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
 }
 
 test "big.int sat shift-left simple unsigned" {
@@ -2045,34 +2064,35 @@ test "big.int sat shift-left signed simple positive" {
 }
 
 test "big.int sat shift-left signed multi positive" {
-    const x = 1;
+    var x: SignedDoubleLimb = 1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
     try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
-    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+    try testing.expect((try a.to(SignedDoubleLimb)) == x <<| shift);
 }
 
 test "big.int sat shift-left signed multi negative" {
-    const x = -1;
+    var x: SignedDoubleLimb = -1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
     try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
-    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+    try testing.expect((try a.to(SignedDoubleLimb)) == x <<| shift);
 }
 
 test "big.int bitNotWrap unsigned simple" {
-    var a = try Managed.initSet(testing.allocator, 123);
+    var x: u10 = 123;
+    var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
 
     try a.bitNotWrap(&a, .unsigned, 10);
 
-    try testing.expect((try a.to(u10)) == ~@as(u10, 123));
+    try testing.expect((try a.to(u10)) == ~x);
 }
 
 test "big.int bitNotWrap unsigned multi" {
@@ -2085,12 +2105,13 @@ test "big.int bitNotWrap unsigned multi" {
 }
 
 test "big.int bitNotWrap signed simple" {
+    var x: i11 = -456;
     var a = try Managed.initSet(testing.allocator, -456);
     defer a.deinit();
 
     try a.bitNotWrap(&a, .signed, 11);
 
-    try testing.expect((try a.to(i11)) == ~@as(i11, -456));
+    try testing.expect((try a.to(i11)) == ~x);
 }
 
 test "big.int bitNotWrap signed multi" {
@@ -2213,14 +2234,16 @@ test "big.int bitwise xor simple" {
 }
 
 test "big.int bitwise xor multi-limb" {
-    var a = try Managed.initSet(testing.allocator, maxInt(Limb) + 1);
+    var x: DoubleLimb = maxInt(Limb) + 1;
+    var y: DoubleLimb = maxInt(Limb);
+    var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, maxInt(Limb));
+    var b = try Managed.initSet(testing.allocator, y);
     defer b.deinit();
 
     try a.bitXor(&a, &b);
 
-    try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
+    try testing.expect((try a.to(DoubleLimb)) == x ^ y);
 }
 
 test "big.int bitwise xor single negative simple" {
@@ -2308,7 +2331,6 @@ test "big.int bitwise or multi-limb" {
 
     try a.bitOr(&a, &b);
 
-    // TODO: big.int.cpp or is wrong on multi-limb.
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
 }
 
@@ -2567,14 +2589,86 @@ test "big.int regression test for realloc with alias" {
 }
 
 test "big int popcount" {
-    var a = try Managed.initSet(testing.allocator, -1);
+    var a = try Managed.init(testing.allocator);
     defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, -1);
+
+    try a.set(0);
+    try popCountTest(&a, 0, 0);
+    try popCountTest(&a, 567, 0);
+    try a.set(-0);
+    try popCountTest(&a, 0, 0);
+
+    try a.set(1);
+    try popCountTest(&a, 1, 1);
+    try popCountTest(&a, 13, 1);
+    try popCountTest(&a, 432, 1);
+
+    try a.set(255);
+    try popCountTest(&a, 8, 8);
+    try a.set(-128);
+    try popCountTest(&a, 8, 1);
+
+    try a.set(-2);
+    try popCountTest(&a, 16, 15);
+    try popCountTest(&a, 15, 14);
+
+    try a.set(-2047);
+    try popCountTest(&a, 12, 2);
+    try popCountTest(&a, 24, 14);
+
+    try a.set(maxInt(u5000));
+    try popCountTest(&a, 5000, 5000);
+    try a.set(minInt(i5000));
+    try popCountTest(&a, 5000, 1);
+
+    // Check -1 at various bit counts that cross Limb size multiples.
+    const limb_bits = @bitSizeOf(Limb);
+    try a.set(-1);
+    try popCountTest(&a, 1, 1); // i1
+    try popCountTest(&a, 2, 2);
+    try popCountTest(&a, 16, 16);
+    try popCountTest(&a, 543, 543);
+    try popCountTest(&a, 544, 544);
+    try popCountTest(&a, limb_bits - 1, limb_bits - 1);
+    try popCountTest(&a, limb_bits, limb_bits);
+    try popCountTest(&a, limb_bits + 1, limb_bits + 1);
+    try popCountTest(&a, limb_bits * 2 - 1, limb_bits * 2 - 1);
+    try popCountTest(&a, limb_bits * 2, limb_bits * 2);
+    try popCountTest(&a, limb_bits * 2 + 1, limb_bits * 2 + 1);
+
+    // Check very large numbers.
+    try a.setString(16, "ff00000100000100" ++ ("0000000000000000" ** 62));
+    try popCountTest(&a, 4032, 10);
+    try popCountTest(&a, 6000, 10);
+    a.negate();
+    try popCountTest(&a, 4033, 48);
+    try popCountTest(&a, 4133, 148);
+
+    // Check when most significant limb is full of 1s.
+    const limb_size = @bitSizeOf(Limb);
+    try a.set(maxInt(Limb));
+    try popCountTest(&a, limb_size, limb_size);
+    try popCountTest(&a, limb_size + 1, limb_size);
+    try popCountTest(&a, limb_size * 10 + 2, limb_size);
+    a.negate();
+    try popCountTest(&a, limb_size * 2 - 2, limb_size - 1);
+    try popCountTest(&a, limb_size * 2 - 1, limb_size);
+    try popCountTest(&a, limb_size * 2, limb_size + 1);
+    try popCountTest(&a, limb_size * 2 + 1, limb_size + 2);
+    // TODO: These produce incorrect pop count for Mutable
+    // https://github.com/ziglang/zig/issues/13571
+    // try popCountTest(&a, limb_size * 2 + 2, limb_size + 3);
+    // try popCountTest(&a, limb_size * 2 + 3, limb_size + 4);
+    // try popCountTest(&a, limb_size * 2 + 4, limb_size + 5);
+}
+
+fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
+    var b = try Managed.init(testing.allocator);
     defer b.deinit();
+    try b.popCount(val, bit_count);
 
-    try a.popCount(&b, 16);
-
-    try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
+    try testing.expectEqual(std.math.Order.eq, b.toConst().orderAgainstScalar(expected));
+    try testing.expectEqual(expected, val.toConst().popCount(bit_count));
 }
 
 test "big int conversion read/write twos complement" {
@@ -2592,13 +2686,13 @@ test "big int conversion read/write twos complement" {
 
     for (endians) |endian| {
         // Writing to buffer and back should not change anything
-        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
-        m.readTwosComplement(buffer1, 493, abi_size, endian, .unsigned);
+        a.toConst().writeTwosComplement(buffer1[0..abi_size], endian);
+        m.readTwosComplement(buffer1[0..abi_size], 493, endian, .unsigned);
         try testing.expect(m.toConst().order(a.toConst()) == .eq);
 
         // Equivalent to @bitCast(i493, @as(u493, intMax(u493))
-        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
-        m.readTwosComplement(buffer1, 493, abi_size, endian, .signed);
+        a.toConst().writeTwosComplement(buffer1[0..abi_size], endian);
+        m.readTwosComplement(buffer1[0..abi_size], 493, endian, .signed);
         try testing.expect(m.toConst().orderAgainstScalar(-1) == .eq);
     }
 }
@@ -2617,26 +2711,26 @@ test "big int conversion read twos complement with padding" {
     // (3) should sign-extend any bits from bit_count to 8 * abi_size
 
     var bit_count: usize = 12 * 8 + 1;
-    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    a.toConst().writeTwosComplement(buffer1[0..13], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    a.toConst().writeTwosComplement(buffer1[0..13], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    a.toConst().writeTwosComplement(buffer1[0..16], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    a.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
 
     @memset(buffer1.ptr, 0xaa, buffer1.len);
     try a.set(-0x01_02030405_06070809_0a0b0c0d);
     bit_count = 12 * 8 + 2;
 
-    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    a.toConst().writeTwosComplement(buffer1[0..13], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    a.toConst().writeTwosComplement(buffer1[0..13], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    a.toConst().writeTwosComplement(buffer1[0..16], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }));
-    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    a.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }));
 }
 
@@ -2649,17 +2743,15 @@ test "big int write twos complement +/- zero" {
     defer testing.allocator.free(buffer1);
     @memset(buffer1.ptr, 0xaa, buffer1.len);
 
-    var bit_count: usize = 0;
-
     // Test zero
 
-    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    m.toConst().writeTwosComplement(buffer1[0..13], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    m.toConst().writeTwosComplement(buffer1[0..13], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    m.toConst().writeTwosComplement(buffer1[0..16], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    m.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
 
     @memset(buffer1.ptr, 0xaa, buffer1.len);
@@ -2667,13 +2759,13 @@ test "big int write twos complement +/- zero" {
 
     // Test negative zero
 
-    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    m.toConst().writeTwosComplement(buffer1[0..13], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    m.toConst().writeTwosComplement(buffer1[0..13], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    m.toConst().writeTwosComplement(buffer1[0..16], .Little);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
-    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    m.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
 }
 
@@ -2694,62 +2786,82 @@ test "big int conversion write twos complement with padding" {
     // Test 0x01_02030405_06070809_0a0b0c0d
 
     buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xb };
-    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0xb, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
-    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xab, 0xaa, 0xaa, 0xaa };
-    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xab, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
-    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    bit_count = @sizeOf(Limb) * 8;
+
+    // Test 0x0a0a0a0a_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xaa };
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaa_02030405_06070809_0a0b0c0d)) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaa_02030405_06070809_0a0b0c0d)) == .eq);
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xaa, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaaaaaaaa_02030405_06070809_0a0b0c0d)) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xaa, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaaaaaaaa_02030405_06070809_0a0b0c0d)) == .eq);
 
     bit_count = 12 * 8 + 2;
 
     // Test -0x01_02030405_06070809_0a0b0c0d
 
     buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02 };
-    m.readTwosComplement(buffer, bit_count, 13, .Little, .signed);
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .signed);
     try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
-    m.readTwosComplement(buffer, bit_count, 13, .Big, .signed);
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .signed);
     try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02, 0xaa, 0xaa, 0xaa };
-    m.readTwosComplement(buffer, bit_count, 16, .Little, .signed);
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .signed);
     try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
-    m.readTwosComplement(buffer, bit_count, 16, .Big, .signed);
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .signed);
     try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
 
     // Test 0
 
     buffer = &([_]u8{0} ** 16);
-    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
 
     bit_count = 0;
     buffer = &([_]u8{0xaa} ** 16);
-    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
 }
 
@@ -2768,15 +2880,15 @@ test "big int conversion write twos complement zero" {
     var buffer: []const u8 = undefined;
 
     buffer = &([_]u8{0} ** 13);
-    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
 
     buffer = &([_]u8{0} ** 16);
-    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
-    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
 }
 

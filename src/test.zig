@@ -20,15 +20,11 @@ const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
 const enable_rosetta: bool = build_options.enable_rosetta;
 const glibc_runtimes_dir: ?[]const u8 = build_options.glibc_runtimes_dir;
-const skip_stage1 = builtin.zig_backend != .stage1 or build_options.skip_stage1;
+const skip_stage1 = true;
 
 const hr = "=" ** 80;
 
 test {
-    if (build_options.have_stage1) {
-        @import("stage1.zig").os_init();
-    }
-
     const use_gpa = build_options.force_gpa or !builtin.link_libc;
     const gpa = gpa: {
         if (use_gpa) {
@@ -60,7 +56,7 @@ test {
         ctx.addTestCasesFromDir(dir);
     }
 
-    try @import("test_cases").addCases(&ctx);
+    try @import("../test/cases.zig").addCases(&ctx);
 
     try ctx.run();
 }
@@ -213,7 +209,7 @@ const TestManifestConfigDefaults = struct {
 ///
 /// build test
 const TestManifest = struct {
-    @"type": Type,
+    type: Type,
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
@@ -294,7 +290,7 @@ const TestManifest = struct {
         };
 
         var manifest: TestManifest = .{
-            .@"type" = tt,
+            .type = tt,
             .config_map = std.StringHashMap([]const u8).init(arena),
         };
 
@@ -320,7 +316,7 @@ const TestManifest = struct {
         key: []const u8,
         comptime T: type,
     ) ConfigValueIterator(T) {
-        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.@"type", key);
+        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
             .inner = std.mem.split(u8, bytes, ","),
         };
@@ -338,7 +334,7 @@ const TestManifest = struct {
         while (try it.next()) |item| {
             try out.append(item);
         }
-        return out.toOwnedSlice();
+        return try out.toOwnedSlice();
     }
 
     fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) !T {
@@ -361,7 +357,7 @@ const TestManifest = struct {
         while (it.next()) |line| {
             try out.append(line);
         }
-        return out.toOwnedSlice();
+        return try out.toOwnedSlice();
     }
 
     fn ParseFn(comptime T: type) type {
@@ -791,6 +787,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.arena),
+            .link_libc = true,
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -1156,7 +1153,7 @@ pub const TestContext = struct {
 
                 for (cases.items) |case_index| {
                     const case = &ctx.cases.items[case_index];
-                    switch (manifest.@"type") {
+                    switch (manifest.type) {
                         .@"error" => {
                             const errors = try manifest.trailingAlloc(ctx.arena);
                             switch (strategy) {
@@ -1178,7 +1175,7 @@ pub const TestContext = struct {
                             if (output.items.len > 0) {
                                 try output.resize(output.items.len - 1);
                             }
-                            case.addCompareOutput(src, output.toOwnedSlice());
+                            case.addCompareOutput(src, try output.toOwnedSlice());
                         },
                         .cli => @panic("TODO cli tests"),
                     }
@@ -1547,7 +1544,6 @@ pub const TestContext = struct {
             .dynamic_linker = target_info.dynamic_linker.get(),
             .link_libc = case.link_libc,
             .use_llvm = use_llvm,
-            .use_stage1 = null, // We already handled stage1 tests
             .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
@@ -1662,6 +1658,7 @@ pub const TestContext = struct {
                                         var msg: Compilation.AllErrors.Message = actual_error;
                                         msg.src.src_path = case_msg.src.src_path;
                                         msg.src.notes = &.{};
+                                        msg.src.source_line = null;
                                         var fib = std.io.fixedBufferStream(&buf);
                                         try msg.renderToWriter(.no_color, fib.writer(), "error", .Red, 0);
                                         var it = std.mem.split(u8, fib.getWritten(), "error: ");
@@ -1726,7 +1723,8 @@ pub const TestContext = struct {
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
                                         std.mem.eql(u8, expected_msg, actual_msg.msg) and
-                                        case_msg.src.kind == .note)
+                                        case_msg.src.kind == .note and
+                                        actual_msg.count == case_msg.src.count)
                                     {
                                         handled_errors[i] = true;
                                         break;
@@ -1736,7 +1734,8 @@ pub const TestContext = struct {
                                     if (ex_tag != .plain) continue;
 
                                     if (std.mem.eql(u8, case_msg.plain.msg, plain.msg) and
-                                        case_msg.plain.kind == .note)
+                                        case_msg.plain.kind == .note and
+                                        case_msg.plain.count == plain.count)
                                     {
                                         handled_errors[i] = true;
                                         break;
@@ -1810,8 +1809,17 @@ pub const TestContext = struct {
                                 "-lc",
                                 exe_path,
                             });
+                            if (zig_lib_directory.path) |p| {
+                                try argv.appendSlice(&.{ "-I", p });
+                            }
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
-                            .native => try argv.append(exe_path),
+                            .native => {
+                                if (case.backend == .stage2 and case.target.getCpuArch() == .arm) {
+                                    // https://github.com/ziglang/zig/issues/13623
+                                    continue :update; // Pass test.
+                                }
+                                try argv.append(exe_path);
+                            },
                             .bad_dl, .bad_os_or_cpu => continue :update, // Pass test.
 
                             .rosetta => if (enable_rosetta) {

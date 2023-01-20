@@ -15,11 +15,11 @@ pub fn readULEB128(comptime T: type, reader: anytype) !T {
 
     while (group < max_group) : (group += 1) {
         const byte = try reader.readByte();
-        var temp = @as(U, byte & 0x7f);
 
-        if (@shlWithOverflow(U, temp, group * 7, &temp)) return error.Overflow;
+        const ov = @shlWithOverflow(@as(U, byte & 0x7f), group * 7);
+        if (ov[1] != 0) return error.Overflow;
 
-        value |= temp;
+        value |= ov[0];
         if (byte & 0x80 == 0) break;
     } else {
         return error.Overflow;
@@ -65,13 +65,13 @@ pub fn readILEB128(comptime T: type, reader: anytype) !T {
 
     while (group < max_group) : (group += 1) {
         const byte = try reader.readByte();
-        var temp = @as(U, byte & 0x7f);
 
         const shift = group * 7;
-        if (@shlWithOverflow(U, temp, shift, &temp)) {
+        const ov = @shlWithOverflow(@as(U, byte & 0x7f), shift);
+        if (ov[1] != 0) {
             // Overflow is ok so long as the sign bit is set and this is the last byte
             if (byte & 0x80 != 0) return error.Overflow;
-            if (@bitCast(S, temp) >= 0) return error.Overflow;
+            if (@bitCast(S, ov[0]) >= 0) return error.Overflow;
 
             // and all the overflowed bits are 1
             const remaining_shift = @intCast(u3, @typeInfo(U).Int.bits - @as(u16, shift));
@@ -80,14 +80,14 @@ pub fn readILEB128(comptime T: type, reader: anytype) !T {
         } else {
             // If we don't overflow and this is the last byte and the number being decoded
             // is negative, check that the remaining bits are 1
-            if ((byte & 0x80 == 0) and (@bitCast(S, temp) < 0)) {
+            if ((byte & 0x80 == 0) and (@bitCast(S, ov[0]) < 0)) {
                 const remaining_shift = @intCast(u3, @typeInfo(U).Int.bits - @as(u16, shift));
                 const remaining_bits = @bitCast(i8, byte | 0x80) >> remaining_shift;
                 if (remaining_bits != -1) return error.Overflow;
             }
         }
 
-        value |= temp;
+        value |= ov[0];
         if (byte & 0x80 == 0) {
             const needs_sign_ext = group + 1 < max_group;
             if (byte & 0x40 != 0 and needs_sign_ext) {
@@ -347,13 +347,6 @@ fn test_write_leb128(value: anytype) !void {
 }
 
 test "serialize unsigned LEB128" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .riscv64)
-    {
-        // https://github.com/ziglang/zig/issues/12031
-        return error.SkipZigTest;
-    }
-
     const max_bits = 18;
 
     comptime var t = 0;
@@ -368,13 +361,6 @@ test "serialize unsigned LEB128" {
 }
 
 test "serialize signed LEB128" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .riscv64)
-    {
-        // https://github.com/ziglang/zig/issues/12031
-        return error.SkipZigTest;
-    }
-
     // explicitly test i0 because starting `t` at 0
     // will break the while loop
     try test_write_leb128(@as(i0, 0));

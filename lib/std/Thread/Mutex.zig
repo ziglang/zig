@@ -27,7 +27,8 @@ const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Atomic = std.atomic.Atomic;
-const Futex = std.Thread.Futex;
+const Thread = std.Thread;
+const Futex = Thread.Futex;
 
 impl: Impl = .{},
 
@@ -51,7 +52,12 @@ pub fn unlock(self: *Mutex) void {
     self.impl.unlock();
 }
 
-const Impl = if (builtin.single_threaded)
+const Impl = if (builtin.mode == .Debug and !builtin.single_threaded)
+    DebugImpl
+else
+    ReleaseImpl;
+
+const ReleaseImpl = if (builtin.single_threaded)
     SingleThreadedImpl
 else if (builtin.os.tag == .windows)
     WindowsImpl
@@ -60,22 +66,50 @@ else if (builtin.os.tag.isDarwin())
 else
     FutexImpl;
 
+const DebugImpl = struct {
+    locking_thread: Atomic(Thread.Id) = Atomic(Thread.Id).init(0), // 0 means it's not locked.
+    impl: ReleaseImpl = .{},
+
+    inline fn tryLock(self: *@This()) bool {
+        const locking = self.impl.tryLock();
+        if (locking) {
+            self.locking_thread.store(Thread.getCurrentId(), .Unordered);
+        }
+        return locking;
+    }
+
+    inline fn lock(self: *@This()) void {
+        const current_id = Thread.getCurrentId();
+        if (self.locking_thread.load(.Unordered) == current_id and current_id != 0) {
+            @panic("Deadlock detected");
+        }
+        self.impl.lock();
+        self.locking_thread.store(current_id, .Unordered);
+    }
+
+    inline fn unlock(self: *@This()) void {
+        assert(self.locking_thread.load(.Unordered) == Thread.getCurrentId());
+        self.locking_thread.store(0, .Unordered);
+        self.impl.unlock();
+    }
+};
+
 const SingleThreadedImpl = struct {
     is_locked: bool = false,
 
-    fn tryLock(self: *Impl) bool {
+    fn tryLock(self: *@This()) bool {
         if (self.is_locked) return false;
         self.is_locked = true;
         return true;
     }
 
-    fn lock(self: *Impl) void {
+    fn lock(self: *@This()) void {
         if (!self.tryLock()) {
             unreachable; // deadlock detected
         }
     }
 
-    fn unlock(self: *Impl) void {
+    fn unlock(self: *@This()) void {
         assert(self.is_locked);
         self.is_locked = false;
     }
@@ -86,15 +120,15 @@ const SingleThreadedImpl = struct {
 const WindowsImpl = struct {
     srwlock: os.windows.SRWLOCK = .{},
 
-    fn tryLock(self: *Impl) bool {
+    fn tryLock(self: *@This()) bool {
         return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
     }
 
-    fn lock(self: *Impl) void {
+    fn lock(self: *@This()) void {
         os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
 
-    fn unlock(self: *Impl) void {
+    fn unlock(self: *@This()) void {
         os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
     }
 };
@@ -103,15 +137,15 @@ const WindowsImpl = struct {
 const DarwinImpl = struct {
     oul: os.darwin.os_unfair_lock = .{},
 
-    fn tryLock(self: *Impl) bool {
+    fn tryLock(self: *@This()) bool {
         return os.darwin.os_unfair_lock_trylock(&self.oul);
     }
 
-    fn lock(self: *Impl) void {
+    fn lock(self: *@This()) void {
         os.darwin.os_unfair_lock_lock(&self.oul);
     }
 
-    fn unlock(self: *Impl) void {
+    fn unlock(self: *@This()) void {
         os.darwin.os_unfair_lock_unlock(&self.oul);
     }
 };
@@ -123,19 +157,19 @@ const FutexImpl = struct {
     const locked = 0b01;
     const contended = 0b11; // must contain the `locked` bit for x86 optimization below
 
-    fn tryLock(self: *Impl) bool {
+    fn tryLock(self: *@This()) bool {
         // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
         return self.lockFast("compareAndSwap");
     }
 
-    fn lock(self: *Impl) void {
+    fn lock(self: *@This()) void {
         // Lock with tryCompareAndSwap instead of compareAndSwap due to being more inline-able on LL/SC archs like ARM.
         if (!self.lockFast("tryCompareAndSwap")) {
             self.lockSlow();
         }
     }
 
-    inline fn lockFast(self: *Impl, comptime casFn: []const u8) bool {
+    inline fn lockFast(self: *@This(), comptime casFn: []const u8) bool {
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
@@ -149,7 +183,7 @@ const FutexImpl = struct {
         return @field(self.state, casFn)(unlocked, locked, .Acquire, .Monotonic) == null;
     }
 
-    fn lockSlow(self: *Impl) void {
+    fn lockSlow(self: *@This()) void {
         @setCold(true);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
@@ -172,7 +206,7 @@ const FutexImpl = struct {
         }
     }
 
-    fn unlock(self: *Impl) void {
+    fn unlock(self: *@This()) void {
         // Unlock the mutex and wake up a waiting thread if any.
         //
         // A waiting thread will acquire with `contended` instead of `locked`
@@ -228,7 +262,7 @@ test "Mutex - many uncontended" {
 
     const Runner = struct {
         mutex: Mutex = .{},
-        thread: std.Thread = undefined,
+        thread: Thread = undefined,
         counter: NonAtomicCounter = .{},
 
         fn run(self: *@This()) void {
@@ -243,7 +277,7 @@ test "Mutex - many uncontended" {
     };
 
     var runners = [_]Runner{.{}} ** num_threads;
-    for (runners) |*r| r.thread = try std.Thread.spawn(.{}, Runner.run, .{r});
+    for (runners) |*r| r.thread = try Thread.spawn(.{}, Runner.run, .{r});
     for (runners) |r| r.thread.join();
     for (runners) |r| try testing.expectEqual(r.counter.get(), num_increments);
 }
@@ -265,7 +299,7 @@ test "Mutex - many contended" {
             var i: usize = num_increments;
             while (i > 0) : (i -= 1) {
                 // Occasionally hint to let another thread run.
-                defer if (i % 100 == 0) std.Thread.yield() catch {};
+                defer if (i % 100 == 0) Thread.yield() catch {};
 
                 self.mutex.lock();
                 defer self.mutex.unlock();
@@ -277,8 +311,8 @@ test "Mutex - many contended" {
 
     var runner = Runner{};
 
-    var threads: [num_threads]std.Thread = undefined;
-    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Runner.run, .{&runner});
+    var threads: [num_threads]Thread = undefined;
+    for (threads) |*t| t.* = try Thread.spawn(.{}, Runner.run, .{&runner});
     for (threads) |t| t.join();
 
     try testing.expectEqual(runner.counter.get(), num_increments * num_threads);

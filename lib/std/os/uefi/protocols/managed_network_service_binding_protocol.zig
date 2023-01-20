@@ -5,8 +5,8 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 pub const ManagedNetworkServiceBindingProtocol = extern struct {
-    _create_child: std.meta.FnPtr(fn (*const ManagedNetworkServiceBindingProtocol, *?Handle) callconv(.C) Status),
-    _destroy_child: std.meta.FnPtr(fn (*const ManagedNetworkServiceBindingProtocol, Handle) callconv(.C) Status),
+    _create_child: *const fn (*const ManagedNetworkServiceBindingProtocol, *?Handle) callconv(.C) Status,
+    _destroy_child: *const fn (*const ManagedNetworkServiceBindingProtocol, Handle) callconv(.C) Status,
 
     pub fn createChild(self: *const ManagedNetworkServiceBindingProtocol, handle: *?Handle) Status {
         return self._create_child(self, handle);

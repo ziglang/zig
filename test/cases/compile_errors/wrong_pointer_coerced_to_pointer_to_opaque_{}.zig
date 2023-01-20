@@ -12,3 +12,4 @@ export fn foo() void {
 // :5:9: error: expected type '*tmp.Derp', found '*anyopaque'
 // :5:9: note: pointer type child 'anyopaque' cannot cast into pointer type child 'tmp.Derp'
 // :1:14: note: opaque declared here
+// :2:18: note: parameter type declared here

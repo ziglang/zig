@@ -70,7 +70,7 @@
 #define PTHREAD_STACK_MIN 2048
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
 #endif
-#ifdef __wasilibc_unmodified_upstream /* WASI has no semaphores */
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
 #define SEM_VALUE_MAX 0x7fffffff
 #define SEM_NSEMS_MAX 256
 #endif

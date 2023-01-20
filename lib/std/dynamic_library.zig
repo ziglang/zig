@@ -381,7 +381,7 @@ pub const DlDynlib = struct {
     pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
-        if (@call(.{ .modifier = .never_tail }, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
+        if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
             return @ptrCast(T, symbol);
         } else {
             return null;

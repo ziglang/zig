@@ -7,18 +7,18 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage });
-    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage });
-    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage });
+    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage, .visibility = common.visibility });
 
     if (common.want_aeabi) {
-        @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = common.linkage });
-        @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = common.linkage });
-        @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = common.linkage });
+        @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__ashldi3, .{ .name = "__ashldi3", .linkage = common.linkage });
-        @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = common.linkage });
-        @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = common.linkage });
+        @export(__ashldi3, .{ .name = "__ashldi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

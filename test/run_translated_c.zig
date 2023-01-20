@@ -250,20 +250,18 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    if (@import("builtin").zig_backend == .stage1) {
-        cases.add("struct initializer - packed",
-            \\#define _NO_CRT_STDIO_INLINE 1
-            \\#include <stdint.h>
-            \\#include <stdlib.h>
-            \\struct s {uint8_t x,y;
-            \\          uint32_t z;} __attribute__((packed)) s0 = {1, 2};
-            \\int main() {
-            \\  /* sizeof nor offsetof currently supported */
-            \\  if (((intptr_t)&s0.z - (intptr_t)&s0.x) != 2) abort();
-            \\  return 0;
-            \\}
-        , "");
-    }
+    cases.add("struct initializer - packed",
+        \\#define _NO_CRT_STDIO_INLINE 1
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\struct s {uint8_t x,y;
+        \\          uint32_t z;} __attribute__((packed)) s0 = {1, 2};
+        \\int main() {
+        \\  /* sizeof nor offsetof currently supported */
+        \\  if (((intptr_t)&s0.z - (intptr_t)&s0.x) != 2) abort();
+        \\  return 0;
+        \\}
+    , "");
 
     cases.add("cast signed array index to unsigned",
         \\#include <stdlib.h>
@@ -893,42 +891,39 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    if (@import("builtin").zig_backend == .stage1) {
-        // https://github.com/ziglang/zig/issues/12263
-        cases.add("Obscure ways of calling functions; issue #4124",
-            \\#include <stdlib.h>
-            \\static int add(int a, int b) {
-            \\    return a + b;
-            \\}
-            \\typedef int (*adder)(int, int);
-            \\typedef void (*funcptr)(void);
-            \\int main() {
-            \\    if ((add)(1, 2) != 3) abort();
-            \\    if ((&add)(1, 2) != 3) abort();
-            \\    if (add(3, 1) != 4) abort();
-            \\    if ((*add)(2, 3) != 5) abort();
-            \\    if ((**add)(7, -1) != 6) abort();
-            \\    if ((***add)(-2, 9) != 7) abort();
-            \\
-            \\    int (*ptr)(int a, int b);
-            \\    ptr = add;
-            \\
-            \\    if (ptr(1, 2) != 3) abort();
-            \\    if ((*ptr)(3, 1) != 4) abort();
-            \\    if ((**ptr)(2, 3) != 5) abort();
-            \\    if ((***ptr)(7, -1) != 6) abort();
-            \\    if ((****ptr)(-2, 9) != 7) abort();
-            \\
-            \\    funcptr addr1 = (funcptr)(add);
-            \\    funcptr addr2 = (funcptr)(&add);
-            \\
-            \\    if (addr1 != addr2) abort();
-            \\    if (((int(*)(int, int))addr1)(1, 2) != 3) abort();
-            \\    if (((adder)addr2)(1, 2) != 3) abort();
-            \\    return 0;
-            \\}
-        , "");
-    }
+    cases.add("Obscure ways of calling functions; issue #4124",
+        \\#include <stdlib.h>
+        \\static int add(int a, int b) {
+        \\    return a + b;
+        \\}
+        \\typedef int (*adder)(int, int);
+        \\typedef void (*funcptr)(void);
+        \\int main() {
+        \\    if ((add)(1, 2) != 3) abort();
+        \\    if ((&add)(1, 2) != 3) abort();
+        \\    if (add(3, 1) != 4) abort();
+        \\    if ((*add)(2, 3) != 5) abort();
+        \\    if ((**add)(7, -1) != 6) abort();
+        \\    if ((***add)(-2, 9) != 7) abort();
+        \\
+        \\    int (*ptr)(int a, int b);
+        \\    ptr = add;
+        \\
+        \\    if (ptr(1, 2) != 3) abort();
+        \\    if ((*ptr)(3, 1) != 4) abort();
+        \\    if ((**ptr)(2, 3) != 5) abort();
+        \\    if ((***ptr)(7, -1) != 6) abort();
+        \\    if ((****ptr)(-2, 9) != 7) abort();
+        \\
+        \\    funcptr addr1 = (funcptr)(add);
+        \\    funcptr addr2 = (funcptr)(&add);
+        \\
+        \\    if (addr1 != addr2) abort();
+        \\    if (((int(*)(int, int))addr1)(1, 2) != 3) abort();
+        \\    if (((adder)addr2)(1, 2) != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
 
     cases.add("Return boolean expression as int; issue #6215",
         \\#include <stdlib.h>

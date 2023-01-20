@@ -132,6 +132,17 @@ test "FixedBufferStream output" {
     try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
 }
 
+test "FixedBufferStream output at comptime" {
+    comptime {
+        var buf: [255]u8 = undefined;
+        var fbs = fixedBufferStream(&buf);
+        const stream = fbs.writer();
+
+        try stream.print("{s}{s}!", .{ "Hello", "World" });
+        try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
+    }
+}
+
 test "FixedBufferStream output 2" {
     var buffer: [10]u8 = undefined;
     var fbs = fixedBufferStream(&buffer);

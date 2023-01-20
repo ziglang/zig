@@ -23,14 +23,14 @@
 //!   size.  The interfaces of these two types match exactly, except for fields.
 //!
 //! DynamicBitSet:
-//!   A bit set with runtime known size, backed by an allocated slice
+//!   A bit set with runtime-known size, backed by an allocated slice
 //!   of usize.
 //!
 //! DynamicBitSetUnmanaged:
 //!   A variant of DynamicBitSet which does not store a pointer to its
 //!   allocator, in order to save space.
 
-const std = @import("std");
+const std = @import("std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
@@ -190,6 +190,68 @@ pub fn IntegerBitSet(comptime size: u16) type {
             const index = @ctz(mask);
             self.mask = mask & (mask - 1);
             return index;
+        }
+
+        /// Returns true iff every corresponding bit in both
+        /// bit sets are the same.
+        pub fn eql(self: Self, other: Self) bool {
+            return bit_length == 0 or self.mask == other.mask;
+        }
+
+        /// Returns true iff the first bit set is the subset
+        /// of the second one.
+        pub fn subsetOf(self: Self, other: Self) bool {
+            return self.intersectWith(other).eql(self);
+        }
+
+        /// Returns true iff the first bit set is the superset
+        /// of the second one.
+        pub fn supersetOf(self: Self, other: Self) bool {
+            return other.subsetOf(self);
+        }
+
+        /// Returns the complement bit sets. Bits in the result
+        /// are set if the corresponding bits were not set.
+        pub fn complement(self: Self) Self {
+            var result = self;
+            result.toggleAll();
+            return result;
+        }
+
+        /// Returns the union of two bit sets. Bits in the
+        /// result are set if the corresponding bits were set
+        /// in either input.
+        pub fn unionWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setUnion(other);
+            return result;
+        }
+
+        /// Returns the intersection of two bit sets. Bits in
+        /// the result are set if the corresponding bits were
+        /// set in both inputs.
+        pub fn intersectWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setIntersection(other);
+            return result;
+        }
+
+        /// Returns the xor of two bit sets. Bits in the
+        /// result are set if the corresponding bits were
+        /// not the same in both inputs.
+        pub fn xorWith(self: Self, other: Self) Self {
+            var result = self;
+            result.toggleSet(other);
+            return result;
+        }
+
+        /// Returns the difference of two bit sets. Bits in
+        /// the result are set if set in the first but not
+        /// set in the second set.
+        pub fn differenceWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setIntersection(other.complement());
+            return result;
         }
 
         /// Iterates through the items in the set, according to the options.
@@ -491,6 +553,73 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
             return offset + index;
         }
 
+        /// Returns true iff every corresponding bit in both
+        /// bit sets are the same.
+        pub fn eql(self: Self, other: Self) bool {
+            var i: usize = 0;
+            return while (i < num_masks) : (i += 1) {
+                if (self.masks[i] != other.masks[i]) {
+                    break false;
+                }
+            } else true;
+        }
+
+        /// Returns true iff the first bit set is the subset
+        /// of the second one.
+        pub fn subsetOf(self: Self, other: Self) bool {
+            return self.intersectWith(other).eql(self);
+        }
+
+        /// Returns true iff the first bit set is the superset
+        /// of the second one.
+        pub fn supersetOf(self: Self, other: Self) bool {
+            return other.subsetOf(self);
+        }
+
+        /// Returns the complement bit sets. Bits in the result
+        /// are set if the corresponding bits were not set.
+        pub fn complement(self: Self) Self {
+            var result = self;
+            result.toggleAll();
+            return result;
+        }
+
+        /// Returns the union of two bit sets. Bits in the
+        /// result are set if the corresponding bits were set
+        /// in either input.
+        pub fn unionWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setUnion(other);
+            return result;
+        }
+
+        /// Returns the intersection of two bit sets. Bits in
+        /// the result are set if the corresponding bits were
+        /// set in both inputs.
+        pub fn intersectWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setIntersection(other);
+            return result;
+        }
+
+        /// Returns the xor of two bit sets. Bits in the
+        /// result are set if the corresponding bits were
+        /// not the same in both inputs.
+        pub fn xorWith(self: Self, other: Self) Self {
+            var result = self;
+            result.toggleSet(other);
+            return result;
+        }
+
+        /// Returns the difference of two bit sets. Bits in
+        /// the result are set if set in the first but not
+        /// set in the second set.
+        pub fn differenceWith(self: Self, other: Self) Self {
+            var result = self;
+            result.setIntersection(other.complement());
+            return result;
+        }
+
         /// Iterates through the items in the set, according to the options.
         /// The default options (.{}) will iterate indices of set bits in
         /// ascending order.  Modifications to the underlying bit set may
@@ -515,7 +644,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     };
 }
 
-/// A bit set with runtime known size, backed by an allocated slice
+/// A bit set with runtime-known size, backed by an allocated slice
 /// of usize.  The allocator must be tracked externally by the user.
 pub const DynamicBitSetUnmanaged = struct {
     const Self = @This();
@@ -813,6 +942,51 @@ pub const DynamicBitSetUnmanaged = struct {
         return offset + index;
     }
 
+    /// Returns true iff every corresponding bit in both
+    /// bit sets are the same.
+    pub fn eql(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] != other.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
+    /// Returns true iff the first bit set is the subset
+    /// of the second one.
+    pub fn subsetOf(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] & other.masks[i] != self.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
+    /// Returns true iff the first bit set is the superset
+    /// of the second one.
+    pub fn supersetOf(self: Self, other: Self) bool {
+        if (self.bit_length != other.bit_length) {
+            return false;
+        }
+        const num_masks = numMasks(self.bit_length);
+        var i: usize = 0;
+        return while (i < num_masks) : (i += 1) {
+            if (self.masks[i] & other.masks[i] != other.masks[i]) {
+                break false;
+            }
+        } else true;
+    }
+
     /// Iterates through the items in the set, according to the options.
     /// The default options (.{}) will iterate indices of set bits in
     /// ascending order.  Modifications to the underlying bit set may
@@ -843,7 +1017,7 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 };
 
-/// A bit set with runtime known size, backed by an allocated slice
+/// A bit set with runtime-known size, backed by an allocated slice
 /// of usize.  Thin wrapper around DynamicBitSetUnmanaged which keeps
 /// track of the allocator instance.
 pub const DynamicBitSet = struct {
@@ -979,6 +1153,12 @@ pub const DynamicBitSet = struct {
     /// If no bits are set, returns null.
     pub fn toggleFirstSet(self: *Self) ?usize {
         return self.unmanaged.toggleFirstSet();
+    }
+
+    /// Returns true iff every corresponding bit in both
+    /// bit sets are the same.
+    pub fn eql(self: Self, other: Self) bool {
+        return self.unmanaged.eql(other.unmanaged);
     }
 
     /// Iterates through the items in the set, according to the options.
@@ -1121,6 +1301,61 @@ pub const Range = struct {
 // ---------------- Tests -----------------
 
 const testing = std.testing;
+
+fn testEql(empty: anytype, full: anytype, len: usize) !void {
+    try testing.expect(empty.eql(empty));
+    try testing.expect(full.eql(full));
+    switch (len) {
+        0 => {
+            try testing.expect(empty.eql(full));
+            try testing.expect(full.eql(empty));
+        },
+        else => {
+            try testing.expect(!empty.eql(full));
+            try testing.expect(!full.eql(empty));
+        },
+    }
+}
+
+fn testSubsetOf(empty: anytype, full: anytype, even: anytype, odd: anytype, len: usize) !void {
+    try testing.expect(empty.subsetOf(empty));
+    try testing.expect(empty.subsetOf(full));
+    try testing.expect(full.subsetOf(full));
+    switch (len) {
+        0 => {
+            try testing.expect(even.subsetOf(odd));
+            try testing.expect(odd.subsetOf(even));
+        },
+        1 => {
+            try testing.expect(!even.subsetOf(odd));
+            try testing.expect(odd.subsetOf(even));
+        },
+        else => {
+            try testing.expect(!even.subsetOf(odd));
+            try testing.expect(!odd.subsetOf(even));
+        },
+    }
+}
+
+fn testSupersetOf(empty: anytype, full: anytype, even: anytype, odd: anytype, len: usize) !void {
+    try testing.expect(full.supersetOf(full));
+    try testing.expect(full.supersetOf(empty));
+    try testing.expect(empty.supersetOf(empty));
+    switch (len) {
+        0 => {
+            try testing.expect(even.supersetOf(odd));
+            try testing.expect(odd.supersetOf(even));
+        },
+        1 => {
+            try testing.expect(even.supersetOf(odd));
+            try testing.expect(!odd.supersetOf(even));
+        },
+        else => {
+            try testing.expect(!even.supersetOf(odd));
+            try testing.expect(!odd.supersetOf(even));
+        },
+    }
+}
 
 fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     try testing.expectEqual(len, a.capacity());
@@ -1320,13 +1555,83 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
     }
 }
 
+fn fillEven(set: anytype, len: usize) void {
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        set.setValue(i, i & 1 == 0);
+    }
+}
+
+fn fillOdd(set: anytype, len: usize) void {
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        set.setValue(i, i & 1 == 1);
+    }
+}
+
+fn testPureBitSet(comptime Set: type) !void {
+    const empty = Set.initEmpty();
+    const full = Set.initFull();
+
+    const even = even: {
+        var bit_set = Set.initEmpty();
+        fillEven(&bit_set, Set.bit_length);
+        break :even bit_set;
+    };
+
+    const odd = odd: {
+        var bit_set = Set.initEmpty();
+        fillOdd(&bit_set, Set.bit_length);
+        break :odd bit_set;
+    };
+
+    try testSubsetOf(empty, full, even, odd, Set.bit_length);
+    try testSupersetOf(empty, full, even, odd, Set.bit_length);
+
+    try testing.expect(empty.complement().eql(full));
+    try testing.expect(full.complement().eql(empty));
+    try testing.expect(even.complement().eql(odd));
+    try testing.expect(odd.complement().eql(even));
+
+    try testing.expect(empty.unionWith(empty).eql(empty));
+    try testing.expect(empty.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(empty).eql(full));
+    try testing.expect(even.unionWith(odd).eql(full));
+    try testing.expect(odd.unionWith(even).eql(full));
+
+    try testing.expect(empty.intersectWith(empty).eql(empty));
+    try testing.expect(empty.intersectWith(full).eql(empty));
+    try testing.expect(full.intersectWith(full).eql(full));
+    try testing.expect(full.intersectWith(empty).eql(empty));
+    try testing.expect(even.intersectWith(odd).eql(empty));
+    try testing.expect(odd.intersectWith(even).eql(empty));
+
+    try testing.expect(empty.xorWith(empty).eql(empty));
+    try testing.expect(empty.xorWith(full).eql(full));
+    try testing.expect(full.xorWith(full).eql(empty));
+    try testing.expect(full.xorWith(empty).eql(full));
+    try testing.expect(even.xorWith(odd).eql(full));
+    try testing.expect(odd.xorWith(even).eql(full));
+
+    try testing.expect(empty.differenceWith(empty).eql(empty));
+    try testing.expect(empty.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(empty).eql(full));
+    try testing.expect(full.differenceWith(odd).eql(even));
+    try testing.expect(full.differenceWith(even).eql(odd));
+}
+
 fn testStaticBitSet(comptime Set: type) !void {
     var a = Set.initEmpty();
     var b = Set.initFull();
     try testing.expectEqual(@as(usize, 0), a.count());
     try testing.expectEqual(@as(usize, Set.bit_length), b.count());
 
+    try testEql(a, b, Set.bit_length);
     try testBitSet(&a, &b, Set.bit_length);
+
+    try testPureBitSet(Set);
 }
 
 test "IntegerBitSet" {
@@ -1361,32 +1666,45 @@ test "DynamicBitSetUnmanaged" {
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
 
-        var tmp = try a.clone(allocator);
-        defer tmp.deinit(allocator);
-        try testing.expectEqual(old_len, tmp.capacity());
+        var empty = try a.clone(allocator);
+        defer empty.deinit(allocator);
+        try testing.expectEqual(old_len, empty.capacity());
         var i: usize = 0;
         while (i < old_len) : (i += 1) {
-            try testing.expectEqual(a.isSet(i), tmp.isSet(i));
+            try testing.expectEqual(a.isSet(i), empty.isSet(i));
         }
 
         a.toggleSet(a); // zero a
-        tmp.toggleSet(tmp);
+        empty.toggleSet(empty);
 
         try a.resize(allocator, size, true);
-        try tmp.resize(allocator, size, false);
+        try empty.resize(allocator, size, false);
 
         if (size > old_len) {
             try testing.expectEqual(size - old_len, a.count());
         } else {
             try testing.expectEqual(@as(usize, 0), a.count());
         }
-        try testing.expectEqual(@as(usize, 0), tmp.count());
+        try testing.expectEqual(@as(usize, 0), empty.count());
 
-        var b = try DynamicBitSetUnmanaged.initFull(allocator, size);
-        defer b.deinit(allocator);
-        try testing.expectEqual(@as(usize, size), b.count());
+        var full = try DynamicBitSetUnmanaged.initFull(allocator, size);
+        defer full.deinit(allocator);
+        try testing.expectEqual(@as(usize, size), full.count());
 
-        try testBitSet(&a, &b, size);
+        try testEql(empty, full, size);
+        {
+            var even = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            defer even.deinit(allocator);
+            fillEven(&even, size);
+
+            var odd = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            defer odd.deinit(allocator);
+            fillOdd(&odd, size);
+
+            try testSubsetOf(empty, full, even, odd, size);
+            try testSupersetOf(empty, full, even, odd, size);
+        }
+        try testBitSet(&a, &full, size);
     }
 }
 
@@ -1426,6 +1744,7 @@ test "DynamicBitSet" {
         defer b.deinit();
         try testing.expectEqual(@as(usize, size), b.count());
 
+        try testEql(tmp, b, size);
         try testBitSet(&a, &b, size);
     }
 }

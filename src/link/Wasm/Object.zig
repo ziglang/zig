@@ -557,7 +557,7 @@ fn Parser(comptime ReaderType: type) type {
                 error.EndOfStream => {}, // finished parsing the file
                 else => |e| return e,
             }
-            parser.object.relocatable_data = relocatable_data.toOwnedSlice();
+            parser.object.relocatable_data = try relocatable_data.toOwnedSlice();
         }
 
         /// Based on the "features" custom section, parses it into a list of
@@ -606,7 +606,7 @@ fn Parser(comptime ReaderType: type) type {
                     .relocation_type = rel_type_enum,
                     .offset = try leb.readULEB128(u32, reader),
                     .index = try leb.readULEB128(u32, reader),
-                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readULEB128(u32, reader) else null,
+                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readILEB128(i32, reader) else 0,
                 };
                 log.debug("Found relocation: type({s}) offset({d}) index({d}) addend({?d})", .{
                     @tagName(relocation.relocation_type),
@@ -742,7 +742,7 @@ fn Parser(comptime ReaderType: type) type {
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
 
-                    parser.object.symtable = symbols.toOwnedSlice();
+                    parser.object.symtable = try symbols.toOwnedSlice();
                 },
             }
         }
@@ -923,7 +923,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
                 try atom.relocs.append(gpa, reloc);
 
                 if (relocation.isTableIndex()) {
-                    try wasm_bin.function_table.putNoClobber(gpa, .{
+                    try wasm_bin.function_table.put(gpa, .{
                         .file = object_index,
                         .index = relocation.index,
                     }, 0);
@@ -938,17 +938,17 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
             .index = relocatable_data.getIndex(),
         })) |symbols| {
             atom.sym_index = symbols.pop();
+            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
 
             // symbols referencing the same atom will be added as alias
             // or as 'parent' when they are global.
             while (symbols.popOrNull()) |idx| {
+                try wasm_bin.symbol_atom.putNoClobber(gpa, .{ .file = atom.file, .index = idx }, atom);
                 const alias_symbol = object.symtable[idx];
-                const symbol = object.symtable[atom.sym_index];
-                if (alias_symbol.isGlobal() and symbol.isLocal()) {
+                if (alias_symbol.isGlobal()) {
                     atom.sym_index = idx;
                 }
             }
-            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
         }
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];

@@ -17,7 +17,7 @@ const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
 const RunStep = @This();
 
-pub const base_id = .run;
+pub const base_id: Step.Id = .run;
 
 step: Step,
 builder: *Builder,
@@ -59,7 +59,7 @@ pub fn create(builder: *Builder, name: []const u8) *RunStep {
     const self = builder.allocator.create(RunStep) catch unreachable;
     self.* = RunStep{
         .builder = builder,
-        .step = Step.init(.run, name, builder.allocator, make),
+        .step = Step.init(base_id, name, builder.allocator, make),
         .argv = ArrayList(Arg).init(builder.allocator),
         .cwd = null,
         .env_map = null,
@@ -207,7 +207,7 @@ pub fn runCommand(
     const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root;
 
     if (!std.process.can_spawn) {
-        const cmd = try std.mem.join(builder.addInstallDirectory, " ", argv);
+        const cmd = try std.mem.join(builder.allocator, " ", argv);
         std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
         builder.allocator.free(cmd);
         return ExecError.ExecNotSupported;

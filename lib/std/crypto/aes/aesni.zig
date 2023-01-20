@@ -101,8 +101,8 @@ pub const Block = struct {
             &cpu.sandybridge, &cpu.ivybridge => 8,
             &cpu.haswell, &cpu.broadwell => 7,
             &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512 => 4,
-            &cpu.icelake_client, &cpu.icelake_server => 6,
-            &cpu.znver1, &cpu.znver2 => 8,
+            &cpu.icelake_client, &cpu.icelake_server, &cpu.tigerlake, &cpu.rocketlake, &cpu.alderlake => 6,
+            &cpu.znver1, &cpu.znver2, &cpu.znver3 => 8,
             else => 8,
         };
 

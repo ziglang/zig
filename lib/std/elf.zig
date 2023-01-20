@@ -835,7 +835,7 @@ pub const Elf32_RegInfo = extern struct {
 pub const Elf_Options = extern struct {
     kind: u8,
     size: u8,
-    @"section": Elf32_Section,
+    section: Elf32_Section,
     info: Elf32_Word,
 };
 pub const Elf_Options_Hw = extern struct {
@@ -1502,7 +1502,7 @@ pub const EM = enum(u16) {
             .MIPS_RS3_LE => .mipsel,
             .PPC => .powerpc,
             .SPARC => .sparc,
-            .@"386" => .i386,
+            .@"386" => .x86,
             .XCORE => .xcore,
             .CSR_KALIMBA => .kalimba,
             .LANAI => .lanai,

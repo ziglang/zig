@@ -1,9 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const common = @import("./common.zig");
 const cpu = builtin.cpu;
 const arch = cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const linkage = common.linkage;
+const visibility = common.visibility;
+pub const panic = common.panic;
 
 // This parameter is true iff the target architecture supports the bare minimum
 // to implement the atomic load/store intrinsics.
@@ -33,6 +35,17 @@ const largest_atomic_size = switch (arch) {
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
     else => @sizeOf(usize),
+};
+
+// The size (in bytes) of the smallest atomic object that the architecture can
+// perform fetch/exchange atomically. Note, this does not encompass load and store.
+// Objects smaller than this threshold are implemented in terms of compare-exchange
+// of a larger value.
+const smallest_atomic_fetch_exch_size = switch (arch) {
+    // On AMDGPU, there are no instructions for atomic operations other than load and store
+    // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
+    .amdgcn => @sizeOf(u32),
+    else => @sizeOf(u8),
 };
 
 const cache_line_size = 64;
@@ -206,6 +219,31 @@ fn __atomic_store_8(dst: *u64, value: u64, model: i32) callconv(.C) void {
     return atomic_store_N(u64, dst, value, model);
 }
 
+fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
+    const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+
+    const addr = @ptrToInt(ptr);
+    const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
+    const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @intToPtr(*WideAtomic, wide_addr));
+
+    const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
+    const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
+
+    const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
+
+    var wide_old = @atomicLoad(WideAtomic, wide_ptr, .SeqCst);
+    while (true) {
+        const old = @truncate(T, (wide_old & mask) >> inner_shift);
+        const new = update(val, old);
+        const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
+        if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst)) |new_wide_old| {
+            wide_old = new_wide_old;
+        } else {
+            return old;
+        }
+    }
+}
+
 inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
     _ = model;
     if (@sizeOf(T) > largest_atomic_size) {
@@ -214,6 +252,15 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
         const value = ptr.*;
         ptr.* = val;
         return value;
+    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
+        // Machine does not support this type, but it does support a larger type.
+        const Updater = struct {
+            fn update(new: T, old: T) T {
+                _ = old;
+                return new;
+            }
+        };
+        return wideUpdate(T, ptr, val, Updater.update);
     } else {
         return @atomicRmw(T, ptr, .Xchg, val, .SeqCst);
     }
@@ -282,22 +329,30 @@ fn __atomic_compare_exchange_8(ptr: *u64, expected: *u64, desired: u64, success:
 
 inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr: *T, val: T, model: i32) T {
     _ = model;
+    const Updater = struct {
+        fn update(new: T, old: T) T {
+            return switch (op) {
+                .Add => old +% new,
+                .Sub => old -% new,
+                .And => old & new,
+                .Nand => ~(old & new),
+                .Or => old | new,
+                .Xor => old ^ new,
+                else => @compileError("unsupported atomic op"),
+            };
+        }
+    };
+
     if (@sizeOf(T) > largest_atomic_size) {
         var sl = spinlocks.get(@ptrToInt(ptr));
         defer sl.release();
 
         const value = ptr.*;
-        ptr.* = switch (op) {
-            .Add => value +% val,
-            .Sub => value -% val,
-            .And => value & val,
-            .Nand => ~(value & val),
-            .Or => value | val,
-            .Xor => value ^ val,
-            else => @compileError("unsupported atomic op"),
-        };
-
+        ptr.* = Updater.update(val, value);
         return value;
+    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
+        // Machine does not support this type, but it does support a larger type.
+        return wideUpdate(T, ptr, val, Updater.update);
     }
 
     return @atomicRmw(T, ptr, op, val, .SeqCst);
@@ -400,60 +455,60 @@ fn __atomic_fetch_nand_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
 }
 
 comptime {
-    if (supports_atomic_ops) {
-        @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage });
-        @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage });
-        @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage });
-        @export(__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage });
+    if (supports_atomic_ops and builtin.object_format != .c) {
+        @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage });
-        @export(__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage });
-        @export(__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage });
-        @export(__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage });
+        @export(__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage });
-        @export(__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage });
-        @export(__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage });
-        @export(__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage });
+        @export(__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage });
-        @export(__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage });
-        @export(__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage });
-        @export(__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage });
+        @export(__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage });
-        @export(__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage });
-        @export(__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage });
-        @export(__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage });
+        @export(__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage });
-        @export(__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage });
-        @export(__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage });
-        @export(__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage });
+        @export(__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage });
-        @export(__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage });
-        @export(__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage });
-        @export(__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage });
+        @export(__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage });
-        @export(__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage });
-        @export(__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage });
-        @export(__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage });
+        @export(__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage });
-        @export(__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage });
-        @export(__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage });
-        @export(__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage });
+        @export(__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage });
-        @export(__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage });
-        @export(__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage });
-        @export(__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage });
+        @export(__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage });
-        @export(__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage });
-        @export(__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage });
-        @export(__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage });
+        @export(__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
     }
 }

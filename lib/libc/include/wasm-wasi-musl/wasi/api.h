@@ -1,13 +1,9 @@
 /**
- * THIS FILE IS AUTO-GENERATED from the following files:
- *   wasi_snapshot_preview1.witx
- *
- * To regenerate this file execute:
- *
- *     cargo run --manifest-path tools/wasi-headers/Cargo.toml generate-libc
- *
- * Modifications to this file will cause CI to fail, the code generator tool
- * must be modified to change this file.
+ * <wasi/api.h>. This file contains declarations describing the WASI ABI
+ * as of "snapshot preview1". It was originally auto-generated from
+ * wasi_snapshot_preview1.witx, however WASI is in the process of
+ * transitioning to a new IDL and header file generator, and this file
+ * is temporarily being manually maintained.
  *
  * @file
  * This file describes the [WASI] interface, consisting of functions, types,
@@ -662,6 +658,11 @@ typedef uint64_t __wasi_rights_t;
 #define __WASI_RIGHTS_SOCK_SHUTDOWN ((__wasi_rights_t)(1 << 28))
 
 /**
+ * The right to invoke `sock_accept`.
+ */
+#define __WASI_RIGHTS_SOCK_ACCEPT ((__wasi_rights_t)(1 << 29))
+
+/**
  * A file descriptor handle.
  */
 typedef int __wasi_fd_t;
@@ -1301,200 +1302,6 @@ _Static_assert(sizeof(__wasi_exitcode_t) == 4, "witx calculated size");
 _Static_assert(_Alignof(__wasi_exitcode_t) == 4, "witx calculated align");
 
 /**
- * Signal condition.
- */
-typedef uint8_t __wasi_signal_t;
-
-/**
- * No signal. Note that POSIX has special semantics for `kill(pid, 0)`,
- * so this value is reserved.
- */
-#define __WASI_SIGNAL_NONE (UINT8_C(0))
-
-/**
- * Hangup.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_HUP (UINT8_C(1))
-
-/**
- * Terminate interrupt signal.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_INT (UINT8_C(2))
-
-/**
- * Terminal quit signal.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_QUIT (UINT8_C(3))
-
-/**
- * Illegal instruction.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_ILL (UINT8_C(4))
-
-/**
- * Trace/breakpoint trap.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_TRAP (UINT8_C(5))
-
-/**
- * Process abort signal.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_ABRT (UINT8_C(6))
-
-/**
- * Access to an undefined portion of a memory object.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_BUS (UINT8_C(7))
-
-/**
- * Erroneous arithmetic operation.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_FPE (UINT8_C(8))
-
-/**
- * Kill.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_KILL (UINT8_C(9))
-
-/**
- * User-defined signal 1.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_USR1 (UINT8_C(10))
-
-/**
- * Invalid memory reference.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_SEGV (UINT8_C(11))
-
-/**
- * User-defined signal 2.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_USR2 (UINT8_C(12))
-
-/**
- * Write on a pipe with no one to read it.
- * Action: Ignored.
- */
-#define __WASI_SIGNAL_PIPE (UINT8_C(13))
-
-/**
- * Alarm clock.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_ALRM (UINT8_C(14))
-
-/**
- * Termination signal.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_TERM (UINT8_C(15))
-
-/**
- * Child process terminated, stopped, or continued.
- * Action: Ignored.
- */
-#define __WASI_SIGNAL_CHLD (UINT8_C(16))
-
-/**
- * Continue executing, if stopped.
- * Action: Continues executing, if stopped.
- */
-#define __WASI_SIGNAL_CONT (UINT8_C(17))
-
-/**
- * Stop executing.
- * Action: Stops executing.
- */
-#define __WASI_SIGNAL_STOP (UINT8_C(18))
-
-/**
- * Terminal stop signal.
- * Action: Stops executing.
- */
-#define __WASI_SIGNAL_TSTP (UINT8_C(19))
-
-/**
- * Background process attempting read.
- * Action: Stops executing.
- */
-#define __WASI_SIGNAL_TTIN (UINT8_C(20))
-
-/**
- * Background process attempting write.
- * Action: Stops executing.
- */
-#define __WASI_SIGNAL_TTOU (UINT8_C(21))
-
-/**
- * High bandwidth data is available at a socket.
- * Action: Ignored.
- */
-#define __WASI_SIGNAL_URG (UINT8_C(22))
-
-/**
- * CPU time limit exceeded.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_XCPU (UINT8_C(23))
-
-/**
- * File size limit exceeded.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_XFSZ (UINT8_C(24))
-
-/**
- * Virtual timer expired.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_VTALRM (UINT8_C(25))
-
-/**
- * Profiling timer expired.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_PROF (UINT8_C(26))
-
-/**
- * Window changed.
- * Action: Ignored.
- */
-#define __WASI_SIGNAL_WINCH (UINT8_C(27))
-
-/**
- * I/O possible.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_POLL (UINT8_C(28))
-
-/**
- * Power failure.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_PWR (UINT8_C(29))
-
-/**
- * Bad system call.
- * Action: Terminates the process.
- */
-#define __WASI_SIGNAL_SYS (UINT8_C(30))
-
-_Static_assert(sizeof(__wasi_signal_t) == 1, "witx calculated size");
-_Static_assert(_Alignof(__wasi_signal_t) == 1, "witx calculated align");
-
-/**
  * Flags provided to `sock_recv`.
  */
 typedef uint16_t __wasi_riflags_t;
@@ -1592,7 +1399,8 @@ _Static_assert(_Alignof(__wasi_prestat_t) == 4, "witx calculated align");
 
 /**
  * Read command-line argument data.
- * The size of the array should match that returned by `args_sizes_get`
+ * The size of the array should match that returned by `args_sizes_get`.
+ * Each argument is expected to be `\0` terminated.
  */
 __wasi_errno_t __wasi_args_get(
     uint8_t * * argv,
@@ -1611,6 +1419,7 @@ __wasi_errno_t __wasi_args_sizes_get(
 /**
  * Read environment variable data.
  * The sizes of the buffers should match that returned by `environ_sizes_get`.
+ * Key/value pairs are expected to be joined with `=`s, and terminated with `\0`s.
  */
 __wasi_errno_t __wasi_environ_get(
     uint8_t * * environ,
@@ -2182,16 +1991,6 @@ _Noreturn void __wasi_proc_exit(
     __wasi_exitcode_t rval
 );
 /**
- * Send a signal to the process of the calling thread.
- * Note: This is similar to `raise` in POSIX.
- */
-__wasi_errno_t __wasi_proc_raise(
-    /**
-     * The signal condition to trigger.
-     */
-    __wasi_signal_t sig
-) __attribute__((__warn_unused_result__));
-/**
  * Temporarily yield execution of the calling thread.
  * Note: This is similar to `sched_yield` in POSIX.
  */
@@ -2212,6 +2011,23 @@ __wasi_errno_t __wasi_random_get(
      */
     uint8_t * buf,
     __wasi_size_t buf_len
+) __attribute__((__warn_unused_result__));
+/**
+ * Accept a new incoming connection.
+ * Note: This is similar to `accept` in POSIX.
+ * @return
+ * New socket connection
+ */
+__wasi_errno_t __wasi_sock_accept(
+    /**
+     * The listening socket.
+     */
+    __wasi_fd_t fd,
+    /**
+     * The desired values of the file descriptor flags.
+     */
+    __wasi_fdflags_t flags,
+    __wasi_fd_t *retptr0
 ) __attribute__((__warn_unused_result__));
 /**
  * Receive a message from a socket.
@@ -2272,6 +2088,25 @@ __wasi_errno_t __wasi_sock_shutdown(
     __wasi_sdflags_t how
 ) __attribute__((__warn_unused_result__));
 /** @} */
+
+#ifdef _REENTRANT
+/**
+ * Request a new thread to be created by the host.
+ *
+ * The host will create a new instance of the current module sharing its
+ * memory, find an exported entry function--`wasi_thread_start`--, and call the
+ * entry function with `start_arg` in the new thread.
+ *
+ * @see https://github.com/WebAssembly/wasi-threads/#readme
+ */
+int32_t __wasi_thread_spawn(
+    /**
+     * A pointer to an opaque struct to be passed to the module's entry
+     * function.
+     */
+    void *start_arg
+)  __attribute__((__warn_unused_result__));
+#endif
 
 #ifdef __cplusplus
 }

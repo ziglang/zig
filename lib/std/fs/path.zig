@@ -460,62 +460,55 @@ pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..".
+/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
 /// The result does not have a trailing path separator.
-/// If all paths are relative it uses the current working directory as a starting point.
 /// Each drive has its own current working directory.
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
 /// Note: all usage of this function should be audited due to the existence of symlinks.
 /// Without performing actual syscalls, resolving `..` could be incorrect.
+/// This API may break in the future: https://github.com/ziglang/zig/issues/13613
 pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
-    if (paths.len == 0) {
-        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
-        return process.getCwdAlloc(allocator);
-    }
+    assert(paths.len > 0);
 
     // determine which disk designator we will result with, if any
     var result_drive_buf = "_:".*;
-    var result_disk_designator: []const u8 = "";
-    var have_drive_kind = WindowsPath.Kind.None;
+    var disk_designator: []const u8 = "";
+    var drive_kind = WindowsPath.Kind.None;
     var have_abs_path = false;
     var first_index: usize = 0;
-    var max_size: usize = 0;
     for (paths) |p, i| {
         const parsed = windowsParsePath(p);
         if (parsed.is_abs) {
             have_abs_path = true;
             first_index = i;
-            max_size = result_disk_designator.len;
         }
         switch (parsed.kind) {
-            WindowsPath.Kind.Drive => {
+            .Drive => {
                 result_drive_buf[0] = ascii.toUpper(parsed.disk_designator[0]);
-                result_disk_designator = result_drive_buf[0..];
-                have_drive_kind = WindowsPath.Kind.Drive;
+                disk_designator = result_drive_buf[0..];
+                drive_kind = WindowsPath.Kind.Drive;
             },
-            WindowsPath.Kind.NetworkShare => {
-                result_disk_designator = parsed.disk_designator;
-                have_drive_kind = WindowsPath.Kind.NetworkShare;
+            .NetworkShare => {
+                disk_designator = parsed.disk_designator;
+                drive_kind = WindowsPath.Kind.NetworkShare;
             },
-            WindowsPath.Kind.None => {},
+            .None => {},
         }
-        max_size += p.len + 1;
     }
 
     // if we will result with a disk designator, loop again to determine
     // which is the last time the disk designator is absolutely specified, if any
     // and count up the max bytes for paths related to this disk designator
-    if (have_drive_kind != WindowsPath.Kind.None) {
+    if (drive_kind != WindowsPath.Kind.None) {
         have_abs_path = false;
         first_index = 0;
-        max_size = result_disk_designator.len;
         var correct_disk_designator = false;
 
         for (paths) |p, i| {
             const parsed = windowsParsePath(p);
             if (parsed.kind != WindowsPath.Kind.None) {
-                if (parsed.kind == have_drive_kind) {
-                    correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+                if (parsed.kind == drive_kind) {
+                    correct_disk_designator = compareDiskDesignators(drive_kind, disk_designator, parsed.disk_designator);
                 } else {
                     continue;
                 }
@@ -525,92 +518,51 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
             }
             if (parsed.is_abs) {
                 first_index = i;
-                max_size = result_disk_designator.len;
                 have_abs_path = true;
             }
-            max_size += p.len + 1;
         }
     }
 
-    // Allocate result and fill in the disk designator, calling getCwd if we have to.
-    var result: []u8 = undefined;
-    var result_index: usize = 0;
+    // Allocate result and fill in the disk designator.
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
 
-    if (have_abs_path) {
-        switch (have_drive_kind) {
-            WindowsPath.Kind.Drive => {
-                result = try allocator.alloc(u8, max_size);
-
-                mem.copy(u8, result, result_disk_designator);
-                result_index += result_disk_designator.len;
+    const disk_designator_len: usize = l: {
+        if (!have_abs_path) break :l 0;
+        switch (drive_kind) {
+            .Drive => {
+                try result.appendSlice(disk_designator);
+                break :l disk_designator.len;
             },
-            WindowsPath.Kind.NetworkShare => {
-                result = try allocator.alloc(u8, max_size);
+            .NetworkShare => {
                 var it = mem.tokenize(u8, paths[first_index], "/\\");
                 const server_name = it.next().?;
                 const other_name = it.next().?;
 
-                result[result_index] = '\\';
-                result_index += 1;
-                result[result_index] = '\\';
-                result_index += 1;
-                mem.copy(u8, result[result_index..], server_name);
-                result_index += server_name.len;
-                result[result_index] = '\\';
-                result_index += 1;
-                mem.copy(u8, result[result_index..], other_name);
-                result_index += other_name.len;
+                try result.ensureUnusedCapacity(2 + 1 + server_name.len + other_name.len);
+                result.appendSliceAssumeCapacity("\\\\");
+                result.appendSliceAssumeCapacity(server_name);
+                result.appendAssumeCapacity('\\');
+                result.appendSliceAssumeCapacity(other_name);
 
-                result_disk_designator = result[0..result_index];
+                break :l result.items.len;
             },
-            WindowsPath.Kind.None => {
-                assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
-                const cwd = try process.getCwdAlloc(allocator);
-                defer allocator.free(cwd);
-                const parsed_cwd = windowsParsePath(cwd);
-                result = try allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
-                mem.copy(u8, result, parsed_cwd.disk_designator);
-                result_index += parsed_cwd.disk_designator.len;
-                result_disk_designator = result[0..parsed_cwd.disk_designator.len];
-                if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
-                    result[0] = ascii.toUpper(result[0]);
-                }
-                have_drive_kind = parsed_cwd.kind;
+            .None => {
+                break :l 1;
             },
         }
-    } else {
-        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
-        // TODO call get cwd for the result_disk_designator instead of the global one
-        const cwd = try process.getCwdAlloc(allocator);
-        defer allocator.free(cwd);
+    };
 
-        result = try allocator.alloc(u8, max_size + cwd.len + 1);
-
-        mem.copy(u8, result, cwd);
-        result_index += cwd.len;
-        const parsed_cwd = windowsParsePath(result[0..result_index]);
-        result_disk_designator = parsed_cwd.disk_designator;
-        if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
-            result[0] = ascii.toUpper(result[0]);
-            // Remove the trailing slash if present, eg. if the cwd is a root
-            // directory.
-            if (cwd.len > 0 and cwd[cwd.len - 1] == sep_windows) {
-                result_index -= 1;
-            }
-        }
-        have_drive_kind = parsed_cwd.kind;
-    }
-    errdefer allocator.free(result);
-
-    // Now we know the disk designator to use, if any, and what kind it is. And our result
-    // is big enough to append all the paths to.
     var correct_disk_designator = true;
+    var negative_count: usize = 0;
+
     for (paths[first_index..]) |p| {
         const parsed = windowsParsePath(p);
 
-        if (parsed.kind != WindowsPath.Kind.None) {
-            if (parsed.kind == have_drive_kind) {
-                correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+        if (parsed.kind != .None) {
+            if (parsed.kind == drive_kind) {
+                const dd = result.items[0..disk_designator_len];
+                correct_disk_designator = compareDiskDesignators(drive_kind, dd, parsed.disk_designator);
             } else {
                 continue;
             }
@@ -623,150 +575,163 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
-                while (true) {
-                    if (result_index == 0 or result_index == result_disk_designator.len)
-                        break;
-                    result_index -= 1;
-                    if (result[result_index] == '\\' or result[result_index] == '/')
-                        break;
+                if (result.items.len == 0) {
+                    negative_count += 1;
+                    continue;
                 }
+                while (true) {
+                    if (result.items.len == disk_designator_len) {
+                        break;
+                    }
+                    const end_with_sep = switch (result.items[result.items.len - 1]) {
+                        '\\', '/' => true,
+                        else => false,
+                    };
+                    result.items.len -= 1;
+                    if (end_with_sep or result.items.len == 0) break;
+                }
+            } else if (!have_abs_path and result.items.len == 0) {
+                try result.appendSlice(component);
             } else {
-                result[result_index] = sep_windows;
-                result_index += 1;
-                mem.copy(u8, result[result_index..], component);
-                result_index += component.len;
+                try result.ensureUnusedCapacity(1 + component.len);
+                result.appendAssumeCapacity('\\');
+                result.appendSliceAssumeCapacity(component);
             }
         }
     }
 
-    if (result_index == result_disk_designator.len) {
-        result[result_index] = '\\';
-        result_index += 1;
+    if (disk_designator_len != 0 and result.items.len == disk_designator_len) {
+        try result.append('\\');
+        return result.toOwnedSlice();
     }
 
-    return allocator.shrink(result, result_index);
+    if (result.items.len == 0) {
+        if (negative_count == 0) {
+            return allocator.dupe(u8, ".");
+        } else {
+            const real_result = try allocator.alloc(u8, 3 * negative_count - 1);
+            var count = negative_count - 1;
+            var i: usize = 0;
+            while (count > 0) : (count -= 1) {
+                real_result[i..][0..3].* = "..\\".*;
+                i += 3;
+            }
+            real_result[i..][0..2].* = "..".*;
+            return real_result;
+        }
+    }
+
+    if (negative_count == 0) {
+        return result.toOwnedSlice();
+    } else {
+        const real_result = try allocator.alloc(u8, 3 * negative_count + result.items.len);
+        var count = negative_count;
+        var i: usize = 0;
+        while (count > 0) : (count -= 1) {
+            real_result[i..][0..3].* = "..\\".*;
+            i += 3;
+        }
+        mem.copy(u8, real_result[i..], result.items);
+        return real_result;
+    }
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..".
+/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
 /// The result does not have a trailing path separator.
-/// If all paths are relative it uses the current working directory as a starting point.
-/// Note: all usage of this function should be audited due to the existence of symlinks.
-/// Without performing actual syscalls, resolving `..` could be incorrect.
-pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
-    if (paths.len == 0) {
-        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
-        return process.getCwdAlloc(allocator);
-    }
+/// This function does not perform any syscalls. Executing this series of path
+/// lookups on the actual filesystem may produce different results due to
+/// symlinks.
+pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
+    assert(paths.len > 0);
 
-    var first_index: usize = 0;
-    var have_abs = false;
-    var max_size: usize = 0;
-    for (paths) |p, i| {
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+
+    var negative_count: usize = 0;
+    var is_abs = false;
+
+    for (paths) |p| {
         if (isAbsolutePosix(p)) {
-            first_index = i;
-            have_abs = true;
-            max_size = 0;
+            is_abs = true;
+            negative_count = 0;
+            result.clearRetainingCapacity();
         }
-        max_size += p.len + 1;
-    }
-
-    var result: []u8 = undefined;
-    var result_index: usize = 0;
-
-    if (have_abs) {
-        result = try allocator.alloc(u8, max_size);
-    } else {
-        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
-        const cwd = try process.getCwdAlloc(allocator);
-        defer allocator.free(cwd);
-        result = try allocator.alloc(u8, max_size + cwd.len + 1);
-        mem.copy(u8, result, cwd);
-        result_index += cwd.len;
-    }
-    errdefer allocator.free(result);
-
-    for (paths[first_index..]) |p| {
         var it = mem.tokenize(u8, p, "/");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
-                while (true) {
-                    if (result_index == 0)
-                        break;
-                    result_index -= 1;
-                    if (result[result_index] == '/')
-                        break;
+                if (result.items.len == 0) {
+                    negative_count += @boolToInt(!is_abs);
+                    continue;
                 }
+                while (true) {
+                    const ends_with_slash = result.items[result.items.len - 1] == '/';
+                    result.items.len -= 1;
+                    if (ends_with_slash or result.items.len == 0) break;
+                }
+            } else if (result.items.len > 0 or is_abs) {
+                try result.ensureUnusedCapacity(1 + component.len);
+                result.appendAssumeCapacity('/');
+                result.appendSliceAssumeCapacity(component);
             } else {
-                result[result_index] = '/';
-                result_index += 1;
-                mem.copy(u8, result[result_index..], component);
-                result_index += component.len;
+                try result.appendSlice(component);
             }
         }
     }
 
-    if (result_index == 0) {
-        result[0] = '/';
-        result_index += 1;
+    if (result.items.len == 0) {
+        if (is_abs) {
+            return allocator.dupe(u8, "/");
+        }
+        if (negative_count == 0) {
+            return allocator.dupe(u8, ".");
+        } else {
+            const real_result = try allocator.alloc(u8, 3 * negative_count - 1);
+            var count = negative_count - 1;
+            var i: usize = 0;
+            while (count > 0) : (count -= 1) {
+                real_result[i..][0..3].* = "../".*;
+                i += 3;
+            }
+            real_result[i..][0..2].* = "..".*;
+            return real_result;
+        }
     }
 
-    return allocator.shrink(result, result_index);
+    if (negative_count == 0) {
+        return result.toOwnedSlice();
+    } else {
+        const real_result = try allocator.alloc(u8, 3 * negative_count + result.items.len);
+        var count = negative_count;
+        var i: usize = 0;
+        while (count > 0) : (count -= 1) {
+            real_result[i..][0..3].* = "../".*;
+            i += 3;
+        }
+        mem.copy(u8, real_result[i..], result.items);
+        return real_result;
+    }
 }
 
 test "resolve" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, ".");
+    try testResolveWindows(&[_][]const u8{"."}, ".");
 
-    const cwd = try process.getCwdAlloc(testing.allocator);
-    defer testing.allocator.free(cwd);
-    if (native_os == .windows) {
-        if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
-            cwd[0] = ascii.toUpper(cwd[0]);
-        }
-        try testResolveWindows(&[_][]const u8{"."}, cwd);
-    } else {
-        try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, cwd);
-        try testResolvePosix(&[_][]const u8{"."}, cwd);
-    }
+    try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, ".");
+    try testResolvePosix(&[_][]const u8{"."}, ".");
 }
 
 test "resolveWindows" {
-    if (builtin.target.cpu.arch == .aarch64) {
-        // TODO https://github.com/ziglang/zig/issues/3288
-        return error.SkipZigTest;
-    }
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
-    if (native_os == .windows) {
-        const cwd = try process.getCwdAlloc(testing.allocator);
-        defer testing.allocator.free(cwd);
-        const parsed_cwd = windowsParsePath(cwd);
-        {
-            const expected = try join(testing.allocator, &[_][]const u8{
-                parsed_cwd.disk_designator,
-                "usr\\local\\lib\\zig\\std\\array_list.zig",
-            });
-            defer testing.allocator.free(expected);
-            if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
-                expected[0] = ascii.toUpper(parsed_cwd.disk_designator[0]);
-            }
-            try testResolveWindows(&[_][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" }, expected);
-        }
-        {
-            const expected = try join(testing.allocator, &[_][]const u8{
-                cwd,
-                "usr\\local\\lib\\zig",
-            });
-            defer testing.allocator.free(expected);
-            if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
-                expected[0] = ascii.toUpper(parsed_cwd.disk_designator[0]);
-            }
-            try testResolveWindows(&[_][]const u8{ "usr/local", "lib\\zig" }, expected);
-        }
-    }
+    try testResolveWindows(
+        &[_][]const u8{ "Z:\\", "/usr/local", "lib\\zig\\std\\array_list.zig" },
+        "Z:\\usr\\local\\lib\\zig\\std\\array_list.zig",
+    );
+    try testResolveWindows(
+        &[_][]const u8{ "z:\\", "usr/local", "lib\\zig" },
+        "Z:\\usr\\local\\lib\\zig",
+    );
 
     try testResolveWindows(&[_][]const u8{ "c:\\a\\b\\c", "/hi", "ok" }, "C:\\hi\\ok");
     try testResolveWindows(&[_][]const u8{ "c:/blah\\blah", "d:/games", "c:../a" }, "C:\\blah\\a");
@@ -781,34 +746,39 @@ test "resolveWindows" {
     try testResolveWindows(&[_][]const u8{ "c:/", "//server//share" }, "\\\\server\\share\\");
     try testResolveWindows(&[_][]const u8{ "c:/", "///some//dir" }, "C:\\some\\dir");
     try testResolveWindows(&[_][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }, "C:\\foo\\tmp.3\\cycles\\root.js");
+
+    // Keep relative paths relative.
+    try testResolveWindows(&[_][]const u8{"a/b"}, "a\\b");
 }
 
 test "resolvePosix" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    try testResolvePosix(&.{ "/a/b", "c" }, "/a/b/c");
+    try testResolvePosix(&.{ "/a/b", "c", "//d", "e///" }, "/d/e");
+    try testResolvePosix(&.{ "/a/b/c", "..", "../" }, "/a");
+    try testResolvePosix(&.{ "/", "..", ".." }, "/");
+    try testResolvePosix(&.{"/a/b/c/"}, "/a/b/c");
 
-    try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
-    try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
-    try testResolvePosix(&[_][]const u8{ "/a/b/c", "..", "../" }, "/a");
-    try testResolvePosix(&[_][]const u8{ "/", "..", ".." }, "/");
-    try testResolvePosix(&[_][]const u8{"/a/b/c/"}, "/a/b/c");
+    try testResolvePosix(&.{ "/var/lib", "../", "file/" }, "/var/file");
+    try testResolvePosix(&.{ "/var/lib", "/../", "file/" }, "/file");
+    try testResolvePosix(&.{ "/some/dir", ".", "/absolute/" }, "/absolute");
+    try testResolvePosix(&.{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }, "/foo/tmp.3/cycles/root.js");
 
-    try testResolvePosix(&[_][]const u8{ "/var/lib", "../", "file/" }, "/var/file");
-    try testResolvePosix(&[_][]const u8{ "/var/lib", "/../", "file/" }, "/file");
-    try testResolvePosix(&[_][]const u8{ "/some/dir", ".", "/absolute/" }, "/absolute");
-    try testResolvePosix(&[_][]const u8{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }, "/foo/tmp.3/cycles/root.js");
+    // Keep relative paths relative.
+    try testResolvePosix(&.{"a/b"}, "a/b");
+    try testResolvePosix(&.{"."}, ".");
+    try testResolvePosix(&.{ ".", "src/test.zig", "..", "../test/cases.zig" }, "test/cases.zig");
 }
 
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolveWindows(testing.allocator, paths);
     defer testing.allocator.free(actual);
-    try testing.expect(mem.eql(u8, actual, expected));
+    try testing.expectEqualStrings(expected, actual);
 }
 
 fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolvePosix(testing.allocator, paths);
     defer testing.allocator.free(actual);
-    try testing.expect(mem.eql(u8, actual, expected));
+    try testing.expectEqualStrings(expected, actual);
 }
 
 /// Strip the last component from a file path.
@@ -1076,11 +1046,13 @@ pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
 }
 
 pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
-    const resolved_from = try resolveWindows(allocator, &[_][]const u8{from});
+    const cwd = try process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+    const resolved_from = try resolveWindows(allocator, &[_][]const u8{ cwd, from });
     defer allocator.free(resolved_from);
 
     var clean_up_resolved_to = true;
-    const resolved_to = try resolveWindows(allocator, &[_][]const u8{to});
+    const resolved_to = try resolveWindows(allocator, &[_][]const u8{ cwd, to });
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
     const parsed_from = windowsParsePath(resolved_from);
@@ -1089,13 +1061,15 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         if (parsed_from.kind != parsed_to.kind) {
             break :x true;
         } else switch (parsed_from.kind) {
-            WindowsPath.Kind.NetworkShare => {
+            .NetworkShare => {
                 break :x !networkShareServersEql(parsed_to.disk_designator, parsed_from.disk_designator);
             },
-            WindowsPath.Kind.Drive => {
+            .Drive => {
                 break :x ascii.toUpper(parsed_from.disk_designator[0]) != ascii.toUpper(parsed_to.disk_designator[0]);
             },
-            else => unreachable,
+            .None => {
+                break :x false;
+            },
         }
     };
 
@@ -1124,12 +1098,8 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
 
         var result_index: usize = 0;
         while (result_index < up_index_end) {
-            result[result_index] = '.';
-            result_index += 1;
-            result[result_index] = '.';
-            result_index += 1;
-            result[result_index] = '\\';
-            result_index += 1;
+            result[result_index..][0..3].* = "..\\".*;
+            result_index += 3;
         }
         // shave off the trailing slash
         result_index -= 1;
@@ -1149,10 +1119,11 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
 }
 
 pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
-    const resolved_from = try resolvePosix(allocator, &[_][]const u8{from});
+    const cwd = try process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+    const resolved_from = try resolvePosix(allocator, &[_][]const u8{ cwd, from });
     defer allocator.free(resolved_from);
-
-    const resolved_to = try resolvePosix(allocator, &[_][]const u8{to});
+    const resolved_to = try resolvePosix(allocator, &[_][]const u8{ cwd, to });
     defer allocator.free(resolved_to);
 
     var from_it = mem.tokenize(u8, resolved_from, "/");
@@ -1174,16 +1145,12 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
 
         var result_index: usize = 0;
         while (result_index < up_index_end) {
-            result[result_index] = '.';
-            result_index += 1;
-            result[result_index] = '.';
-            result_index += 1;
-            result[result_index] = '/';
-            result_index += 1;
+            result[result_index..][0..3].* = "../".*;
+            result_index += 3;
         }
         if (to_rest.len == 0) {
             // shave off the trailing slash
-            return allocator.shrink(result, result_index - 1);
+            return allocator.realloc(result, result_index - 1);
         }
 
         mem.copy(u8, result[result_index..], to_rest);
@@ -1194,13 +1161,6 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
 }
 
 test "relative" {
-    if (builtin.target.cpu.arch == .aarch64) {
-        // TODO https://github.com/ziglang/zig/issues/3288
-        return error.SkipZigTest;
-    }
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
-
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
@@ -1226,6 +1186,10 @@ test "relative" {
     try testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
     try testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
 
+    try testRelativeWindows("a/b/c", "a\\b", "..");
+    try testRelativeWindows("a/b/c", "a", "..\\..");
+    try testRelativeWindows("a/b/c", "a\\b\\c\\d", "d");
+
     try testRelativePosix("/var/lib", "/var", "..");
     try testRelativePosix("/var/lib", "/bin", "../../bin");
     try testRelativePosix("/var/lib", "/var/lib", "");
@@ -1243,13 +1207,13 @@ test "relative" {
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) !void {
     const result = try relativePosix(testing.allocator, from, to);
     defer testing.allocator.free(result);
-    try testing.expectEqualSlices(u8, expected_output, result);
+    try testing.expectEqualStrings(expected_output, result);
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) !void {
     const result = try relativeWindows(testing.allocator, from, to);
     defer testing.allocator.free(result);
-    try testing.expectEqualSlices(u8, expected_output, result);
+    try testing.expectEqualStrings(expected_output, result);
 }
 
 /// Returns the extension of the file name (if any).
@@ -1257,14 +1221,14 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// Files that end with `.`, or that start with `.` and have no other `.` in their name,
 /// are considered to have no extension.
 /// Examples:
-/// - `"main.zig"`     ⇒ `".zig"`
-/// - `"src/main.zig"` ⇒ `".zig"`
-/// - `".gitignore"`   ⇒ `""`
-/// - `".image.png"`   ⇒ `".png"`
-/// - `"keep."`        ⇒ `"."`
-/// - `"src.keep.me"`  ⇒ `".me"`
+/// - `"main.zig"`      ⇒ `".zig"`
+/// - `"src/main.zig"`  ⇒ `".zig"`
+/// - `".gitignore"`    ⇒ `""`
+/// - `".image.png"`    ⇒ `".png"`
+/// - `"keep."`         ⇒ `"."`
+/// - `"src.keep.me"`   ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
-/// - `"/src/keep.me/"`  ⇒ `".me"`
+/// - `"/src/keep.me/"` ⇒ `".me"`
 /// The returned slice is guaranteed to have its pointer within the start and end
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
@@ -1275,7 +1239,7 @@ pub fn extension(path: []const u8) []const u8 {
 }
 
 fn testExtension(path: []const u8, expected: []const u8) !void {
-    try std.testing.expectEqualStrings(expected, extension(path));
+    try testing.expectEqualStrings(expected, extension(path));
 }
 
 test "extension" {
@@ -1318,4 +1282,41 @@ test "extension" {
     try testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
     try testExtension("/foo/bar/bam/a.b.c", ".c");
     try testExtension("/foo/bar/bam/a.b.c/", ".c");
+}
+
+/// Returns the last component of this path without its extension (if any):
+/// - "hello/world/lib.tar.gz" ⇒ "lib.tar"
+/// - "hello/world/lib.tar"    ⇒ "lib"
+/// - "hello/world/lib"        ⇒ "lib"
+pub fn stem(path: []const u8) []const u8 {
+    const filename = basename(path);
+    const index = mem.lastIndexOfScalar(u8, filename, '.') orelse return filename[0..];
+    if (index == 0) return path;
+    return filename[0..index];
+}
+
+fn testStem(path: []const u8, expected: []const u8) !void {
+    try testing.expectEqualStrings(expected, stem(path));
+}
+
+test "stem" {
+    try testStem("hello/world/lib.tar.gz", "lib.tar");
+    try testStem("hello/world/lib.tar", "lib");
+    try testStem("hello/world/lib", "lib");
+    try testStem("hello/lib/", "lib");
+    try testStem("hello...", "hello..");
+    try testStem("hello.", "hello");
+    try testStem("/hello.", "hello");
+    try testStem(".gitignore", ".gitignore");
+    try testStem(".image.png", ".image");
+    try testStem("file.ext", "file");
+    try testStem("file.ext.", "file.ext");
+    try testStem("a.b.c", "a.b");
+    try testStem("a.b.c/", "a.b");
+    try testStem(".a", ".a");
+    try testStem("///", "");
+    try testStem("..", ".");
+    try testStem(".", ".");
+    try testStem(" ", " ");
+    try testStem("", "");
 }

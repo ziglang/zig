@@ -149,6 +149,7 @@ pub const Address = extern union {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         switch (self.any.family) {
             os.AF.INET => try self.in.format(fmt, options, out_stream),
             os.AF.INET6 => try self.in6.format(fmt, options, out_stream),
@@ -274,7 +275,7 @@ pub const Ip4Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         _ = options;
         const bytes = @ptrCast(*const [4]u8, &self.sa.addr);
         try std.fmt.format(out_stream, "{}.{}.{}.{}:{}", .{
@@ -320,11 +321,15 @@ pub const Ip6Address = extern struct {
             if (scope_id) {
                 if (c >= '0' and c <= '9') {
                     const digit = c - '0';
-                    if (@mulWithOverflow(u32, result.sa.scope_id, 10, &result.sa.scope_id)) {
-                        return error.Overflow;
+                    {
+                        const ov = @mulWithOverflow(result.sa.scope_id, 10);
+                        if (ov[1] != 0) return error.Overflow;
+                        result.sa.scope_id = ov[0];
                     }
-                    if (@addWithOverflow(u32, result.sa.scope_id, digit, &result.sa.scope_id)) {
-                        return error.Overflow;
+                    {
+                        const ov = @addWithOverflow(result.sa.scope_id, digit);
+                        if (ov[1] != 0) return error.Overflow;
+                        result.sa.scope_id = ov[0];
                     }
                 } else {
                     return error.InvalidCharacter;
@@ -376,11 +381,15 @@ pub const Ip6Address = extern struct {
                 return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
-                if (@mulWithOverflow(u16, x, 16, &x)) {
-                    return error.Overflow;
+                {
+                    const ov = @mulWithOverflow(x, 16);
+                    if (ov[1] != 0) return error.Overflow;
+                    x = ov[0];
                 }
-                if (@addWithOverflow(u16, x, digit, &x)) {
-                    return error.Overflow;
+                {
+                    const ov = @addWithOverflow(x, digit);
+                    if (ov[1] != 0) return error.Overflow;
+                    x = ov[0];
                 }
                 saw_any_digits = true;
             }
@@ -491,11 +500,15 @@ pub const Ip6Address = extern struct {
                 return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
-                if (@mulWithOverflow(u16, x, 16, &x)) {
-                    return error.Overflow;
+                {
+                    const ov = @mulWithOverflow(x, 16);
+                    if (ov[1] != 0) return error.Overflow;
+                    x = ov[0];
                 }
-                if (@addWithOverflow(u16, x, digit, &x)) {
-                    return error.Overflow;
+                {
+                    const ov = @addWithOverflow(x, digit);
+                    if (ov[1] != 0) return error.Overflow;
+                    x = ov[0];
                 }
                 saw_any_digits = true;
             }
@@ -563,7 +576,7 @@ pub const Ip6Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
-        _ = fmt;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         _ = options;
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
@@ -733,7 +746,79 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
     const arena = result.arena.allocator();
     errdefer result.deinit();
 
-    if (builtin.target.os.tag == .windows or builtin.link_libc) {
+    if (builtin.target.os.tag == .windows) {
+        const name_c = try std.cstr.addNullByte(allocator, name);
+        defer allocator.free(name_c);
+
+        const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
+        defer allocator.free(port_c);
+
+        const ws2_32 = os.windows.ws2_32;
+        const hints = os.addrinfo{
+            .flags = ws2_32.AI.NUMERICSERV,
+            .family = os.AF.UNSPEC,
+            .socktype = os.SOCK.STREAM,
+            .protocol = os.IPPROTO.TCP,
+            .canonname = null,
+            .addr = null,
+            .addrlen = 0,
+            .next = null,
+        };
+        var res: ?*os.addrinfo = null;
+        var first = true;
+        while (true) {
+            const rc = ws2_32.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
+            switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+                @intToEnum(os.windows.ws2_32.WinsockError, 0) => break,
+                .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
+                .WSANO_RECOVERY => return error.NameServerFailure,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
+                .WSAHOST_NOT_FOUND => return error.UnknownHostName,
+                .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
+                .WSAEINVAL => unreachable,
+                .WSAESOCKTNOSUPPORT => unreachable,
+                .WSANOTINITIALISED => {
+                    if (!first) return error.Unexpected;
+                    first = false;
+                    try os.windows.callWSAStartup();
+                    continue;
+                },
+                else => |err| return os.windows.unexpectedWSAError(err),
+            }
+        }
+        defer ws2_32.freeaddrinfo(res);
+
+        const addr_count = blk: {
+            var count: usize = 0;
+            var it = res;
+            while (it) |info| : (it = info.next) {
+                if (info.addr != null) {
+                    count += 1;
+                }
+            }
+            break :blk count;
+        };
+        result.addrs = try arena.alloc(Address, addr_count);
+
+        var it = res;
+        var i: usize = 0;
+        while (it) |info| : (it = info.next) {
+            const addr = info.addr orelse continue;
+            result.addrs[i] = Address.initPosix(@alignCast(4, addr));
+
+            if (info.canonname) |n| {
+                if (result.canon_name == null) {
+                    result.canon_name = try arena.dupe(u8, mem.sliceTo(n, 0));
+                }
+            }
+            i += 1;
+        }
+
+        return result;
+    }
+
+    if (builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
@@ -751,20 +836,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             .addrlen = 0,
             .next = null,
         };
-        var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
-        if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
-            @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
-            .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
-            .WSANO_RECOVERY => return error.NameServerFailure,
-            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
-            .WSAHOST_NOT_FOUND => return error.UnknownHostName,
-            .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
-            .WSAEINVAL => unreachable,
-            .WSAESOCKTNOSUPPORT => unreachable,
-            else => |err| return os.windows.unexpectedWSAError(err),
-        } else switch (rc) {
+        var res: ?*os.addrinfo = null;
+        switch (sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
             @intToEnum(sys.EAI, 0) => {},
             .ADDRFAMILY => return error.HostLacksNetworkAddresses,
             .AGAIN => return error.TemporaryNameServerFailure,
@@ -781,11 +854,11 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             },
             else => unreachable,
         }
-        defer sys.freeaddrinfo(res);
+        defer if (res) |some| sys.freeaddrinfo(some);
 
         const addr_count = blk: {
             var count: usize = 0;
-            var it: ?*os.addrinfo = res;
+            var it = res;
             while (it) |info| : (it = info.next) {
                 if (info.addr != null) {
                     count += 1;
@@ -795,7 +868,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         };
         result.addrs = try arena.alloc(Address, addr_count);
 
-        var it: ?*os.addrinfo = res;
+        var it = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
@@ -811,6 +884,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
         return result;
     }
+
     if (builtin.target.os.tag == .linux) {
         const flags = std.c.AI.NUMERICSERV;
         const family = os.AF.UNSPEC;
@@ -824,7 +898,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
         if (canon.items.len != 0) {
-            result.canon_name = canon.toOwnedSlice();
+            result.canon_name = try canon.toOwnedSlice();
         }
 
         for (lookup_addrs.items) |lookup_addr, i| {
@@ -869,21 +943,21 @@ fn linuxLookupName(
         } else {
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
             if (addrs.items.len == 0) {
-                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
-            }
-            if (addrs.items.len == 0) {
-                // RFC 6761 Section 6.3
+                // RFC 6761 Section 6.3.3
                 // Name resolution APIs and libraries SHOULD recognize localhost
                 // names as special and SHOULD always return the IP loopback address
                 // for address queries and negative responses for all other query
                 // types.
 
-                // Check for equal to "localhost" or ends in ".localhost"
-                if (mem.endsWith(u8, name, "localhost") and (name.len == "localhost".len or name[name.len - "localhost".len] == '.')) {
+                // Check for equal to "localhost(.)" or ends in ".localhost(.)"
+                const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
+                if (mem.endsWith(u8, name, localhost) and (name.len == localhost.len or name[name.len - localhost.len] == '.')) {
                     try addrs.append(LookupAddr{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
                     try addrs.append(LookupAddr{ .addr = .{ .in6 = Ip6Address.parse("::1", port) catch unreachable } });
                     return;
                 }
+
+                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
             }
         }
     } else {
@@ -1191,7 +1265,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
     if (hostname.len >= 254) return false;
     if (!std.unicode.utf8ValidateSlice(hostname)) return false;
     for (hostname) |byte| {
-        if (byte >= 0x80 or byte == '.' or byte == '-' or std.ascii.isAlNum(byte)) {
+        if (!std.ascii.isASCII(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
             continue;
         }
         return false;
@@ -1659,6 +1733,40 @@ pub const Stream = struct {
         }
     }
 
+    pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
+        if (builtin.os.tag == .windows) {
+            // TODO improve this to use ReadFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return os.windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null, io.default_mode);
+        }
+
+        return os.readv(s.handle, iovecs);
+    }
+
+    /// Returns the number of bytes read. If the number read is smaller than
+    /// `buffer.len`, it means the stream reached the end. Reaching the end of
+    /// a stream is not an error condition.
+    pub fn readAll(s: Stream, buffer: []u8) ReadError!usize {
+        return readAtLeast(s, buffer, buffer.len);
+    }
+
+    /// Returns the number of bytes read, calling the underlying read function
+    /// the minimal number of times until the buffer has at least `len` bytes
+    /// filled. If the number read is less than `len` it means the stream
+    /// reached the end. Reaching the end of the stream is not an error
+    /// condition.
+    pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
+        assert(len <= buffer.len);
+        var index: usize = 0;
+        while (index < len) {
+            const amt = try s.read(buffer[index..]);
+            if (amt == 0) break;
+            index += amt;
+        }
+        return index;
+    }
+
     /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
@@ -1671,6 +1779,13 @@ pub const Stream = struct {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
             return os.write(self.handle, buffer);
+        }
+    }
+
+    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try self.write(bytes[index..]);
         }
     }
 

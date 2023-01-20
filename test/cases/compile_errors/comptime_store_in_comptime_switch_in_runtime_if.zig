@@ -9,7 +9,7 @@ pub export fn entry() void {
     const info = @typeInfo(Widget).Union;
     inline for (info.fields) |field| {
         if (foo()) {
-            switch (field.field_type) {
+            switch (field.type) {
                 u0 => a = 2,
                 else => unreachable,
             }
@@ -21,5 +21,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :13:27: error: store to comptime variable depends on runtime condition
+// :13:25: error: store to comptime variable depends on runtime condition
 // :11:16: note: runtime condition here

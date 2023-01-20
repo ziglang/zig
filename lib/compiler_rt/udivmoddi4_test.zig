@@ -6,8 +6,8 @@ const testing = @import("std").testing;
 fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
     var r: u64 = undefined;
     const q = __udivmoddi4(a, b, &r);
-    try testing.expect(q == expected_q);
-    try testing.expect(r == expected_r);
+    try testing.expectEqual(expected_q, q);
+    try testing.expectEqual(expected_r, r);
 }
 
 test "udivmoddi4" {

@@ -71,7 +71,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
-        @field(result, field.name) = switch (field.field_type) {
+        @field(result, field.name) = switch (field.type) {
             u32 => code.extra[i],
             Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
             i32 => @bitCast(i32, code.extra[i]),
@@ -100,8 +100,7 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
-    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
+    return @ptrCast([]Inst.Ref, raw_slice);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -402,6 +401,8 @@ pub const Inst = struct {
         /// Emits a compile error if an error is ignored.
         /// Uses the `un_node` field.
         ensure_result_non_error,
+        /// Emits a compile error error union payload is not void.
+        ensure_err_union_payload_void,
         /// Create a `E!T` type.
         /// Uses the `pl_node` field with `Bin` payload.
         error_union_type,
@@ -480,6 +481,9 @@ pub const Inst = struct {
         /// Return a boolean false if dereferenced pointer is an error
         /// Uses the `un_node` field.
         is_non_err_ptr,
+        /// Same as `is_non_er` but doesn't validate that the type can be an error.
+        /// Uses the `un_node` field.
+        ret_is_non_err,
         /// A labeled block of code that loops forever. At the end of the body will have either
         /// a `repeat` instruction or a `repeat_inline` instruction.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
@@ -517,7 +521,7 @@ pub const Inst = struct {
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
-        ret_tok,
+        ret_implicit,
         /// Sends control flow back to the function's callee.
         /// The return operand is `error.foo` where `foo` is given by the string.
         /// If the current function has an inferred error set, the error given by the
@@ -537,9 +541,6 @@ pub const Inst = struct {
         /// Obtains the return type of the in-scope function.
         /// Uses the `node` union field.
         ret_type,
-        /// Create a pointer type for overflow arithmetic.
-        /// TODO remove when doing https://github.com/ziglang/zig/issues/10248
-        overflow_arithmetic_ptr,
         /// Create a pointer type which can have a sentinel, alignment, address space, and/or bit range.
         /// Uses the `ptr_type` union field.
         ptr_type,
@@ -598,9 +599,6 @@ pub const Inst = struct {
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
         typeof_log2_int_type,
-        /// Given an integer type, returns the integer type for the RHS of a shift operation.
-        /// Uses the `un_node` field.
-        log2_int_type,
         /// Asserts control-flow will not reach this instruction (`unreachable`).
         /// Uses the `unreachable` union field.
         @"unreachable",
@@ -646,9 +644,6 @@ pub const Inst = struct {
         /// Given a pointer to an error union value, returns the error code. No safety checks.
         /// Uses the `un_node` field.
         err_union_code_ptr,
-        /// Takes a *E!T and raises a compiler error if T != void
-        /// Uses the `un_tok` field.
-        ensure_err_payload_void,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
         /// A switch expression. Uses the `pl_node` union field.
@@ -683,6 +678,9 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_multi_ref,
+        /// Produces the capture value for an inline switch prong tag capture.
+        /// Uses the `un_tok` field.
+        switch_capture_tag,
         /// Given a
         ///   *A returns *A
         ///   *E!A returns *A
@@ -922,12 +920,12 @@ pub const Inst = struct {
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Memset`.
         memset,
-        /// Implements the `@minimum` builtin.
+        /// Implements the `@min` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
-        minimum,
-        /// Implements the `@maximum` builtin.
+        min,
+        /// Implements the `@max` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
-        maximum,
+        max,
         /// Implements the `@cImport` builtin.
         /// Uses the `pl_node` union field with payload `Block`.
         c_import,
@@ -985,6 +983,15 @@ pub const Inst = struct {
         /// An errdefer statement with a code.
         /// Uses the `err_defer_code` union field.
         defer_err_code,
+
+        /// Requests that Sema update the saved error return trace index for the enclosing
+        /// block, if the operand is .none or of an error/error-union type.
+        /// Uses the `save_err_ret_index` field.
+        save_err_ret_index,
+        /// Sets error return trace to zero if no operand is given,
+        /// otherwise sets the value to the given amount.
+        /// Uses the `restore_err_ret_index` union field.
+        restore_err_ret_index,
 
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
@@ -1057,6 +1064,7 @@ pub const Inst = struct {
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .ensure_err_union_payload_void,
                 .@"export",
                 .export_value,
                 .field_ptr,
@@ -1078,6 +1086,7 @@ pub const Inst = struct {
                 .is_non_null_ptr,
                 .is_non_err,
                 .is_non_err_ptr,
+                .ret_is_non_err,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -1109,8 +1118,6 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .overflow_arithmetic_ptr,
-                .ensure_err_payload_void,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1121,13 +1128,13 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_log2_int_type,
-                .log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .switch_capture,
                 .switch_capture_ref,
                 .switch_capture_multi,
                 .switch_capture_multi_ref,
+                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1214,10 +1221,10 @@ pub const Inst = struct {
                 .mul_add,
                 .builtin_call,
                 .field_parent_ptr,
-                .maximum,
+                .max,
                 .memcpy,
                 .memset,
-                .minimum,
+                .min,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1233,6 +1240,8 @@ pub const Inst = struct {
                 //.try_ptr_inline,
                 .@"defer",
                 .defer_err_code,
+                .save_err_ret_index,
+                .restore_err_ret_index,
                 => false,
 
                 .@"break",
@@ -1242,7 +1251,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_tok,
+                .ret_implicit,
                 .ret_err_value,
                 .@"unreachable",
                 .repeat,
@@ -1278,7 +1287,7 @@ pub const Inst = struct {
                 .dbg_block_end,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .ensure_err_payload_void,
+                .ensure_err_union_payload_void,
                 .set_eval_branch_quota,
                 .atomic_store,
                 .store,
@@ -1302,6 +1311,8 @@ pub const Inst = struct {
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
+                .restore_err_ret_index,
+                .save_err_ret_index,
                 => true,
 
                 .param,
@@ -1379,6 +1390,7 @@ pub const Inst = struct {
                 .is_non_null_ptr,
                 .is_non_err,
                 .is_non_err_ptr,
+                .ret_is_non_err,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -1406,7 +1418,6 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .overflow_arithmetic_ptr,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1417,11 +1428,11 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_log2_int_type,
-                .log2_int_type,
                 .switch_capture,
                 .switch_capture_ref,
                 .switch_capture_multi,
                 .switch_capture_multi_ref,
+                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1498,8 +1509,8 @@ pub const Inst = struct {
                 .mul_add,
                 .builtin_call,
                 .field_parent_ptr,
-                .maximum,
-                .minimum,
+                .max,
+                .min,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1513,7 +1524,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_tok,
+                .ret_implicit,
                 .ret_err_value,
                 .ret_ptr,
                 .ret_type,
@@ -1610,6 +1621,7 @@ pub const Inst = struct {
                 .elem_val_node = .pl_node,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
+                .ensure_err_union_payload_void = .un_node,
                 .error_union_type = .pl_node,
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
@@ -1633,6 +1645,7 @@ pub const Inst = struct {
                 .is_non_null_ptr = .un_node,
                 .is_non_err = .un_node,
                 .is_non_err_ptr = .un_node,
+                .ret_is_non_err = .un_node,
                 .loop = .pl_node,
                 .repeat = .node,
                 .repeat_inline = .node,
@@ -1641,12 +1654,11 @@ pub const Inst = struct {
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
-                .ret_tok = .un_tok,
+                .ret_implicit = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
                 .ret_ptr = .node,
                 .ret_type = .node,
-                .overflow_arithmetic_ptr = .un_node,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
@@ -1660,7 +1672,6 @@ pub const Inst = struct {
                 .negate_wrap = .un_node,
                 .typeof = .un_node,
                 .typeof_log2_int_type = .un_node,
-                .log2_int_type = .un_node,
                 .@"unreachable" = .@"unreachable",
                 .xor = .pl_node,
                 .optional_type = .un_node,
@@ -1672,7 +1683,6 @@ pub const Inst = struct {
                 .err_union_payload_unsafe_ptr = .un_node,
                 .err_union_code = .un_node,
                 .err_union_code_ptr = .un_node,
-                .ensure_err_payload_void = .un_tok,
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
                 .switch_cond = .un_node,
@@ -1681,6 +1691,7 @@ pub const Inst = struct {
                 .switch_capture_ref = .switch_capture,
                 .switch_capture_multi = .switch_capture,
                 .switch_capture_multi_ref = .switch_capture,
+                .switch_capture_tag = .un_tok,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
                 .validate_array_init_ty = .pl_node,
@@ -1780,10 +1791,10 @@ pub const Inst = struct {
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
                 .field_parent_ptr = .pl_node,
-                .maximum = .pl_node,
+                .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
-                .minimum = .pl_node,
+                .min = .pl_node,
                 .c_import = .pl_node,
 
                 .alloc = .un_node,
@@ -1804,6 +1815,9 @@ pub const Inst = struct {
 
                 .@"defer" = .@"defer",
                 .defer_err_code = .defer_err_code,
+
+                .save_err_ret_index = .save_err_ret_index,
+                .restore_err_ret_index = .restore_err_ret_index,
 
                 .extended = .extended,
             });
@@ -1878,6 +1892,11 @@ pub const Inst = struct {
         ///  * 0bX0000000_00000000 - is volatile
         /// `operand` is payload index to `Asm`.
         @"asm",
+        /// Same as `asm` except the assembly template is not a string literal but a comptime
+        /// expression.
+        /// The `asm_source` field of the Asm is not a null-terminated string
+        /// but instead a Ref.
+        asm_expr,
         /// Log compile time variables and emit an error message.
         /// `operand` is payload index to `NodeMultiOp`.
         /// `small` is `operands_len`.
@@ -1890,19 +1909,19 @@ pub const Inst = struct {
         /// The AST node is the builtin call.
         typeof_peer,
         /// Implements the `@addWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         add_with_overflow,
         /// Implements the `@subWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         sub_with_overflow,
         /// Implements the `@mulWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         mul_with_overflow,
         /// Implements the `@shlWithOverflow` builtin.
-        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         shl_with_overflow,
         /// `operand` is payload index to `UnNode`.
@@ -1964,6 +1983,21 @@ pub const Inst = struct {
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
+        /// Implement the builtin `@addrSpaceCast`
+        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        addrspace_cast,
+        /// Implement builtin `@cVaArg`.
+        /// `operand` is payload index to `BinNode`.
+        c_va_arg,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is payload index to `UnNode`.
+        c_va_copy,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is payload index to `UnNode`.
+        c_va_end,
+        /// Implement builtin `@cVaStart`.
+        /// `operand` is `src_node: i32`.
+        c_va_start,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2041,7 +2075,7 @@ pub const Inst = struct {
         address_space_type,
         float_mode_type,
         reduce_op_type,
-        call_options_type,
+        modifier_type,
         prefetch_options_type,
         export_options_type,
         extern_options_type,
@@ -2316,9 +2350,9 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.reduce_op_type),
             },
-            .call_options_type = .{
+            .modifier_type = .{
                 .ty = Type.initTag(.type),
-                .val = Value.initTag(.call_options_type),
+                .val = Value.initTag(.modifier_type),
             },
             .prefetch_options_type = .{
                 .ty = Type.initTag(.type),
@@ -2338,7 +2372,7 @@ pub const Inst = struct {
             },
 
             .undef = .{
-                .ty = Type.initTag(.@"undefined"),
+                .ty = Type.initTag(.undefined),
                 .val = Value.initTag(.undef),
             },
             .zero = .{
@@ -2366,7 +2400,7 @@ pub const Inst = struct {
                 .val = Value.initTag(.unreachable_value),
             },
             .null_value = .{
-                .ty = Type.initTag(.@"null"),
+                .ty = Type.initTag(.null),
                 .val = Value.initTag(.null_value),
             },
             .bool_true = .{
@@ -2573,6 +2607,13 @@ pub const Inst = struct {
             err_code: Ref,
             payload_index: u32,
         },
+        save_err_ret_index: struct {
+            operand: Ref, // If error type (or .none), save new trace index
+        },
+        restore_err_ret_index: struct {
+            block: Ref, // If restored, the index is from this block's entrypoint
+            operand: Ref, // If non-error (or .none), then restore the index
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2611,6 +2652,8 @@ pub const Inst = struct {
             str_op,
             @"defer",
             defer_err_code,
+            save_err_ret_index,
+            restore_err_ret_index,
         };
     };
 
@@ -2794,18 +2837,19 @@ pub const Inst = struct {
         callee: Ref,
 
         pub const Flags = packed struct {
-            /// std.builtin.CallOptions.Modifier in packed form
+            /// std.builtin.CallModifier in packed form
             pub const PackedModifier = u3;
-            pub const PackedArgsLen = u28;
+            pub const PackedArgsLen = u27;
 
             packed_modifier: PackedModifier,
             ensure_result_used: bool = false,
+            pop_error_return_trace: bool,
             args_len: PackedArgsLen,
 
             comptime {
                 if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
                     @compileError("Layout of Call.Flags needs to be updated!");
-                if (@bitSizeOf(std.builtin.CallOptions.Modifier) != @bitSizeOf(PackedModifier))
+                if (@bitSizeOf(std.builtin.CallModifier) != @bitSizeOf(PackedModifier))
                     @compileError("Call.Flags.PackedModifier needs to be updated!");
             }
         };
@@ -2821,7 +2865,7 @@ pub const Inst = struct {
         // Note: Flags *must* come first so that unusedResultExpr
         // can find it when it goes to modify them.
         flags: Flags,
-        options: Ref,
+        modifier: Ref,
         callee: Ref,
         args: Ref,
 
@@ -2952,12 +2996,9 @@ pub const Inst = struct {
             has_else: bool,
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
-            /// If true, the `operand` is a pointer to the value being switched on.
-            /// TODO this flag is redundant with the tag of operand and can be removed.
-            is_ref: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u28;
+            pub const ScalarCasesLen = u29;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);
@@ -2993,7 +3034,7 @@ pub const Inst = struct {
             }
 
             if (self.bits.specialProng() != .none) {
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3003,7 +3044,7 @@ pub const Inst = struct {
             while (true) : (scalar_i += 1) {
                 const item = @intToEnum(Ref, zir.extra[extra_index]);
                 extra_index += 1;
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3032,7 +3073,7 @@ pub const Inst = struct {
             var extra_index: usize = extra_end + 1;
 
             if (self.bits.specialProng() != .none) {
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
@@ -3041,18 +3082,23 @@ pub const Inst = struct {
             var scalar_i: usize = 0;
             while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
                 extra_index += 1;
-                const body_len = zir.extra[extra_index];
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 extra_index += body_len;
             }
             var multi_i: u32 = 0;
             while (true) : (multi_i += 1) {
                 const items_len = zir.extra[extra_index];
-                extra_index += 2;
-                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const ranges_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
                 const items = zir.refSlice(extra_index, items_len);
                 extra_index += items_len;
+                // Each range has a start and an end.
+                extra_index += 2 * ranges_len;
+
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
@@ -3125,7 +3171,7 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
     /// 9. fields: { // for every fields_len
-    ///        field_name: u32,
+    ///        field_name: u32, // if !is_tuple
     ///        doc_comment: u32, // 0 if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
@@ -3145,9 +3191,10 @@ pub const Inst = struct {
             has_backing_int: bool,
             known_non_opv: bool,
             known_comptime_only: bool,
+            is_tuple: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            _: u6 = undefined,
+            _: u5 = undefined,
         };
     };
 
@@ -3374,13 +3421,6 @@ pub const Inst = struct {
     pub const FieldTypeRef = struct {
         container_type: Ref,
         field_name: Ref,
-    };
-
-    pub const OverflowArithmetic = struct {
-        node: i32,
-        lhs: Ref,
-        rhs: Ref,
-        ptr: Ref,
     };
 
     pub const Cmpxchg = struct {
@@ -3861,7 +3901,7 @@ fn findDeclsSwitch(
 
     const special_prong = extra.data.bits.specialProng();
     if (special_prong != .none) {
-        const body_len = zir.extra[extra_index];
+        const body_len = @truncate(u31, zir.extra[extra_index]);
         extra_index += 1;
         const body = zir.extra[extra_index..][0..body_len];
         extra_index += body.len;
@@ -3874,7 +3914,7 @@ fn findDeclsSwitch(
         var scalar_i: usize = 0;
         while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
             extra_index += 1;
-            const body_len = zir.extra[extra_index];
+            const body_len = @truncate(u31, zir.extra[extra_index]);
             extra_index += 1;
             const body = zir.extra[extra_index..][0..body_len];
             extra_index += body_len;
@@ -3889,7 +3929,7 @@ fn findDeclsSwitch(
             extra_index += 1;
             const ranges_len = zir.extra[extra_index];
             extra_index += 1;
-            const body_len = zir.extra[extra_index];
+            const body_len = @truncate(u31, zir.extra[extra_index]);
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;

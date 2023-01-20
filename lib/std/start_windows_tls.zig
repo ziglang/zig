@@ -8,7 +8,7 @@ export var __xl_a: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = 
 export var __xl_z: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
 
 comptime {
-    if (builtin.target.cpu.arch == .i386) {
+    if (builtin.target.cpu.arch == .x86) {
         // The __tls_array is the offset of the ThreadLocalStoragePointer field
         // in the TEB block whose base address held in the %fs segment.
         asm (
@@ -42,7 +42,7 @@ export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY{
     .StartAddressOfRawData = &_tls_start,
     .EndAddressOfRawData = &_tls_end,
     .AddressOfIndex = &_tls_index,
-    .AddressOfCallBacks = &__xl_a,
+    .AddressOfCallBacks = @ptrCast(*anyopaque, &__xl_a),
     .SizeOfZeroFill = 0,
     .Characteristics = 0,
 };

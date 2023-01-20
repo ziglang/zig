@@ -334,7 +334,12 @@ extern "C" {
 #define D3DFMT_X8R8G8B8 22
 #define D3DFMT_R5G6B5 23
 #define D3DFMT_X1R5G5B5 24
+#define D3DFMT_A2B10G10R10 31
 #define D3DFMT_P8 41
+#define D3DFMT_L8 50
+#define D3DFMT_D16 80
+#define D3DFMT_L16 81
+#define D3DFMT_A16B16G16R16F 113
 #define LOCAL_D3DFMT_DEFINES 1
 #endif
 
@@ -345,6 +350,9 @@ extern "C" {
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_RGB555, D3DFMT_X1R5G5B5);
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_RGB565, D3DFMT_R5G6B5);
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_RGB8, D3DFMT_P8);
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_L8, D3DFMT_L8);
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_L16, D3DFMT_L16);
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_D16, D3DFMT_D16);
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -359,6 +367,7 @@ extern "C" {
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_UYVY, FCC ('UYVY'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_NV11, FCC ('NV11'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_NV12, FCC ('NV12'));
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_NV21, FCC ('NV21'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_YV12, FCC ('YV12'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_I420, FCC ('I420'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_IYUV, FCC ('IYUV'));
@@ -402,8 +411,20 @@ extern "C" {
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_HEVC_ES, FCC('HEVS'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_VP80, FCC ('VP80'));
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_VP90, FCC ('VP90'));
-#if WINVER >= 0x0602
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_ORAW, FCC('ORAW'));
+#if WINVER >= _WIN32_WINNT_WIN8
   DEFINE_MEDIATYPE_GUID (MFVideoFormat_H263, FCC ('H263'));
+#endif
+#if WDK_NTDDI_VERSION >= NTDDI_WIN10
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_A2R10G10B10, D3DFMT_A2B10G10R10);
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_A16B16G16R16F, D3DFMT_A16B16G16R16F);
+#endif
+#if WDK_NTDDI_VERSION >= NTDDI_WIN10_RS3
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_VP10, FCC('VP10'));
+  DEFINE_MEDIATYPE_GUID (MFVideoFormat_AV1, FCC('AV01'));
+#endif
+#if NTDDI_VERSION >= NTDDI_WIN10_FE
+DEFINE_MEDIATYPE_GUID(MFVideoFormat_Theora, FCC('theo'));
 #endif
 
 #ifdef __GNUC__
@@ -417,6 +438,11 @@ extern "C" {
 #undef D3DFMT_R5G6B5
 #undef D3DFMT_X1R5G5B5
 #undef D3DFMT_P8
+#undef D3DFMT_A2B10G10R10
+#undef D3DFMT_A16B16G16R16F
+#undef D3DFMT_L8
+#undef D3DFMT_D16
+#undef D3DFMT_L16
 #undef LOCAL_D3DFMT_DEFINES
 #endif
 
@@ -486,8 +512,44 @@ extern "C" {
   DEFINE_MEDIATYPE_GUID (MFAudioFormat_MPEG, WAVE_FORMAT_MPEG);
   DEFINE_MEDIATYPE_GUID (MFAudioFormat_AAC, WAVE_FORMAT_MPEG_HEAAC);
   DEFINE_MEDIATYPE_GUID (MFAudioFormat_ADTS, WAVE_FORMAT_MPEG_ADTS_AAC);
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_AMR_NB, WAVE_FORMAT_AMR_NB);
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_AMR_WB, WAVE_FORMAT_AMR_WB);
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_AMR_WP, WAVE_FORMAT_AMR_WP);
+#if WINVER >= _WIN32_WINNT_WINTHRESHOLD
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_FLAC, WAVE_FORMAT_FLAC);
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_ALAC, WAVE_FORMAT_ALAC);
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_Opus, WAVE_FORMAT_OPUS);
+#endif
+  DEFINE_MEDIATYPE_GUID (MFAudioFormat_Dolby_AC4, WAVE_FORMAT_DOLBY_AC4);
+
   DEFINE_GUID (MFAudioFormat_Dolby_AC3, 0xe06d802c, 0xdb46, 0x11cf, 0xb4, 0xd1, 0x00, 0x80, 0x05f, 0x6c, 0xbb, 0xea);
   DEFINE_GUID (MFAudioFormat_Dolby_DDPlus, 0xa7fb87af, 0x2d02, 0x42fb, 0xa4, 0xd4, 0x5, 0xcd, 0x93, 0x84, 0x3b, 0xdd);
+  DEFINE_GUID (MFAudioFormat_Dolby_AC4_V1, 0x36b7927c, 0x3d87, 0x4a2a, 0x91, 0x96, 0xa2, 0x1a, 0xd9, 0xe9, 0x35, 0xe6);
+  DEFINE_GUID (MFAudioFormat_Dolby_AC4_V2, 0x7998b2a0, 0x17dd, 0x49b6, 0x8d, 0xfa, 0x9b, 0x27, 0x85, 0x52, 0xa2, 0xac);
+  DEFINE_GUID (MFAudioFormat_Dolby_AC4_V1_ES, 0x9d8dccc6, 0xd156, 0x4fb8, 0x97, 0x9c, 0xa8, 0x5b, 0xe7, 0xd2, 0x1d, 0xfa);
+  DEFINE_GUID (MFAudioFormat_Dolby_AC4_V2_ES, 0x7e58c9f9, 0xb070, 0x45f4, 0x8c, 0xcd, 0xa9, 0x9a, 0x04, 0x17, 0xc1, 0xac);
+  DEFINE_GUID (MFAudioFormat_Vorbis, 0x8d2fd10b, 0x5841, 0x4a6b, 0x89, 0x05, 0x58, 0x8f, 0xec, 0x1a, 0xde, 0xd9);
+  DEFINE_GUID (MFAudioFormat_DTS_RAW, 0xe06d8033, 0xdb46, 0x11cf, 0xb4, 0xd1, 0x00, 0x80, 0x5f, 0x6c, 0xbb, 0xea);
+  DEFINE_GUID (MFAudioFormat_DTS_HD, 0xa2e58eb7, 0x0fa9, 0x48bb, 0xa4, 0x0c, 0xfa, 0x0e, 0x15, 0x6d, 0x06, 0x45);
+  DEFINE_GUID (MFAudioFormat_DTS_XLL, 0x45b37c1b, 0x8c70, 0x4e59, 0xa7, 0xbe, 0xa1, 0xe4, 0x2c, 0x81, 0xc8, 0x0d);
+  DEFINE_GUID (MFAudioFormat_DTS_LBR, 0xc2fe6f0a, 0x4e3c, 0x4df1, 0x9b, 0x60, 0x50, 0x86, 0x30, 0x91, 0xe4, 0xb9);
+  DEFINE_GUID (MFAudioFormat_DTS_UHD, 0x87020117, 0xace3, 0x42de, 0xb7, 0x3e, 0xc6, 0x56, 0x70, 0x62, 0x63, 0xf8);
+  DEFINE_GUID (MFAudioFormat_DTS_UHDY, 0x9b9cca00, 0x91b9, 0x4ccc, 0x88, 0x3a, 0x8f, 0x78, 0x7a, 0xc3, 0xcc, 0x86);
+#if NTDDI_VERSION >= NTDDI_WIN10_RS2
+  DEFINE_GUID (MFAudioFormat_Float_SpatialObjects, 0xfa39cd94, 0xbc64, 0x4ab1, 0x9b, 0x71, 0xdc, 0xd0, 0x9d, 0x5a, 0x7e, 0x7a);
+#endif
+#if WINVER >= _WIN32_WINNT_WINTHRESHOLD
+  DEFINE_GUID (MFAudioFormat_LPCM, 0xe06d8032l, 0xdb46, 0x11cf, 0xb4, 0xd1, 0x00, 0x80, 0x5f, 0x6c, 0xbb, 0xea);
+  DEFINE_GUID (MFAudioFormat_PCM_HDCP, 0xa5e7ff01, 0x8411, 0x4acc, 0xa8, 0x65, 0x5f, 0x49, 0x41, 0x28, 0x8d, 0x80);
+  DEFINE_GUID (MFAudioFormat_Dolby_AC3_HDCP, 0x97663a80, 0x8ffb, 0x4445, 0xa6, 0xba, 0x79, 0x2d, 0x90, 0x8f, 0x49, 0x7f);
+  DEFINE_GUID (MFAudioFormat_AAC_HDCP, 0x419bce76, 0x8b72, 0x400f, 0xad, 0xeb, 0x84, 0xb5, 0x7d, 0x63, 0x48, 0x4d);
+  DEFINE_GUID (MFAudioFormat_ADTS_HDCP, 0xda4963a3, 0x14d8, 0x4dcf, 0x92, 0xb7, 0x19, 0x3e, 0xb8, 0x43, 0x63, 0xdb);
+  DEFINE_GUID (MFAudioFormat_Base_HDCP, 0x3884b5bc, 0xe277, 0x43fd, 0x98, 0x3d, 0x03, 0x8a, 0xa8, 0xd9, 0xb6, 0x05);
+  DEFINE_GUID (MFVideoFormat_H264_HDCP, 0x5d0ce9dd, 0x9817, 0x49da, 0xbd, 0xfd, 0xf5, 0xf5, 0xb9, 0x8f, 0x18, 0xa6);
+  DEFINE_GUID (MFVideoFormat_HEVC_HDCP, 0x3cfe0fe6, 0x05c4, 0x47dc, 0x9d, 0x70, 0x4b, 0xdb, 0x29, 0x59, 0x72, 0x0f);
+  DEFINE_GUID (MFVideoFormat_Base_HDCP, 0xeac3b9d5, 0xbd14, 0x4237, 0x8f, 0x1f, 0xba, 0xb4, 0x28, 0xe4, 0x93, 0x12);
+#endif
+
   DEFINE_GUID (MFMPEG4Format_Base, 0x00000000, 0x767a, 0x494d, 0xb4, 0x78, 0xf2, 0x9d, 0x25, 0xdc, 0x90, 0x37);
   DEFINE_GUID (MF_MT_MAJOR_TYPE, 0x48eba18e, 0xf8c9, 0x4687, 0xbf, 0x11, 0x0a, 0x74, 0xc9, 0xf9, 0x6a, 0x8f);
   DEFINE_GUID (MF_MT_SUBTYPE, 0xf7e34c9a, 0x42e8, 0x4714, 0xb7, 0x4b, 0xcb, 0x29, 0xd7, 0x2c, 0x35, 0xe5);

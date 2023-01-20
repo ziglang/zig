@@ -99,7 +99,7 @@ fn testReader(data: []const u8, expected: []const u8) !void {
     defer testing.allocator.free(buf);
 
     // Check against the reference
-    try testing.expectEqualSlices(u8, buf, expected);
+    try testing.expectEqualSlices(u8, expected, buf);
 }
 
 // All the test cases are obtained by compressing the RFC1951 text
@@ -107,21 +107,21 @@ fn testReader(data: []const u8, expected: []const u8) !void {
 // https://tools.ietf.org/rfc/rfc1951.txt length=36944 bytes
 // SHA256=5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009
 test "compressed data" {
-    const rfc1951_txt = @embedFile("rfc1951.txt");
+    const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
     // Compressed with compression level = 0
     try testReader(
-        @embedFile("rfc1951.txt.z.0"),
+        @embedFile("testdata/rfc1951.txt.z.0"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9
     try testReader(
-        @embedFile("rfc1951.txt.z.9"),
+        @embedFile("testdata/rfc1951.txt.z.9"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9 and fixed Huffman codes
     try testReader(
-        @embedFile("rfc1951.txt.fixed.z.9"),
+        @embedFile("testdata/rfc1951.txt.fixed.z.9"),
         rfc1951_txt,
     );
 }

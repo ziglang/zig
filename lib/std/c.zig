@@ -206,7 +206,7 @@ pub extern "c" fn sendto(
     dest_addr: ?*const c.sockaddr,
     addrlen: c.socklen_t,
 ) isize;
-pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const c.msghdr_const, flags: u32) isize;
 
 pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
 pub extern "c" fn recvfrom(
@@ -217,7 +217,7 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*c.sockaddr,
     noalias addrlen: ?*c.socklen_t,
 ) isize;
-pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
@@ -241,8 +241,12 @@ pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]c.timeval) c_int;
 pub extern "c" fn utimensat(dirfd: c.fd_t, pathname: [*:0]const u8, times: *[2]c.timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: c.fd_t, times: *const [2]c.timespec) c_int;
 
-const PThreadStartFn = std.meta.FnPtr(fn (?*anyopaque) callconv(.C) ?*anyopaque);
-pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: PThreadStartFn, noalias arg: ?*anyopaque) c.E;
+pub extern "c" fn pthread_create(
+    noalias newthread: *pthread_t,
+    noalias attr: ?*const c.pthread_attr_t,
+    start_routine: *const fn (?*anyopaque) callconv(.C) ?*anyopaque,
+    noalias arg: ?*anyopaque,
+) c.E;
 pub extern "c" fn pthread_attr_init(attr: *c.pthread_attr_t) c.E;
 pub extern "c" fn pthread_attr_setstack(attr: *c.pthread_attr_t, stackaddr: *anyopaque, stacksize: usize) c.E;
 pub extern "c" fn pthread_attr_setstacksize(attr: *c.pthread_attr_t, stacksize: usize) c.E;
@@ -251,17 +255,19 @@ pub extern "c" fn pthread_attr_destroy(attr: *c.pthread_attr_t) c.E;
 pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) c.E;
 pub extern "c" fn pthread_detach(thread: pthread_t) c.E;
-const PThreadForkFn = std.meta.FnPtr(fn () callconv(.C) void);
 pub extern "c" fn pthread_atfork(
-    prepare: ?PThreadForkFn,
-    parent: ?PThreadForkFn,
-    child: ?PThreadForkFn,
+    prepare: ?*const fn () callconv(.C) void,
+    parent: ?*const fn () callconv(.C) void,
+    child: ?*const fn () callconv(.C) void,
 ) c_int;
-const PThreadKeyCreateFn = std.meta.FnPtr(fn (value: *anyopaque) callconv(.C) void);
-pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?PThreadKeyCreateFn) c.E;
+pub extern "c" fn pthread_key_create(
+    key: *c.pthread_key_t,
+    destructor: ?*const fn (value: *anyopaque) callconv(.C) void,
+) c.E;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
 pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
+pub extern "c" fn pthread_sigmask(how: c_int, set: *const c.sigset_t, oldset: *c.sigset_t) c_int;
 pub extern "c" fn sem_init(sem: *c.sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t, value: c_uint) *c.sem_t;
@@ -316,7 +322,9 @@ pub extern "c" fn getaddrinfo(
     noalias node: ?[*:0]const u8,
     noalias service: ?[*:0]const u8,
     noalias hints: ?*const c.addrinfo,
-    noalias res: **c.addrinfo,
+    /// On Linux, `res` will not be modified on error and `freeaddrinfo` will
+    /// potentially crash if you pass it an undefined pointer
+    noalias res: *?*c.addrinfo,
 ) c.EAI;
 
 pub extern "c" fn freeaddrinfo(res: *c.addrinfo) void;

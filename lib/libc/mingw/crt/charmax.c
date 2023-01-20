@@ -10,7 +10,7 @@
 
 __declspec(dllimport) int __lconv_init (void);
 
-int mingw_initcharmax = 0;
+int __mingw_initcharmax = 0;
 
 int _charmax = 255;
 

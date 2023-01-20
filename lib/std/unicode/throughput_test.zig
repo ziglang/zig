@@ -25,7 +25,7 @@ fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
     var r: usize = undefined;
     while (i < N) : (i += 1) {
         r = try @call(
-            .{ .modifier = .never_inline },
+            .never_inline,
             std.unicode.utf8CountCodepoints,
             .{buf},
         );

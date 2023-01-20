@@ -154,7 +154,6 @@ pub fn isExtern(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Extern,
         .Union => |u| u.layout == .Extern,
-        .Enum => |e| e.layout == .Extern,
         else => false,
     };
 }
@@ -172,7 +171,6 @@ pub fn isPacked(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Packed,
         .Union => |u| u.layout == .Packed,
-        .Enum => |e| e.layout == .Packed,
         else => false,
     };
 }
@@ -549,7 +547,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
-        .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,
@@ -567,7 +564,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
-                const FieldType = field.field_type;
+                const FieldType = field.type;
                 if (comptime !hasUniqueRepresentation(FieldType)) return false;
                 sum_size += @sizeOf(FieldType);
             }

@@ -425,7 +425,16 @@ pub const Tokenizer = struct {
             const c = self.buffer[self.index];
             switch (state) {
                 .start => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            result.loc.start = self.index;
+                            self.index += 1;
+                            result.loc.end = self.index;
+                            return result;
+                        }
+                        break;
+                    },
                     ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
@@ -1142,7 +1151,13 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            self.index += 1;
+                        }
+                        break;
+                    },
                     '\n' => {
                         state = .start;
                         result.loc.start = self.index + 1;
@@ -1223,7 +1238,7 @@ pub const Tokenizer = struct {
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isASCII(c0)) {
-            if (std.ascii.isCntrl(c0)) {
+            if (std.ascii.isControl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
@@ -1849,6 +1864,16 @@ test "saturating operators" {
     try testTokenize("-", &.{.minus});
     try testTokenize("-|", &.{.minus_pipe});
     try testTokenize("-|=", &.{.minus_pipe_equal});
+}
+
+test "null byte before eof" {
+    try testTokenize("123 \x00 456", &.{ .number_literal, .invalid, .number_literal });
+    try testTokenize("//\x00", &.{.invalid});
+    try testTokenize("\\\\\x00", &.{ .multiline_string_literal_line, .invalid });
+    try testTokenize("\x00", &.{.invalid});
+    try testTokenize("// NUL\x00\n", &.{.invalid});
+    try testTokenize("///\x00\n", &.{ .doc_comment, .invalid });
+    try testTokenize("/// NUL\x00\n", &.{ .doc_comment, .invalid });
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {

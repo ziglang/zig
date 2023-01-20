@@ -96,7 +96,7 @@ const glibc_targets = [_]LibCTarget{
     },
     LibCTarget{
         .name = "i686-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.i386 },
+        .arch = MultiArch{ .specific = Arch.x86 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
@@ -208,8 +208,8 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
-        .name = "i386",
-        .arch = MultiArch{ .specific = .i386 },
+        .name = "x86",
+        .arch = MultiArch{ .specific = .x86 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{

@@ -4,8 +4,6 @@ const expect = std.testing.expect;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testReinterpretBytesAsInteger();
     comptime try testReinterpretBytesAsInteger();
 }
@@ -20,10 +18,10 @@ fn testReinterpretBytesAsInteger() !void {
 }
 
 test "reinterpret an array over multiple elements, with no well-defined layout" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretWithOffsetAndNoWellDefinedLayout();
     comptime try testReinterpretWithOffsetAndNoWellDefinedLayout();
@@ -38,7 +36,7 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 }
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretStructWrappedBytesAsInteger();
     comptime try testReinterpretStructWrappedBytesAsInteger();
@@ -57,6 +55,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
     comptime try testReinterpretBytesAsExternStruct();
@@ -77,9 +76,6 @@ fn testReinterpretBytesAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct (with under-aligned fields) into another" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO: Under-aligned fields are not yet supported in the CBE
-
     try testReinterpretExternStructAsExternStruct();
     comptime try testReinterpretExternStructAsExternStruct();
 }
@@ -102,8 +98,6 @@ fn testReinterpretExternStructAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct into another" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try testReinterpretOverAlignedExternStructAsExternStruct();
     comptime try testReinterpretOverAlignedExternStructAsExternStruct();
 }
@@ -128,12 +122,11 @@ fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
 }
 
 test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO: CBE does not yet support under-aligned fields
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
     comptime var bytes align(2) = [_]u8{ 1, 2, 3, 4, 5, 6 };
@@ -153,11 +146,11 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
 }
 
 test "lower reinterpreted comptime field ptr" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
     comptime var bytes align(4) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -177,7 +170,7 @@ test "lower reinterpreted comptime field ptr" {
 }
 
 test "reinterpret struct field at comptime" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const numNative = comptime Bytes.init(0x12345678);
     if (native_endian != .Little) {
@@ -206,9 +199,40 @@ test "comptime ptrcast keeps larger alignment" {
     }
 }
 
+test "ptrcast of const integer has the correct object size" {
+    const is_value = ~@intCast(isize, std.math.minInt(isize));
+    const is_bytes = @ptrCast([*]const u8, &is_value)[0..@sizeOf(isize)];
+    if (@sizeOf(isize) == 8) {
+        switch (native_endian) {
+            .Little => {
+                try expect(is_bytes[0] == 0xff);
+                try expect(is_bytes[1] == 0xff);
+                try expect(is_bytes[2] == 0xff);
+                try expect(is_bytes[3] == 0xff);
+
+                try expect(is_bytes[4] == 0xff);
+                try expect(is_bytes[5] == 0xff);
+                try expect(is_bytes[6] == 0xff);
+                try expect(is_bytes[7] == 0x7f);
+            },
+            .Big => {
+                try expect(is_bytes[0] == 0x7f);
+                try expect(is_bytes[1] == 0xff);
+                try expect(is_bytes[2] == 0xff);
+                try expect(is_bytes[3] == 0xff);
+
+                try expect(is_bytes[4] == 0xff);
+                try expect(is_bytes[5] == 0xff);
+                try expect(is_bytes[6] == 0xff);
+                try expect(is_bytes[7] == 0xff);
+            },
+        }
+    }
+}
+
 test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
@@ -220,6 +244,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
 test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo(slice: []u32) []i32 {
@@ -231,4 +256,29 @@ test "@ptrCast slice to slice" {
     alias[1] = 42;
     try expect(buf[1] == 42);
     try expect(alias.len == 4);
+}
+
+test "comptime @ptrCast a subset of an array, then write through it" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    comptime {
+        var buff: [16]u8 align(4) = undefined;
+        const len_bytes = @ptrCast(*u32, &buff);
+        len_bytes.* = 16;
+        std.mem.copy(u8, buff[4..], "abcdef");
+    }
+}
+
+test "@ptrCast undefined value at comptime" {
+    const S = struct {
+        fn transmute(comptime T: type, comptime U: type, value: T) U {
+            return @ptrCast(*const U, &value).*;
+        }
+    };
+    comptime {
+        var x = S.transmute([]u8, i32, undefined);
+        _ = x;
+    }
 }

@@ -13,8 +13,6 @@ const Type = @import("../../type.zig").Type;
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const assert = std.debug.assert;
-const DW = std.dwarf;
-const leb128 = std.leb;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
@@ -356,19 +354,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
         .dwarf => |dw| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            const dbg_line = &dw.dbg_line;
-            try dbg_line.ensureUnusedCapacity(11);
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
+            try dw.advancePCAndLine(delta_line, delta_pc);
             self.prev_di_line = line;
             self.prev_di_column = column;
             self.prev_di_pc = self.code.items.len;
@@ -543,7 +529,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirDebugPrologueEnd(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_prologue_end);
+            try dw.setPrologueEnd();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -554,7 +540,7 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
 fn mirDebugEpilogueBegin(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
+            try dw.setEpilogueBegin();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},

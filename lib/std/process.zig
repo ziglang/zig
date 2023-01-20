@@ -293,6 +293,10 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
+        if (environ_count == 0) {
+            return result;
+        }
+
         var environ = try allocator.alloc([*:0]u8, environ_count);
         defer allocator.free(environ);
         var environ_buf = try allocator.alloc(u8, environ_buf_size);
@@ -307,7 +311,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             const pair = mem.sliceTo(env, 0);
             var parts = mem.split(u8, pair, "=");
             const key = parts.first();
-            const value = parts.next().?;
+            const value = parts.rest();
             try result.put(key, value);
         }
         return result;
@@ -355,7 +359,7 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
+pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os.tag == .windows) {
         const result_w = blk: {
             const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
@@ -369,6 +373,11 @@ pub fn getEnvVarOwned(allocator: mem.Allocator, key: []const u8) GetEnvVarOwnedE
             error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
             else => |e| return e,
         };
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
+        defer envmap.deinit();
+        const val = envmap.get(key) orelse return error.EnvironmentVariableNotFound;
+        return allocator.dupe(u8, val);
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return allocator.dupe(u8, result);
@@ -379,6 +388,8 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (builtin.os.tag == .windows) {
         const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
         return std.os.getenvW(key_w) != null;
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        @compileError("hasEnvVarConstant is not supported for WASI without libc");
     } else {
         return os.getenv(key) != null;
     }
@@ -390,6 +401,10 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool 
         const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
         defer stack_alloc.allocator.free(key_w);
         return std.os.getenvW(key_w) != null;
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
+        defer envmap.deinit();
+        return envmap.getPtr(key) != null;
     } else {
         return os.getenv(key) != null;
     }
@@ -430,7 +445,7 @@ pub const ArgIteratorPosix = struct {
 };
 
 pub const ArgIteratorWasi = struct {
-    allocator: mem.Allocator,
+    allocator: Allocator,
     index: usize,
     args: [][:0]u8,
 
@@ -438,7 +453,7 @@ pub const ArgIteratorWasi = struct {
 
     /// You must call deinit to free the internal buffer of the
     /// iterator after you are done.
-    pub fn init(allocator: mem.Allocator) InitError!ArgIteratorWasi {
+    pub fn init(allocator: Allocator) InitError!ArgIteratorWasi {
         const fetched_args = try ArgIteratorWasi.internalInit(allocator);
         return ArgIteratorWasi{
             .allocator = allocator,
@@ -447,7 +462,7 @@ pub const ArgIteratorWasi = struct {
         };
     }
 
-    fn internalInit(allocator: mem.Allocator) InitError![][:0]u8 {
+    fn internalInit(allocator: Allocator) InitError![][:0]u8 {
         const w = os.wasi;
         var count: usize = undefined;
         var buf_size: usize = undefined;
@@ -455,6 +470,10 @@ pub const ArgIteratorWasi = struct {
         switch (w.args_sizes_get(&count, &buf_size)) {
             .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
+        }
+
+        if (count == 0) {
+            return &[_][:0]u8{};
         }
 
         var argv = try allocator.alloc([*:0]u8, count);
@@ -760,7 +779,7 @@ pub const ArgIterator = struct {
     };
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-    pub fn initWithAllocator(allocator: mem.Allocator) InitError!ArgIterator {
+    pub fn initWithAllocator(allocator: Allocator) InitError!ArgIterator {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
@@ -804,7 +823,7 @@ pub fn args() ArgIterator {
 }
 
 /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-pub fn argsWithAllocator(allocator: mem.Allocator) ArgIterator.InitError!ArgIterator {
+pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator {
     return ArgIterator.initWithAllocator(allocator);
 }
 
@@ -827,7 +846,7 @@ test "args iterator" {
 }
 
 /// Caller must call argsFree on result.
-pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
+pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
     var it = try argsWithAllocator(allocator);
     defer it.deinit();
@@ -864,7 +883,7 @@ pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: mem.Allocator, args_alloc: []const [:0]u8) void {
+pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len + 1;
@@ -1023,8 +1042,16 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, uid, 10, &uid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, uid, digit, &uid)) return error.CorruptPasswordFile;
+                        {
+                            const ov = @mulWithOverflow(uid, 10);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
+                        {
+                            const ov = @addWithOverflow(uid, digit);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
                     },
                 },
                 .ReadGroupId => switch (byte) {
@@ -1039,8 +1066,16 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, gid, 10, &gid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, gid, digit, &gid)) return error.CorruptPasswordFile;
+                        {
+                            const ov = @mulWithOverflow(gid, 10);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            gid = ov[0];
+                        }
+                        {
+                            const ov = @addWithOverflow(gid, digit);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            gid = ov[0];
+                        }
                     },
                 },
             }
@@ -1067,87 +1102,6 @@ pub fn getBaseAddress() usize {
     }
 }
 
-/// Caller owns the result value and each inner slice.
-/// TODO Remove the `Allocator` requirement from this API, which will remove the `Allocator`
-/// requirement from `std.zig.system.NativeTargetInfo.detect`. Most likely this will require
-/// introducing a new, lower-level function which takes a callback function, and then this
-/// function which takes an allocator can exist on top of it.
-pub fn getSelfExeSharedLibPaths(allocator: Allocator) error{OutOfMemory}![][:0]u8 {
-    switch (builtin.link_mode) {
-        .Static => return &[_][:0]u8{},
-        .Dynamic => {},
-    }
-    const List = std.ArrayList([:0]u8);
-    switch (builtin.os.tag) {
-        .linux,
-        .freebsd,
-        .netbsd,
-        .dragonfly,
-        .openbsd,
-        .solaris,
-        => {
-            var paths = List.init(allocator);
-            errdefer {
-                const slice = paths.toOwnedSlice();
-                for (slice) |item| {
-                    allocator.free(item);
-                }
-                allocator.free(slice);
-            }
-            try os.dl_iterate_phdr(&paths, error{OutOfMemory}, struct {
-                fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
-                    _ = size;
-                    const name = info.dlpi_name orelse return;
-                    if (name[0] == '/') {
-                        const item = try list.allocator.dupeZ(u8, mem.sliceTo(name, 0));
-                        errdefer list.allocator.free(item);
-                        try list.append(item);
-                    }
-                }
-            }.callback);
-            return paths.toOwnedSlice();
-        },
-        .macos, .ios, .watchos, .tvos => {
-            var paths = List.init(allocator);
-            errdefer {
-                const slice = paths.toOwnedSlice();
-                for (slice) |item| {
-                    allocator.free(item);
-                }
-                allocator.free(slice);
-            }
-            const img_count = std.c._dyld_image_count();
-            var i: u32 = 0;
-            while (i < img_count) : (i += 1) {
-                const name = std.c._dyld_get_image_name(i);
-                const item = try allocator.dupeZ(u8, mem.sliceTo(name, 0));
-                errdefer allocator.free(item);
-                try paths.append(item);
-            }
-            return paths.toOwnedSlice();
-        },
-        // revisit if Haiku implements dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
-        .haiku => {
-            var paths = List.init(allocator);
-            errdefer {
-                const slice = paths.toOwnedSlice();
-                for (slice) |item| {
-                    allocator.free(item);
-                }
-                allocator.free(slice);
-            }
-
-            var b = "/boot/system/runtime_loader";
-            const item = try allocator.dupeZ(u8, mem.sliceTo(b, 0));
-            errdefer allocator.free(item);
-            try paths.append(item);
-
-            return paths.toOwnedSlice();
-        },
-        else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
-    }
-}
-
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
 pub const can_execv = switch (builtin.os.tag) {
     .windows, .haiku, .wasi => false,
@@ -1170,7 +1124,7 @@ pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
 /// For that use case, use the `std.os` functions directly.
-pub fn execv(allocator: mem.Allocator, argv: []const []const u8) ExecvError {
+pub fn execv(allocator: Allocator, argv: []const []const u8) ExecvError {
     return execve(allocator, argv, null);
 }
 
@@ -1183,7 +1137,7 @@ pub fn execv(allocator: mem.Allocator, argv: []const []const u8) ExecvError {
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
 /// For that use case, use the `std.os` functions directly.
 pub fn execve(
-    allocator: mem.Allocator,
+    allocator: Allocator,
     argv: []const []const u8,
     env_map: ?*const EnvMap,
 ) ExecvError {

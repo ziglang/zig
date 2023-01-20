@@ -14,13 +14,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunch, .{ .name = "__trunch", .linkage = common.linkage });
-    @export(truncf, .{ .name = "truncf", .linkage = common.linkage });
-    @export(trunc, .{ .name = "trunc", .linkage = common.linkage });
-    @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage });
-    const truncq_sym_name = if (common.want_ppc_abi) "truncf128" else "truncq";
-    @export(truncq, .{ .name = truncq_sym_name, .linkage = common.linkage });
-    @export(truncl, .{ .name = "truncl", .linkage = common.linkage });
+    @export(__trunch, .{ .name = "__trunch", .linkage = common.linkage, .visibility = common.visibility });
+    @export(truncf, .{ .name = "truncf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(trunc, .{ .name = "trunc", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage, .visibility = common.visibility });
+    if (common.want_ppc_abi) {
+        @export(truncq, .{ .name = "truncf128", .linkage = common.linkage, .visibility = common.visibility });
+    }
+    @export(truncq, .{ .name = "truncq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(truncl, .{ .name = "truncl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __trunch(x: f16) callconv(.C) f16 {

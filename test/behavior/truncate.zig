@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 
-test "truncate u0 to larger integer allowed and has comptime known result" {
+test "truncate u0 to larger integer allowed and has comptime-known result" {
     var x: u0 = 0;
     const y = @truncate(u8, x);
     comptime try expect(y == 0);
@@ -25,7 +25,7 @@ test "truncate.u0.var" {
     try expect(z == 0);
 }
 
-test "truncate i0 to larger integer allowed and has comptime known result" {
+test "truncate i0 to larger integer allowed and has comptime-known result" {
     var x: i0 = 0;
     const y = @truncate(i8, x);
     comptime try expect(y == 0);
@@ -60,16 +60,12 @@ test "truncate on comptime integer" {
 }
 
 test "truncate on vectors" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails the comptime test
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

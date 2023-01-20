@@ -240,6 +240,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_ctz => try emit.emitTag(tag),
 
             .extended => try emit.emitExtended(inst),
+            .simd => try emit.emitSimd(inst),
         }
     }
 }
@@ -341,11 +342,14 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
     try emit.code.append(@enumToInt(tag));
+    try encodeMemArg(mem_arg, emit.code.writer());
+}
 
+fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
     // wasm encodes alignment as power of 2, rather than natural alignment
     const encoded_alignment = @ctz(mem_arg.alignment);
-    try leb128.writeULEB128(emit.code.writer(), encoded_alignment);
-    try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
+    try leb128.writeULEB128(writer, encoded_alignment);
+    try leb128.writeULEB128(writer, mem_arg.offset);
 }
 
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -413,16 +417,79 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
             .offset = mem_offset,
             .index = mem.pointer,
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
-            .addend = mem.offset,
+            .addend = @intCast(i32, mem.offset),
         });
     }
 }
 
 fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const opcode = emit.mir.instructions.items(.secondary)[inst];
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(0xFC);
+    try leb128.writeULEB128(writer, opcode);
     switch (@intToEnum(std.wasm.PrefixedOpcode, opcode)) {
-        .memory_fill => try emit.emitMemFill(),
+        // bulk-memory opcodes
+        .data_drop => {
+            const segment = emit.mir.extra[extra_index + 1];
+            try leb128.writeULEB128(writer, segment);
+        },
+        .memory_init => {
+            const segment = emit.mir.extra[extra_index + 1];
+            try leb128.writeULEB128(writer, segment);
+            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+        },
+        .memory_fill => {
+            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+        },
+        .memory_copy => {
+            try leb128.writeULEB128(writer, @as(u32, 0)); // dst memory index
+            try leb128.writeULEB128(writer, @as(u32, 0)); // src memory index
+        },
+
+        // nontrapping-float-to-int-conversion opcodes
+        .i32_trunc_sat_f32_s,
+        .i32_trunc_sat_f32_u,
+        .i32_trunc_sat_f64_s,
+        .i32_trunc_sat_f64_u,
+        .i64_trunc_sat_f32_s,
+        .i64_trunc_sat_f32_u,
+        .i64_trunc_sat_f64_s,
+        .i64_trunc_sat_f64_u,
+        => {}, // opcode already written
         else => |tag| return emit.fail("TODO: Implement extension instruction: {s}\n", .{@tagName(tag)}),
+    }
+}
+
+fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(0xFD);
+    try leb128.writeULEB128(writer, opcode);
+    switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
+        .v128_store,
+        .v128_load,
+        .v128_load8_splat,
+        .v128_load16_splat,
+        .v128_load32_splat,
+        .v128_load64_splat,
+        => {
+            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
+            try encodeMemArg(mem_arg, writer);
+        },
+        .v128_const => {
+            const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
+            try writer.writeAll(std.mem.asBytes(simd_value));
+        },
+        .i8x16_splat,
+        .i16x8_splat,
+        .i32x4_splat,
+        .i64x2_splat,
+        .f32x4_splat,
+        .f64x2_splat,
+        => {}, // opcode already written
+        else => |tag| return emit.fail("TODO: Implement simd instruction: {s}\n", .{@tagName(tag)}),
     }
 }
 
@@ -444,18 +511,12 @@ fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    const dbg_line = &emit.dbg_output.dwarf.dbg_line;
-    try dbg_line.ensureUnusedCapacity(11);
-    dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_pc);
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    const delta_pc = emit.offset() - emit.prev_di_offset;
     // TODO: This must emit a relocation to calculate the offset relative
     // to the code section start.
-    leb128.writeULEB128(dbg_line.writer(), emit.offset() - emit.prev_di_offset) catch unreachable;
-    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
-    if (delta_line != 0) {
-        dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_line);
-        leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-    }
-    dbg_line.appendAssumeCapacity(std.dwarf.LNS.copy);
+    try emit.dbg_output.dwarf.advancePCAndLine(delta_line, delta_pc);
+
     emit.prev_di_line = line;
     emit.prev_di_column = column;
     emit.prev_di_offset = emit.offset();
@@ -464,13 +525,13 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
 fn emitDbgPrologueEnd(emit: *Emit) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_prologue_end);
+    try emit.dbg_output.dwarf.setPrologueEnd();
     try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }
 
 fn emitDbgEpilogueBegin(emit: *Emit) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_epilogue_begin);
+    try emit.dbg_output.dwarf.setEpilogueBegin();
     try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }

@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
-    const element_bit_size = @maximum(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
+    const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
@@ -86,16 +86,18 @@ pub fn VectorCount(comptime VectorType: type) type {
 
 /// Returns a vector containing the first `len` integers in order from 0 to `len`-1.
 /// For example, `iota(i32, 8)` will return a vector containing `.{0, 1, 2, 3, 4, 5, 6, 7}`.
-pub fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
-    var out: [len]T = undefined;
-    for (out) |*element, i| {
-        element.* = switch (@typeInfo(T)) {
-            .Int => @intCast(T, i),
-            .Float => @intToFloat(T, i),
-            else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
-        };
+pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
+    comptime {
+        var out: [len]T = undefined;
+        for (out) |*element, i| {
+            element.* = switch (@typeInfo(T)) {
+                .Int => @intCast(T, i),
+                .Float => @intToFloat(T, i),
+                else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
+            };
+        }
+        return @as(@Vector(len, T), out);
     }
-    return @as(@Vector(len, T), out);
 }
 
 /// Returns a vector containing the same elements as the input, but repeated until the desired length is reached.
@@ -191,9 +193,7 @@ pub fn extract(
 }
 
 test "vector patterns" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -405,8 +405,8 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
                 .Xor => a ^ b,
                 .Add => a + b,
                 .Mul => a * b,
-                .Min => @minimum(a, b),
-                .Max => @maximum(a, b),
+                .Min => @min(a, b),
+                .Max => @max(a, b),
             };
         }
     };
@@ -419,7 +419,7 @@ test "vector prefix scan" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .stage2_llvm) {
         // Regressed in LLVM 14:
         // https://github.com/llvm/llvm-project/issues/55522
         return error.SkipZigTest;

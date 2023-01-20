@@ -20,7 +20,7 @@ pub fn random(self: *Xoroshiro128) Random {
     return Random.init(self, fill);
 }
 
-fn next(self: *Xoroshiro128) u64 {
+pub fn next(self: *Xoroshiro128) u64 {
     const s0 = self.s[0];
     var s1 = self.s[1];
     const r = s0 +% s1;
@@ -33,7 +33,7 @@ fn next(self: *Xoroshiro128) u64 {
 }
 
 // Skip 2^64 places ahead in the sequence
-fn jump(self: *Xoroshiro128) void {
+pub fn jump(self: *Xoroshiro128) void {
     var s0: u64 = 0;
     var s1: u64 = 0;
 

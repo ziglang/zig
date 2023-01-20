@@ -4,8 +4,24 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 #include <stdlib.h>
+#include <float.h>
+#include <errno.h>
+#include <math.h>
 
 float strtof( const char *nptr, char **endptr)
 {
-  return (strtod(nptr, endptr));
+  double ret = strtod(nptr, endptr);
+  if (isfinite(ret)) {
+    /* Check for cases that aren't out of range for doubles, but that are
+     * for floats. */
+    if (ret > FLT_MAX)
+      errno = ERANGE;
+    else if (ret < -FLT_MAX)
+      errno = ERANGE;
+    else if (ret > 0 && ret < FLT_MIN)
+      errno = ERANGE;
+    else if (ret < 0 && ret > -FLT_MIN)
+      errno = ERANGE;
+  }
+  return ret;
 }

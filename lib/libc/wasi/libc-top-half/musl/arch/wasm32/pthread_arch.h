@@ -1,12 +1,5 @@
-#ifdef _REENTRANT
-#error "multiple threads not supported in musl yet"
-#endif
+extern _Thread_local struct __pthread __wasilibc_pthread_self;
 
-static inline struct pthread *__pthread_self(void)
-{
-  return (struct pthread *)-1;
+static inline uintptr_t __get_tp() {
+  return (uintptr_t)&__wasilibc_pthread_self;
 }
-
-#define TP_ADJ(p) (p)
-
-#define tls_mod_off_t unsigned long long

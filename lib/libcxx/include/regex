@@ -1355,7 +1355,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 unsigned char __to_lower(unsigned char __c)
 {
 #if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
-    return c & 0xBF;
+    return __c & 0xBF;
 #else
     return __c | 0x20;
 #endif

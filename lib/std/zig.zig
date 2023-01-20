@@ -11,6 +11,7 @@ pub const isValidId = fmt.isValidId;
 pub const parse = @import("zig/parse.zig").parse;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
+pub const primitives = @import("zig/primitives.zig");
 pub const Ast = @import("zig/Ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/CrossTarget.zig");
@@ -193,8 +194,8 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
                 target.libPrefix(), root_name,
             }),
         },
-        .nvptx => return std.fmt.allocPrint(allocator, "{s}", .{root_name}),
-        .dxcontainer => @panic("TODO what's the file extension for these?"),
+        .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
+        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 

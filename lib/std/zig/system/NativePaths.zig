@@ -40,6 +40,12 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                     break;
                 };
                 try self.addIncludeDir(include_path);
+            } else if (mem.eql(u8, word, "-iframework")) {
+                const framework_path = it.next() orelse {
+                    try self.addWarning("Expected argument after -iframework in NIX_CFLAGS_COMPILE");
+                    break;
+                };
+                try self.addFrameworkDir(framework_path);
             } else {
                 if (mem.startsWith(u8, word, "-frandom-seed=")) {
                     continue;
@@ -96,7 +102,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         return self;
     }
 
-    if (comptime native_target.os.tag == .solaris) {
+    if (builtin.os.tag == .solaris) {
         try self.addLibDir("/usr/lib/64");
         try self.addLibDir("/usr/local/lib/64");
         try self.addLibDir("/lib/64");
@@ -107,7 +113,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         return self;
     }
 
-    if (native_target.os.tag != .windows) {
+    if (builtin.os.tag != .windows) {
         const triple = try native_target.linuxTriple(allocator);
         defer allocator.free(triple);
 
@@ -135,6 +141,31 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         // zlib.h is in /usr/include (added above)
         // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
         try self.addLibDirFmt("/lib/{s}", .{triple});
+
+        // Distros like guix don't use FHS, so they rely on environment
+        // variables to search for headers and libraries.
+        // We use os.getenv here since this part won't be executed on
+        // windows, to get rid of unnecessary error handling.
+        if (std.os.getenv("C_INCLUDE_PATH")) |c_include_path| {
+            var it = mem.tokenize(u8, c_include_path, ":");
+            while (it.next()) |dir| {
+                try self.addIncludeDir(dir);
+            }
+        }
+
+        if (std.os.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
+            var it = mem.tokenize(u8, cplus_include_path, ":");
+            while (it.next()) |dir| {
+                try self.addIncludeDir(dir);
+            }
+        }
+
+        if (std.os.getenv("LIBRARY_PATH")) |library_path| {
+            var it = mem.tokenize(u8, library_path, ":");
+            while (it.next()) |dir| {
+                try self.addLibDir(dir);
+            }
+        }
     }
 
     return self;

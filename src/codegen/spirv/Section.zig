@@ -36,14 +36,19 @@ pub fn append(section: *Section, allocator: Allocator, other_section: Section) !
     try section.instructions.appendSlice(allocator, other_section.instructions.items);
 }
 
+/// Ensure capacity of at least `capacity` more words in this section.
+pub fn ensureUnusedCapacity(section: *Section, allocator: Allocator, capacity: usize) !void {
+    try section.instructions.ensureUnusedCapacity(allocator, capacity);
+}
+
 /// Write an instruction and size, operands are to be inserted manually.
 pub fn emitRaw(
     section: *Section,
     allocator: Allocator,
     opcode: Opcode,
-    operands: usize, // opcode itself not included
+    operand_words: usize, // opcode itself not included
 ) !void {
-    const word_count = 1 + operands;
+    const word_count = 1 + operand_words;
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
     section.writeWord((@intCast(Word, word_count << 16)) | @enumToInt(opcode));
 }
@@ -96,7 +101,7 @@ pub fn writeWords(section: *Section, words: []const Word) void {
     section.instructions.appendSliceAssumeCapacity(words);
 }
 
-fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
+pub fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
     section.writeWords(&.{
         @truncate(Word, dword),
         @truncate(Word, dword >> @bitSizeOf(Word)),
@@ -111,7 +116,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
     };
 
     inline for (fields) |field| {
-        section.writeOperand(field.field_type, @field(operands, field.name));
+        section.writeOperand(field.type, @field(operands, field.name));
     }
 }
 
@@ -191,7 +196,7 @@ fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDe
 fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand) void {
     var mask: Word = 0;
     inline for (@typeInfo(Operand).Struct.fields) |field, bit| {
-        switch (@typeInfo(field.field_type)) {
+        switch (@typeInfo(field.type)) {
             .Optional => if (@field(operand, field.name) != null) {
                 mask |= 1 << @intCast(u5, bit);
             },
@@ -209,7 +214,7 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
     section.writeWord(mask);
 
     inline for (@typeInfo(Operand).Struct.fields) |field| {
-        switch (@typeInfo(field.field_type)) {
+        switch (@typeInfo(field.type)) {
             .Optional => |info| if (@field(operand, field.name)) |child| {
                 section.writeOperands(info.child, child);
             },
@@ -225,7 +230,7 @@ fn writeExtendedUnion(section: *Section, comptime Operand: type, operand: Operan
 
     inline for (@typeInfo(Operand).Union.fields) |field| {
         if (@field(Operand, field.name) == tag) {
-            section.writeOperands(field.field_type, @field(operand, field.name));
+            section.writeOperands(field.type, @field(operand, field.name));
             return;
         }
     }
@@ -245,7 +250,7 @@ fn operandsSize(comptime Operands: type, operands: Operands) usize {
 
     var total: usize = 0;
     inline for (fields) |field| {
-        total += operandSize(field.field_type, @field(operands, field.name));
+        total += operandSize(field.type, @field(operands, field.name));
     }
 
     return total;
@@ -299,7 +304,7 @@ fn extendedMaskSize(comptime Operand: type, operand: Operand) usize {
     var total: usize = 0;
     var any_set = false;
     inline for (@typeInfo(Operand).Struct.fields) |field| {
-        switch (@typeInfo(field.field_type)) {
+        switch (@typeInfo(field.type)) {
             .Optional => |info| if (@field(operand, field.name)) |child| {
                 total += operandsSize(info.child, child);
                 any_set = true;
@@ -321,15 +326,13 @@ fn extendedUnionSize(comptime Operand: type, operand: Operand) usize {
     inline for (@typeInfo(Operand).Union.fields) |field| {
         if (@field(Operand, field.name) == tag) {
             // Add one for the tag itself.
-            return 1 + operandsSize(field.field_type, @field(operand, field.name));
+            return 1 + operandsSize(field.type, @field(operand, field.name));
         }
     }
     unreachable;
 }
 
 test "SPIR-V Section emit() - no operands" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -339,8 +342,6 @@ test "SPIR-V Section emit() - no operands" {
 }
 
 test "SPIR-V Section emit() - simple" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -357,8 +358,6 @@ test "SPIR-V Section emit() - simple" {
 }
 
 test "SPIR-V Section emit() - string" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -384,8 +383,6 @@ test "SPIR-V Section emit() - string" {
 }
 
 test "SPIR-V Section emit()- extended mask" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -410,8 +407,6 @@ test "SPIR-V Section emit()- extended mask" {
 }
 
 test "SPIR-V Section emit() - extended union" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 

@@ -195,13 +195,8 @@ test "approxEqAbs and approxEqRel" {
     }
 }
 
-pub fn doNotOptimizeAway(value: anytype) void {
-    // TODO: use @declareSideEffect() when it is available.
-    // https://github.com/ziglang/zig/issues/6168
-    const T = @TypeOf(value);
-    var x: T = undefined;
-    const p = @ptrCast(*volatile T, &x);
-    p.* = x;
+pub fn doNotOptimizeAway(val: anytype) void {
+    return mem.doNotOptimizeAway(val);
 }
 
 pub fn raiseInvalid() void {
@@ -285,10 +280,10 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-// Convert an angle in radians to degrees. T must be a float type.
+/// Converts an angle in radians to degrees. T must be a float type.
 pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
-    if (@typeInfo(T) != .Float)
-        @compileError("T must be a float type.");
+    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
+        @compileError("T must be a float type");
     return angle_in_radians * 180.0 / pi;
 }
 
@@ -300,10 +295,10 @@ test "radiansToDegrees" {
     try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(f32, 2.0 * pi), 1e-6);
 }
 
-// Convert an angle in degrees to radians. T must be a float type.
+/// Converts an angle in degrees to radians. T must be a float type.
 pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
-    if (@typeInfo(T) != .Float)
-        @compileError("T must be a float type.");
+    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
+        @compileError("T must be a float type");
     return angle_in_degrees * pi / 180.0;
 }
 
@@ -473,21 +468,26 @@ test "clamp" {
 
 /// Returns the product of a and b. Returns an error on overflow.
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a * b;
+    const ov = @mulWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns the sum of a and b. Returns an error on overflow.
 pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a + b;
-    var answer: T = undefined;
-    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    const ov = @addWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
-    var answer: T = undefined;
-    return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a - b;
+    const ov = @subWithOverflow(a, b);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 pub fn negate(x: anytype) !@TypeOf(x) {
@@ -497,8 +497,10 @@ pub fn negate(x: anytype) !@TypeOf(x) {
 /// Shifts a left by shift_amt. Returns an error on overflow. shift_amt
 /// is unsigned.
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
-    var answer: T = undefined;
-    return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
+    if (T == comptime_int) return a << shift_amt;
+    const ov = @shlWithOverflow(a, shift_amt);
+    if (ov[1] != 0) return error.Overflow;
+    return ov[0];
 }
 
 /// Shifts left. Overflowed bits are truncated.
@@ -528,9 +530,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -574,9 +574,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -598,6 +596,8 @@ test "shr" {
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
+        if (C == u0) return 0;
+
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
@@ -606,18 +606,26 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
-        const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
-        return x >> ar | x << (1 +% ~ar);
+        if (T == u0) return 0;
+
+        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            return x >> ar | x << (1 +% ~ar);
+        } else {
+            const ar = @mod(r, @typeInfo(T).Int.bits);
+            return shr(T, x, ar) | shl(T, x, @typeInfo(T).Int.bits - ar);
+        }
     }
 }
 
 test "rotr" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+    try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
+    try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
+    try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -632,6 +640,8 @@ test "rotr" {
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
+        if (C == u0) return 0;
+
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
@@ -640,18 +650,26 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
-        const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
-        return x << ar | x >> 1 +% ~ar;
+        if (T == u0) return 0;
+
+        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            return x << ar | x >> 1 +% ~ar;
+        } else {
+            const ar = @mod(r, @typeInfo(T).Int.bits);
+            return shl(T, x, ar) | shr(T, x, @typeInfo(T).Int.bits - ar);
+        }
     }
 }
 
 test "rotl" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+    try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
+    try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
+    try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -762,19 +780,35 @@ fn testOverflow() !void {
     try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-/// Returns the absolute value of x, where x is a value of an integer
-/// type.
+/// Returns the absolute value of x, where x is a value of a signed integer type.
+/// See also: `absCast`
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
-    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
-    comptime assert(@typeInfo(T).Int.signedness == .signed); // must pass a signed integer to absInt
-
-    if (x == minInt(@TypeOf(x))) {
-        return error.Overflow;
-    } else {
-        @setRuntimeSafety(false);
-        return if (x < 0) -x else x;
-    }
+    return switch (@typeInfo(T)) {
+        .Int => |info| {
+            comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+            if (x == minInt(T)) {
+                return error.Overflow;
+            } else {
+                @setRuntimeSafety(false);
+                return if (x < 0) -x else x;
+            }
+        },
+        .Vector => |vinfo| blk: {
+            switch (@typeInfo(vinfo.child)) {
+                .Int => |info| {
+                    comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
+                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                        return error.Overflow;
+                    }
+                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    break :blk @select(vinfo.child, x > zero, x, -x);
+                },
+                else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
+            }
+        },
+        else => @compileError("Expected an int or vector, found " ++ @typeName(T)),
+    };
 }
 
 test "absInt" {
@@ -784,6 +818,10 @@ test "absInt" {
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
     try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
+    try testing.expectEqual(@Vector(3, i32){ 10, 10, 0 }, (absInt(@Vector(3, i32){ -10, 10, 0 }) catch unreachable));
+
+    try testing.expectError(error.Overflow, absInt(@as(i32, minInt(i32))));
+    try testing.expectError(error.Overflow, absInt(@Vector(3, i32){ 10, -10, minInt(i32) }));
 }
 
 /// Divide numerator by denominator, rounding toward zero. Returns an
@@ -977,6 +1015,7 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
+/// See also: `absInt`
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
     .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
@@ -1038,10 +1077,11 @@ test "negateCast" {
 /// return null.
 pub fn cast(comptime T: type, x: anytype) ?T {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
-    comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
-    if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
+    const is_comptime = @TypeOf(x) == comptime_int;
+    comptime assert(is_comptime or @typeInfo(@TypeOf(x)) == .Int); // must pass an integer
+    if ((is_comptime or maxInt(@TypeOf(x)) > maxInt(T)) and x > maxInt(T)) {
         return null;
-    } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
+    } else if ((is_comptime or minInt(@TypeOf(x)) < minInt(T)) and x < minInt(T)) {
         return null;
     } else {
         return @intCast(T, x);
@@ -1049,12 +1089,18 @@ pub fn cast(comptime T: type, x: anytype) ?T {
 }
 
 test "cast" {
+    try testing.expect(cast(u8, 300) == null);
     try testing.expect(cast(u8, @as(u32, 300)) == null);
+    try testing.expect(cast(i8, -200) == null);
     try testing.expect(cast(i8, @as(i32, -200)) == null);
+    try testing.expect(cast(u8, -1) == null);
     try testing.expect(cast(u8, @as(i8, -1)) == null);
+    try testing.expect(cast(u64, -1) == null);
     try testing.expect(cast(u64, @as(i8, -1)) == null);
 
+    try testing.expect(cast(u8, 255).? == @as(u8, 255));
     try testing.expect(cast(u8, @as(u32, 255)).? == @as(u8, 255));
+    try testing.expect(@TypeOf(cast(u8, 255).?) == u8);
     try testing.expect(@TypeOf(cast(u8, @as(u32, 255)).?) == u8);
 }
 
@@ -1434,6 +1480,19 @@ pub const CompareOperator = enum {
     gt,
     /// Not equal (`!=`)
     neq,
+
+    /// Reverse the direction of the comparison.
+    /// Use when swapping the left and right hand operands.
+    pub fn reverse(op: CompareOperator) CompareOperator {
+        return switch (op) {
+            .lt => .gt,
+            .lte => .gte,
+            .gt => .lt,
+            .gte => .lte,
+            .eq => .eq,
+            .neq => .neq,
+        };
+    }
 };
 
 /// This function does the same thing as comparison operators, however the
@@ -1491,6 +1550,15 @@ test "order.compare" {
     try testing.expect(order(1, 0).compare(.gte));
     try testing.expect(order(1, 0).compare(.gt));
     try testing.expect(order(1, 0).compare(.neq));
+}
+
+test "compare.reverse" {
+    inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
+        const op = @intToEnum(CompareOperator, op_field.value);
+        try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
+        try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
+        try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
+    }
 }
 
 /// Returns a mask of all ones if value is true,
@@ -1564,9 +1632,8 @@ pub fn break_f80(x: f80) F80 {
 }
 
 /// Returns -1, 0, or 1.
-/// Supports integer types, vectors of integer types, and float types.
+/// Supports integer and float types and vectors of integer and float types.
 /// Unsigned integer types will always return 0 or 1.
-/// TODO: support vectors of floats
 /// Branchless.
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
@@ -1574,15 +1641,14 @@ pub inline fn sign(i: anytype) @TypeOf(i) {
         .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @boolToInt(i < 0),
         .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
         .Vector => |vinfo| blk: {
-            const u1xN = std.meta.Vector(vinfo.len, u1);
-            break :blk switch (@typeInfo(vinfo.child)) {
-                .Int => @as(T, @bitCast(u1xN, i > @splat(vinfo.len, @as(vinfo.child, 0)))) -
-                    @as(T, @bitCast(u1xN, i < @splat(vinfo.len, @as(vinfo.child, 0)))),
-                .Float => @compileError("TODO: add support for vectors of floats once @intToFloat accepts vector types"),
-                // break :blk @intToFloat(T, @bitCast(u1xN, i > @splat(vinfo.len, @as(vinfo.child, 0)))) -
-                //     @intToFloat(T, @bitCast(u1xN, i < @splat(vinfo.len, @as(vinfo.child, 0)))),
+            switch (@typeInfo(vinfo.child)) {
+                .Int, .Float => {
+                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    const one = @splat(vinfo.len, @as(vinfo.child, 1));
+                    break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
+                },
                 else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),
-            };
+            }
         },
         else => @compileError("Expected an int, float or vector of one, found " ++ @typeName(T)),
     };
@@ -1637,24 +1703,21 @@ fn testSign() !void {
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
     {
         const T = f32;
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
     {
         const T = f64;
         try std.testing.expectEqual(@as(T, 1), sign(@as(T, 2)));
         try std.testing.expectEqual(@as(T, -1), sign(@as(T, -2)));
         try std.testing.expectEqual(@as(T, 0), sign(@as(T, 0)));
-        // TODO - uncomment once @intToFloat supports vectors
-        // try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
+        try std.testing.expectEqual(@Vector(3, T){ 1, -1, 0 }, sign(@Vector(3, T){ 2, -2, 0 }));
     }
 
     // comptime_int
@@ -1668,7 +1731,7 @@ fn testSign() !void {
 }
 
 test "sign" {
-    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }

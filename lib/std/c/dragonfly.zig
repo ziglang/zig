@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 
@@ -12,8 +13,9 @@ pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-pub const dl_iterate_phdr_callback = std.meta.FnPtr(fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int);
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn lwp_gettid() c_int;
@@ -234,6 +236,7 @@ pub const SA = struct {
 };
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 255;
 pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const ino_t = c_ulong;
@@ -418,6 +421,7 @@ pub const F = struct {
     pub const DUP2FD = 10;
     pub const DUPFD_CLOEXEC = 17;
     pub const DUP2FD_CLOEXEC = 18;
+    pub const GETPATH = 19;
 };
 
 pub const FD_CLOEXEC = 1;
@@ -475,11 +479,20 @@ pub const CLOCK = struct {
 
 pub const sockaddr = extern struct {
     len: u8,
-    family: u8,
+    family: sa_family_t,
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -680,8 +693,8 @@ pub const empty_sigset = sigset_t{ .__bits = [_]c_uint{0} ** _SIG_WORDS };
 pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {

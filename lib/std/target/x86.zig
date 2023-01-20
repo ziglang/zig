@@ -2723,7 +2723,6 @@ pub const cpu = struct {
             .avx512vbmi,
             .avx512vbmi2,
             .avx512vnni,
-            .avx512vp2intersect,
             .avx512vpopcntdq,
             .avxvnni,
             .bmi,

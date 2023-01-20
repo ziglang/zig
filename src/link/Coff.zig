@@ -24,6 +24,7 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
 const Object = @import("Coff/Object.zig");
+const Relocation = @import("Coff/Relocation.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const TypedValue = @import("../TypedValue.zig");
 
@@ -123,36 +124,11 @@ const Entry = struct {
     sym_index: u32,
 };
 
-pub const Reloc = struct {
-    @"type": enum {
-        got,
-        direct,
-        import,
-    },
-    target: SymbolWithLoc,
-    offset: u32,
-    addend: u32,
-    pcrel: bool,
-    length: u2,
-    dirty: bool = true,
-
-    /// Returns an Atom which is the target node of this relocation edge (if any).
-    fn getTargetAtom(self: Reloc, coff_file: *Coff) ?*Atom {
-        switch (self.@"type") {
-            .got => return coff_file.getGotAtomForSymbol(self.target),
-            .direct => return coff_file.getAtomForSymbol(self.target),
-            .import => return coff_file.getImportAtomForSymbol(self.target),
-        }
-    }
-};
-
-const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Reloc));
+const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
 
 const default_file_alignment: u16 = 0x200;
-const default_image_base_dll: u64 = 0x10000000;
-const default_image_base_exe: u64 = 0x400000;
 const default_size_of_stack_reserve: u32 = 0x1000000;
 const default_size_of_stack_commit: u32 = 0x1000;
 const default_size_of_heap_reserve: u32 = 0x100000;
@@ -272,8 +248,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.have_stage1 and options.use_stage1;
-    if (use_llvm and !use_stage1) {
+    if (use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
@@ -314,6 +289,7 @@ pub fn deinit(self: *Coff) void {
 
     self.unresolved.deinit(gpa);
     self.locals_free_list.deinit(gpa);
+    self.globals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got_entries.deinit(gpa);
     self.got_entries_free_list.deinit(gpa);
@@ -361,7 +337,7 @@ fn populateMissingMetadata(self: *Coff) !void {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     });
@@ -609,7 +585,7 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
             self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
         }
 
-        header.virtual_size = @maximum(header.virtual_size, needed_size);
+        header.virtual_size = @max(header.virtual_size, needed_size);
         header.size_of_raw_data = needed_size;
         maybe_last_atom.* = atom;
     }
@@ -659,7 +635,7 @@ fn allocateSymbol(self: *Coff) !u32 {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     };
@@ -754,7 +730,7 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     log.debug("allocated GOT atom at 0x{x}", .{sym.value});
 
     try atom.addRelocation(self, .{
-        .@"type" = .direct,
+        .type = .direct,
         .target = target,
         .offset = 0,
         .addend = 0,
@@ -857,54 +833,12 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
 
 fn resolveRelocs(self: *Coff, atom: *Atom) !void {
     const relocs = self.relocs.get(atom) orelse return;
-    const source_sym = atom.getSymbol(self);
-    const source_section = self.sections.get(@enumToInt(source_sym.section_number) - 1).header;
-    const file_offset = source_section.pointer_to_raw_data + source_sym.value - source_section.virtual_address;
 
     log.debug("relocating '{s}'", .{atom.getName(self)});
 
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
-
-        const target_atom = reloc.getTargetAtom(self) orelse continue;
-        const target_vaddr = target_atom.getSymbol(self).value;
-        const target_vaddr_with_addend = target_vaddr + reloc.addend;
-
-        log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{
-            source_sym.value + reloc.offset,
-            target_vaddr_with_addend,
-            self.getSymbolName(reloc.target),
-            @tagName(reloc.@"type"),
-            file_offset + reloc.offset,
-        });
-
-        reloc.dirty = false;
-
-        if (reloc.pcrel) {
-            const source_vaddr = source_sym.value + reloc.offset;
-            const disp =
-                @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
-            try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
-            continue;
-        }
-
-        switch (self.ptr_width) {
-            .p32 => try self.base.file.?.pwriteAll(
-                mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
-                file_offset + reloc.offset,
-            ),
-            .p64 => switch (reloc.length) {
-                2 => try self.base.file.?.pwriteAll(
-                    mem.asBytes(&@truncate(u32, target_vaddr_with_addend + default_image_base_exe)),
-                    file_offset + reloc.offset,
-                ),
-                3 => try self.base.file.?.pwriteAll(
-                    mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
-                    file_offset + reloc.offset,
-                ),
-                else => unreachable,
-            },
-        }
+        try reloc.resolve(atom, self);
     }
 }
 
@@ -1004,9 +938,9 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
 
     try self.updateDeclCode(decl_index, code, .FUNCTION);
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -1119,9 +1053,9 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
 
     try self.updateDeclCode(decl_index, code, .NULL);
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl_index, decl_exports);
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
 fn getDeclOutputSection(self: *Coff, decl: *Module.Decl) u16 {
@@ -1172,7 +1106,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
         sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
-        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+        sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(self);
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
@@ -1197,7 +1131,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
         sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
-        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+        sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom, code_len, required_alignment);
         errdefer self.freeAtom(atom);
@@ -1217,8 +1151,10 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
 }
 
 fn freeRelocationsForAtom(self: *Coff, atom: *Atom) void {
-    _ = self.relocs.remove(atom);
-    _ = self.base_relocs.remove(atom);
+    var removed_relocs = self.relocs.fetchRemove(atom);
+    if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
+    var removed_base_relocs = self.base_relocs.fetchRemove(atom);
+    if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(self.base.allocator);
 }
 
 fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
@@ -1294,7 +1230,7 @@ pub fn updateDeclExports(
             const exported_decl = module.declPtr(exp.exported_decl);
             if (exported_decl.getFunction() == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
-                .i386 => std.builtin.CallingConvention.Stdcall,
+                .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
             const decl_cc = exported_decl.ty.fnCallingConvention();
@@ -1373,7 +1309,7 @@ pub fn updateDeclExports(
         try self.setSymbolName(sym, exp.options.name);
         sym.value = decl_sym.value;
         sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
-        sym.@"type" = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+        sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
         switch (exp.options.linkage) {
             .Strong => {
@@ -1403,7 +1339,7 @@ pub fn deleteExport(self: *Coff, exp: Export) void {
         .name = [_]u8{0} ** 8,
         .value = 0,
         .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .type = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
     };
@@ -1442,7 +1378,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
@@ -1461,7 +1397,7 @@ pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !vo
     }
 }
 
-pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1531,7 +1467,7 @@ pub fn getDeclVAddr(
     const atom = self.getAtomForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = decl.link.coff.sym_index, .file = null };
     try atom.addRelocation(self, .{
-        .@"type" = .direct,
+        .type = .direct,
         .target = target,
         .offset = @intCast(u32, reloc_info.offset),
         .addend = reloc_info.addend,
@@ -1556,9 +1492,8 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     gop.value_ptr.* = sym_loc;
 
     const gpa = self.base.allocator;
-    const sym_name = try gpa.dupe(u8, name);
     const sym = self.getSymbolPtr(sym_loc);
-    try self.setSymbolName(sym, sym_name);
+    try self.setSymbolName(sym, name);
     sym.storage_class = .EXTERNAL;
 
     try self.unresolved.putNoClobber(gpa, global_index, true);
@@ -1603,7 +1538,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             }
             try gop.value_ptr.append(.{
                 .offset = @intCast(u12, rva - page),
-                .@"type" = .DIR64,
+                .type = .DIR64,
             });
         }
     }
@@ -1621,7 +1556,7 @@ fn writeBaseRelocations(self: *Coff) !void {
         )) {
             try entry.value_ptr.append(.{
                 .offset = 0,
-                .@"type" = .ABSOLUTE,
+                .type = .ABSOLUTE,
             });
         }
 
@@ -1657,7 +1592,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             try self.growSectionVM(self.reloc_section_index.?, needed_size);
         }
     }
-    header.virtual_size = @maximum(header.virtual_size, needed_size);
+    header.virtual_size = @max(header.virtual_size, needed_size);
     header.size_of_raw_data = needed_size;
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
@@ -1831,11 +1766,7 @@ fn writeHeader(self: *Coff) !void {
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
     const size_of_headers: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), default_file_alignment);
-    const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
-        .Exe => default_image_base_exe,
-        .Lib => default_image_base_dll,
-        else => unreachable,
-    };
+    const image_base = self.getImageBase();
 
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
     const base_of_data = self.sections.get(self.data_section_index.?).header.virtual_address;
@@ -1931,13 +1862,11 @@ fn writeHeader(self: *Coff) !void {
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
-    // TODO https://github.com/ziglang/zig/issues/1284
-    return math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
-        math.maxInt(@TypeOf(actual_size));
+    return actual_size +| (actual_size / ideal_factor);
 }
 
 fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
-    const headers_size = @maximum(self.getSizeOfHeaders(), self.page_size);
+    const headers_size = @max(self.getSizeOfHeaders(), self.page_size);
     if (start < headers_size)
         return headers_size;
 
@@ -2040,6 +1969,19 @@ pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
     const entry_name = self.base.options.entry orelse "wWinMainCRTStartup"; // TODO this is incomplete
     const global_index = self.resolver.get(entry_name) orelse return null;
     return self.globals.items[global_index];
+}
+
+pub fn getImageBase(self: Coff) u64 {
+    const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
+        .Exe => switch (self.base.options.target.cpu.arch) {
+            .aarch64 => @as(u64, 0x140000000),
+            .x86_64, .x86 => 0x400000,
+            else => unreachable, // unsupported target architecture
+        },
+        .Lib => 0x10000000,
+        .Obj => 0,
+    };
+    return image_base;
 }
 
 /// Returns pointer-to-symbol described by `sym_loc` descriptor.

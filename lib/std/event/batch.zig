@@ -17,7 +17,7 @@ pub fn Batch(
     comptime async_behavior: enum {
         /// Observe the value of `std.io.is_async` to decide whether `add`
         /// and `wait` will be async functions. Asserts that the jobs do not suspend when
-        /// `std.io.mode == .blocking`. This is a generally safe assumption, and the
+        /// `std.options.io_mode == .blocking`. This is a generally safe assumption, and the
         /// usual recommended option for this parameter.
         auto_async,
 
@@ -109,7 +109,7 @@ pub fn Batch(
 }
 
 test "std.event.Batch" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
     var count: usize = 0;
     var batch = Batch(void, 2, .auto_async).init();
     batch.add(&async sleepALittle(&count));

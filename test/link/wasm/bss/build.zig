@@ -11,8 +11,8 @@ pub fn build(b: *Builder) void {
     lib.setBuildMode(mode);
     lib.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     lib.use_llvm = false;
-    lib.use_stage1 = false;
     lib.use_lld = false;
+    lib.strip = false;
     // to make sure the bss segment is emitted, we must import memory
     lib.import_memory = true;
     lib.install();
@@ -26,8 +26,7 @@ pub fn build(b: *Builder) void {
     check_lib.checkNext("name memory"); // as per linker specification
 
     // since we are importing memory, ensure it's not exported
-    check_lib.checkStart("Section export");
-    check_lib.checkNext("entries 1"); // we're exporting function 'foo' so only 1 entry
+    check_lib.checkNotPresent("Section export");
 
     // validate the name of the stack pointer
     check_lib.checkStart("Section custom");

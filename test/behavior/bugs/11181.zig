@@ -1,8 +1,6 @@
 const builtin = @import("builtin");
 
 test "const inferred array of slices" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const T = struct { v: bool };
 
     const decls = [_][]const T{
@@ -14,7 +12,7 @@ test "const inferred array of slices" {
 }
 
 test "var inferred array of slices" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = struct { v: bool };
 

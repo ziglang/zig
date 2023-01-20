@@ -1,5 +1,6 @@
 #include "pthread_impl.h"
 
+#ifdef __wasilibc_unmodified_upstream
 #define IS32BIT(x) !((x)+0x80000000ULL>>32)
 #define CLAMP(x) (int)(IS32BIT(x) ? (x) : 0x7fffffffU+((0ULL+(x))>>63))
 
@@ -52,6 +53,7 @@ static int pthread_mutex_timedlock_pi(pthread_mutex_t *restrict m, const struct 
 	while (e != ETIMEDOUT);
 	return e;
 }
+#endif
 
 int __pthread_mutex_timedlock(pthread_mutex_t *restrict m, const struct timespec *restrict at)
 {
@@ -65,8 +67,10 @@ int __pthread_mutex_timedlock(pthread_mutex_t *restrict m, const struct timespec
 	r = __pthread_mutex_trylock(m);
 	if (r != EBUSY) return r;
 
+#ifdef __wasilibc_unmodified_upstream
 	if (type&8) return pthread_mutex_timedlock_pi(m, at);
-	
+#endif
+
 	int spins = 100;
 	while (spins-- && m->_m_lock && !m->_m_waiters) a_spin();
 

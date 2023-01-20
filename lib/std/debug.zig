@@ -93,15 +93,6 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
-/// Indicates code that is unfinshed. It will throw a compiler error by default in Release mode.
-/// This behaviour can be controlled with `root.allow_todo_in_release`.
-pub fn todo(comptime desc: []const u8) noreturn {
-    if (builtin.mode != .Debug and !(@hasDecl(root, "allow_todo_in_release") and root.allow_todo_in_release)) {
-        @compileError("TODO: " ++ desc);
-    }
-    @panic("TODO: " ++ desc);
-}
-
 pub fn getStderrMutex() *std.Thread.Mutex {
     return &stderr_mutex;
 }
@@ -118,21 +109,29 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
-pub fn detectTTYConfig() TTY.Config {
-    if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
+pub fn detectTTYConfig(file: std.fs.File) TTY.Config {
+    if (builtin.os.tag == .wasi) {
+        // Per https://github.com/WebAssembly/WASI/issues/162 ANSI codes
+        // aren't currently supported.
+        return .no_color;
+    } else if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
         return .escape_codes;
     } else if (process.hasEnvVarConstant("NO_COLOR")) {
         return .no_color;
-    } else {
-        const stderr_file = io.getStdErr();
-        if (stderr_file.supportsAnsiEscapeCodes()) {
-            return .escape_codes;
-        } else if (native_os == .windows and stderr_file.isTty()) {
-            return .windows_api;
-        } else {
+    } else if (file.supportsAnsiEscapeCodes()) {
+        return .escape_codes;
+    } else if (native_os == .windows and file.isTty()) {
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+            // TODO: Should this return an error instead?
             return .no_color;
         }
+        return .{ .windows_api = .{
+            .handle = file.handle,
+            .reset_attributes = info.wAttributes,
+        } };
     }
+    return .no_color;
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
@@ -155,7 +154,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
+        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -183,11 +182,17 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = detectTTYConfig();
+        const tty_config = detectTTYConfig(io.getStdErr());
         printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
         var it = StackIterator.init(null, bp);
         while (it.next()) |return_address| {
-            printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
+            // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
+            // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
+            // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
+            // condition on the subsequent iteration and return `null` thus terminating the loop.
+            // same behaviour for x86-windows-msvc
+            const address = if (return_address == 0) return_address else return_address - 1;
+            printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
         }
     }
 }
@@ -202,17 +207,12 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const first_addr = first_address orelse {
-            stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
-                0,
-                @intCast(u32, addrs.len),
-                @ptrCast(**anyopaque, addrs.ptr),
-                null,
-            );
+            stack_trace.index = walkStackWindows(addrs[0..]);
             return;
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = windows.ntdll.RtlCaptureStackBackTrace(0, @intCast(u32, addr_buf.len), @ptrCast(**anyopaque, addr_buf.ptr), null);
+        const n = walkStackWindows(addr_buf[0..]);
         const first_index = for (addr_buf[0..n]) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -260,7 +260,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
+        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig(io.getStdErr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -387,14 +387,6 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
     os.abort();
 }
 
-const RED = "\x1b[31;1m";
-const GREEN = "\x1b[32;1m";
-const CYAN = "\x1b[36;1m";
-const WHITE = "\x1b[37;1m";
-const BOLD = "\x1b[1m";
-const DIM = "\x1b[2m";
-const RESET = "\x1b[0m";
-
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
@@ -413,6 +405,14 @@ pub fn writeStackTrace(
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
         try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
+    }
+
+    if (stack_trace.index > stack_trace.instruction_addresses.len) {
+        const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
+
+        tty_config.setColor(out_stream, .Bold) catch {};
+        try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
+        tty_config.setColor(out_stream, .Reset) catch {};
     }
 }
 
@@ -563,9 +563,52 @@ pub fn writeCurrentStackTrace(
         // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
         // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
         // condition on the subsequent iteration and return `null` thus terminating the loop.
+        // same behaviour for x86-windows-msvc
         const address = if (return_address == 0) return_address else return_address - 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
     }
+}
+
+pub noinline fn walkStackWindows(addresses: []usize) usize {
+    if (builtin.cpu.arch == .x86) {
+        // RtlVirtualUnwind doesn't exist on x86
+        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
+    }
+
+    const tib = @ptrCast(*const windows.NT_TIB, &windows.teb().Reserved1);
+
+    var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
+    windows.ntdll.RtlCaptureContext(&context);
+
+    var i: usize = 0;
+    var image_base: usize = undefined;
+    var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
+
+    while (i < addresses.len) : (i += 1) {
+        const current_regs = context.getRegs();
+        if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
+            var handler_data: ?*anyopaque = null;
+            var establisher_frame: u64 = undefined;
+            _ = windows.ntdll.RtlVirtualUnwind(windows.UNW_FLAG_NHANDLER, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
+        } else {
+            // leaf function
+            context.setIp(@intToPtr(*u64, current_regs.sp).*);
+            context.setSp(current_regs.sp + @sizeOf(usize));
+        }
+
+        const next_regs = context.getRegs();
+        if (next_regs.sp < @ptrToInt(tib.StackLimit) or next_regs.sp > @ptrToInt(tib.StackBase)) {
+            break;
+        }
+
+        if (next_regs.ip == 0) {
+            break;
+        }
+
+        addresses[i] = next_regs.ip;
+    }
+
+    return i;
 }
 
 pub fn writeCurrentStackTraceWindows(
@@ -575,7 +618,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**anyopaque, &addr_buf), null);
+    const n = walkStackWindows(addr_buf[0..]);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
@@ -599,59 +642,41 @@ pub const TTY = struct {
         Reset,
     };
 
-    pub const Config = enum {
+    pub const Config = union(enum) {
         no_color,
         escape_codes,
-        // TODO give this a payload of file handle
-        windows_api,
+        windows_api: if (native_os == .windows) WindowsContext else void,
 
-        pub fn setColor(conf: Config, out_stream: anytype, color: Color) void {
+        pub const WindowsContext = struct {
+            handle: File.Handle,
+            reset_attributes: u16,
+        };
+
+        pub fn setColor(conf: Config, out_stream: anytype, color: Color) !void {
             nosuspend switch (conf) {
                 .no_color => return,
-                .escape_codes => switch (color) {
-                    .Red => out_stream.writeAll(RED) catch return,
-                    .Green => out_stream.writeAll(GREEN) catch return,
-                    .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White => out_stream.writeAll(WHITE) catch return,
-                    .Dim => out_stream.writeAll(DIM) catch return,
-                    .Bold => out_stream.writeAll(BOLD) catch return,
-                    .Reset => out_stream.writeAll(RESET) catch return,
-                },
-                .windows_api => if (native_os == .windows) {
-                    const stderr_file = io.getStdErr();
-                    const S = struct {
-                        var attrs: windows.WORD = undefined;
-                        var init_attrs = false;
+                .escape_codes => {
+                    const color_string = switch (color) {
+                        .Red => "\x1b[31;1m",
+                        .Green => "\x1b[32;1m",
+                        .Cyan => "\x1b[36;1m",
+                        .White => "\x1b[37;1m",
+                        .Bold => "\x1b[1m",
+                        .Dim => "\x1b[2m",
+                        .Reset => "\x1b[0m",
                     };
-                    if (!S.init_attrs) {
-                        S.init_attrs = true;
-                        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-                        // TODO handle error
-                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-                        S.attrs = info.wAttributes;
-                    }
-
-                    // TODO handle errors
-                    switch (color) {
-                        .Red => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Green => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Cyan => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .White, .Bold => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Dim => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Reset => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
-                        },
-                    }
+                    try out_stream.writeAll(color_string);
+                },
+                .windows_api => |ctx| if (native_os == .windows) {
+                    const attributes = switch (color) {
+                        .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
+                        .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .Dim => windows.FOREGROUND_INTENSITY,
+                        .Reset => ctx.reset_attributes,
+                    };
+                    try windows.SetConsoleTextAttribute(ctx.handle, attributes);
                 } else {
                     unreachable;
                 },
@@ -745,7 +770,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .Bold);
+        try tty_config.setColor(out_stream, .Bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -753,11 +778,11 @@ fn printLineInfo(
             try out_stream.writeAll("???:?:?");
         }
 
-        tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll(": ");
-        tty_config.setColor(out_stream, .Dim);
+        try tty_config.setColor(out_stream, .Dim);
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll("\n");
 
         // Show the matching source code line if possible
@@ -768,9 +793,9 @@ fn printLineInfo(
                     const space_needed = @intCast(usize, li.column - 1);
 
                     try out_stream.writeByteNTimes(' ', space_needed);
-                    tty_config.setColor(out_stream, .Green);
+                    try tty_config.setColor(out_stream, .Green);
                     try out_stream.writeAll("^");
-                    tty_config.setColor(out_stream, .Reset);
+                    try tty_config.setColor(out_stream, .Reset);
                 }
                 try out_stream.writeAll("\n");
             } else |err| switch (err) {
@@ -783,14 +808,12 @@ fn printLineInfo(
     }
 }
 
-// TODO use this
 pub const OpenSelfDebugInfoError = error{
     MissingDebugInfo,
-    OutOfMemory,
     UnsupportedOperatingSystem,
-};
+} || @typeInfo(@typeInfo(@TypeOf(DebugInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
 
-pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
+pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugInfo {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
@@ -804,60 +827,56 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
             .dragonfly,
             .openbsd,
             .macos,
-            .windows,
             .solaris,
-            => return DebugInfo.init(allocator),
-            else => return error.UnsupportedDebugInfo,
+            .windows,
+            => return try DebugInfo.init(allocator),
+            else => return error.UnsupportedOperatingSystem,
         }
     }
 }
 
-/// This takes ownership of coff_file: users of this function should not close
-/// it themselves, even on error.
-/// TODO it's weird to take ownership even on error, rework this code.
-fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo {
+fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDebugInfo {
     nosuspend {
-        defer coff_file.close();
-
         const coff_obj = try allocator.create(coff.Coff);
-        errdefer allocator.destroy(coff_obj);
-        coff_obj.* = .{ .allocator = allocator };
+        defer allocator.destroy(coff_obj);
+        coff_obj.* = try coff.Coff.init(coff_bytes);
 
         var di = ModuleDebugInfo{
             .base_address = undefined,
-            .coff = coff_obj,
+            .coff_image_base = coff_obj.getImageBase(),
+            .coff_section_headers = undefined,
             .debug_data = undefined,
         };
 
-        // TODO convert to Windows' memory-mapped file API
-        const file_len = math.cast(usize, try coff_file.getEndPos()) orelse math.maxInt(usize);
-        const data = try coff_file.readToEndAlloc(allocator, file_len);
-        try di.coff.parse(data);
-
-        if (di.coff.getSectionByName(".debug_info")) |sec| {
+        if (coff_obj.getSectionByName(".debug_info")) |sec| {
             // This coff file has embedded DWARF debug info
             _ = sec;
-            // TODO: free the section data slices
-            const debug_info = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
-            const debug_abbrev = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
-            const debug_str = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
-            const debug_str_offsets = di.coff.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
-            const debug_line = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
-            const debug_line_str = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
-            const debug_ranges = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
-            const debug_loclists = di.coff.getSectionDataAlloc(".debug_loclists", allocator) catch null;
-            const debug_rnglists = di.coff.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
-            const debug_addr = di.coff.getSectionDataAlloc(".debug_addr", allocator) catch null;
-            const debug_names = di.coff.getSectionDataAlloc(".debug_names", allocator) catch null;
-            const debug_frame = di.coff.getSectionDataAlloc(".debug_frame", allocator) catch null;
+
+            const debug_info = coff_obj.getSectionDataAlloc(".debug_info", allocator) catch return error.MissingDebugInfo;
+            errdefer allocator.free(debug_info);
+            const debug_abbrev = coff_obj.getSectionDataAlloc(".debug_abbrev", allocator) catch return error.MissingDebugInfo;
+            errdefer allocator.free(debug_abbrev);
+            const debug_str = coff_obj.getSectionDataAlloc(".debug_str", allocator) catch return error.MissingDebugInfo;
+            errdefer allocator.free(debug_str);
+            const debug_line = coff_obj.getSectionDataAlloc(".debug_line", allocator) catch return error.MissingDebugInfo;
+            errdefer allocator.free(debug_line);
+
+            const debug_str_offsets = coff_obj.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
+            const debug_line_str = coff_obj.getSectionDataAlloc(".debug_line_str", allocator) catch null;
+            const debug_ranges = coff_obj.getSectionDataAlloc(".debug_ranges", allocator) catch null;
+            const debug_loclists = coff_obj.getSectionDataAlloc(".debug_loclists", allocator) catch null;
+            const debug_rnglists = coff_obj.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
+            const debug_addr = coff_obj.getSectionDataAlloc(".debug_addr", allocator) catch null;
+            const debug_names = coff_obj.getSectionDataAlloc(".debug_names", allocator) catch null;
+            const debug_frame = coff_obj.getSectionDataAlloc(".debug_frame", allocator) catch null;
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
-                .debug_info = debug_info orelse return error.MissingDebugInfo,
-                .debug_abbrev = debug_abbrev orelse return error.MissingDebugInfo,
-                .debug_str = debug_str orelse return error.MissingDebugInfo,
+                .debug_info = debug_info,
+                .debug_abbrev = debug_abbrev,
+                .debug_str = debug_str,
                 .debug_str_offsets = debug_str_offsets,
-                .debug_line = debug_line orelse return error.MissingDebugInfo,
+                .debug_line = debug_line,
                 .debug_line_str = debug_line_str,
                 .debug_ranges = debug_ranges,
                 .debug_loclists = debug_loclists,
@@ -866,13 +885,28 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
                 .debug_names = debug_names,
                 .debug_frame = debug_frame,
             };
-            try DW.openDwarfDebugInfo(&dwarf, allocator);
+
+            DW.openDwarfDebugInfo(&dwarf, allocator) catch |err| {
+                if (debug_str_offsets) |d| allocator.free(d);
+                if (debug_line_str) |d| allocator.free(d);
+                if (debug_ranges) |d| allocator.free(d);
+                if (debug_loclists) |d| allocator.free(d);
+                if (debug_rnglists) |d| allocator.free(d);
+                if (debug_addr) |d| allocator.free(d);
+                if (debug_names) |d| allocator.free(d);
+                if (debug_frame) |d| allocator.free(d);
+                return err;
+            };
+
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
             return di;
         }
 
+        // Only used by pdb path
+        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
+
         var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try di.coff.getPdbPath(path_buf[0..]);
+        const len = try coff_obj.getPdbPath(path_buf[0..]);
         const raw_path = path_buf[0..len];
 
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
@@ -886,7 +920,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         try di.debug_data.pdb.parseInfoStream();
         try di.debug_data.pdb.parseDbiStream();
 
-        if (!mem.eql(u8, &di.coff.guid, &di.debug_data.pdb.guid) or di.coff.age != di.debug_data.pdb.age)
+        if (!mem.eql(u8, &coff_obj.guid, &di.debug_data.pdb.guid) or coff_obj.age != di.debug_data.pdb.age)
             return error.InvalidDebugInfo;
 
         return di;
@@ -1104,9 +1138,14 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
             else => {},
         }
     }
-    assert(state == .oso_close);
 
-    const symbols = allocator.shrink(symbols_buf, symbol_index);
+    switch (state) {
+        .init => return error.MissingDebugInfo,
+        .oso_close => {},
+        else => return error.InvalidDebugInfo,
+    }
+
+    const symbols = try allocator.realloc(symbols_buf, symbol_index);
 
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.
@@ -1138,7 +1177,10 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
 
         for (slice) |byte| {
             if (line == line_info.line) {
-                try out_stream.writeByte(byte);
+                switch (byte) {
+                    '\t' => try out_stream.writeByte(' '),
+                    else => try out_stream.writeByte(byte),
+                }
                 if (byte == '\n') {
                     return;
                 }
@@ -1194,15 +1236,49 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     }
 }
 
+pub const ModuleInfo = struct {
+    base_address: usize,
+    size: u32,
+};
+
 pub const DebugInfo = struct {
     allocator: mem.Allocator,
     address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
+    modules: if (native_os == .windows) std.ArrayListUnmanaged(ModuleInfo) else void,
 
-    pub fn init(allocator: mem.Allocator) DebugInfo {
-        return DebugInfo{
+    pub fn init(allocator: mem.Allocator) !DebugInfo {
+        var debug_info = DebugInfo{
             .allocator = allocator,
             .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
+            .modules = if (native_os == .windows) .{} else {},
         };
+
+        if (native_os == .windows) {
+            const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
+            if (handle == windows.INVALID_HANDLE_VALUE) {
+                switch (windows.kernel32.GetLastError()) {
+                    else => |err| return windows.unexpectedError(err),
+                }
+            }
+
+            defer windows.CloseHandle(handle);
+
+            var module_entry: windows.MODULEENTRY32 = undefined;
+            module_entry.dwSize = @sizeOf(windows.MODULEENTRY32);
+            if (windows.kernel32.Module32First(handle, &module_entry) == 0) {
+                return error.MissingDebugInfo;
+            }
+
+            var module_valid = true;
+            while (module_valid) {
+                const module_info = try debug_info.modules.addOne(allocator);
+                module_info.base_address = @ptrToInt(module_entry.modBaseAddr);
+                module_info.size = module_entry.modBaseSize;
+                module_valid = windows.kernel32.Module32Next(handle, &module_entry) == 1;
+            }
+        }
+
+        return debug_info;
     }
 
     pub fn deinit(self: *DebugInfo) void {
@@ -1213,10 +1289,17 @@ pub const DebugInfo = struct {
             self.allocator.destroy(mdi);
         }
         self.address_map.deinit();
+        if (native_os == .windows) self.modules.deinit(self.allocator);
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (comptime builtin.target.isDarwin()) {
+        if (builtin.zig_backend == .stage2_c) {
+            return @as(error{
+                InvalidDebugInfo,
+                MissingDebugInfo,
+                UnsupportedBackend,
+            }, error.UnsupportedBackend);
+        } else if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleDyld(address);
         } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);
@@ -1285,79 +1368,20 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        const process_handle = windows.kernel32.GetCurrentProcess();
-
-        // Find how many modules are actually loaded
-        var dummy: windows.HMODULE = undefined;
-        var bytes_needed: windows.DWORD = undefined;
-        if (windows.kernel32.K32EnumProcessModules(
-            process_handle,
-            @ptrCast([*]windows.HMODULE, &dummy),
-            0,
-            &bytes_needed,
-        ) == 0)
-            return error.MissingDebugInfo;
-
-        const needed_modules = bytes_needed / @sizeOf(windows.HMODULE);
-
-        // Fetch the complete module list
-        var modules = try self.allocator.alloc(windows.HMODULE, needed_modules);
-        defer self.allocator.free(modules);
-        if (windows.kernel32.K32EnumProcessModules(
-            process_handle,
-            modules.ptr,
-            math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)) orelse return error.Overflow,
-            &bytes_needed,
-        ) == 0)
-            return error.MissingDebugInfo;
-
-        // There's an unavoidable TOCTOU problem here, the module list may have
-        // changed between the two EnumProcessModules call.
-        // Pick the smallest amount of elements to avoid processing garbage.
-        const needed_modules_after = bytes_needed / @sizeOf(windows.HMODULE);
-        const loaded_modules = math.min(needed_modules, needed_modules_after);
-
-        for (modules[0..loaded_modules]) |module| {
-            var info: windows.MODULEINFO = undefined;
-            if (windows.kernel32.K32GetModuleInformation(
-                process_handle,
-                module,
-                &info,
-                @sizeOf(@TypeOf(info)),
-            ) == 0)
-                return error.MissingDebugInfo;
-
-            const seg_start = @ptrToInt(info.lpBaseOfDll);
-            const seg_end = seg_start + info.SizeOfImage;
-
-            if (address >= seg_start and address < seg_end) {
-                if (self.address_map.get(seg_start)) |obj_di| {
+        for (self.modules.items) |module| {
+            if (address >= module.base_address and address < module.base_address + module.size) {
+                if (self.address_map.get(module.base_address)) |obj_di| {
                     return obj_di;
                 }
 
-                var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-                // openFileAbsoluteW requires the prefix to be present
-                mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
-                const len = windows.kernel32.K32GetModuleFileNameExW(
-                    process_handle,
-                    module,
-                    @ptrCast(windows.LPWSTR, &name_buffer[4]),
-                    windows.PATH_MAX_WIDE,
-                );
-                assert(len > 0);
-
+                const mapped_module = @intToPtr([*]const u8, module.base_address)[0..module.size];
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
-                    error.FileNotFound => return error.MissingDebugInfo,
-                    else => return err,
-                };
-                obj_di.* = try readCoffDebugInfo(self.allocator, coff_file);
-                obj_di.base_address = seg_start;
+                obj_di.* = try readCoffDebugInfo(self.allocator, mapped_module);
+                obj_di.base_address = module.base_address;
 
-                try self.address_map.putNoClobber(seg_start, obj_di);
-
+                try self.address_map.putNoClobber(module.base_address, obj_di);
                 return obj_di;
             }
         }
@@ -1375,7 +1399,7 @@ pub const DebugInfo = struct {
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
-        if (os.dl_iterate_phdr(&ctx, anyerror, struct {
+        if (os.dl_iterate_phdr(&ctx, error{Found}, struct {
             fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
                 // The base address is too high
@@ -1403,7 +1427,6 @@ pub const DebugInfo = struct {
             return error.MissingDebugInfo;
         } else |err| switch (err) {
             error.Found => {},
-            else => return error.MissingDebugInfo,
         }
 
         if (self.address_map.get(ctx.base_address)) |obj_di| {
@@ -1691,12 +1714,31 @@ pub const ModuleDebugInfo = switch (native_os) {
     .uefi, .windows => struct {
         base_address: usize,
         debug_data: PdbOrDwarf,
-        coff: *coff.Coff,
+        coff_image_base: u64,
+        coff_section_headers: []coff.SectionHeader,
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
+            switch (self.debug_data) {
+                .dwarf => |*dwarf| {
+                    allocator.free(dwarf.debug_info);
+                    allocator.free(dwarf.debug_abbrev);
+                    allocator.free(dwarf.debug_str);
+                    allocator.free(dwarf.debug_line);
+                    if (dwarf.debug_str_offsets) |d| allocator.free(d);
+                    if (dwarf.debug_line_str) |d| allocator.free(d);
+                    if (dwarf.debug_ranges) |d| allocator.free(d);
+                    if (dwarf.debug_loclists) |d| allocator.free(d);
+                    if (dwarf.debug_rnglists) |d| allocator.free(d);
+                    if (dwarf.debug_addr) |d| allocator.free(d);
+                    if (dwarf.debug_names) |d| allocator.free(d);
+                    if (dwarf.debug_frame) |d| allocator.free(d);
+                },
+                .pdb => {
+                    allocator.free(self.coff_section_headers);
+                },
+            }
+
             self.debug_data.deinit(allocator);
-            self.coff.deinit();
-            allocator.destroy(self.coff);
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
@@ -1705,7 +1747,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             switch (self.debug_data) {
                 .dwarf => |*dwarf| {
-                    const dwarf_address = relocated_address + self.coff.getImageBase();
+                    const dwarf_address = relocated_address + self.coff_image_base;
                     return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
                 },
                 .pdb => {
@@ -1715,10 +1757,9 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
-                const sections = self.coff.getSectionHeaders();
-                if (sect_contrib.Section > sections.len) continue;
+                if (sect_contrib.Section > self.coff_section_headers.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &sections[sect_contrib.Section - 1];
+                coff_section = &self.coff_section_headers[sect_contrib.Section - 1];
 
                 const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
                 const vaddr_end = vaddr_start + sect_contrib.Size;
@@ -1826,10 +1867,9 @@ pub const have_segfault_handling_support = switch (native_os) {
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
 };
-pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
-    root.enable_segfault_handler
-else
-    runtime_safety and have_segfault_handling_support;
+
+const enable_segfault_handler = std.options.enable_segfault_handler;
+pub const default_enable_segfault_handler = runtime_safety and have_segfault_handling_support;
 
 pub fn maybeEnableSegfaultHandler() void {
     if (enable_segfault_handler) {
@@ -1911,7 +1951,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     }
 
     switch (native_arch) {
-        .i386 => {
+        .x86 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
             const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
@@ -1945,11 +1985,13 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
                 else => @intCast(usize, ctx.mcontext.pc),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
                 else => @intCast(usize, ctx.mcontext.regs[29]),
             };
             dumpStackTraceFromBase(bp, ip);
@@ -2013,13 +2055,18 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
 }
 
-test "#4353: std.debug should manage resources correctly" {
+test "manage resources correctly" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+        // https://github.com/ziglang/zig/issues/13963
+        return error.SkipZigTest;
+    }
 
     const writer = std.io.null_writer;
     var di = try openSelfDebugInfo(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, writer, showMyTrace(), detectTTYConfig());
+    try printSourceAtAddress(&di, writer, showMyTrace(), detectTTYConfig(std.io.getStdErr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -2079,9 +2126,9 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = detectTTYConfig();
+            const tty_config = detectTTYConfig(std.io.getStdErr());
             const stderr = io.getStdErr().writer();
-            const end = @minimum(t.index, size);
+            const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
                 stderr.print(
                     "Unable to dump stack trace: Unable to open debug info: {s}\n",
@@ -2112,7 +2159,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
+            if (fmt.len != 0) std.fmt.invalidFmtError(fmt, t);
             _ = options;
             if (enabled) {
                 try writer.writeAll("\n");

@@ -33,15 +33,48 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
+    cases.addBuildFile("test/link/wasm/basic-features/build.zig", .{
+        .requires_stage2 = true,
+    });
+
     cases.addBuildFile("test/link/wasm/bss/build.zig", .{
+        .build_modes = false,
+        .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/export/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
     });
+
+    // TODO: Fix open handle in wasm-linker refraining rename from working on Windows.
+    if (builtin.os.tag != .windows) {
+        cases.addBuildFile("test/link/wasm/export-data/build.zig", .{});
+    }
 
     cases.addBuildFile("test/link/wasm/extern/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
         .use_emulation = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/extern-mangle/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/function-table/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/infer-features/build.zig", .{
+        .requires_stage2 = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/producers/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
     });
 
     cases.addBuildFile("test/link/wasm/segments/build.zig", .{
@@ -61,73 +94,115 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
 }
 
 fn addMachOCases(cases: *tests.StandaloneContext) void {
+    cases.addBuildFile("test/link/macho/bugs/13056/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+        .requires_symlinks = true,
+    });
+
+    cases.addBuildFile("test/link/macho/bugs/13457/build.zig", .{
+        .build_modes = true,
+        .requires_symlinks = true,
+    });
+
     cases.addBuildFile("test/link/macho/dead_strip/build.zig", .{
         .build_modes = false,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/dead_strip_dylibs/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/dylib/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/empty/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/entry/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/headerpad/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
+    });
+
+    cases.addBuildFile("test/link/macho/linksection/build.zig", .{
+        .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/needed_library/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/objc/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/objcpp/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/pagezero/build.zig", .{
         .build_modes = false,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/search_strategy/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/stack_size/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
+    });
+
+    cases.addBuildFile("test/link/macho/strict_validation/build.zig", .{
+        .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/tls/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
+    });
+
+    cases.addBuildFile("test/link/macho/uuid/build.zig", .{
+        .build_modes = false,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/weak_library/build.zig", .{
         .build_modes = true,
+        .requires_symlinks = true,
     });
 
     cases.addBuildFile("test/link/macho/weak_framework/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+        .requires_symlinks = true,
     });
 }

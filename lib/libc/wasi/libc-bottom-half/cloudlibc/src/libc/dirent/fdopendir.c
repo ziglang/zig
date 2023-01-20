@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <common/errno.h>
-
 #include <wasi/api.h>
 #include <dirent.h>
 #include <errno.h>
@@ -31,7 +29,7 @@ DIR *fdopendir(int fd) {
   if (error != 0) {
     free(dirp->buffer);
     free(dirp);
-    errno = errno_fixup_directory(fd, error);
+    errno = error;
     return NULL;
   }
 

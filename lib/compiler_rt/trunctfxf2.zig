@@ -5,7 +5,7 @@ const trunc_f80 = @import("./truncf.zig").trunc_f80;
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = common.linkage });
+    @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
@@ -49,14 +49,16 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
         const round_bits = a_abs & round_mask;
         if (round_bits > halfway) {
             // Round to nearest
-            const carry = @boolToInt(@addWithOverflow(u64, res.fraction, 1, &res.fraction));
-            res.exp += carry;
-            res.fraction |= @as(u64, carry) << 63; // Restore integer bit after carry
+            const ov = @addWithOverflow(res.fraction, 1);
+            res.fraction = ov[0];
+            res.exp += ov[1];
+            res.fraction |= @as(u64, ov[1]) << 63; // Restore integer bit after carry
         } else if (round_bits == halfway) {
             // Ties to even
-            const carry = @boolToInt(@addWithOverflow(u64, res.fraction, res.fraction & 1, &res.fraction));
-            res.exp += carry;
-            res.fraction |= @as(u64, carry) << 63; // Restore integer bit after carry
+            const ov = @addWithOverflow(res.fraction, res.fraction & 1);
+            res.fraction = ov[0];
+            res.exp += ov[1];
+            res.fraction |= @as(u64, ov[1]) << 63; // Restore integer bit after carry
         }
         if (res.exp == 0) res.fraction &= ~@as(u64, integer_bit); // Remove integer bit for de-normals
     }

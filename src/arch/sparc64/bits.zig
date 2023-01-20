@@ -35,14 +35,14 @@ test "Register.id" {
     try testing.expectEqual(Register.o6.id(), Register.sp.id());
 
     // FP
-    try testing.expectEqual(@as(u5, 30), Register.@"i6".id());
-    try testing.expectEqual(Register.@"i6".id(), Register.fp.id());
+    try testing.expectEqual(@as(u5, 30), Register.i6.id());
+    try testing.expectEqual(Register.i6.id(), Register.fp.id());
 
     // x0
     try testing.expectEqual(@as(u5, 0), Register.g0.id());
     try testing.expectEqual(@as(u5, 8), Register.o0.id());
     try testing.expectEqual(@as(u5, 16), Register.l0.id());
-    try testing.expectEqual(@as(u5, 24), Register.@"i0".id());
+    try testing.expectEqual(@as(u5, 24), Register.i0.id());
 }
 
 test "Register.enc" {
@@ -50,13 +50,13 @@ test "Register.enc" {
     try testing.expectEqual(@as(u5, 0), Register.g0.enc());
     try testing.expectEqual(@as(u5, 8), Register.o0.enc());
     try testing.expectEqual(@as(u5, 16), Register.l0.enc());
-    try testing.expectEqual(@as(u5, 24), Register.@"i0".enc());
+    try testing.expectEqual(@as(u5, 24), Register.i0.enc());
 
     // For integer registers, enc() == id().
     try testing.expectEqual(Register.g0.enc(), Register.g0.id());
     try testing.expectEqual(Register.o0.enc(), Register.o0.id());
     try testing.expectEqual(Register.l0.enc(), Register.l0.id());
-    try testing.expectEqual(Register.@"i0".enc(), Register.@"i0".id());
+    try testing.expectEqual(Register.i0.enc(), Register.i0.id());
 }
 
 /// Scalar floating point registers in the SPARCv9 instruction set
@@ -127,11 +127,11 @@ test "FloatingPointRegister.id" {
     // Low region
     try testing.expectEqual(@as(u6, 0), FloatingPointRegister.q0.id());
     try testing.expectEqual(FloatingPointRegister.q0.id(), FloatingPointRegister.d0.id());
-    try testing.expectEqual(FloatingPointRegister.d0.id(), FloatingPointRegister.@"f0".id());
+    try testing.expectEqual(FloatingPointRegister.d0.id(), FloatingPointRegister.f0.id());
 
     try testing.expectEqual(@as(u6, 28), FloatingPointRegister.q28.id());
     try testing.expectEqual(FloatingPointRegister.q28.id(), FloatingPointRegister.d28.id());
-    try testing.expectEqual(FloatingPointRegister.d28.id(), FloatingPointRegister.@"f28".id());
+    try testing.expectEqual(FloatingPointRegister.d28.id(), FloatingPointRegister.f28.id());
 
     // High region
     try testing.expectEqual(@as(u6, 32), FloatingPointRegister.q32.id());
@@ -143,9 +143,9 @@ test "FloatingPointRegister.id" {
 
 test "FloatingPointRegister.enc" {
     // f registers
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.@"f0".enc());
-    try testing.expectEqual(@as(u5, 1), FloatingPointRegister.@"f1".enc());
-    try testing.expectEqual(@as(u5, 31), FloatingPointRegister.@"f31".enc());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.f0.enc());
+    try testing.expectEqual(@as(u5, 1), FloatingPointRegister.f1.enc());
+    try testing.expectEqual(@as(u5, 31), FloatingPointRegister.f31.enc());
 
     // d registers
     try testing.expectEqual(@as(u5, 0), FloatingPointRegister.d0.enc());

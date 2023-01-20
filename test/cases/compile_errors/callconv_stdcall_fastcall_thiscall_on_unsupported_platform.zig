@@ -18,6 +18,6 @@ export fn entry3() void {
 // backend=stage2
 // target=x86_64-linux-none
 //
-// :1:28: error: callconv 'Stdcall' is only available on i386, not x86_64
-// :2:28: error: callconv 'Fastcall' is only available on i386, not x86_64
-// :3:28: error: callconv 'Thiscall' is only available on i386, not x86_64
+// :1:28: error: callconv 'Stdcall' is only available on x86, not x86_64
+// :2:28: error: callconv 'Fastcall' is only available on x86, not x86_64
+// :3:28: error: callconv 'Thiscall' is only available on x86, not x86_64

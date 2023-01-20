@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // target=x86_64-macos
 //
-// :4:21: error: store to comptime variable depends on runtime condition
+// :4:19: error: store to comptime variable depends on runtime condition
 // :4:11: note: runtime condition here

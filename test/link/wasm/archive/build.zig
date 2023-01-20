@@ -13,13 +13,10 @@ pub fn build(b: *Builder) void {
     lib.setBuildMode(mode);
     lib.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     lib.use_llvm = false;
-    lib.use_stage1 = false;
     lib.use_lld = false;
+    lib.strip = false;
 
     const check = lib.checkObject(.wasm);
-    check.checkStart("Section import");
-    check.checkNext("entries 1"); // __truncsfhf2 should have been resolved, so only 1 import (compiler-rt's memcpy).
-
     check.checkStart("Section custom");
     check.checkNext("name __truncsfhf2"); // Ensure it was imported and resolved
 

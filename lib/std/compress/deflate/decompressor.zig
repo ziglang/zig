@@ -99,8 +99,8 @@ const HuffmanDecoder = struct {
             if (min == 0) {
                 min = n;
             }
-            min = @minimum(n, min);
-            max = @maximum(n, max);
+            min = @min(n, min);
+            max = @max(n, max);
             count[n] += 1;
         }
 
@@ -334,7 +334,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
 
         // Next step in the decompression,
         // and decompression state.
-        step: std.meta.FnPtr(fn (*Self) Error!void),
+        step: *const fn (*Self) Error!void,
         step_state: DecompressorState,
         final: bool,
         err: ?Error,
@@ -479,12 +479,6 @@ pub fn Decompressor(comptime ReaderType: type) type {
         }
 
         pub fn close(self: *Self) ?Error {
-            if (@import("builtin").zig_backend == .stage1) {
-                if (self.err == Error.EndOfStreamWithNoError) {
-                    return null;
-                }
-                return self.err;
-            }
             if (self.err == @as(?Error, error.EndOfStreamWithNoError)) {
                 return null;
             }
@@ -901,7 +895,6 @@ pub fn Decompressor(comptime ReaderType: type) type {
 }
 
 // tests
-const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const io = std.io;
 const testing = std.testing;
@@ -934,7 +927,7 @@ test "truncated input" {
 
         var output = [1]u8{0} ** 12;
         try expectError(error.UnexpectedEndOfStream, zr.readAll(&output));
-        try expect(mem.eql(u8, output[0..t.output.len], t.output));
+        try testing.expectEqualSlices(u8, t.output, output[0..t.output.len]);
     }
 }
 
@@ -1032,8 +1025,8 @@ test "inflate A Tale of Two Cities (1859) intro" {
 
     var got: [700]u8 = undefined;
     var got_len = try decomp.reader().read(&got);
-    try expect(got_len == 616);
-    try expect(mem.eql(u8, got[0..expected.len], expected));
+    try testing.expectEqual(@as(usize, 616), got_len);
+    try testing.expectEqualSlices(u8, expected, got[0..expected.len]);
 }
 
 test "lengths overflow" {

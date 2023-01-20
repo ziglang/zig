@@ -159,6 +159,9 @@ pub const Node = extern union {
         /// @shuffle(type, a, b, mask)
         shuffle,
 
+        /// @import("std").zig.c_translation.MacroArithmetic.<op>(lhs, rhs)
+        macro_arithmetic,
+
         asm_simple,
 
         negate,
@@ -370,6 +373,7 @@ pub const Node = extern union {
                 .field_access => Payload.FieldAccess,
                 .string_slice => Payload.StringSlice,
                 .shuffle => Payload.Shuffle,
+                .macro_arithmetic => Payload.MacroArithmetic,
             };
         }
 
@@ -388,7 +392,7 @@ pub const Node = extern union {
         }
 
         pub fn Data(comptime t: Tag) type {
-            return std.meta.fieldInfo(t.Type(), .data).field_type;
+            return std.meta.fieldInfo(t.Type(), .data).type;
         }
     };
 
@@ -713,6 +717,17 @@ pub const Payload = struct {
             mask_vector: Node,
         },
     };
+
+    pub const MacroArithmetic = struct {
+        base: Payload,
+        data: struct {
+            op: Operator,
+            lhs: Node,
+            rhs: Node,
+        },
+
+        pub const Operator = enum { div, rem };
+    };
 };
 
 /// Converts the nodes into a Zig Ast.
@@ -772,7 +787,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
         .source = try ctx.buf.toOwnedSliceSentinel(0),
         .tokens = ctx.tokens.toOwnedSlice(),
         .nodes = ctx.nodes.toOwnedSlice(),
-        .extra_data = ctx.extra_data.toOwnedSlice(gpa),
+        .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
         .errors = &.{},
     };
 }
@@ -806,7 +821,7 @@ const Context = struct {
     }
 
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        if (@import("../AstGen.zig").isPrimitive(bytes))
+        if (std.zig.primitives.isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
         return c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(bytes)});
     }
@@ -830,7 +845,7 @@ const Context = struct {
         try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
         const result = @intCast(u32, c.extra_data.items.len);
         inline for (fields) |field| {
-            comptime std.debug.assert(field.field_type == NodeIndex);
+            comptime std.debug.assert(field.type == NodeIndex);
             c.extra_data.appendAssumeCapacity(@field(extra, field.name));
         }
         return result;
@@ -910,7 +925,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .call => {
             const payload = node.castTag(.call).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            // Cosmetic: avoids an unnecesary address_of on most function calls.
+            const lhs = if (payload.lhs.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.lhs.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload.lhs);
             return renderCall(c, lhs, payload.args);
         },
         .null_literal => return c.addNode(.{
@@ -1064,11 +1087,23 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .fn_identifier => {
+            // C semantics are that a function identifier has address
+            // value (implicit in stage1, explicit in stage2), except in
+            // the context of an address_of, which is handled there.
             const payload = node.castTag(.fn_identifier).?.data;
-            return c.addNode(.{
+            const tok = try c.addToken(.ampersand, "&");
+            const arg = try c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addIdentifier(payload),
                 .data = undefined,
+            });
+            return c.addNode(.{
+                .tag = .address_of,
+                .main_token = tok,
+                .data = .{
+                    .lhs = arg,
+                    .rhs = undefined,
+                },
             });
         },
         .float_literal => {
@@ -1090,7 +1125,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .string_literal => {
             const payload = node.castTag(.string_literal).?.data;
             return c.addNode(.{
-                .tag = .identifier,
+                .tag = .string_literal,
                 .main_token = try c.addToken(.string_literal, payload),
                 .data = undefined,
             });
@@ -1098,7 +1133,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .char_literal => {
             const payload = node.castTag(.char_literal).?.data;
             return c.addNode(.{
-                .tag = .identifier,
+                .tag = .char_literal,
                 .main_token = try c.addToken(.char_literal, payload),
                 .data = undefined,
             });
@@ -1374,6 +1409,12 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 payload.mask_vector,
             });
         },
+        .macro_arithmetic => {
+            const payload = node.castTag(.macro_arithmetic).?.data;
+            const op = @tagName(payload.op);
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "MacroArithmetic", op });
+            return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
         .alignof => {
             const payload = node.castTag(.alignof).?.data;
             return renderBuiltinCall(c, "@alignOf", &.{payload});
@@ -1391,7 +1432,27 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .bit_not => return renderPrefixOp(c, node, .bit_not, .tilde, "~"),
         .not => return renderPrefixOp(c, node, .bool_not, .bang, "!"),
         .optional_type => return renderPrefixOp(c, node, .optional_type, .question_mark, "?"),
-        .address_of => return renderPrefixOp(c, node, .address_of, .ampersand, "&"),
+        .address_of => {
+            const payload = node.castTag(.address_of).?.data;
+
+            const ampersand = try c.addToken(.ampersand, "&");
+            const base = if (payload.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload);
+            return c.addNode(.{
+                .tag = .address_of,
+                .main_token = ampersand,
+                .data = .{
+                    .lhs = base,
+                    .rhs = undefined,
+                },
+            });
+        },
         .deref => {
             const payload = node.castTag(.deref).?.data;
             const operand = try renderNodeGrouped(c, payload);
@@ -2289,6 +2350,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shuffle,
         .static_local_var,
         .mut_str,
+        .macro_arithmetic,
         => {
             // no grouping needed
             return renderNode(c, node);

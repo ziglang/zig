@@ -23,7 +23,6 @@ comptime {
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
     if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_c or
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
         builtin.zig_backend == .stage2_aarch64 or
@@ -230,15 +229,15 @@ fn _DllMainCRTStartup(
 fn wasm_freestanding_start() callconv(.C) void {
     // This is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
-    _ = @call(.{ .modifier = .always_inline }, callMain, .{});
+    _ = @call(.always_inline, callMain, .{});
 }
 
 fn wasi_start() callconv(.C) void {
     // The function call is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
-        .reactor => _ = @call(.{ .modifier = .always_inline }, callMain, .{}),
-        .command => std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{})),
+        .reactor => _ = @call(.always_inline, callMain, .{}),
+        .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
     }
 }
 
@@ -265,79 +264,116 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    switch (native_arch) {
-        .x86_64 => {
-            argc_argv_ptr = asm volatile (
-                \\ xor %%rbp, %%rbp
-                : [argc] "={rsp}" (-> [*]usize),
-            );
+    switch (builtin.zig_backend) {
+        .stage2_c => {
+            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
+            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
+            switch (native_arch) {
+                .x86_64 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movq %%rsp, argc_argv_ptr
+                    \\ andq $-16, %%rsp
+                    \\ call _posixCallMainAndExit
+                ),
+                .x86 => asm volatile (
+                    \\ xorl %%ebp, %%ebp
+                    \\ movl %%esp, argc_argv_ptr
+                    \\ andl $-16, %%esp
+                    \\ jmp _posixCallMainAndExit
+                ),
+                .aarch64, .aarch64_be => asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    \\ mov x0, sp
+                    \\ adrp x1, argc_argv_ptr
+                    \\ str x0, [x1, :lo12:argc_argv_ptr]
+                    \\ b _posixCallMainAndExit
+                ),
+                .arm, .armeb, .thumb => asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    \\ str sp, argc_argv_ptr
+                    \\ and sp, #-16
+                    \\ b _posixCallMainAndExit
+                ),
+                else => @compileError("unsupported arch"),
+            }
+            unreachable;
         },
-        .i386 => {
-            argc_argv_ptr = asm volatile (
-                \\ xor %%ebp, %%ebp
-                : [argc] "={esp}" (-> [*]usize),
-            );
+        else => switch (native_arch) {
+            .x86_64 => {
+                argc_argv_ptr = asm volatile (
+                    \\ xor %%ebp, %%ebp
+                    : [argc] "={rsp}" (-> [*]usize),
+                );
+            },
+            .x86 => {
+                argc_argv_ptr = asm volatile (
+                    \\ xor %%ebp, %%ebp
+                    : [argc] "={esp}" (-> [*]usize),
+                );
+            },
+            .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
+                argc_argv_ptr = asm volatile (
+                    \\ mov fp, #0
+                    \\ mov lr, #0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .riscv64 => {
+                argc_argv_ptr = asm volatile (
+                    \\ li s0, 0
+                    \\ li ra, 0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .mips, .mipsel => {
+                // The lr is already zeroed on entry, as specified by the ABI.
+                argc_argv_ptr = asm volatile (
+                    \\ move $fp, $0
+                    : [argc] "={sp}" (-> [*]usize),
+                );
+            },
+            .powerpc => {
+                // Setup the initial stack frame and clear the back chain pointer.
+                argc_argv_ptr = asm volatile (
+                    \\ mr 4, 1
+                    \\ li 0, 0
+                    \\ stwu 1,-16(1)
+                    \\ stw 0, 0(1)
+                    \\ mtlr 0
+                    : [argc] "={r4}" (-> [*]usize),
+                    :
+                    : "r0"
+                );
+            },
+            .powerpc64le => {
+                // Setup the initial stack frame and clear the back chain pointer.
+                // TODO: Support powerpc64 (big endian) on ELFv2.
+                argc_argv_ptr = asm volatile (
+                    \\ mr 4, 1
+                    \\ li 0, 0
+                    \\ stdu 0, -32(1)
+                    \\ mtlr 0
+                    : [argc] "={r4}" (-> [*]usize),
+                    :
+                    : "r0"
+                );
+            },
+            .sparc64 => {
+                // argc is stored after a register window (16 registers) plus stack bias
+                argc_argv_ptr = asm (
+                    \\ mov %%g0, %%i6
+                    \\ add %%o6, 2175, %[argc]
+                    : [argc] "=r" (-> [*]usize),
+                );
+            },
+            else => @compileError("unsupported arch"),
         },
-        .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
-            argc_argv_ptr = asm volatile (
-                \\ mov fp, #0
-                \\ mov lr, #0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .riscv64 => {
-            argc_argv_ptr = asm volatile (
-                \\ li s0, 0
-                \\ li ra, 0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .mips, .mipsel => {
-            // The lr is already zeroed on entry, as specified by the ABI.
-            argc_argv_ptr = asm volatile (
-                \\ move $fp, $0
-                : [argc] "={sp}" (-> [*]usize),
-            );
-        },
-        .powerpc => {
-            // Setup the initial stack frame and clear the back chain pointer.
-            argc_argv_ptr = asm volatile (
-                \\ mr 4, 1
-                \\ li 0, 0
-                \\ stwu 1,-16(1)
-                \\ stw 0, 0(1)
-                \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize),
-                :
-                : "r0"
-            );
-        },
-        .powerpc64le => {
-            // Setup the initial stack frame and clear the back chain pointer.
-            // TODO: Support powerpc64 (big endian) on ELFv2.
-            argc_argv_ptr = asm volatile (
-                \\ mr 4, 1
-                \\ li 0, 0
-                \\ stdu 0, -32(1)
-                \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize),
-                :
-                : "r0"
-            );
-        },
-        .sparc64 => {
-            // argc is stored after a register window (16 registers) plus stack bias
-            argc_argv_ptr = asm (
-                \\ mov %%g0, %%i6
-                \\ add %%o6, 2175, %[argc]
-                : [argc] "=r" (-> [*]usize),
-            );
-        },
-        else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
-    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
+    @call(.never_inline, posixCallMainAndExit, .{});
 }
 
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -363,7 +399,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
-fn posixCallMainAndExit() noreturn {
+fn posixCallMainAndExit() callconv(.C) noreturn {
     @setAlignStack(16);
 
     const argc = argc_argv_ptr[0];
@@ -401,20 +437,22 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.pie.relocate(phdrs);
         }
 
-        // ARMv6 targets (and earlier) have no support for TLS in hardware.
-        // FIXME: Elide the check for targets >= ARMv7 when the target feature API
-        // becomes less verbose (and more usable).
-        if (comptime native_arch.isARM()) {
-            if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
-                // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-                // For the time being use a simple abort instead of a @panic call to
-                // keep the binary bloat under control.
-                std.os.abort();
+        if (!builtin.single_threaded) {
+            // ARMv6 targets (and earlier) have no support for TLS in hardware.
+            // FIXME: Elide the check for targets >= ARMv7 when the target feature API
+            // becomes less verbose (and more usable).
+            if (comptime native_arch.isARM()) {
+                if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
+                    // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
+                    // For the time being use a simple abort instead of a @panic call to
+                    // keep the binary bloat under control.
+                    std.os.abort();
+                }
             }
-        }
 
-        // Initialize the TLS area.
-        std.os.linux.tls.initStaticTLS(phdrs);
+            // Initialize the TLS area.
+            std.os.linux.tls.initStaticTLS(phdrs);
+        }
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
@@ -423,7 +461,7 @@ fn posixCallMainAndExit() noreturn {
         expandStackSize(phdrs);
     }
 
-    std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
+    std.os.exit(@call(.always_inline, callMainWithArgs, .{ argc, argv, envp }));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -462,7 +500,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
+fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -474,12 +512,12 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
         expandStackSize(phdrs);
     }
 
-    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
+    return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
-fn mainWithoutEnv(c_argc: i32, c_argv: [*][*:0]u8) callconv(.C) usize {
-    std.os.argv = c_argv[0..@intCast(usize, c_argc)];
-    return @call(.{ .modifier = .always_inline }, callMain, .{});
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
+    std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
+    return @call(.always_inline, callMain, .{});
 }
 
 // General error message for a malformed return type
@@ -489,7 +527,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 // and we want fewer call frames in stack traces.
 inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -509,7 +547,7 @@ inline fn initEventLoopAndCallMain() u8 {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, callMain, .{});
+    return @call(.always_inline, callMain, .{});
 }
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
@@ -518,7 +556,7 @@ inline fn initEventLoopAndCallMain() u8 {
 // because it is working around stage1 compiler bugs.
 inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
     if (std.event.Loop.instance) |loop| {
-        if (!@hasDecl(root, "event_loop")) {
+        if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -538,7 +576,7 @@ inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, call_wWinMain, .{});
+    return @call(.always_inline, call_wWinMain, .{});
 }
 
 fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
@@ -598,7 +636,7 @@ pub fn callMain() u8 {
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.args[0].arg_type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
     const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 

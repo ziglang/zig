@@ -121,7 +121,7 @@ using std::atomic_signal_fence                         // see below
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 20
+#if defined(__cplusplus) && _LIBCPP_STD_VER > 20
 
 #include <atomic>
 #include <version>
@@ -230,6 +230,6 @@ using std::atomic_thread_fence _LIBCPP_USING_IF_EXISTS;
 #   include_next <stdatomic.h>
 # endif
 
-#endif // _LIBCPP_STD_VER > 20
+#endif // defined(__cplusplus) && _LIBCPP_STD_VER > 20
 
 #endif // _LIBCPP_STDATOMIC_H

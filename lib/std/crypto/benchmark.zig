@@ -1,6 +1,6 @@
 // zig run -O ReleaseFast --zig-lib-dir ../.. benchmark.zig
 
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const time = std.time;
@@ -54,6 +54,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 
 const macs = [_]Crypto{
     Crypto{ .ty = crypto.onetimeauth.Ghash, .name = "ghash" },
+    Crypto{ .ty = crypto.onetimeauth.Polyval, .name = "polyval" },
     Crypto{ .ty = crypto.onetimeauth.Poly1305, .name = "poly1305" },
     Crypto{ .ty = crypto.auth.hmac.HmacMd5, .name = "hmac-md5" },
     Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
@@ -63,6 +64,8 @@ const macs = [_]Crypto{
     Crypto{ .ty = crypto.auth.siphash.SipHash64(1, 3), .name = "siphash-1-3" },
     Crypto{ .ty = crypto.auth.siphash.SipHash128(2, 4), .name = "siphash128-2-4" },
     Crypto{ .ty = crypto.auth.siphash.SipHash128(1, 3), .name = "siphash128-1-3" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis128LMac, .name = "aegis-128l mac" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis256Mac, .name = "aegis-256 mac" },
 };
 
 pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
@@ -130,7 +133,7 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            const sig = try Signature.sign(&msg, key_pair, null);
+            const sig = try key_pair.sign(&msg, null);
             mem.doNotOptimizeAway(&sig);
         }
     }
@@ -147,14 +150,14 @@ const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .na
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
     const key_pair = try Signature.KeyPair.create(null);
-    const sig = try Signature.sign(&msg, key_pair, null);
+    const sig = try key_pair.sign(&msg, null);
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            try Signature.verify(sig, &msg, key_pair.public_key);
+            try sig.verify(&msg, key_pair.public_key);
             mem.doNotOptimizeAway(&sig);
         }
     }
@@ -171,7 +174,7 @@ const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed2551
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
     const key_pair = try Signature.KeyPair.create(null);
-    const sig = try Signature.sign(&msg, key_pair, null);
+    const sig = try key_pair.sign(&msg, null);
 
     var batch: [64]Signature.BatchElement = undefined;
     for (batch) |*element| {
@@ -301,9 +304,13 @@ const CryptoPwhash = struct {
     params: *const anyopaque,
     name: []const u8,
 };
-const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 12 };
+const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8 };
 const pwhashes = [_]CryptoPwhash{
-    .{ .ty = crypto.pwhash.bcrypt, .params = &bcrypt_params, .name = "bcrypt" },
+    .{
+        .ty = crypto.pwhash.bcrypt,
+        .params = &bcrypt_params,
+        .name = "bcrypt",
+    },
     .{
         .ty = crypto.pwhash.scrypt,
         .params = &crypto.pwhash.scrypt.Params.interactive,
@@ -317,12 +324,17 @@ const pwhashes = [_]CryptoPwhash{
 };
 
 fn benchmarkPwhash(
+    allocator: mem.Allocator,
     comptime ty: anytype,
     comptime params: *const anyopaque,
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = .{ .allocator = std.testing.allocator, .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
+    const opts = .{
+        .allocator = allocator,
+        .params = @ptrCast(*const ty.Params, @alignCast(std.meta.alignment(ty.Params), params)).*,
+        .encoding = .phc,
+    };
     var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
@@ -361,9 +373,10 @@ fn mode(comptime x: comptime_int) comptime_int {
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    var buffer: [1024]u8 = undefined;
-    var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-    const args = try std.process.argsAlloc(fixed.allocator());
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+    const args = try std.process.argsAlloc(arena_allocator);
 
     var filter: ?[]u8 = "";
 
@@ -463,7 +476,7 @@ pub fn main() !void {
 
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(H.ty, H.params, mode(64));
+            const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
         }
     }

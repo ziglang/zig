@@ -7,16 +7,16 @@ const Status = uefi.Status;
 
 pub const FileProtocol = extern struct {
     revision: u64,
-    _open: std.meta.FnPtr(fn (*const FileProtocol, **const FileProtocol, [*:0]const u16, u64, u64) callconv(.C) Status),
-    _close: std.meta.FnPtr(fn (*const FileProtocol) callconv(.C) Status),
-    _delete: std.meta.FnPtr(fn (*const FileProtocol) callconv(.C) Status),
-    _read: std.meta.FnPtr(fn (*const FileProtocol, *usize, [*]u8) callconv(.C) Status),
-    _write: std.meta.FnPtr(fn (*const FileProtocol, *usize, [*]const u8) callconv(.C) Status),
-    _get_position: std.meta.FnPtr(fn (*const FileProtocol, *u64) callconv(.C) Status),
-    _set_position: std.meta.FnPtr(fn (*const FileProtocol, u64) callconv(.C) Status),
-    _get_info: std.meta.FnPtr(fn (*const FileProtocol, *align(8) const Guid, *const usize, [*]u8) callconv(.C) Status),
-    _set_info: std.meta.FnPtr(fn (*const FileProtocol, *align(8) const Guid, usize, [*]const u8) callconv(.C) Status),
-    _flush: std.meta.FnPtr(fn (*const FileProtocol) callconv(.C) Status),
+    _open: *const fn (*const FileProtocol, **const FileProtocol, [*:0]const u16, u64, u64) callconv(.C) Status,
+    _close: *const fn (*const FileProtocol) callconv(.C) Status,
+    _delete: *const fn (*const FileProtocol) callconv(.C) Status,
+    _read: *const fn (*const FileProtocol, *usize, [*]u8) callconv(.C) Status,
+    _write: *const fn (*const FileProtocol, *usize, [*]const u8) callconv(.C) Status,
+    _get_position: *const fn (*const FileProtocol, *u64) callconv(.C) Status,
+    _set_position: *const fn (*const FileProtocol, u64) callconv(.C) Status,
+    _get_info: *const fn (*const FileProtocol, *align(8) const Guid, *const usize, [*]u8) callconv(.C) Status,
+    _set_info: *const fn (*const FileProtocol, *align(8) const Guid, usize, [*]const u8) callconv(.C) Status,
+    _flush: *const fn (*const FileProtocol) callconv(.C) Status,
 
     pub const SeekError = error{SeekError};
     pub const GetSeekPosError = error{GetSeekPosError};

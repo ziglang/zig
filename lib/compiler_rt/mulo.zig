@@ -6,9 +6,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage });
-    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage });
-    @export(__muloti4, .{ .name = "__muloti4", .linkage = common.linkage });
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // mulo - multiplication overflow
@@ -65,15 +65,6 @@ pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
 }
 
 pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
-    switch (builtin.zig_backend) {
-        .stage1, .stage2_llvm => {
-            // Workaround for https://github.com/llvm/llvm-project/issues/56403
-            // When we call the genericSmall implementation instead, LLVM optimizer
-            // optimizes __muloti4 to a call to itself.
-            return muloXi4_genericFast(i128, a, b, overflow);
-        },
-        else => {},
-    }
     if (2 * @bitSizeOf(i128) <= @bitSizeOf(usize)) {
         return muloXi4_genericFast(i128, a, b, overflow);
     } else {

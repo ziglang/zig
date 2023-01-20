@@ -121,7 +121,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self.nbytes = 0;
         }
 
-        fn write(self: *Self, b: []u8) Error!void {
+        fn write(self: *Self, b: []const u8) Error!void {
             if (self.err) {
                 return;
             }
@@ -155,7 +155,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
         }
 
-        pub fn writeBytes(self: *Self, bytes: []u8) Error!void {
+        pub fn writeBytes(self: *Self, bytes: []const u8) Error!void {
             if (self.err) {
                 return;
             }
@@ -323,7 +323,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
         // storedSizeFits calculates the stored size, including header.
         // The function returns the size in bits and whether the block
         // fits inside a single block.
-        fn storedSizeFits(in: ?[]u8) StoredSize {
+        fn storedSizeFits(in: ?[]const u8) StoredSize {
             if (in == null) {
                 return .{ .size = 0, .storable = false };
             }
@@ -453,7 +453,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self: *Self,
             tokens: []const token.Token,
             eof: bool,
-            input: ?[]u8,
+            input: ?[]const u8,
         ) Error!void {
             if (self.err) {
                 return;
@@ -546,7 +546,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self: *Self,
             tokens: []const token.Token,
             eof: bool,
-            input: ?[]u8,
+            input: ?[]const u8,
         ) Error!void {
             if (self.err) {
                 return;
@@ -685,7 +685,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
 
         // Encodes a block of bytes as either Huffman encoded literals or uncompressed bytes
         // if the results only gains very little from compression.
-        pub fn writeBlockHuff(self: *Self, eof: bool, input: []u8) Error!void {
+        pub fn writeBlockHuff(self: *Self, eof: bool, input: []const u8) Error!void {
             if (self.err) {
                 return;
             }
@@ -828,7 +828,7 @@ pub fn huffmanBitWriter(allocator: Allocator, writer: anytype) !HuffmanBitWriter
 // histogram accumulates a histogram of b in h.
 //
 // h.len must be >= 256, and h's elements must be all zeroes.
-fn histogram(b: []u8, h: *[]u16) void {
+fn histogram(b: []const u8, h: *[]u16) void {
     var lh = h.*[0..256];
     for (b) |t| {
         lh[t] += 1;
@@ -886,21 +886,9 @@ test "writeBlockHuff" {
     );
 }
 
-fn testBlockHuff(in_name: []const u8, want_name: []const u8) !void {
-    // Skip wasi because it does not support std.fs.openDirAbsolute()
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const current_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(@src().file).?, .{});
-    const testdata_dir = try current_dir.openDir("testdata", .{});
-    const in_file = try testdata_dir.openFile(in_name, .{});
-    defer in_file.close();
-    const want_file = try testdata_dir.openFile(want_name, .{});
-    defer want_file.close();
-
-    var in = try in_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
-    defer testing.allocator.free(in);
-    var want = try want_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
-    defer testing.allocator.free(want);
+fn testBlockHuff(comptime in_name: []const u8, comptime want_name: []const u8) !void {
+    const in: []const u8 = @embedFile("testdata/" ++ in_name);
+    const want: []const u8 = @embedFile("testdata/" ++ want_name);
 
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
@@ -909,7 +897,7 @@ fn testBlockHuff(in_name: []const u8, want_name: []const u8) !void {
     try bw.writeBlockHuff(false, in);
     try bw.flush();
 
-    try expect(mem.eql(u8, buf.items, want));
+    try std.testing.expectEqualSlices(u8, want, buf.items);
 
     // Test if the writer produces the same output after reset.
     var buf_after_reset = ArrayList(u8).init(testing.allocator);
@@ -920,8 +908,8 @@ fn testBlockHuff(in_name: []const u8, want_name: []const u8) !void {
     try bw.writeBlockHuff(false, in);
     try bw.flush();
 
-    try expect(mem.eql(u8, buf_after_reset.items, buf.items));
-    try expect(mem.eql(u8, buf_after_reset.items, want));
+    try std.testing.expectEqualSlices(u8, buf.items, buf_after_reset.items);
+    try std.testing.expectEqualSlices(u8, want, buf_after_reset.items);
 
     try testWriterEOF(.write_huffman_block, &[0]token.Token{}, in);
 }
@@ -1612,38 +1600,18 @@ test "writeBlockDynamic" {
 
 // testBlock tests a block against its references,
 // or regenerate the references, if "-update" flag is set.
-fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
-    // Skip wasi because it does not support std.fs.openDirAbsolute()
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var want_name: []u8 = undefined;
-    var want_name_no_input: []u8 = undefined;
-    var input: []u8 = undefined;
-    var want: []u8 = undefined;
-    var want_ni: []u8 = undefined; // want no input: what we expect when input is empty
-
-    const current_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(@src().file).?, .{});
-    const testdata_dir = try current_dir.openDir("testdata", .{});
-
-    var want_name_type = if (ht.want.len == 0) .{} else .{ttype.to_s()};
-    want_name = try fmt.allocPrint(testing.allocator, ht.want, want_name_type);
-    defer testing.allocator.free(want_name);
-
-    if (!mem.eql(u8, ht.input, "")) {
-        const in_file = try testdata_dir.openFile(ht.input, .{});
-        input = try in_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
-        defer testing.allocator.free(input);
-
-        const want_file = try testdata_dir.openFile(want_name, .{});
-        want = try want_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
-        defer testing.allocator.free(want);
+fn testBlock(comptime ht: HuffTest, comptime ttype: TestType) !void {
+    if (ht.input.len != 0 and ht.want.len != 0) {
+        const want_name = comptime fmt.comptimePrint(ht.want, .{ttype.to_s()});
+        const input = @embedFile("testdata/" ++ ht.input);
+        const want = @embedFile("testdata/" ++ want_name);
 
         var buf = ArrayList(u8).init(testing.allocator);
         var bw = try huffmanBitWriter(testing.allocator, buf.writer());
         try writeToType(ttype, &bw, ht.tokens, input);
 
         var got = buf.items;
-        try expect(mem.eql(u8, got, want)); // expect writeBlock to yield expected result
+        try testing.expectEqualSlices(u8, want, got); // expect writeBlock to yield expected result
 
         // Test if the writer produces the same output after reset.
         buf.deinit();
@@ -1656,16 +1624,12 @@ fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
         try writeToType(ttype, &bw, ht.tokens, input);
         try bw.flush();
         got = buf.items;
-        try expect(mem.eql(u8, got, want)); // expect writeBlock to yield expected result
+        try testing.expectEqualSlices(u8, want, got); // expect writeBlock to yield expected result
         try testWriterEOF(.write_block, ht.tokens, input);
     }
 
-    want_name_no_input = try fmt.allocPrint(testing.allocator, ht.want_no_input, .{ttype.to_s()});
-    defer testing.allocator.free(want_name_no_input);
-
-    const want_no_input_file = try testdata_dir.openFile(want_name_no_input, .{});
-    want_ni = try want_no_input_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
-    defer testing.allocator.free(want_ni);
+    const want_name_no_input = comptime fmt.comptimePrint(ht.want_no_input, .{ttype.to_s()});
+    const want_ni = @embedFile("testdata/" ++ want_name_no_input);
 
     var buf = ArrayList(u8).init(testing.allocator);
     var bw = try huffmanBitWriter(testing.allocator, buf.writer());
@@ -1673,7 +1637,7 @@ fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
     try writeToType(ttype, &bw, ht.tokens, null);
 
     var got = buf.items;
-    try expect(mem.eql(u8, got, want_ni)); // expect writeBlock to yield expected result
+    try testing.expectEqualSlices(u8, want_ni, got); // expect writeBlock to yield expected result
     try expect(got[0] & 1 != 1); // expect no EOF
 
     // Test if the writer produces the same output after reset.
@@ -1688,11 +1652,11 @@ fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
     try bw.flush();
     got = buf.items;
 
-    try expect(mem.eql(u8, got, want_ni)); // expect writeBlock to yield expected result
+    try testing.expectEqualSlices(u8, want_ni, got); // expect writeBlock to yield expected result
     try testWriterEOF(.write_block, ht.tokens, &[0]u8{});
 }
 
-fn writeToType(ttype: TestType, bw: anytype, tok: []const token.Token, input: ?[]u8) !void {
+fn writeToType(ttype: TestType, bw: anytype, tok: []const token.Token, input: ?[]const u8) !void {
     switch (ttype) {
         .write_block => try bw.writeBlock(tok, false, input),
         .write_dyn_block => try bw.writeBlockDynamic(tok, false, input),
@@ -1702,7 +1666,7 @@ fn writeToType(ttype: TestType, bw: anytype, tok: []const token.Token, input: ?[
 }
 
 // Tests if the written block contains an EOF marker.
-fn testWriterEOF(ttype: TestType, ht_tokens: []const token.Token, input: []u8) !void {
+fn testWriterEOF(ttype: TestType, ht_tokens: []const token.Token, input: []const u8) !void {
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     var bw = try huffmanBitWriter(testing.allocator, buf.writer());

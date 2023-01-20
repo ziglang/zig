@@ -6,4 +6,5 @@ extern var foo: i32;
 
 // error
 //
-// :2:15: error: cannot load runtime value in comptime block
+// :2:19: error: unable to evaluate comptime expression
+// :2:15: note: operation is runtime due to this operand

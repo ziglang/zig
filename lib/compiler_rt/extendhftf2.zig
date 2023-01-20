@@ -4,7 +4,7 @@ const extendf = @import("./extendf.zig").extendf;
 pub const panic = common.panic;
 
 comptime {
-    @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = common.linkage });
+    @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __extendhftf2(a: common.F16T) callconv(.C) f128 {

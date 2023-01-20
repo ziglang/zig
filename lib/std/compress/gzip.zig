@@ -15,6 +15,11 @@ const FEXTRA = 1 << 2;
 const FNAME = 1 << 3;
 const FCOMMENT = 1 << 4;
 
+const max_string_len = 1024;
+
+/// TODO: the fully qualified namespace to this declaration is
+/// std.compress.gzip.GzipStream which has a redundant "gzip" in the name.
+/// Instead, it should be `std.compress.gzip.Stream`.
 pub fn GzipStream(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
@@ -31,9 +36,11 @@ pub fn GzipStream(comptime ReaderType: type) type {
         read_amt: usize,
 
         info: struct {
+            extra: ?[]const u8,
             filename: ?[]const u8,
             comment: ?[]const u8,
             modification_time: u32,
+            operating_system: u8,
         },
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
@@ -57,33 +64,27 @@ pub fn GzipStream(comptime ReaderType: type) type {
             // Operating system where the compression took place
             const OS = header[9];
             _ = XFL;
-            _ = OS;
 
-            if (FLG & FEXTRA != 0) {
-                // Skip the extra data, we could read and expose it to the user
-                // if somebody needs it.
+            const extra = if (FLG & FEXTRA != 0) blk: {
                 const len = try source.readIntLittle(u16);
-                try source.skipBytes(len, .{});
-            }
+                const tmp_buf = try allocator.alloc(u8, len);
+                errdefer allocator.free(tmp_buf);
 
-            var filename: ?[]const u8 = null;
-            if (FLG & FNAME != 0) {
-                filename = try source.readUntilDelimiterAlloc(
-                    allocator,
-                    0,
-                    std.math.maxInt(usize),
-                );
-            }
+                try source.readNoEof(tmp_buf);
+                break :blk tmp_buf;
+            } else null;
+            errdefer if (extra) |p| allocator.free(p);
+
+            const filename = if (FLG & FNAME != 0)
+                try source.readUntilDelimiterAlloc(allocator, 0, max_string_len)
+            else
+                null;
             errdefer if (filename) |p| allocator.free(p);
 
-            var comment: ?[]const u8 = null;
-            if (FLG & FCOMMENT != 0) {
-                comment = try source.readUntilDelimiterAlloc(
-                    allocator,
-                    0,
-                    std.math.maxInt(usize),
-                );
-            }
+            const comment = if (FLG & FCOMMENT != 0)
+                try source.readUntilDelimiterAlloc(allocator, 0, max_string_len)
+            else
+                null;
             errdefer if (comment) |p| allocator.free(p);
 
             if (FLG & FHCRC != 0) {
@@ -100,7 +101,9 @@ pub fn GzipStream(comptime ReaderType: type) type {
                 .info = .{
                     .filename = filename,
                     .comment = comment,
+                    .extra = extra,
                     .modification_time = MTIME,
+                    .operating_system = OS,
                 },
                 .read_amt = 0,
             };
@@ -108,6 +111,8 @@ pub fn GzipStream(comptime ReaderType: type) type {
 
         pub fn deinit(self: *Self) void {
             self.inflater.deinit();
+            if (self.info.extra) |extra|
+                self.allocator.free(extra);
             if (self.info.filename) |filename|
                 self.allocator.free(filename);
             if (self.info.comment) |comment|
@@ -161,7 +166,7 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     defer testing.allocator.free(buf);
 
     // Check against the reference
-    try testing.expectEqualSlices(u8, buf, expected);
+    try testing.expectEqualSlices(u8, expected, buf);
 }
 
 // All the test cases are obtained by compressing the RFC1952 text
@@ -170,8 +175,8 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
 // SHA256=164ef0897b4cbec63abf1b57f069f3599bd0fb7c72c2a4dee21bd7e03ec9af67
 test "compressed data" {
     try testReader(
-        @embedFile("rfc1952.txt.gz"),
-        @embedFile("rfc1952.txt"),
+        @embedFile("testdata/rfc1952.txt.gz"),
+        @embedFile("testdata/rfc1952.txt"),
     );
 }
 

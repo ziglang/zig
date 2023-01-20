@@ -7,7 +7,7 @@ fn NamespacedComponents(comptime modules: anytype) type {
             .is_tuple = false,
             .fields = &.{.{
                 .name = "components",
-                .field_type = @TypeOf(modules.components),
+                .type = @TypeOf(modules.components),
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(@TypeOf(modules.components)),

@@ -2,6 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+/// Determines the symbol's visibility to other objects.
+/// For WebAssembly this allows the symbol to be resolved to other modules, but will not
+/// export it to the host runtime.
+pub const visibility: std.builtin.SymbolVisibility = if (builtin.target.isWasm()) .hidden else .default;
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -9,6 +13,7 @@ pub const want_aeabi = switch (builtin.abi) {
     .musleabihf,
     .gnueabi,
     .gnueabihf,
+    .android,
     => switch (builtin.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => true,
         else => false,
@@ -19,7 +24,7 @@ pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 
 // Libcalls that involve u128 on Windows x86-64 are expected by LLVM to use the
 // calling convention of @Vector(2, u64), rather than what's standard.
-pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
+pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and @import("builtin").object_format != .c;
 
 /// This governs whether to use these symbol names for f16/f32 conversions
 /// rather than the standard names:
@@ -44,9 +49,10 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .wasm64,
     .riscv64,
     .riscv32,
-    .i386,
     .x86_64,
     => false,
+
+    .x86 => true,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
@@ -77,7 +83,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 pub const F16T = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => f16,
     .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
-    .i386, .x86_64 => f16,
+    .x86, .x86_64 => f16,
     else => u16,
 };
 

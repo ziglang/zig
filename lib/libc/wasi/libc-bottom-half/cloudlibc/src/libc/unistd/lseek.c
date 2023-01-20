@@ -22,4 +22,4 @@ off_t __lseek(int fildes, off_t offset, int whence) {
   return new_offset;
 }
 
-extern __typeof(__lseek) lseek __attribute__((weak, alias("__lseek")));
+weak_alias(__lseek, lseek);

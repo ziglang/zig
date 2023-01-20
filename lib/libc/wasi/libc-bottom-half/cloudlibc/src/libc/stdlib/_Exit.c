@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <wasi/api.h>
-#include <stdlib.h>
+#include <_/cdefs.h>
 #include <stdnoreturn.h>
 #include <unistd.h>
 

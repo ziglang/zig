@@ -18,11 +18,12 @@ fn checkSize(comptime T: type) usize {
 
 test "simple generic fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (builtin.zig_backend == .stage1) {
-        // TODO: stage2 is incorrectly emitting the following:
+    if (false) {
+        // TODO: zig is incorrectly emitting the following:
         // error: cast of value 1.23e-01 to type 'f32' loses information
         try expect(max(f32, 0.123, 0.456) == 0.456);
     }
@@ -58,6 +59,7 @@ test "fn with comptime args" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(gimmeTheBigOne(1234, 5678) == 5678);
     try expect(shouldCallSameInstance(34, 12) == 34);
@@ -68,6 +70,7 @@ test "anytype params" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(max_i32(12, 34) == 34);
     try expect(max_f64(1.2, 3.4) == 3.4);
@@ -92,6 +95,7 @@ fn max_f64(a: f64, b: f64) f64 {
 test "type constructed by comptime function call" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var l: SimpleList(10) = undefined;
     l.array[0] = 10;
@@ -114,6 +118,7 @@ fn SimpleList(comptime L: usize) type {
 test "function with return type type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var list: List(i32) = undefined;
     var list2: List(i32) = undefined;
@@ -154,6 +159,7 @@ fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
 test "generic fn with implicit cast" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(getFirstByte(u8, &[_]u8{13}) == 13);
     try expect(getFirstByte(u16, &[_]u16{
@@ -171,6 +177,7 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
 test "generic fn keeps non-generic parameter types" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const A = 128;
 
@@ -204,7 +211,8 @@ fn foo2(arg: anytype) bool {
 }
 
 test "generic struct" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     var a1 = GenNode(i32){
         .value = 13,
         .next = null,
@@ -244,6 +252,7 @@ test "generic function instantiation turns into comptime call" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -264,7 +273,6 @@ test "generic function instantiation turns into comptime call" {
             var enumFields: [1]std.builtin.Type.EnumField = .{.{ .name = "A", .value = 0 }};
             return @Type(.{
                 .Enum = .{
-                    .layout = .Auto,
                     .tag_type = u0,
                     .fields = &enumFields,
                     .decls = &.{},
@@ -277,6 +285,8 @@ test "generic function instantiation turns into comptime call" {
 }
 
 test "generic function with void and comptime parameter" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct { x: i32 };
     const namespace = struct {
         fn foo(v: void, s: *S, comptime T: type) !void {
@@ -291,6 +301,7 @@ test "generic function with void and comptime parameter" {
 
 test "anonymous struct return type referencing comptime parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         pub fn extraData(comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -308,6 +319,7 @@ test "anonymous struct return type referencing comptime parameter" {
 test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
@@ -343,8 +355,6 @@ test "generic instantiation of tagged union with only one field" {
 }
 
 test "nested generic function" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     const S = struct {
         fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
             try callback(data);
@@ -361,16 +371,19 @@ test "nested generic function" {
 
 test "extern function used as generic parameter" {
     const S = struct {
-        extern fn foo() void;
-        extern fn bar() void;
-        inline fn baz(comptime _: anytype) type {
+        extern fn usedAsGenericParameterFoo() void;
+        extern fn usedAsGenericParameterBar() void;
+        inline fn usedAsGenericParameterBaz(comptime _: anytype) type {
             return struct {};
         }
     };
-    try expect(S.baz(S.foo) != S.baz(S.bar));
+    try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=
+        S.usedAsGenericParameterBaz(S.usedAsGenericParameterBar));
 }
 
 test "generic struct as parameter type" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest(comptime Int: type, thing: struct { int: Int }) !void {
             try expect(thing.int == 123);
@@ -381,4 +394,39 @@ test "generic struct as parameter type" {
     };
     try S.doTheTest(u32, .{ .int = 123 });
     try S.doTheTest2(i32, .{ .int = 456 });
+}
+
+test "slice as parameter type" {
+    const S = struct {
+        fn internComptimeString(comptime str: []const u8) *const []const u8 {
+            return &struct {
+                const intern: []const u8 = str;
+            }.intern;
+        }
+    };
+
+    const source_a = "this is a string";
+    try expect(S.internComptimeString(source_a[1..2]) == S.internComptimeString(source_a[1..2]));
+    try expect(S.internComptimeString(source_a[2..4]) != S.internComptimeString(source_a[5..7]));
+}
+
+test "null sentinel pointer passed as generic argument" {
+    const S = struct {
+        fn doTheTest(a: anytype) !void {
+            try std.testing.expect(@ptrToInt(a) == 8);
+        }
+    };
+    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+}
+
+test "generic function passed as comptime argument" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
+            const result = try f(i32, a, b);
+            try expect(result == 11);
+        }
+    };
+    try S.doMath(std.math.add, 5, 6);
 }

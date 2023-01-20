@@ -478,7 +478,7 @@ fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
             if (bit_i == std.math.maxInt(u5)) break;
         }
     }
-    return list.toOwnedSlice();
+    return try list.toOwnedSlice();
 }
 
 pub const Pdb = struct {
@@ -615,8 +615,8 @@ pub const Pdb = struct {
                 return error.InvalidDebugInfo;
         }
 
-        self.modules = modules.toOwnedSlice();
-        self.sect_contribs = sect_contribs.toOwnedSlice();
+        self.modules = try modules.toOwnedSlice();
+        self.sect_contribs = try sect_contribs.toOwnedSlice();
     }
 
     pub fn parseInfoStream(self: *Pdb) !void {
@@ -972,9 +972,9 @@ fn blockCountFromSize(size: u32, block_size: u32) u32 {
 }
 
 // https://llvm.org/docs/PDB/MsfFile.html#the-superblock
-const SuperBlock = extern struct {
+pub const SuperBlock = extern struct {
     /// The LLVM docs list a space between C / C++ but empirically this is not the case.
-    const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
+    pub const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 
     FileMagic: [file_magic.len]u8,
 

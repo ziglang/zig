@@ -95,12 +95,12 @@ fn make(step: *Step) !void {
             if (glibc_dir_arg) |dir| {
                 // TODO look into making this a call to `linuxTriple`. This
                 // needs the directory to be called "i686" rather than
-                // "i386" which is why we do it manually here.
+                // "x86" which is why we do it manually here.
                 const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
                 const cpu_arch = self.exe.target.getCpuArch();
                 const os_tag = self.exe.target.getOsTag();
                 const abi = self.exe.target.getAbi();
-                const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
                     "i686"
                 else
                     @tagName(cpu_arch);

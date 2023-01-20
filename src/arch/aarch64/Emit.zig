@@ -10,8 +10,6 @@ const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const ErrorMsg = Module.ErrorMsg;
 const assert = std.debug.assert;
-const DW = std.dwarf;
-const leb128 = std.leb;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
@@ -131,6 +129,7 @@ pub fn emitMir(
             .subs_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
             .cmp_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
 
+            .csel => try emit.mirConditionalSelect(inst),
             .cset => try emit.mirConditionalSelect(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
@@ -144,12 +143,14 @@ pub fn emitMir(
 
             .load_memory_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_direct => try emit.mirLoadMemoryPie(inst),
+            .load_memory_import => try emit.mirLoadMemoryPie(inst),
             .load_memory_ptr_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_ptr_direct => try emit.mirLoadMemoryPie(inst),
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
 
+            .ldr_ptr_stack => try emit.mirLoadStoreStack(inst),
             .ldr_stack => try emit.mirLoadStoreStack(inst),
             .ldrb_stack => try emit.mirLoadStoreStack(inst),
             .ldrh_stack => try emit.mirLoadStoreStack(inst),
@@ -159,8 +160,8 @@ pub fn emitMir(
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
 
-            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
@@ -437,19 +438,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
         .dwarf => |dw| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            const dbg_line = &dw.dbg_line;
-            try dbg_line.ensureUnusedCapacity(11);
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
+            try dw.advancePCAndLine(delta_line, delta_pc);
             self.prev_di_line = line;
             self.prev_di_column = column;
             self.prev_di_pc = self.code.items.len;
@@ -649,7 +638,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirDebugPrologueEnd(self: *Emit) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_prologue_end);
+            try dw.setPrologueEnd();
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
@@ -660,7 +649,7 @@ fn mirDebugPrologueEnd(self: *Emit) !void {
 fn mirDebugEpilogueBegin(self: *Emit) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
+            try dw.setEpilogueBegin();
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
@@ -672,26 +661,29 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
+    const offset = blk: {
+        const offset = @intCast(u32, emit.code.items.len);
+        // bl
+        try emit.writeInstruction(Instruction.bl(0));
+        break :blk offset;
+    };
+
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-        const offset = blk: {
-            const offset = @intCast(u32, emit.code.items.len);
-            // bl
-            try emit.writeInstruction(Instruction.bl(0));
-            break :blk offset;
-        };
         // Add relocation to the decl.
         const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(macho_file, .{
-            .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+            .type = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
             .target = target,
             .offset = offset,
             .addend = 0,
             .pcrel = true,
             .length = 2,
         });
+    } else if (emit.bin_file.cast(link.File.Coff)) |_| {
+        unreachable; // Calling imports is handled via `.load_memory_import`
     } else {
-        return emit.fail("Implement call_extern for linking backends != MachO", .{});
+        return emit.fail("Implement call_extern for linking backends != {{ COFF, MachO }}", .{});
     }
 }
 
@@ -803,6 +795,14 @@ fn mirAddSubtractExtendedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
+        .csel => {
+            const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
+            const rd = rrr_cond.rd;
+            const rn = rrr_cond.rn;
+            const rm = rrr_cond.rm;
+            const cond = rrr_cond.cond;
+            try emit.writeInstruction(Instruction.csel(rd, rn, rm, cond));
+        },
         .cset => {
             const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
             const zr: Register = switch (r_cond.rd.size()) {
@@ -842,14 +842,16 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     // PC-relative displacement to the entry in memory.
     // adrp
     const offset = @intCast(u32, emit.code.items.len);
-    try emit.writeInstruction(Instruction.adrp(reg.to64(), 0));
+    try emit.writeInstruction(Instruction.adrp(reg.toX(), 0));
 
     switch (tag) {
-        .load_memory_got => {
+        .load_memory_got,
+        .load_memory_import,
+        => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -863,11 +865,11 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             // Note that this can potentially be optimised out by the codegen/linker if the
             // target address is appropriately aligned.
             // add reg, reg, offset
-            try emit.writeInstruction(Instruction.add(reg.to64(), reg.to64(), 0, false));
+            try emit.writeInstruction(Instruction.add(reg.toX(), reg.toX(), 0, false));
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -890,7 +892,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = true,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
@@ -906,13 +908,58 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .addend = 0,
             .pcrel = false,
             .length = 2,
-            .@"type" = switch (tag) {
+            .type = switch (tag) {
                 .load_memory_got,
                 .load_memory_ptr_got,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
                 .load_memory_direct,
                 .load_memory_ptr_direct,
                 => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                else => unreachable,
+            },
+        });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        const target = switch (tag) {
+            .load_memory_got,
+            .load_memory_ptr_got,
+            .load_memory_direct,
+            .load_memory_ptr_direct,
+            => link.File.Coff.SymbolWithLoc{ .sym_index = data.sym_index, .file = null },
+            .load_memory_import => coff_file.getGlobalByIndex(data.sym_index),
+            else => unreachable,
+        };
+        try atom.addRelocation(coff_file, .{
+            .target = target,
+            .offset = offset,
+            .addend = 0,
+            .pcrel = true,
+            .length = 2,
+            .type = switch (tag) {
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => .got_page,
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => .page,
+                .load_memory_import => .import_page,
+                else => unreachable,
+            },
+        });
+        try atom.addRelocation(coff_file, .{
+            .target = target,
+            .offset = offset + 4,
+            .addend = 0,
+            .pcrel = false,
+            .length = 2,
+            .type = switch (tag) {
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => .got_pageoff,
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => .pageoff,
+                .load_memory_import => .import_pageoff,
                 else => unreachable,
             },
         });
@@ -1003,23 +1050,43 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     const rt = load_store_stack.rt;
 
     const raw_offset = emit.stack_size - load_store_stack.offset;
-    const offset = switch (tag) {
-        .ldrb_stack, .ldrsb_stack, .strb_stack => blk: {
-            if (math.cast(u12, raw_offset)) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+    switch (tag) {
+        .ldr_ptr_stack => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| imm else {
+                return emit.fail("TODO load stack argument ptr with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(rt, .sp, offset, false)),
+                else => unreachable,
+            }
+        },
+        .ldrb_stack, .ldrsb_stack, .strb_stack => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack byte with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+                .ldrsb_stack => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+                .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldrh_stack, .ldrsh_stack, .strh_stack => blk: {
+        .ldrh_stack, .ldrsh_stack, .strh_stack => {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, 2))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack halfword with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+                .ldrsh_stack => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
+                .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldr_stack, .str_stack => blk: {
+        .ldr_stack, .str_stack => {
             const alignment: u32 = switch (rt.size()) {
                 32 => 4,
                 64 => 8,
@@ -1027,24 +1094,16 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
             };
 
             assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load/store stack with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+                .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        else => unreachable,
-    };
-
-    switch (tag) {
-        .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
-        .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
-        .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
-        .ldrsb_stack => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
-        .ldrsh_stack => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
-        .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
-        .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
-        .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
         else => unreachable,
     }
 }
@@ -1169,42 +1228,50 @@ fn mirNop(emit: *Emit) !void {
     try emit.writeInstruction(Instruction.nop());
 }
 
+fn regListIsSet(reg_list: u32, reg: Register) bool {
+    return reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0;
+}
+
 fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
 
-    if (reg_list & @as(u32, 1) << 31 != 0) return emit.fail("xzr is not a valid register for {}", .{tag});
+    if (regListIsSet(reg_list, .xzr)) return emit.fail("xzr is not a valid register for {}", .{tag});
 
     // sp must be aligned at all times, so we only use stp and ldp
-    // instructions for minimal instruction count. However, if we do
-    // not have an even number of registers, we use str and ldr
+    // instructions for minimal instruction count.
+    //
+    // However, if we have an odd number of registers, for pop_regs we
+    // use one ldr instruction followed by zero or more ldp
+    // instructions; for push_regs we use zero or more stp
+    // instructions followed by one str instruction.
     const number_of_regs = @popCount(reg_list);
+    const odd_number_of_regs = number_of_regs % 2 != 0;
 
     switch (tag) {
         .pop_regs => {
             var i: u6 = 32;
             var count: u6 = 0;
-            var other_reg: Register = undefined;
+            var other_reg: ?Register = null;
             while (i > 0) : (i -= 1) {
                 const reg = @intToEnum(Register, i - 1);
-                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
-                    if (count % 2 == 0) {
-                        if (count == number_of_regs - 1) {
-                            try emit.writeInstruction(Instruction.ldr(
-                                reg,
-                                .sp,
-                                Instruction.LoadStoreOffset.imm_post_index(16),
-                            ));
-                        } else {
-                            other_reg = reg;
-                        }
-                    } else {
+                if (regListIsSet(reg_list, reg)) {
+                    if (count == 0 and odd_number_of_regs) {
+                        try emit.writeInstruction(Instruction.ldr(
+                            reg,
+                            .sp,
+                            Instruction.LoadStoreOffset.imm_post_index(16),
+                        ));
+                    } else if (other_reg) |r| {
                         try emit.writeInstruction(Instruction.ldp(
                             reg,
-                            other_reg,
+                            r,
                             .sp,
                             Instruction.LoadStorePairOffset.post_index(16),
                         ));
+                        other_reg = null;
+                    } else {
+                        other_reg = reg;
                     }
                     count += 1;
                 }
@@ -1214,27 +1281,26 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
         .push_regs => {
             var i: u6 = 0;
             var count: u6 = 0;
-            var other_reg: Register = undefined;
+            var other_reg: ?Register = null;
             while (i < 32) : (i += 1) {
                 const reg = @intToEnum(Register, i);
-                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
-                    if (count % 2 == 0) {
-                        if (count == number_of_regs - 1) {
-                            try emit.writeInstruction(Instruction.str(
-                                reg,
-                                .sp,
-                                Instruction.LoadStoreOffset.imm_pre_index(-16),
-                            ));
-                        } else {
-                            other_reg = reg;
-                        }
-                    } else {
+                if (regListIsSet(reg_list, reg)) {
+                    if (count == number_of_regs - 1 and odd_number_of_regs) {
+                        try emit.writeInstruction(Instruction.str(
+                            reg,
+                            .sp,
+                            Instruction.LoadStoreOffset.imm_pre_index(-16),
+                        ));
+                    } else if (other_reg) |r| {
                         try emit.writeInstruction(Instruction.stp(
-                            other_reg,
+                            r,
                             reg,
                             .sp,
                             Instruction.LoadStorePairOffset.pre_index(-16),
                         ));
+                        other_reg = null;
+                    } else {
+                        other_reg = reg;
                     }
                     count += 1;
                 }

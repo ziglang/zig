@@ -33,7 +33,7 @@ const syscall_bits = switch (native_arch) {
 };
 
 const arch_bits = switch (native_arch) {
-    .i386 => @import("linux/i386.zig"),
+    .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm, .thumb => @import("linux/arm-eabi.zig"),
@@ -94,7 +94,7 @@ pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .i386 => syscalls.X86,
+    .x86 => syscalls.X86,
     .x86_64 => syscalls.X64,
     .aarch64 => syscalls.Arm64,
     .arm, .thumb => syscalls.Arm,
@@ -263,7 +263,7 @@ pub fn fork() usize {
 /// the compiler is not aware of how vfork affects control flow and you may
 /// see different results in optimized builds.
 pub inline fn vfork() usize {
-    return @call(.{ .modifier = .always_inline }, syscall0, .{.vfork});
+    return @call(.always_inline, syscall0, .{.vfork});
 }
 
 pub fn futimens(fd: i32, times: *const [2]timespec) usize {
@@ -804,6 +804,63 @@ pub fn exit_group(status: i32) noreturn {
     unreachable;
 }
 
+/// flags for the `reboot' system call.
+pub const LINUX_REBOOT = struct {
+    /// First magic value required to use _reboot() system call.
+    pub const MAGIC1 = enum(u32) {
+        MAGIC1 = 0xfee1dead,
+        _,
+    };
+
+    /// Second magic value required to use _reboot() system call.
+    pub const MAGIC2 = enum(u32) {
+        MAGIC2 = 672274793,
+        MAGIC2A = 85072278,
+        MAGIC2B = 369367448,
+        MAGIC2C = 537993216,
+        _,
+    };
+
+    /// Commands accepted by the _reboot() system call.
+    pub const CMD = enum(u32) {
+        /// Restart system using default command and mode.
+        RESTART = 0x01234567,
+
+        /// Stop OS and give system control to ROM monitor, if any.
+        HALT = 0xCDEF0123,
+
+        /// Ctrl-Alt-Del sequence causes RESTART command.
+        CAD_ON = 0x89ABCDEF,
+
+        /// Ctrl-Alt-Del sequence sends SIGINT to init task.
+        CAD_OFF = 0x00000000,
+
+        /// Stop OS and remove all power from system, if possible.
+        POWER_OFF = 0x4321FEDC,
+
+        /// Restart system using given command string.
+        RESTART2 = 0xA1B2C3D4,
+
+        /// Suspend system using software suspend if compiled in.
+        SW_SUSPEND = 0xD000FCE2,
+
+        /// Restart system using a previously loaded Linux kernel
+        KEXEC = 0x45584543,
+
+        _,
+    };
+};
+
+pub fn reboot(magic: LINUX_REBOOT.MAGIC1, magic2: LINUX_REBOOT.MAGIC2, cmd: LINUX_REBOOT.CMD, arg: ?*const anyopaque) usize {
+    return std.os.linux.syscall4(
+        .reboot,
+        @enumToInt(magic),
+        @enumToInt(magic2),
+        @enumToInt(cmd),
+        @ptrToInt(arg),
+    );
+}
+
 pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
     return syscall3(.getrandom, @ptrToInt(buf), count, flags);
 }
@@ -879,16 +936,10 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, operation)));
 }
 
-var vdso_clock_gettime = if (builtin.zig_backend == .stage1)
-    @ptrCast(?*const anyopaque, init_vdso_clock_gettime)
-else
-    @ptrCast(?*const anyopaque, &init_vdso_clock_gettime);
+var vdso_clock_gettime = @ptrCast(?*const anyopaque, &init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = if (builtin.zig_backend == .stage1)
-    fn (i32, *timespec) callconv(.C) usize
-else
-    *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
@@ -1094,8 +1145,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restore_rt_ptr = if (builtin.zig_backend == .stage1) restore_rt else &restore_rt;
-        const restore_ptr = if (builtin.zig_backend == .stage1) restore else &restore;
+        const restore_rt_ptr = &restore_rt;
+        const restore_ptr = &restore;
         const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
         ksa = k_sigaction{
             .handler = new.handler.handler,
@@ -1141,45 +1192,48 @@ pub fn sigismember(set: *const sigset_t, sig: u6) bool {
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.getsockname, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getsockname, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.getpeername, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getpeername, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.socket, &[3]usize{ domain, socket_type, protocol });
     }
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.setsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen) });
     }
     return syscall5(.setsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen));
 }
 
 pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.getsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen) });
     }
     return syscall5(.getsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const std.x.os.Socket.Message, flags: c_int) usize {
-    if (native_arch == .i386) {
-        return socketcall(SC.sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const msg_usize = @ptrToInt(msg);
+    if (native_arch == .x86) {
+        return socketcall(SC.sendmsg, &[3]usize{ fd_usize, msg_usize, flags });
+    } else {
+        return syscall3(.sendmsg, fd_usize, msg_usize, flags);
     }
-    return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
@@ -1193,7 +1247,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
             var size: i32 = 0;
             const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
             for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
-                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(i32, size, @intCast(i32, iov.iov_len), &size)) {
+                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(size, @intCast(i32, iov.iov_len))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
@@ -1223,49 +1277,67 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
 }
 
 pub fn connect(fd: i32, addr: *const anyopaque, len: socklen_t) usize {
-    if (native_arch == .i386) {
-        return socketcall(SC.connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const addr_usize = @ptrToInt(addr);
+    if (native_arch == .x86) {
+        return socketcall(SC.connect, &[3]usize{ fd_usize, addr_usize, len });
+    } else {
+        return syscall3(.connect, fd_usize, addr_usize, len);
     }
-    return syscall3(.connect, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len);
 }
 
-pub fn recvmsg(fd: i32, msg: *std.x.os.Socket.Message, flags: c_int) usize {
-    if (native_arch == .i386) {
-        return socketcall(SC.recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const msg_usize = @ptrToInt(msg);
+    if (native_arch == .x86) {
+        return socketcall(SC.recvmsg, &[3]usize{ fd_usize, msg_usize, flags });
+    } else {
+        return syscall3(.recvmsg, fd_usize, msg_usize, flags);
     }
-    return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
-pub fn recvfrom(fd: i32, noalias buf: [*]u8, len: usize, flags: u32, noalias addr: ?*sockaddr, noalias alen: ?*socklen_t) usize {
-    if (native_arch == .i386) {
-        return socketcall(SC.recvfrom, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen) });
+pub fn recvfrom(
+    fd: i32,
+    noalias buf: [*]u8,
+    len: usize,
+    flags: u32,
+    noalias addr: ?*sockaddr,
+    noalias alen: ?*socklen_t,
+) usize {
+    const fd_usize = @bitCast(usize, @as(isize, fd));
+    const buf_usize = @ptrToInt(buf);
+    const addr_usize = @ptrToInt(addr);
+    const alen_usize = @ptrToInt(alen);
+    if (native_arch == .x86) {
+        return socketcall(SC.recvfrom, &[6]usize{ fd_usize, buf_usize, len, flags, addr_usize, alen_usize });
+    } else {
+        return syscall6(.recvfrom, fd_usize, buf_usize, len, flags, addr_usize, alen_usize);
     }
-    return syscall6(.recvfrom, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.shutdown, &[2]usize{ @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)) });
     }
     return syscall2(.shutdown, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)));
 }
 
 pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.bind, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len) });
     }
     return syscall3(.bind, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len));
 }
 
 pub fn listen(fd: i32, backlog: u32) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.listen, &[2]usize{ @bitCast(usize, @as(isize, fd)), backlog });
     }
     return syscall2(.listen, @bitCast(usize, @as(isize, fd)), backlog);
 }
 
 pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const sockaddr, alen: socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.sendto, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen) });
     }
     return syscall6(.sendto, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
@@ -1292,21 +1364,21 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
 }
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(fd) });
     }
     return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(fd));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.accept, &[4]usize{ fd, addr, len, 0 });
     }
     return accept4(fd, addr, len, 0);
 }
 
 pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flags: u32) usize {
-    if (native_arch == .i386) {
+    if (native_arch == .x86) {
         return socketcall(SC.accept4, &[4]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags });
     }
     return syscall4(.accept4, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags);
@@ -1466,6 +1538,21 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
     return syscall4(.timerfd_settime, @bitCast(usize, @as(isize, fd)), flags, @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
+// Flags for the 'setitimer' system call
+pub const ITIMER = enum(i32) {
+    REAL = 0,
+    VIRTUAL = 1,
+    PROF = 2,
+};
+
+pub fn getitimer(which: i32, curr_value: *itimerspec) usize {
+    return syscall2(.getitimer, @bitCast(usize, @as(isize, which)), @ptrToInt(curr_value));
+}
+
+pub fn setitimer(which: i32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall3(.setitimer, @bitCast(usize, @as(isize, which)), @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
 pub fn unshare(flags: usize) usize {
     return syscall1(.unshare, flags);
 }
@@ -1512,6 +1599,10 @@ pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+}
+
+pub fn tcdrain(fd: fd_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSBRK, 1);
 }
 
 pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
@@ -2762,46 +2853,46 @@ pub const DT = struct {
 
 pub const T = struct {
     pub const CGETS = if (is_mips) 0x540D else 0x5401;
-    pub const CSETS = 0x5402;
-    pub const CSETSW = 0x5403;
-    pub const CSETSF = 0x5404;
-    pub const CGETA = 0x5405;
-    pub const CSETA = 0x5406;
-    pub const CSETAW = 0x5407;
-    pub const CSETAF = 0x5408;
-    pub const CSBRK = 0x5409;
-    pub const CXONC = 0x540A;
-    pub const CFLSH = 0x540B;
-    pub const IOCEXCL = 0x540C;
-    pub const IOCNXCL = 0x540D;
-    pub const IOCSCTTY = 0x540E;
-    pub const IOCGPGRP = 0x540F;
-    pub const IOCSPGRP = 0x5410;
+    pub const CSETS = if (is_mips) 0x540e else 0x5402;
+    pub const CSETSW = if (is_mips) 0x540f else 0x5403;
+    pub const CSETSF = if (is_mips) 0x5410 else 0x5404;
+    pub const CGETA = if (is_mips) 0x5401 else 0x5405;
+    pub const CSETA = if (is_mips) 0x5402 else 0x5406;
+    pub const CSETAW = if (is_mips) 0x5403 else 0x5407;
+    pub const CSETAF = if (is_mips) 0x5404 else 0x5408;
+    pub const CSBRK = if (is_mips) 0x5405 else 0x5409;
+    pub const CXONC = if (is_mips) 0x5406 else 0x540A;
+    pub const CFLSH = if (is_mips) 0x5407 else 0x540B;
+    pub const IOCEXCL = if (is_mips) 0x740d else 0x540C;
+    pub const IOCNXCL = if (is_mips) 0x740e else 0x540D;
+    pub const IOCSCTTY = if (is_mips) 0x7472 else 0x540E;
+    pub const IOCGPGRP = if (is_mips) 0x5472 else 0x540F;
+    pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
     pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
-    pub const IOCSTI = 0x5412;
+    pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
     pub const IOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
     pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
-    pub const IOCMGET = 0x5415;
-    pub const IOCMBIS = 0x5416;
-    pub const IOCMBIC = 0x5417;
-    pub const IOCMSET = 0x5418;
-    pub const IOCGSOFTCAR = 0x5419;
-    pub const IOCSSOFTCAR = 0x541A;
+    pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
+    pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
+    pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;
+    pub const IOCMSET = if (is_mips) 0x741a else 0x5418;
+    pub const IOCGSOFTCAR = if (is_mips) 0x5481 else 0x5419;
+    pub const IOCSSOFTCAR = if (is_mips) 0x5482 else 0x541A;
     pub const FIONREAD = if (is_mips) 0x467F else 0x541B;
     pub const IOCINQ = FIONREAD;
-    pub const IOCLINUX = 0x541C;
-    pub const IOCCONS = 0x541D;
-    pub const IOCGSERIAL = 0x541E;
-    pub const IOCSSERIAL = 0x541F;
-    pub const IOCPKT = 0x5420;
-    pub const FIONBIO = 0x5421;
-    pub const IOCNOTTY = 0x5422;
-    pub const IOCSETD = 0x5423;
-    pub const IOCGETD = 0x5424;
-    pub const CSBRKP = 0x5425;
+    pub const IOCLINUX = if (is_mips) 0x5483 else 0x541C;
+    pub const IOCCONS = if (is_mips) IOCTL.IOW('t', 120, c_int) else 0x541D;
+    pub const IOCGSERIAL = if (is_mips) 0x5484 else 0x541E;
+    pub const IOCSSERIAL = if (is_mips) 0x5485 else 0x541F;
+    pub const IOCPKT = if (is_mips) 0x5470 else 0x5420;
+    pub const FIONBIO = if (is_mips) 0x667e else 0x5421;
+    pub const IOCNOTTY = if (is_mips) 0x5471 else 0x5422;
+    pub const IOCSETD = if (is_mips) 0x7401 else 0x5423;
+    pub const IOCGETD = if (is_mips) 0x7400 else 0x5424;
+    pub const CSBRKP = if (is_mips) 0x5486 else 0x5425;
     pub const IOCSBRK = 0x5427;
     pub const IOCCBRK = 0x5428;
-    pub const IOCGSID = 0x5429;
+    pub const IOCGSID = if (is_mips) 0x7416 else 0x5429;
     pub const IOCGRS485 = 0x542E;
     pub const IOCSRS485 = 0x542F;
     pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
@@ -3069,8 +3160,8 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?std.meta.FnPtr(fn (c_int) callconv(.C) void);
-    const restorer = std.meta.FnPtr(fn () callconv(.C) void);
+    const handler = ?*const fn (c_int) align(1) callconv(.C) void;
+    const restorer = *const fn () callconv(.C) void;
 };
 
 pub const k_sigaction = switch (native_arch) {
@@ -3096,8 +3187,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -3105,7 +3196,7 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?std.meta.FnPtr(fn () callconv(.C) void) = null,
+    restorer: ?*const fn () callconv(.C) void = null,
 };
 
 pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
@@ -3149,7 +3240,15 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        family: sa_family_t align(8),
+        padding: [SS_MAXSIZE - @sizeOf(sa_family_t)]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     /// IPv4 socket address
     pub const in = extern struct {
@@ -3174,6 +3273,17 @@ pub const sockaddr = extern struct {
         path: [108]u8,
     };
 
+    /// Packet socket address
+    pub const ll = extern struct {
+        family: sa_family_t = AF.PACKET,
+        protocol: u16,
+        ifindex: i32,
+        hatype: u16,
+        pkttype: u8,
+        halen: u8,
+        addr: [8]u8,
+    };
+
     /// Netlink socket address
     pub const nl = extern struct {
         family: sa_family_t = AF.NETLINK,
@@ -3193,6 +3303,21 @@ pub const sockaddr = extern struct {
         queue_id: u32,
         shared_umem_fd: u32,
     };
+
+    /// Address structure for vSockets
+    pub const vm = extern struct {
+        family: sa_family_t = AF.VSOCK,
+        reserved1: u16 = 0,
+        port: u32,
+        cid: u32,
+        flags: u8,
+
+        /// The total size of this structure should be exactly the same as that of struct sockaddr.
+        zero: [3]u8 = [_]u8{0} ** 3,
+        comptime {
+            std.debug.assert(@sizeOf(vm) == @sizeOf(sockaddr));
+        }
+    };
 };
 
 pub const mmsghdr = extern struct {
@@ -3208,29 +3333,16 @@ pub const mmsghdr_const = extern struct {
 pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
-    @"u32": u32,
-    @"u64": u64,
+    u32: u32,
+    u64: u64,
 };
 
-pub const epoll_event = switch (builtin.zig_backend) {
-    // stage1 crashes with the align(4) field so we have this workaround
-    .stage1 => switch (native_arch) {
-        .x86_64 => packed struct {
-            events: u32,
-            data: epoll_data,
-        },
-        else => extern struct {
-            events: u32,
-            data: epoll_data,
-        },
-    },
-    else => extern struct {
-        events: u32,
-        data: epoll_data align(switch (native_arch) {
-            .x86_64 => 4,
-            else => @alignOf(epoll_data),
-        }),
-    },
+pub const epoll_event = extern struct {
+    events: u32,
+    data: epoll_data align(switch (native_arch) {
+        .x86_64 => 4,
+        else => @alignOf(epoll_data),
+    }),
 };
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
@@ -3372,12 +3484,12 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
-    .i386, .x86_64, .arm, .mipsel => 2048,
+    .x86, .x86_64, .arm, .mipsel => 2048,
     .aarch64 => 5120,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
 pub const SIGSTKSZ = switch (native_arch) {
-    .i386, .x86_64, .arm, .mipsel => 8192,
+    .x86, .x86_64, .arm, .mipsel => 8192,
     .aarch64 => 16384,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
@@ -3750,6 +3862,8 @@ pub const IORING_CQE_F_BUFFER = 1 << 0;
 pub const IORING_CQE_F_MORE = 1 << 1;
 /// If set, more data to read after socket recv
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
+/// Set for notification CQEs. Can be used to distinct them from sends.
+pub const IORING_CQE_F_NOTIF = 1 << 3;
 
 /// Magic offsets for the application to mmap the data it needs
 pub const IORING_OFF_SQ_RING = 0;
@@ -5020,7 +5134,7 @@ pub const nlmsghdr = extern struct {
     len: u32,
 
     /// Message content
-    @"type": NetlinkMessageType,
+    type: NetlinkMessageType,
 
     /// Additional flags
     flags: u16,
@@ -5037,7 +5151,7 @@ pub const ifinfomsg = extern struct {
     __pad1: u8 = 0,
 
     /// ARPHRD_*
-    @"type": c_ushort,
+    type: c_ushort,
 
     /// Link index
     index: c_int,
@@ -5054,7 +5168,7 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    @"type": IFLA,
+    type: IFLA,
 
     pub const ALIGNTO = 4;
 };
@@ -5409,6 +5523,7 @@ pub const PERF = struct {
         RAW,
         BREAKPOINT,
         MAX,
+        _,
     };
 
     pub const COUNT = struct {
@@ -5542,7 +5657,7 @@ pub const AUDIT = struct {
         const LE = 0x40000000;
 
         pub const current: AUDIT.ARCH = switch (native_arch) {
-            .i386 => .I386,
+            .x86 => .X86,
             .x86_64 => .X86_64,
             .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
@@ -5561,7 +5676,7 @@ pub const AUDIT = struct {
         ARMEB = toAudit(.armeb),
         CSKY = toAudit(.csky),
         HEXAGON = @enumToInt(std.elf.EM.HEXAGON),
-        I386 = toAudit(.i386),
+        X86 = toAudit(.x86),
         M68K = toAudit(.m68k),
         MIPS = toAudit(.mips),
         MIPSEL = toAudit(.mips) | LE,

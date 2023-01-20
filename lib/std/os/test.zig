@@ -22,7 +22,7 @@ const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest; // WASI doesn't allow navigating outside of a preopen
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -35,21 +35,53 @@ test "chdir smoke test" {
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, old_cwd, new_cwd));
     }
-    {
-        // Next, change current working directory to one level above
+
+    // Next, change current working directory to one level above
+    if (native_os != .wasi) { // WASI does not support navigating outside of Preopens
         const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
         try os.chdir(parent);
+
         // Restore cwd because process may have other tests that do not tolerate chdir.
         defer os.chdir(old_cwd) catch unreachable;
+
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, parent, new_cwd));
     }
+
+    // Next, change current working directory to a temp directory one level below
+    {
+        // Create a tmp directory
+        var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var tmp_dir_path = path: {
+            var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
+            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
+        };
+        var tmp_dir = try fs.cwd().makeOpenPath("zig-test-tmp", .{});
+
+        // Change current working directory to tmp directory
+        try os.chdir("zig-test-tmp");
+
+        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const new_cwd = try os.getcwd(new_cwd_buf[0..]);
+
+        // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
+        var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var resolved_cwd = path: {
+            var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
+            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
+        };
+        try expect(mem.eql(u8, tmp_dir_path, resolved_cwd));
+
+        // Restore cwd because process may have other tests that do not tolerate chdir.
+        tmp_dir.close();
+        os.chdir(old_cwd) catch unreachable;
+        try fs.cwd().deleteDir("zig-test-tmp");
+    }
 }
 
 test "open smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -104,7 +136,6 @@ test "open smoke test" {
 
 test "openat smoke test" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     // TODO verify file attributes using `fstatat`
 
@@ -141,7 +172,6 @@ test "openat smoke test" {
 
 test "symlink with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
@@ -192,15 +222,10 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
     switch (native_os) {
-        .wasi => {
-            if (builtin.link_libc) {
-                return error.SkipZigTest;
-            } else {
-                try os.initPreopensWasi(std.heap.page_allocator, "/");
-            }
-        },
-        .linux, .solaris => {},
+        .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
     var cwd = fs.cwd();
@@ -236,9 +261,10 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
     switch (native_os) {
-        .wasi => if (!builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/"),
-        .linux, .solaris => {},
+        .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
     var cwd = fs.cwd();
@@ -496,7 +522,14 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is only supported by linux and freebsd.
-    if (native_os != .linux and native_os != .freebsd) return error.SkipZigTest;
+    switch (native_os) {
+        .linux => {},
+        .freebsd => {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+                return error.SkipZigTest;
+        },
+        else => return error.SkipZigTest,
+    }
 
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
@@ -739,53 +772,74 @@ test "shutdown socket" {
     os.closeSocket(sock);
 }
 
-var signal_test_failed = true;
-
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
-    if (native_os == .linux and builtin.target.cpu.arch == .i386)
+    if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
 
     const S = struct {
+        var handler_called_count: u32 = 0;
+
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {
                 .netbsd => {
                     if (sig == os.SIG.USR1 and sig == info.info.signo)
-                        signal_test_failed = false;
+                        handler_called_count += 1;
                 },
                 else => {
                     if (sig == os.SIG.USR1 and sig == info.signo)
-                        signal_test_failed = false;
+                        handler_called_count += 1;
                 },
             }
         }
     };
 
-    const actual_handler = if (builtin.zig_backend == .stage1) S.handler else &S.handler;
-
     var sa = os.Sigaction{
-        .handler = .{ .sigaction = actual_handler },
+        .handler = .{ .sigaction = &S.handler },
         .mask = os.empty_sigset,
         .flags = os.SA.SIGINFO | os.SA.RESETHAND,
     };
     var old_sa: os.Sigaction = undefined;
+
     // Install the new signal handler.
     try os.sigaction(os.SIG.USR1, &sa, null);
+
     // Check that we can read it back correctly.
     try os.sigaction(os.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(actual_handler, old_sa.handler.sigaction.?);
+    try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
+
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
-    try testing.expect(signal_test_failed == false);
-    // Check if the handler has been correctly reset to SIG_DFL
+    try testing.expect(S.handler_called_count == 1);
+
+    // Check if passing RESETHAND correctly reset the handler to SIG_DFL
     try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.handler);
+
+    // Reinstall the signal w/o RESETHAND and re-raise
+    sa.flags = os.SA.SIGINFO;
+    try os.sigaction(os.SIG.USR1, &sa, null);
+    try os.raise(os.SIG.USR1);
+    try testing.expect(S.handler_called_count == 2);
+
+    // Now set the signal to ignored
+    sa.handler = .{ .handler = os.SIG.IGN };
+    sa.flags = 0;
+    try os.sigaction(os.SIG.USR1, &sa, null);
+
+    // Re-raise to ensure handler is actually ignored
+    try os.raise(os.SIG.USR1);
+    try testing.expect(S.handler_called_count == 2);
+
+    // Ensure that ignored state is returned when querying
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try testing.expectEqual(os.SIG.IGN, old_sa.handler.handler.?);
 }
 
 test "dup & dup2" {
@@ -900,8 +954,7 @@ test "POSIX file locking with fcntl" {
 }
 
 test "rename smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -957,8 +1010,7 @@ test "rename smoke test" {
 }
 
 test "access smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1011,14 +1063,122 @@ test "timerfd" {
     var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
     defer os.close(tfd);
 
+    // Fire event 10_000_000ns = 10ms after the os.timerfd_settime call.
     var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
     try os.timerfd_settime(tfd, 0, &sit, null);
 
     var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
-    try expectEqual(try os.poll(&fds, -1), 1);
-    var git = try os.timerfd_gettime(tfd);
-    try expectEqual(git, .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } });
+    try expectEqual(@as(usize, 1), try os.poll(&fds, -1)); // -1 => infinite waiting
 
-    try os.timerfd_settime(tfd, 0, &sit, null);
-    try expectEqual(try os.poll(&fds, 5), 0);
+    var git = try os.timerfd_gettime(tfd);
+    var expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    try expectEqual(expect_disarmed_timer, git);
+}
+
+test "isatty" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("foo", .{});
+    try expectEqual(os.isatty(file.handle), false);
+}
+
+test "read with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.read(file.handle, bytes);
+}
+
+test "pread with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.pread(file.handle, bytes, 0);
+}
+
+test "write with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{});
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.write(file.handle, bytes);
+}
+
+test "pwrite with empty buffer" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Get base abs path
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    var file = try fs.cwd().createFile(file_path, .{});
+    defer file.close();
+
+    var bytes = try allocator.alloc(u8, 0);
+
+    _ = try os.pwrite(file.handle, bytes, 0);
 }

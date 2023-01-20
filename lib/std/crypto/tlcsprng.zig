@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 const mem = std.mem;
 const os = std.os;
 
@@ -67,8 +66,8 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
     // Allow applications to decide they would prefer to have every call to
     // std.crypto.random always make an OS syscall, rather than rely on an
     // application implementation of a CSPRNG.
-    if (comptime std.meta.globalOption("crypto_always_getrandom", bool) orelse false) {
-        return fillWithOsEntropy(buffer);
+    if (std.options.crypto_always_getrandom) {
+        return defaultRandomSeed(buffer);
     }
 
     if (wipe_mem.len == 0) {
@@ -86,7 +85,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
             ) catch {
                 // Could not allocate memory for the local state, fall back to
                 // the OS syscall.
-                return fillWithOsEntropy(buffer);
+                return std.options.cryptoRandomSeed(buffer);
             };
             // The memory is already zero-initialized.
         } else {
@@ -128,14 +127,14 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
             // Since we failed to set up fork safety, we fall back to always
             // calling getrandom every time.
             ctx.init_state = .failed;
-            return fillWithOsEntropy(buffer);
+            return std.options.cryptoRandomSeed(buffer);
         },
         .initialized => {
             return fillWithCsprng(buffer);
         },
         .failed => {
             if (want_fork_safety) {
-                return fillWithOsEntropy(buffer);
+                return std.options.cryptoRandomSeed(buffer);
             } else {
                 unreachable;
             }
@@ -165,7 +164,7 @@ fn fillWithCsprng(buffer: []u8) void {
     mem.set(u8, ctx.gimli.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
 }
 
-fn fillWithOsEntropy(buffer: []u8) void {
+pub fn defaultRandomSeed(buffer: []u8) void {
     os.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
 }
 
@@ -174,12 +173,8 @@ fn initAndFill(buffer: []u8) void {
     // Because we panic on getrandom() failing, we provide the opportunity
     // to override the default seed function. This also makes
     // `std.crypto.random` available on freestanding targets, provided that
-    // the `cryptoRandomSeed` function is provided.
-    if (@hasDecl(root, "cryptoRandomSeed")) {
-        root.cryptoRandomSeed(&seed);
-    } else {
-        fillWithOsEntropy(&seed);
-    }
+    // the `std.options.cryptoRandomSeed` function is provided.
+    std.options.cryptoRandomSeed(&seed);
 
     const ctx = @ptrCast(*Context, wipe_mem.ptr);
     ctx.gimli = std.crypto.core.Gimli.init(seed);

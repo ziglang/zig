@@ -1,6 +1,11 @@
 #include <string.h>
 #include <stdint.h>
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
 #include "pthread_impl.h"
+#else
+// In non-_REENTRANT, include it for `a_crash`
+# include "atomic.h"
+#endif
 
 uintptr_t __stack_chk_guard;
 
@@ -18,7 +23,9 @@ void __init_ssp(void *entropy)
 	((char *)&__stack_chk_guard)[1] = 0;
 #endif
 
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
 	__pthread_self()->canary = __stack_chk_guard;
+#endif
 }
 
 void __stack_chk_fail(void)
@@ -29,3 +36,14 @@ void __stack_chk_fail(void)
 hidden void __stack_chk_fail_local(void);
 
 weak_alias(__stack_chk_fail, __stack_chk_fail_local);
+
+#ifndef __wasilibc_unmodified_upstream
+# include <wasi/api.h>
+
+__attribute__((constructor(60)))
+static void __wasilibc_init_ssp(void) {
+	uintptr_t entropy;
+	int r = __wasi_random_get((uint8_t *)&entropy, sizeof(uintptr_t));
+	__init_ssp(r ? NULL : &entropy);
+}
+#endif

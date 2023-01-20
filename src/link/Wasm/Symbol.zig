@@ -38,7 +38,7 @@ pub const Tag = enum {
         return switch (tag) {
             .function => .function,
             .global => .global,
-            .data => .memory,
+            .data => unreachable, // Data symbols will generate a global
             .section => unreachable, // Not an external type
             .event => unreachable, // Not an external type
             .dead => unreachable, // Dead symbols should not be referenced
@@ -139,12 +139,10 @@ pub fn isNoStrip(symbol: Symbol) bool {
     return symbol.flags & @enumToInt(Flag.WASM_SYM_NO_STRIP) != 0;
 }
 
-pub fn isExported(symbol: Symbol) bool {
+pub fn isExported(symbol: Symbol, is_dynamic: bool) bool {
     if (symbol.isUndefined() or symbol.isLocal()) return false;
-    if (symbol.isHidden()) return false;
-    if (symbol.hasFlag(.WASM_SYM_EXPORTED)) return true;
-    if (symbol.hasFlag(.WASM_SYM_BINDING_WEAK)) return false;
-    return true;
+    if (is_dynamic and symbol.isVisible()) return true;
+    return symbol.hasFlag(.WASM_SYM_EXPORTED);
 }
 
 pub fn isWeak(symbol: Symbol) bool {

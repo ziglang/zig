@@ -94,6 +94,18 @@ pub const SEEK = struct {
     pub const END = 2;
 };
 
+/// Basic memory protection flags
+pub const PROT = struct {
+    /// page can not be accessed
+    pub const NONE = 0x0;
+    /// page can be read
+    pub const READ = 0x1;
+    /// page can be written
+    pub const WRITE = 0x2;
+    /// page can be executed
+    pub const EXEC = 0x4;
+};
+
 pub const E = enum(u16) {
     /// No error occurred.
     SUCCESS = 0,

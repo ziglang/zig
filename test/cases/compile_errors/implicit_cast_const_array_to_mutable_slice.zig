@@ -13,6 +13,11 @@ export fn entry2() void {
     const many: [*]u8 = str;
     _ = many;
 }
+export fn entry3() void {
+    const lang: []const u8 = "lang";
+    const targets: [1][]const u8 = [_][]u8{lang};
+    _ = targets;
+}
 
 // error
 // backend=stage2
@@ -24,3 +29,5 @@ export fn entry2() void {
 // :8:27: note: cast discards const qualifier
 // :13:25: error: expected type '[*]u8', found '*const [0:0]u8'
 // :13:25: note: cast discards const qualifier
+// :18:44: error: expected type '[]u8', found '[]const u8'
+// :18:44: note: cast discards const qualifier

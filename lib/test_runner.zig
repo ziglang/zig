@@ -2,13 +2,17 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
-pub const io_mode: io.Mode = builtin.test_io_mode;
+pub const std_options = struct {
+    pub const io_mode: io.Mode = builtin.test_io_mode;
+    pub const logFn = log;
+};
 
 var log_err_count: usize = 0;
 
 pub fn main() void {
     if (builtin.zig_backend != .stage1 and
-        (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch == .wasm32))
+        (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch == .wasm32) and
+        builtin.zig_backend != .stage2_c)
     {
         return main2() catch @panic("test failure");
     }
@@ -44,7 +48,7 @@ pub fn main() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
+        const result = if (test_fn.async_frame_size) |size| switch (std.options.io_mode) {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
@@ -129,7 +133,9 @@ pub fn main2() anyerror!void {
     }
     if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_x86_64 or
-        builtin.zig_backend == .stage2_llvm)
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_llvm or
+        builtin.zig_backend == .stage2_c)
     {
         const passed = builtin.test_functions.len - skipped - failed;
         const stderr = std.io.getStdErr();

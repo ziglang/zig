@@ -37,34 +37,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
 /// based on a hard-coded Preopen directory ("/zig")
 pub fn findZigExePath(allocator: mem.Allocator) ![]u8 {
     if (builtin.os.tag == .wasi) {
-        var args = try std.process.argsWithAllocator(allocator);
-        defer args.deinit();
-        // On WASI, argv[0] is always just the basename of the current executable
-        const argv0 = args.next() orelse return error.FileNotFound;
-
-        // Check these paths:
-        //  1. "/zig/{exe_name}"
-        //  2. "/zig/bin/{exe_name}"
-        const base_paths_to_check = &[_][]const u8{ "/zig", "/zig/bin" };
-        const exe_names_to_check = &[_][]const u8{ fs.path.basename(argv0), "zig.wasm" };
-
-        for (base_paths_to_check) |base_path| {
-            for (exe_names_to_check) |exe_name| {
-                const test_path = fs.path.join(allocator, &.{ base_path, exe_name }) catch continue;
-                defer allocator.free(test_path);
-
-                // Make sure it's a file we're pointing to
-                const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
-                if (file.filetype != .REGULAR_FILE) continue;
-
-                // Path seems to be valid, let's try to turn it into an absolute path
-                var real_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                if (os.realpath(test_path, &real_path_buf)) |real_path| {
-                    return allocator.dupe(u8, real_path); // Success: return absolute path
-                } else |_| continue;
-            }
-        }
-        return error.FileNotFound;
+        @compileError("this function is unsupported on WASI");
     }
 
     return fs.selfExePathAlloc(allocator);
@@ -82,7 +55,12 @@ pub fn findZigLibDir(gpa: mem.Allocator) !Compilation.Directory {
 pub fn findZigLibDirFromSelfExe(
     allocator: mem.Allocator,
     self_exe_path: []const u8,
-) error{ OutOfMemory, FileNotFound }!Compilation.Directory {
+) error{
+    OutOfMemory,
+    FileNotFound,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}!Compilation.Directory {
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
     while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
@@ -90,9 +68,11 @@ pub fn findZigLibDirFromSelfExe(
         defer base_dir.close();
 
         const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
+        const p = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? });
+        defer allocator.free(p);
         return Compilation.Directory{
             .handle = sub_directory.handle,
-            .path = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? }),
+            .path = try resolvePath(allocator, p),
         };
     }
     return error.FileNotFound;
@@ -100,6 +80,9 @@ pub fn findZigLibDirFromSelfExe(
 
 /// Caller owns returned memory.
 pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
+    if (builtin.os.tag == .wasi) {
+        @compileError("on WASI the global cache dir must be resolved with preopens");
+    }
     if (std.process.getEnvVarOwned(allocator, "ZIG_GLOBAL_CACHE_DIR")) |value| {
         if (value.len > 0) {
             return value;
@@ -118,15 +101,48 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
         }
     }
 
-    if (builtin.os.tag == .wasi) {
-        // On WASI, we have no way to get an App data dir, so we try to use a fixed
-        // Preopen path "/cache" as a last resort
-        const path = "/cache";
+    return fs.getAppDataDir(allocator, appname);
+}
 
-        const file = os.fstatat(os.wasi.AT.FDCWD, path, 0) catch return error.CacheDirUnavailable;
-        if (file.filetype != .DIRECTORY) return error.CacheDirUnavailable;
-        return allocator.dupe(u8, path);
+/// Similar to std.fs.path.resolve, with a few important differences:
+/// * If the input is an absolute path, check it against the cwd and try to
+///   convert it to a relative path.
+/// * If the resulting path would start with a relative up-dir ("../"), instead
+///   return an absolute path based on the cwd.
+/// * When targeting WASI, fail with an error message if an absolute path is
+///   used.
+pub fn resolvePath(
+    ally: mem.Allocator,
+    p: []const u8,
+) error{
+    OutOfMemory,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}![]u8 {
+    if (fs.path.isAbsolute(p)) {
+        const cwd_path = try std.process.getCwdAlloc(ally);
+        defer ally.free(cwd_path);
+        const relative = try fs.path.relative(ally, cwd_path, p);
+        if (isUpDir(relative)) {
+            ally.free(relative);
+            return ally.dupe(u8, p);
+        } else {
+            return relative;
+        }
     } else {
-        return fs.getAppDataDir(allocator, appname);
+        const resolved = try fs.path.resolve(ally, &.{p});
+        if (isUpDir(resolved)) {
+            ally.free(resolved);
+            const cwd_path = try std.process.getCwdAlloc(ally);
+            defer ally.free(cwd_path);
+            return fs.path.resolve(ally, &.{ cwd_path, p });
+        } else {
+            return resolved;
+        }
     }
+}
+
+/// TODO move this to std.fs.path
+pub fn isUpDir(p: []const u8) bool {
+    return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == fs.path.sep);
 }

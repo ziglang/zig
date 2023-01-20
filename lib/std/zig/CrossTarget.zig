@@ -592,7 +592,7 @@ pub const VcpkgLinkage = std.builtin.LinkMode;
 /// Returned slice must be freed by the caller.
 pub fn vcpkgTriplet(self: CrossTarget, allocator: mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
     const arch = switch (self.getCpuArch()) {
-        .i386 => "x86",
+        .x86 => "x86",
         .x86_64 => "x64",
 
         .arm,

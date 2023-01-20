@@ -8,6 +8,7 @@ test "uint128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var buff: u128 = maxInt(u128);
     try expect(buff == maxInt(u128));
@@ -26,11 +27,12 @@ test "undefined 128 bit int" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     @setRuntimeSafety(true);
 
-    // TODO implement @setRuntimeSafety in stage2
-    if (builtin.zig_backend != .stage1 and builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+    // TODO implement @setRuntimeSafety
+    if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
         return error.SkipZigTest;
     }
 
@@ -43,7 +45,7 @@ test "int128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var buff: i128 = -1;
     try expect(buff < 0 and (buff + 1) == 0);
@@ -54,13 +56,31 @@ test "int128" {
 
     buff = -0x12341234123412341234123412341234;
     try expect(-buff == 0x12341234123412341234123412341234);
+
+    const a: i128 = -170141183460469231731687303715884105728;
+    const b: i128 = -0x8000_0000_0000_0000_0000_0000_0000_0000;
+    try expect(@divFloor(b, 1_000_000) == -170141183460469231731687303715885);
+    try expect(a == b);
 }
 
 test "truncate int128" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    var buff: u128 = maxInt(u128);
-    try expect(@truncate(u64, buff) == maxInt(u64));
+    {
+        var buff: u128 = maxInt(u128);
+        try expect(@truncate(u64, buff) == maxInt(u64));
+        try expect(@truncate(u90, buff) == maxInt(u90));
+        try expect(@truncate(u128, buff) == maxInt(u128));
+    }
+
+    {
+        var buff: i128 = maxInt(i128);
+        try expect(@truncate(i64, buff) == -1);
+        try expect(@truncate(i90, buff) == -1);
+        try expect(@truncate(i128, buff) == maxInt(i128));
+    }
 }

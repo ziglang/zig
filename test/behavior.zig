@@ -41,8 +41,11 @@ test {
     _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/2114.zig");
     _ = @import("behavior/bugs/2346.zig");
+    _ = @import("behavior/bugs/2557.zig");
     _ = @import("behavior/bugs/2578.zig");
+    _ = @import("behavior/bugs/2622.zig");
     _ = @import("behavior/bugs/2692.zig");
+    _ = @import("behavior/bugs/2727.zig");
     _ = @import("behavior/bugs/2889.zig");
     _ = @import("behavior/bugs/3007.zig");
     _ = @import("behavior/bugs/3046.zig");
@@ -61,17 +64,23 @@ test {
     _ = @import("behavior/bugs/5413.zig");
     _ = @import("behavior/bugs/5474.zig");
     _ = @import("behavior/bugs/5487.zig");
+    _ = @import("behavior/bugs/6047.zig");
     _ = @import("behavior/bugs/6456.zig");
     _ = @import("behavior/bugs/6781.zig");
     _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/bugs/6905.zig");
+    _ = @import("behavior/bugs/6947.zig");
     _ = @import("behavior/bugs/7003.zig");
     _ = @import("behavior/bugs/7047.zig");
     _ = @import("behavior/bugs/7187.zig");
-    _ = @import("behavior/bugs/7250.zig");
+    _ = @import("behavior/bugs/7325.zig");
+    _ = @import("behavior/bugs/8277.zig");
+    _ = @import("behavior/bugs/8646.zig");
     _ = @import("behavior/bugs/9584.zig");
     _ = @import("behavior/bugs/10138.zig");
     _ = @import("behavior/bugs/10147.zig");
     _ = @import("behavior/bugs/10970.zig");
+    _ = @import("behavior/bugs/10684.zig");
     _ = @import("behavior/bugs/11046.zig");
     _ = @import("behavior/bugs/11100.zig");
     _ = @import("behavior/bugs/11139.zig");
@@ -81,23 +90,58 @@ test {
     _ = @import("behavior/bugs/11179.zig");
     _ = @import("behavior/bugs/11181.zig");
     _ = @import("behavior/bugs/11213.zig");
+    _ = @import("behavior/bugs/11787.zig");
     _ = @import("behavior/bugs/11816.zig");
+    _ = @import("behavior/bugs/11995.zig");
+    _ = @import("behavior/bugs/12000.zig");
     _ = @import("behavior/bugs/12003.zig");
+    _ = @import("behavior/bugs/12025.zig");
     _ = @import("behavior/bugs/12033.zig");
+    _ = @import("behavior/bugs/12043.zig");
+    _ = @import("behavior/bugs/12051.zig");
+    _ = @import("behavior/bugs/12092.zig");
+    _ = @import("behavior/bugs/12119.zig");
+    _ = @import("behavior/bugs/12142.zig");
+    _ = @import("behavior/bugs/12169.zig");
     _ = @import("behavior/bugs/12430.zig");
+    _ = @import("behavior/bugs/12450.zig");
     _ = @import("behavior/bugs/12486.zig");
+    _ = @import("behavior/bugs/12488.zig");
+    _ = @import("behavior/bugs/12498.zig");
     _ = @import("behavior/bugs/12551.zig");
+    _ = @import("behavior/bugs/12571.zig");
     _ = @import("behavior/bugs/12644.zig");
     _ = @import("behavior/bugs/12680.zig");
+    _ = @import("behavior/bugs/12723.zig");
     _ = @import("behavior/bugs/12776.zig");
     _ = @import("behavior/bugs/12786.zig");
     _ = @import("behavior/bugs/12794.zig");
     _ = @import("behavior/bugs/12801-1.zig");
     _ = @import("behavior/bugs/12801-2.zig");
     _ = @import("behavior/bugs/12885.zig");
+    _ = @import("behavior/bugs/12890.zig");
+    _ = @import("behavior/bugs/12891.zig");
     _ = @import("behavior/bugs/12911.zig");
     _ = @import("behavior/bugs/12928.zig");
     _ = @import("behavior/bugs/12945.zig");
+    _ = @import("behavior/bugs/12972.zig");
+    _ = @import("behavior/bugs/12984.zig");
+    _ = @import("behavior/bugs/13064.zig");
+    _ = @import("behavior/bugs/13065.zig");
+    _ = @import("behavior/bugs/13068.zig");
+    _ = @import("behavior/bugs/13069.zig");
+    _ = @import("behavior/bugs/13112.zig");
+    _ = @import("behavior/bugs/13113.zig");
+    _ = @import("behavior/bugs/13128.zig");
+    _ = @import("behavior/bugs/13159.zig");
+    _ = @import("behavior/bugs/13171.zig");
+    _ = @import("behavior/bugs/13209.zig");
+    _ = @import("behavior/bugs/13285.zig");
+    _ = @import("behavior/bugs/13366.zig");
+    _ = @import("behavior/bugs/13435.zig");
+    _ = @import("behavior/bugs/13664.zig");
+    _ = @import("behavior/bugs/13714.zig");
+    _ = @import("behavior/bugs/13785.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -105,7 +149,10 @@ test {
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
+    _ = @import("behavior/decltest.zig");
     _ = @import("behavior/defer.zig");
+    _ = @import("behavior/empty_tuple_fields.zig");
+    _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
@@ -121,10 +168,12 @@ test {
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
+    _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
-    _ = @import("behavior/int_div.zig");
+    _ = @import("behavior/int_comparison_elision.zig");
     _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
+    _ = @import("behavior/lower_strlit_to_vector.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");
@@ -133,6 +182,8 @@ test {
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
+    _ = @import("behavior/packed-struct.zig");
+    _ = @import("behavior/packed_struct_explicit_backing_int.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/prefetch.zig");
@@ -148,17 +199,18 @@ test {
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/src.zig");
     _ = @import("behavior/struct.zig");
-    _ = @import("behavior/packed-struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/this.zig");
+    _ = @import("behavior/threadlocal.zig");
     _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
     _ = @import("behavior/tuple.zig");
+    _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
     _ = @import("behavior/typename.zig");
@@ -177,12 +229,6 @@ test {
         _ = @import("behavior/wasm.zig");
     }
 
-    if (builtin.zig_backend != .stage1) {
-        _ = @import("behavior/decltest.zig");
-        _ = @import("behavior/packed_struct_explicit_backing_int.zig");
-        _ = @import("behavior/empty_union.zig");
-    }
-
     if (builtin.os.tag != .wasi) {
         _ = @import("behavior/asm.zig");
     }
@@ -193,17 +239,13 @@ test {
         builtin.zig_backend != .stage2_wasm and
         builtin.zig_backend != .stage2_c)
     {
+        _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
+        _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
     }
 
-    if (builtin.zig_backend != .stage2_arm and
-        builtin.zig_backend != .stage2_x86_64 and
-        builtin.zig_backend != .stage2_aarch64 and
-        builtin.zig_backend != .stage2_wasm and
-        builtin.zig_backend != .stage2_c and
-        builtin.zig_backend != .stage1)
-    {
+    if (builtin.zig_backend != .stage2_wasm) {
         _ = @import("behavior/export_self_referential_type_info.zig");
     }
 }

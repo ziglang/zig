@@ -133,7 +133,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
         "--cache-dir",    dir_path,
         "--name",         "example",
         "-fno-emit-bin",  "-fno-emit-h",
-        "--strip",        "-OReleaseFast",
+        "-fstrip",        "-OReleaseFast",
         example_zig_path,
     });
 
