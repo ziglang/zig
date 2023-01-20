@@ -116,8 +116,13 @@ typedef char bool;
 #if zig_has_attribute(alias)
 #define zig_export(sig, symbol, name) zig_extern sig __attribute__((alias(symbol)))
 #elif _MSC_VER
+#if _M_X64
 #define zig_export(sig, symbol, name) sig;\
     __pragma(comment(linker, "/alternatename:" name "=" symbol ))
+#else /*_M_X64 */
+#define zig_export(sig, symbol, name) sig;\
+    __pragma(comment(linker, "/alternatename:_" name "=_" symbol ))
+#endif /*_M_X64 */
 #else
 #define zig_export(sig, symbol, name) __asm(name " = " symbol)
 #endif
