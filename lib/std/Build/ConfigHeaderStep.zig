@@ -11,6 +11,8 @@ pub const Style = enum {
     /// The configure format supported by CMake. It uses `@@FOO@@` and
     /// `#cmakedefine` for template substitution.
     cmake,
+    /// Generate a c header from scratch with the values passed.
+    generated,
 };
 
 pub const Value = union(enum) {
@@ -29,7 +31,8 @@ style: Style,
 values: std.StringHashMap(Value),
 max_bytes: usize = 2 * 1024 * 1024,
 output_dir: []const u8,
-output_basename: []const u8,
+output_path: []const u8,
+output_gen: std.build.GeneratedFile,
 
 pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *ConfigHeaderStep {
     const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
@@ -41,18 +44,31 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *
         .style = style,
         .values = std.StringHashMap(Value).init(builder.allocator),
         .output_dir = undefined,
-        .output_basename = "config.h",
+        .output_path = "config.h",
+        .output_gen = std.build.GeneratedFile{ .step = &self.step },
     };
+
     switch (source) {
         .path => |p| {
-            const basename = std.fs.path.basename(p);
-            if (std.mem.endsWith(u8, basename, ".h.in")) {
-                self.output_basename = basename[0 .. basename.len - 3];
+            self.output_path = p;
+
+            switch (style) {
+                .autoconf, .cmake => {
+                    if (std.mem.endsWith(u8, p, ".h.in")) {
+                        self.output_path = p[0 .. p.len - 3];
+                    }
+                },
+                else => {},
             }
         },
         else => {},
     }
+
     return self;
+}
+
+pub fn getOutputSource(self: *ConfigHeaderStep) std.build.FileSource {
+    return std.build.FileSource{ .generated = &self.output_gen };
 }
 
 pub fn addValues(self: *ConfigHeaderStep, values: anytype) void {
@@ -113,7 +129,10 @@ fn make(step: *Step) !void {
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
     const gpa = self.builder.allocator;
     const src_path = self.source.getPath(self.builder);
-    const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+    const contents = switch (self.style) {
+        .generated => src_path,
+        else => try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes),
+    };
 
     // The cache is used here not really as a way to speed things up - because writing
     // the data to a file would probably be very fast - but as a way to find a canonical
@@ -146,8 +165,21 @@ fn make(step: *Step) !void {
     self.output_dir = try std.fs.path.join(gpa, &[_][]const u8{
         self.builder.cache_root, "o", &hash_basename,
     });
-    var dir = std.fs.cwd().makeOpenPath(self.output_dir, .{}) catch |err| {
-        std.debug.print("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
+
+    // If output_path has directory parts, deal with them.  Example:
+    // output_dir is zig-cache/o/HASH
+    // output_path is libavutil/avconfig.h
+    // We want to open directory zig-cache/o/HASH/libavutil/
+    // but keep output_dir as zig-cache/o/HASH for -I include
+    var outdir = self.output_dir;
+    var outpath = self.output_path;
+    if (std.fs.path.dirname(self.output_path)) |d| {
+        outdir = try std.fs.path.join(gpa, &[_][]const u8{ self.output_dir, d });
+        outpath = std.fs.path.basename(self.output_path);
+    }
+
+    var dir = std.fs.cwd().makeOpenPath(outdir, .{}) catch |err| {
+        std.debug.print("unable to make path {s}: {s}\n", .{ outdir, @errorName(err) });
         return err;
     };
     defer dir.close();
@@ -164,9 +196,12 @@ fn make(step: *Step) !void {
     switch (self.style) {
         .autoconf => try render_autoconf(contents, &output, &values_copy, src_path),
         .cmake => try render_cmake(contents, &output, &values_copy, src_path),
+        .generated => try render_generated(gpa, &output, &values_copy, self.source.getDisplayName()),
     }
 
-    try dir.writeFile(self.output_basename, output.items);
+    try dir.writeFile(outpath, output.items);
+
+    self.output_gen.path = try std.fs.path.join(gpa, &[_][]const u8{ self.output_dir, self.output_path });
 }
 
 fn render_autoconf(
@@ -296,4 +331,32 @@ fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void
             try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
+}
+
+fn render_generated(
+    gpa: std.mem.Allocator,
+    output: *std.ArrayList(u8),
+    values_copy: *std.StringHashMap(Value),
+    src_path: []const u8,
+) !void {
+    var include_guard = try gpa.dupe(u8, src_path);
+    defer gpa.free(include_guard);
+
+    for (include_guard) |*ch| {
+        if (ch.* == '.' or std.fs.path.isSep(ch.*)) {
+            ch.* = '_';
+        } else {
+            ch.* = std.ascii.toUpper(ch.*);
+        }
+    }
+
+    try output.writer().print("#ifndef {s}\n", .{include_guard});
+    try output.writer().print("#define {s}\n", .{include_guard});
+
+    var it = values_copy.iterator();
+    while (it.next()) |kv| {
+        try renderValue(output, kv.key_ptr.*, kv.value_ptr.*);
+    }
+
+    try output.writer().print("#endif /* {s} */\n", .{include_guard});
 }

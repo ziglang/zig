@@ -442,6 +442,12 @@ pub fn installHeader(a: *CompileStep, src_path: []const u8, dest_rel_path: []con
     a.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
 
+pub fn installConfigHeader(a: *LibExeObjStep, config_header: *ConfigHeaderStep) void {
+    const install_file = a.builder.addInstallFileWithDir(config_header.getOutputSource(), .header, config_header.output_path);
+    a.builder.getInstallStep().dependOn(&install_file.step);
+    a.installed_headers.append(&install_file.step) catch unreachable;
+}
+
 pub fn installHeadersDirectory(
     a: *CompileStep,
     src_dir_path: []const u8,
