@@ -225,7 +225,12 @@ typedef char bool;
 #define  zig_atomicrmw_max(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_max_, type)(obj, arg)
 #define   zig_atomic_store(obj, arg, order, type) zig_expand_concat(zig_msvc_atomic_store_, type)(obj, arg)
 #define    zig_atomic_load(obj,      order, type) zig_expand_concat(zig_msvc_atomic_load_, type)(obj)
+#if _M_X64
 #define zig_fence(order) __faststorefence()
+#else
+#define zig_fence(order) zig_msvc_atomic_barrier()
+#endif
+
 // TODO: _MSC_VER && (_M_ARM || _M_ARM64)
 #else
 #define memory_order_relaxed 0
@@ -2271,6 +2276,13 @@ zig_msvc_flt_atomics(f64, u64, 64)
 #endif
 
 #if _M_IX86
+static inline void zig_msvc_atomic_barrier() {
+    zig_i32 barrier;
+    __asm {
+        xchg barrier, eax
+    }
+}
+
 static inline void* zig_msvc_atomicrmw_xchg_p32(void** obj, zig_u32* arg) {
     return _InterlockedExchangePointer(obj, arg);
 }
@@ -2279,7 +2291,7 @@ static inline void zig_msvc_atomic_store_p32(void** obj, zig_u32* arg) {
     _InterlockedExchangePointer(obj, arg);
 }
 
-static inline void* zig_msvc_atomic_load_p32(void** obj, zig_u32* arg) {
+static inline void* zig_msvc_atomic_load_p32(void** obj) {
     return (void*)_InterlockedOr((void*)obj, 0);
 }
 
