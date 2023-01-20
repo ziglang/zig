@@ -2,13 +2,15 @@ const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
 const fmt = @import("zig/fmt.zig");
 const assert = std.debug.assert;
+const parse_mod = @import("zig/parse.zig");
 
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const fmtId = fmt.fmtId;
 pub const fmtEscapes = fmt.fmtEscapes;
 pub const isValidId = fmt.isValidId;
-pub const parse = @import("zig/parse.zig").parse;
+pub const parse = parse_mod.parse;
+pub const parseWithOptions = parse_mod.parseWithOptions;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
 pub const primitives = @import("zig/primitives.zig");

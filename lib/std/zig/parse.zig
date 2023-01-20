@@ -9,9 +9,21 @@ const Token = std.zig.Token;
 
 pub const Error = error{ParseError} || Allocator.Error;
 
+pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
+    return parseWithOptions(gpa, source, .{});
+}
+
+pub const ParseOptions = struct {
+    /// Populate the node_ends field in the returned Ast. If you don't
+    /// set this, then node_ends will be null. This is only really useful
+    /// for tools, not setting this will just result in slightly incorrect
+    /// extents calculated with Ast.lastToken.
+    track_node_ends: bool = false,
+};
+
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
+pub fn parseWithOptions(gpa: Allocator, source: [:0]const u8, options: ParseOptions) Allocator.Error!Ast {
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
@@ -36,9 +48,11 @@ pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
         .token_starts = tokens.items(.start),
         .errors = .{},
         .nodes = .{},
+        .node_ends = if (options.track_node_ends) .{} else null,
         .extra_data = .{},
         .scratch = .{},
         .tok_i = 0,
+        .options = options,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
@@ -49,6 +63,9 @@ pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
     const estimated_node_count = (tokens.len + 2) / 2;
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
+    if (parser.node_ends) |*ne| {
+        try ne.ensureTotalCapacity(gpa, estimated_node_count);
+    }
 
     try parser.parseRoot();
 
@@ -57,6 +74,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
         .source = source,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
+        .node_ends = if (parser.node_ends) |*ne| try ne.toOwnedSlice(gpa) else null,
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
     };
@@ -73,8 +91,13 @@ const Parser = struct {
     tok_i: TokenIndex,
     errors: std.ArrayListUnmanaged(AstError),
     nodes: Ast.NodeList,
+    /// Stores the 'end' of each node so we can properly compute
+    /// extents of AST nodes in cases where children have failed to
+    /// properly parse
+    node_ends: ?std.ArrayListUnmanaged(TokenIndex),
     extra_data: std.ArrayListUnmanaged(Node.Index),
     scratch: std.ArrayListUnmanaged(Node.Index),
+    options: ParseOptions,
 
     const SmallSpan = union(enum) {
         zero_or_one: Node.Index,
@@ -107,16 +130,28 @@ const Parser = struct {
 
     fn addNode(p: *Parser, elem: Ast.NodeList.Elem) Allocator.Error!Node.Index {
         const result = @intCast(Node.Index, p.nodes.len);
+        if (p.node_ends) |*ne| {
+            std.debug.assert(ne.items.len == p.nodes.len);
+            try ne.append(p.gpa, p.tok_i - 1);
+        }
         try p.nodes.append(p.gpa, elem);
         return result;
     }
 
     fn setNode(p: *Parser, i: usize, elem: Ast.NodeList.Elem) Node.Index {
+        if (p.node_ends) |*ne| {
+            std.debug.assert(ne.items.len == p.nodes.len);
+            ne.items[i] = p.tok_i - 1;
+        }
         p.nodes.set(i, elem);
         return @intCast(Node.Index, i);
     }
 
     fn reserveNode(p: *Parser, tag: Ast.Node.Tag) !usize {
+        if (p.node_ends) |*ne| {
+            std.debug.assert(ne.items.len == p.nodes.len);
+            try ne.resize(p.gpa, ne.items.len + 1);
+        }
         try p.nodes.resize(p.gpa, p.nodes.len + 1);
         p.nodes.items(.tag)[p.nodes.len - 1] = tag;
         return p.nodes.len - 1;
@@ -124,6 +159,10 @@ const Parser = struct {
 
     fn unreserveNode(p: *Parser, node_index: usize) void {
         if (p.nodes.len == node_index) {
+            if (p.node_ends) |*ne| {
+                std.debug.assert(ne.items.len == p.nodes.len);
+                ne.resize(p.gpa, p.nodes.len - 1) catch unreachable;
+            }
             p.nodes.resize(p.gpa, p.nodes.len - 1) catch unreachable;
         } else {
             // There is zombie node left in the tree, let's make it as inoffensive as possible
@@ -230,6 +269,9 @@ const Parser = struct {
             .main_token = 0,
             .data = undefined,
         });
+        if (p.node_ends) |*ne| {
+            ne.appendAssumeCapacity(@intCast(TokenIndex, p.token_tags.len - 1));
+        }
         const root_members = try p.parseContainerMembers();
         const root_decls = try root_members.toSpan(p);
         if (p.token_tags[p.tok_i] != .eof) {

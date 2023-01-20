@@ -7,6 +7,10 @@ tokens: TokenList.Slice,
 /// The root AST node is assumed to be index 0. Since there can be no
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
+/// List of tokens which end a node. We can't properly reconstitute
+/// AST extents in all cases, so we just store the final token in each AST
+/// node instead.
+node_ends: ?[]TokenIndex,
 extra_data: []Node.Index,
 
 errors: []const Error,
@@ -39,6 +43,9 @@ pub fn deinit(tree: *Ast, gpa: mem.Allocator) void {
     tree.nodes.deinit(gpa);
     gpa.free(tree.extra_data);
     gpa.free(tree.errors);
+    if (tree.node_ends) |ne| {
+        gpa.free(ne);
+    }
     tree.* = undefined;
 }
 
@@ -78,6 +85,7 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line = 0,
         .column = 0,
         .line_start = start_offset,
+
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
@@ -696,6 +704,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
 }
 
 pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
+    if (tree.node_ends) |ne| {
+        return ne[node];
+    }
     const tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
