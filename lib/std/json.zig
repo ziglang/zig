@@ -310,7 +310,6 @@ pub const StreamingParser = struct {
         InvalidUtf8Byte,
         InvalidTopLevelTrailing,
         InvalidControlCharacter,
-        InsufficientSpace,
     };
 
     /// Give another byte to the parser and obtain any new tokens. This may (rarely) return two
@@ -1385,7 +1384,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             return errors;
         },
         .Array => |arrayInfo| {
-            return error{ UnexpectedEndOfJson, UnexpectedToken } || TokenStream.Error ||
+            return error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } || TokenStream.Error ||
                 UnescapeValidStringError ||
                 ParseInternalErrorImpl(arrayInfo.child, inferred_types ++ [_]type{T});
         },
@@ -1396,7 +1395,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                     return errors || ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T});
                 },
                 .Slice => {
-                    return errors || error{ UnexpectedEndOfJson, UnexpectedToken } ||
+                    return errors || error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } ||
                         ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T}) ||
                         UnescapeValidStringError || TokenStream.Error;
                 },
@@ -1627,8 +1626,8 @@ fn parseInternal(
                     var r: T = undefined;
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     switch (stringToken.escapes) {
-                        .None => if (r.len >= source_slice.len) mem.copy(u8, &r, source_slice) else return error.InsufficientSpace,
-                        .Some => try unescapeValidString(&r, source_slice),
+                        .None => if (r.len == source_slice.len) mem.copy(u8, &r, source_slice) else return error.LengthMismatch,
+                        .Some => if (r.len == stringToken.decodedLength()) try unescapeValidString(&r, source_slice) else return error.LengthMismatch,
                     }
                     return r;
                 },
@@ -1681,8 +1680,8 @@ fn parseInternal(
                             const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => if (output.len >= source_slice.len) mem.copy(u8, output, source_slice) else return error.InsufficientSpace,
-                                .Some => try unescapeValidString(output, source_slice),
+                                .None => if (output.len == source_slice.len) mem.copy(u8, output, source_slice) else return error.LengthMismatch,
+                                .Some => if (output.len == len) try unescapeValidString(output, source_slice) else return error.LengthMismatch,
                             }
 
                             if (ptrInfo.sentinel) |some| {
@@ -1991,7 +1990,7 @@ pub const Parser = struct {
             .Some => {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
-                try unescapeValidString(output, slice);
+                if (output.len == s.decodedLength()) try unescapeValidString(output, slice) else return error.LengthMismatch;
                 return Value{ .String = output };
             },
         }

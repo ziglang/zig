@@ -2238,10 +2238,10 @@ test "parse into struct with no fields" {
     try testing.expectEqual(T{}, try parse(T, &ts, ParseOptions{}));
 }
 
-test "parse into struct with insufficient space" {
+test "parse into struct where destination and source lengths mismatch" {
     const T = struct {a: [2]u8};
     var ts = TokenStream.init("{\"a\": \"bbb\"}");
-    try testing.expectError(error.InsufficientSpace, parse(T, &ts, ParseOptions{}));
+    try testing.expectError(error.LengthMismatch, parse(T, &ts, ParseOptions{}));
 }
 
 test "parse into struct with misc fields" {
