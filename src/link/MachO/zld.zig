@@ -10,6 +10,7 @@ const mem = std.mem;
 
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const dead_strip = @import("dead_strip.zig");
+const eh_frame = @import("eh_frame.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
@@ -30,6 +31,7 @@ const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const StringTable = @import("../strtab.zig").StringTable;
 const Trie = @import("Trie.zig");
+const UnwindInfo = @import("UnwindInfo.zig");
 
 const Bind = @import("dyld_info/bind.zig").Bind(*const Zld, SymbolWithLoc);
 const LazyBind = @import("dyld_info/bind.zig").LazyBind(*const Zld, SymbolWithLoc);
@@ -389,6 +391,14 @@ pub const Zld = struct {
                 break :blk null;
             }
 
+            // We handle unwind info separately.
+            if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+                break :blk null;
+            }
+            if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
+                break :blk null;
+            }
+
             if (sect.isCode()) {
                 break :blk self.getSectionByName("__TEXT", "__text") orelse try self.initSection(
                     "__TEXT",
@@ -402,12 +412,6 @@ pub const Zld = struct {
             }
 
             if (sect.isDebug()) {
-                // TODO debug attributes
-                if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
-                    log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
-                        sect.flags, segname, sectname,
-                    });
-                }
                 break :blk null;
             }
 
@@ -459,13 +463,6 @@ pub const Zld = struct {
                     );
                 },
                 macho.S_COALESCED => {
-                    // TODO unwind info
-                    if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
-                        log.debug("TODO eh frame section: type 0x{x}, name '{s},{s}'", .{
-                            sect.flags, segname, sectname,
-                        });
-                        break :blk null;
-                    }
                     break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
                         segname,
                         sectname,
@@ -937,7 +934,7 @@ pub const Zld = struct {
         }
     }
 
-    fn resolveSymbolsInObject(self: *Zld, object_id: u16, resolver: *SymbolResolver) !void {
+    fn resolveSymbolsInObject(self: *Zld, object_id: u32, resolver: *SymbolResolver) !void {
         const object = &self.objects.items[object_id];
         const in_symtab = object.in_symtab orelse return;
 
@@ -977,7 +974,7 @@ pub const Zld = struct {
                 continue;
             }
 
-            const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id };
+            const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id + 1 };
 
             const global_index = resolver.table.get(sym_name) orelse {
                 const gpa = self.gpa;
@@ -1378,7 +1375,7 @@ pub const Zld = struct {
         }
     }
 
-    fn writeAtoms(self: *Zld, reverse_lookups: [][]u32) !void {
+    fn writeAtoms(self: *Zld) !void {
         const gpa = self.gpa;
         const slice = self.sections.slice();
 
@@ -1386,6 +1383,7 @@ pub const Zld = struct {
             const header = slice.items(.header)[sect_id];
             var atom_index = first_atom_index;
 
+            if (atom_index == 0) continue;
             if (header.isZerofill()) continue;
 
             var buffer = std.ArrayList(u8).init(gpa);
@@ -1407,7 +1405,7 @@ pub const Zld = struct {
                 log.debug("  (adding ATOM(%{d}, '{s}') from object({?}) to buffer)", .{
                     atom.sym_index,
                     self.getSymbolName(atom.getSymbolWithLoc()),
-                    atom.file,
+                    atom.getFile(),
                 });
                 if (padding_size > 0) {
                     log.debug("    (with padding {x})", .{padding_size});
@@ -1460,7 +1458,6 @@ pub const Zld = struct {
                         atom_index,
                         buffer.items[offset..][0..size],
                         relocs,
-                        reverse_lookups[atom.getFile().?],
                     );
                 }
 
@@ -1501,9 +1498,10 @@ pub const Zld = struct {
             while (i < slice.len) : (i += 1) {
                 const section = self.sections.get(i);
                 if (section.header.size == 0) {
-                    log.debug("pruning section {s},{s}", .{
+                    log.debug("pruning section {s},{s} {d}", .{
                         section.header.segName(),
                         section.header.sectName(),
+                        section.first_atom_index,
                     });
                     continue;
                 }
@@ -1519,7 +1517,7 @@ pub const Zld = struct {
         }
     }
 
-    fn calcSectionSizes(self: *Zld, reverse_lookups: [][]u32) !void {
+    fn calcSectionSizes(self: *Zld) !void {
         const slice = self.sections.slice();
         for (slice.items(.header)) |*header, sect_id| {
             if (header.size == 0) continue;
@@ -1528,6 +1526,8 @@ pub const Zld = struct {
             }
 
             var atom_index = slice.items(.first_atom_index)[sect_id];
+            if (atom_index == 0) continue;
+
             header.size = 0;
             header.@"align" = 0;
 
@@ -1556,7 +1556,7 @@ pub const Zld = struct {
                 if (mem.eql(u8, header.sectName(), "__stub_helper")) continue;
 
                 // Create jump/branch range extenders if needed.
-                try thunks.createThunks(self, @intCast(u8, sect_id), reverse_lookups);
+                try thunks.createThunks(self, @intCast(u8, sect_id));
             }
         }
     }
@@ -1601,8 +1601,6 @@ pub const Zld = struct {
 
         const slice = self.sections.slice();
         for (slice.items(.header)[indexes.start..indexes.end]) |*header, sect_id| {
-            var atom_index = slice.items(.first_atom_index)[indexes.start + sect_id];
-
             const alignment = try math.powi(u32, 2, header.@"align");
             const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
             const n_sect = @intCast(u8, indexes.start + sect_id + 1);
@@ -1613,48 +1611,51 @@ pub const Zld = struct {
                 @intCast(u32, segment.fileoff + start_aligned);
             header.addr = segment.vmaddr + start_aligned;
 
-            log.debug("allocating local symbols in sect({d}, '{s},{s}')", .{
-                n_sect,
-                header.segName(),
-                header.sectName(),
-            });
-
-            while (true) {
-                const atom = self.getAtom(atom_index);
-                const sym = self.getSymbolPtr(atom.getSymbolWithLoc());
-                sym.n_value += header.addr;
-                sym.n_sect = n_sect;
-
-                log.debug("  ATOM(%{d}, '{s}') @{x}", .{
-                    atom.sym_index,
-                    self.getSymbolName(atom.getSymbolWithLoc()),
-                    sym.n_value,
+            var atom_index = slice.items(.first_atom_index)[indexes.start + sect_id];
+            if (atom_index > 0) {
+                log.debug("allocating local symbols in sect({d}, '{s},{s}')", .{
+                    n_sect,
+                    header.segName(),
+                    header.sectName(),
                 });
 
-                if (atom.getFile() != null) {
-                    // Update each symbol contained within the atom
-                    var it = Atom.getInnerSymbolsIterator(self, atom_index);
-                    while (it.next()) |sym_loc| {
-                        const inner_sym = self.getSymbolPtr(sym_loc);
-                        inner_sym.n_value = sym.n_value + Atom.calcInnerSymbolOffset(
-                            self,
-                            atom_index,
-                            sym_loc.sym_index,
-                        );
-                        inner_sym.n_sect = n_sect;
+                while (true) {
+                    const atom = self.getAtom(atom_index);
+                    const sym = self.getSymbolPtr(atom.getSymbolWithLoc());
+                    sym.n_value += header.addr;
+                    sym.n_sect = n_sect;
+
+                    log.debug("  ATOM(%{d}, '{s}') @{x}", .{
+                        atom.sym_index,
+                        self.getSymbolName(atom.getSymbolWithLoc()),
+                        sym.n_value,
+                    });
+
+                    if (atom.getFile() != null) {
+                        // Update each symbol contained within the atom
+                        var it = Atom.getInnerSymbolsIterator(self, atom_index);
+                        while (it.next()) |sym_loc| {
+                            const inner_sym = self.getSymbolPtr(sym_loc);
+                            inner_sym.n_value = sym.n_value + Atom.calcInnerSymbolOffset(
+                                self,
+                                atom_index,
+                                sym_loc.sym_index,
+                            );
+                            inner_sym.n_sect = n_sect;
+                        }
+
+                        // If there is a section alias, update it now too
+                        if (Atom.getSectionAlias(self, atom_index)) |sym_loc| {
+                            const alias = self.getSymbolPtr(sym_loc);
+                            alias.n_value = sym.n_value;
+                            alias.n_sect = n_sect;
+                        }
                     }
 
-                    // If there is a section alias, update it now too
-                    if (Atom.getSectionAlias(self, atom_index)) |sym_loc| {
-                        const alias = self.getSymbolPtr(sym_loc);
-                        alias.n_value = sym.n_value;
-                        alias.n_sect = n_sect;
-                    }
+                    if (atom.next_index) |next_index| {
+                        atom_index = next_index;
+                    } else break;
                 }
-
-                if (atom.next_index) |next_index| {
-                    atom_index = next_index;
-                } else break;
             }
 
             start = start_aligned + header.size;
@@ -1675,7 +1676,7 @@ pub const Zld = struct {
         reserved2: u32 = 0,
     };
 
-    fn initSection(
+    pub fn initSection(
         self: *Zld,
         segname: []const u8,
         sectname: []const u8,
@@ -1685,7 +1686,7 @@ pub const Zld = struct {
         log.debug("creating section '{s},{s}'", .{ segname, sectname });
         const index = @intCast(u8, self.sections.slice().len);
         try self.sections.append(gpa, .{
-            .segment_index = undefined,
+            .segment_index = undefined, // Segments will be created automatically later down the pipeline
             .header = .{
                 .sectname = makeStaticString(sectname),
                 .segname = makeStaticString(segname),
@@ -1693,13 +1694,13 @@ pub const Zld = struct {
                 .reserved1 = opts.reserved1,
                 .reserved2 = opts.reserved2,
             },
-            .first_atom_index = undefined,
-            .last_atom_index = undefined,
+            .first_atom_index = 0,
+            .last_atom_index = 0,
         });
         return index;
     }
 
-    inline fn getSegmentPrecedence(segname: []const u8) u4 {
+    fn getSegmentPrecedence(segname: []const u8) u4 {
         if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
         if (mem.eql(u8, segname, "__TEXT")) return 0x1;
         if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
@@ -1708,14 +1709,14 @@ pub const Zld = struct {
         return 0x4;
     }
 
-    inline fn getSegmentMemoryProtection(segname: []const u8) macho.vm_prot_t {
+    fn getSegmentMemoryProtection(segname: []const u8) macho.vm_prot_t {
         if (mem.eql(u8, segname, "__PAGEZERO")) return macho.PROT.NONE;
         if (mem.eql(u8, segname, "__TEXT")) return macho.PROT.READ | macho.PROT.EXEC;
         if (mem.eql(u8, segname, "__LINKEDIT")) return macho.PROT.READ;
         return macho.PROT.READ | macho.PROT.WRITE;
     }
 
-    inline fn getSectionPrecedence(header: macho.section_64) u8 {
+    fn getSectionPrecedence(header: macho.section_64) u8 {
         const segment_precedence: u4 = getSegmentPrecedence(header.segName());
         const section_precedence: u4 = blk: {
             if (header.isCode()) {
@@ -1732,10 +1733,11 @@ pub const Zld = struct {
                 macho.S_ZEROFILL => break :blk 0xf,
                 macho.S_THREAD_LOCAL_REGULAR => break :blk 0xd,
                 macho.S_THREAD_LOCAL_ZEROFILL => break :blk 0xe,
-                else => if (mem.eql(u8, "__eh_frame", header.sectName()))
-                    break :blk 0xf
-                else
-                    break :blk 0x3,
+                else => {
+                    if (mem.eql(u8, "__unwind_info", header.sectName())) break :blk 0xe;
+                    if (mem.eql(u8, "__eh_frame", header.sectName())) break :blk 0xf;
+                    break :blk 0x3;
+                },
             }
         };
         return (@intCast(u8, segment_precedence) << 4) + section_precedence;
@@ -1768,8 +1770,8 @@ pub const Zld = struct {
         }
     }
 
-    fn writeLinkeditSegmentData(self: *Zld, reverse_lookups: [][]u32) !void {
-        try self.writeDyldInfoData(reverse_lookups);
+    fn writeLinkeditSegmentData(self: *Zld) !void {
+        try self.writeDyldInfoData();
         try self.writeFunctionStarts();
         try self.writeDataInCode();
         try self.writeSymtabs();
@@ -1806,7 +1808,7 @@ pub const Zld = struct {
         }
     }
 
-    fn collectRebaseData(self: *Zld, rebase: *Rebase, reverse_lookups: [][]u32) !void {
+    fn collectRebaseData(self: *Zld, rebase: *Rebase) !void {
         log.debug("collecting rebase data", .{});
 
         // First, unpack GOT entries
@@ -1862,6 +1864,7 @@ pub const Zld = struct {
 
             const cpu_arch = self.options.target.cpu.arch;
             var atom_index = slice.items(.first_atom_index)[sect_id];
+            if (atom_index == 0) continue;
 
             while (true) {
                 const atom = self.getAtom(atom_index);
@@ -1899,7 +1902,7 @@ pub const Zld = struct {
                             },
                             else => unreachable,
                         }
-                        const target = Atom.parseRelocTarget(self, atom_index, rel, reverse_lookups[atom.getFile().?]);
+                        const target = Atom.parseRelocTarget(self, atom_index, rel);
                         const target_sym = self.getSymbol(target);
                         if (target_sym.undf()) continue;
 
@@ -1962,7 +1965,10 @@ pub const Zld = struct {
         }
     }
 
-    fn collectBindData(self: *Zld, bind: *Bind, reverse_lookups: [][]u32) !void {
+    fn collectBindData(
+        self: *Zld,
+        bind: *Bind,
+    ) !void {
         log.debug("collecting bind data", .{});
 
         // First, unpack GOT section
@@ -1993,6 +1999,7 @@ pub const Zld = struct {
 
             const cpu_arch = self.options.target.cpu.arch;
             var atom_index = slice.items(.first_atom_index)[sect_id];
+            if (atom_index == 0) continue;
 
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
 
@@ -2033,7 +2040,7 @@ pub const Zld = struct {
                             else => unreachable,
                         }
 
-                        const global = Atom.parseRelocTarget(self, atom_index, rel, reverse_lookups[atom.getFile().?]);
+                        const global = Atom.parseRelocTarget(self, atom_index, rel);
                         const bind_sym_name = self.getSymbolName(global);
                         const bind_sym = self.getSymbol(global);
                         if (!bind_sym.undf()) continue;
@@ -2164,16 +2171,18 @@ pub const Zld = struct {
         try trie.finalize(gpa);
     }
 
-    fn writeDyldInfoData(self: *Zld, reverse_lookups: [][]u32) !void {
+    fn writeDyldInfoData(
+        self: *Zld,
+    ) !void {
         const gpa = self.gpa;
 
         var rebase = Rebase{};
         defer rebase.deinit(gpa);
-        try self.collectRebaseData(&rebase, reverse_lookups);
+        try self.collectRebaseData(&rebase);
 
         var bind = Bind{};
         defer bind.deinit(gpa);
-        try self.collectBindData(&bind, reverse_lookups);
+        try self.collectBindData(&bind);
 
         var lazy_bind = LazyBind{};
         defer lazy_bind.deinit(gpa);
@@ -2873,12 +2882,12 @@ pub const Zld = struct {
         return buf;
     }
 
-    pub inline fn getAtomPtr(self: *Zld, atom_index: AtomIndex) *Atom {
+    pub fn getAtomPtr(self: *Zld, atom_index: AtomIndex) *Atom {
         assert(atom_index < self.atoms.items.len);
         return &self.atoms.items[atom_index];
     }
 
-    pub inline fn getAtom(self: Zld, atom_index: AtomIndex) Atom {
+    pub fn getAtom(self: Zld, atom_index: AtomIndex) Atom {
         assert(atom_index < self.atoms.items.len);
         return self.atoms.items[atom_index];
     }
@@ -2889,17 +2898,17 @@ pub const Zld = struct {
         } else return null;
     }
 
-    pub inline fn getSegment(self: Zld, sect_id: u8) macho.segment_command_64 {
+    pub fn getSegment(self: Zld, sect_id: u8) macho.segment_command_64 {
         const index = self.sections.items(.segment_index)[sect_id];
         return self.segments.items[index];
     }
 
-    pub inline fn getSegmentPtr(self: *Zld, sect_id: u8) *macho.segment_command_64 {
+    pub fn getSegmentPtr(self: *Zld, sect_id: u8) *macho.segment_command_64 {
         const index = self.sections.items(.segment_index)[sect_id];
         return &self.segments.items[index];
     }
 
-    pub inline fn getLinkeditSegmentPtr(self: *Zld) *macho.segment_command_64 {
+    pub fn getLinkeditSegmentPtr(self: *Zld) *macho.segment_command_64 {
         assert(self.segments.items.len > 0);
         const seg = &self.segments.items[self.segments.items.len - 1];
         assert(mem.eql(u8, seg.segName(), "__LINKEDIT"));
@@ -3384,6 +3393,8 @@ pub const Zld = struct {
         const slice = self.sections.slice();
         for (slice.items(.first_atom_index)) |first_atom_index, sect_id| {
             var atom_index = first_atom_index;
+            if (atom_index == 0) continue;
+
             const header = slice.items(.header)[sect_id];
 
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
@@ -3412,7 +3423,7 @@ pub const Zld = struct {
             sym.n_value,
             atom.size,
             atom.alignment,
-            atom.file,
+            atom.getFile(),
             sym.n_sect,
         });
 
@@ -3475,19 +3486,19 @@ const IndirectPointer = struct {
     }
 };
 
-pub const SymbolWithLoc = struct {
+pub const SymbolWithLoc = extern struct {
     // Index into the respective symbol table.
     sym_index: u32,
 
-    // -1 means it's a synthetic global.
-    file: i32 = -1,
+    // 0 means it's a synthetic global.
+    file: u32 = 0,
 
-    pub inline fn getFile(self: SymbolWithLoc) ?u31 {
-        if (self.file == -1) return null;
-        return @intCast(u31, self.file);
+    pub fn getFile(self: SymbolWithLoc) ?u32 {
+        if (self.file == 0) return null;
+        return self.file - 1;
     }
 
-    pub inline fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
+    pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
         return self.file == other.file and self.sym_index == other.sym_index;
     }
 };
@@ -3965,7 +3976,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         };
 
         for (zld.objects.items) |_, object_id| {
-            try zld.resolveSymbolsInObject(@intCast(u16, object_id), &resolver);
+            try zld.resolveSymbolsInObject(@intCast(u32, object_id), &resolver);
         }
 
         try zld.resolveSymbolsInArchives(&resolver);
@@ -3995,16 +4006,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         for (zld.objects.items) |*object, object_id| {
-            try object.splitIntoAtoms(&zld, @intCast(u31, object_id));
-        }
-
-        var reverse_lookups: [][]u32 = try arena.alloc([]u32, zld.objects.items.len);
-        for (zld.objects.items) |object, i| {
-            reverse_lookups[i] = try object.createReverseSymbolLookup(arena);
+            try object.splitIntoAtoms(&zld, @intCast(u32, object_id));
         }
 
         if (gc_sections) {
-            try dead_strip.gcAtoms(&zld, reverse_lookups);
+            try dead_strip.gcAtoms(&zld);
         }
 
         try zld.createDyldPrivateAtom();
@@ -4019,13 +4025,24 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 if (header.isZerofill()) continue;
 
                 const relocs = Atom.getAtomRelocs(&zld, atom_index);
-                try Atom.scanAtomRelocs(&zld, atom_index, relocs, reverse_lookups[atom.getFile().?]);
+                try Atom.scanAtomRelocs(&zld, atom_index, relocs);
             }
         }
 
+        try eh_frame.scanRelocs(&zld);
+        try UnwindInfo.scanRelocs(&zld);
+
         try zld.createDyldStubBinderGotAtom();
 
-        try zld.calcSectionSizes(reverse_lookups);
+        try zld.calcSectionSizes();
+
+        var unwind_info = UnwindInfo{ .gpa = zld.gpa };
+        defer unwind_info.deinit();
+        try unwind_info.collect(&zld);
+
+        try eh_frame.calcSectionSize(&zld, &unwind_info);
+        try unwind_info.calcSectionSize(&zld);
+
         try zld.pruneAndSortSections();
         try zld.createSegments();
         try zld.allocateSegments();
@@ -4039,8 +4056,10 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             zld.logAtoms();
         }
 
-        try zld.writeAtoms(reverse_lookups);
-        try zld.writeLinkeditSegmentData(reverse_lookups);
+        try zld.writeAtoms();
+        try eh_frame.write(&zld, &unwind_info);
+        try unwind_info.write(&zld);
+        try zld.writeLinkeditSegmentData();
 
         // If the last section of __DATA segment is zerofill section, we need to ensure
         // that the free space between the end of the last non-zerofill section of __DATA

@@ -8,6 +8,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const assert = std.debug.assert;
 const dwarf = std.dwarf;
+const eh_frame = @import("eh_frame.zig");
 const fs = std.fs;
 const io = std.io;
 const log = std.log.scoped(.link);
@@ -24,6 +25,7 @@ const DwarfInfo = @import("DwarfInfo.zig");
 const LoadCommandIterator = macho.LoadCommandIterator;
 const Zld = @import("zld.zig").Zld;
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const UnwindInfo = @import("UnwindInfo.zig");
 
 name: []const u8,
 mtime: u64,
@@ -44,6 +46,8 @@ symtab: []macho.nlist_64 = undefined,
 /// Can be undefined as set together with in_symtab.
 source_symtab_lookup: []u32 = undefined,
 /// Can be undefined as set together with in_symtab.
+reverse_symtab_lookup: []u32 = undefined,
+/// Can be undefined as set together with in_symtab.
 source_address_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
 source_section_index_lookup: []i64 = undefined,
@@ -53,22 +57,49 @@ strtab_lookup: []u32 = undefined,
 atom_by_index_table: []AtomIndex = undefined,
 /// Can be undefined as set together with in_symtab.
 globals_lookup: []i64 = undefined,
+/// Can be undefined as set together with in_symtab.
+relocs_lookup: []RelocEntry = undefined,
 
 atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
+exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
+
+eh_frame_sect: ?macho.section_64 = null,
+eh_frame_relocs_lookup: std.AutoArrayHashMapUnmanaged(u32, Record) = .{},
+eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(AtomIndex, u32) = .{},
+
+unwind_info_sect: ?macho.section_64 = null,
+unwind_relocs_lookup: []Record = undefined,
+unwind_records_lookup: std.AutoHashMapUnmanaged(AtomIndex, u32) = .{},
+
+const RelocEntry = struct { start: u32, len: u32 };
+
+const Record = struct {
+    dead: bool,
+    reloc: RelocEntry,
+};
 
 pub fn deinit(self: *Object, gpa: Allocator) void {
     self.atoms.deinit(gpa);
+    self.exec_atoms.deinit(gpa);
     gpa.free(self.name);
     gpa.free(self.contents);
     if (self.in_symtab) |_| {
         gpa.free(self.source_symtab_lookup);
+        gpa.free(self.reverse_symtab_lookup);
         gpa.free(self.source_address_lookup);
         gpa.free(self.source_section_index_lookup);
         gpa.free(self.strtab_lookup);
         gpa.free(self.symtab);
         gpa.free(self.atom_by_index_table);
         gpa.free(self.globals_lookup);
+        gpa.free(self.relocs_lookup);
     }
+    self.eh_frame_relocs_lookup.deinit(gpa);
+    self.eh_frame_records_lookup.deinit(gpa);
+    if (self.hasUnwindRecords()) {
+        gpa.free(self.unwind_relocs_lookup);
+    }
+    self.unwind_records_lookup.deinit(gpa);
 }
 
 pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
@@ -105,76 +136,95 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
     };
-    while (it.next()) |cmd| {
-        switch (cmd.cmd()) {
-            .SYMTAB => {
-                const symtab = cmd.cast(macho.symtab_command).?;
-                self.in_symtab = @ptrCast(
-                    [*]const macho.nlist_64,
-                    @alignCast(@alignOf(macho.nlist_64), &self.contents[symtab.symoff]),
-                )[0..symtab.nsyms];
-                self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
+    const nsects = self.getSourceSections().len;
+    const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
+        .SYMTAB => break cmd.cast(macho.symtab_command).?,
+        else => {},
+    } else return;
 
-                const nsects = self.getSourceSections().len;
+    self.in_symtab = @ptrCast(
+        [*]const macho.nlist_64,
+        @alignCast(@alignOf(macho.nlist_64), &self.contents[symtab.symoff]),
+    )[0..symtab.nsyms];
+    self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
 
-                self.symtab = try allocator.alloc(macho.nlist_64, self.in_symtab.?.len + nsects);
-                self.source_symtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
-                self.strtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
-                self.globals_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
-                self.atom_by_index_table = try allocator.alloc(AtomIndex, self.in_symtab.?.len + nsects);
-                // This is wasteful but we need to be able to lookup source symbol address after stripping and
-                // allocating of sections.
-                self.source_address_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
-                self.source_section_index_lookup = try allocator.alloc(i64, nsects);
+    self.symtab = try allocator.alloc(macho.nlist_64, self.in_symtab.?.len + nsects);
+    self.source_symtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
+    self.reverse_symtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
+    self.strtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
+    self.globals_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
+    self.atom_by_index_table = try allocator.alloc(AtomIndex, self.in_symtab.?.len + nsects);
+    self.relocs_lookup = try allocator.alloc(RelocEntry, self.in_symtab.?.len + nsects);
+    // This is wasteful but we need to be able to lookup source symbol address after stripping and
+    // allocating of sections.
+    self.source_address_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
+    self.source_section_index_lookup = try allocator.alloc(i64, nsects);
 
-                for (self.symtab) |*sym| {
-                    sym.* = .{
-                        .n_value = 0,
-                        .n_sect = 0,
-                        .n_desc = 0,
-                        .n_strx = 0,
-                        .n_type = 0,
-                    };
-                }
+    for (self.symtab) |*sym| {
+        sym.* = .{
+            .n_value = 0,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_strx = 0,
+            .n_type = 0,
+        };
+    }
 
-                mem.set(i64, self.globals_lookup, -1);
-                mem.set(AtomIndex, self.atom_by_index_table, 0);
-                mem.set(i64, self.source_section_index_lookup, -1);
+    mem.set(i64, self.globals_lookup, -1);
+    mem.set(AtomIndex, self.atom_by_index_table, 0);
+    mem.set(i64, self.source_section_index_lookup, -1);
+    mem.set(RelocEntry, self.relocs_lookup, .{
+        .start = 0,
+        .len = 0,
+    });
 
-                // You would expect that the symbol table is at least pre-sorted based on symbol's type:
-                // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
-                // the GO compiler does not necessarily respect that therefore we sort immediately by type
-                // and address within.
-                var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(allocator, self.in_symtab.?.len);
-                defer sorted_all_syms.deinit();
+    // You would expect that the symbol table is at least pre-sorted based on symbol's type:
+    // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
+    // the GO compiler does not necessarily respect that therefore we sort immediately by type
+    // and address within.
+    var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(allocator, self.in_symtab.?.len);
+    defer sorted_all_syms.deinit();
 
-                for (self.in_symtab.?) |_, index| {
-                    sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
-                }
+    for (self.in_symtab.?) |_, index| {
+        sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
+    }
 
-                // We sort by type: defined < undefined, and
-                // afterwards by address in each group. Normally, dysymtab should
-                // be enough to guarantee the sort, but turns out not every compiler
-                // is kind enough to specify the symbols in the correct order.
-                sort.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
+    // We sort by type: defined < undefined, and
+    // afterwards by address in each group. Normally, dysymtab should
+    // be enough to guarantee the sort, but turns out not every compiler
+    // is kind enough to specify the symbols in the correct order.
+    sort.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
 
-                for (sorted_all_syms.items) |sym_id, i| {
-                    const sym = sym_id.getSymbol(self);
+    for (sorted_all_syms.items) |sym_id, i| {
+        const sym = sym_id.getSymbol(self);
 
-                    if (sym.sect() and self.source_section_index_lookup[sym.n_sect - 1] == -1) {
-                        self.source_section_index_lookup[sym.n_sect - 1] = @intCast(i64, i);
-                    }
-
-                    self.symtab[i] = sym;
-                    self.source_symtab_lookup[i] = sym_id.index;
-                    self.source_address_lookup[i] = if (sym.undf()) -1 else @intCast(i64, sym.n_value);
-
-                    const sym_name_len = mem.sliceTo(@ptrCast([*:0]const u8, self.in_strtab.?.ptr + sym.n_strx), 0).len + 1;
-                    self.strtab_lookup[i] = @intCast(u32, sym_name_len);
-                }
-            },
-            else => {},
+        if (sym.sect() and self.source_section_index_lookup[sym.n_sect - 1] == -1) {
+            self.source_section_index_lookup[sym.n_sect - 1] = @intCast(i64, i);
         }
+
+        self.symtab[i] = sym;
+        self.source_symtab_lookup[i] = sym_id.index;
+        self.reverse_symtab_lookup[sym_id.index] = @intCast(u32, i);
+        self.source_address_lookup[i] = if (sym.undf()) -1 else @intCast(i64, sym.n_value);
+
+        const sym_name_len = mem.sliceTo(@ptrCast([*:0]const u8, self.in_strtab.?.ptr + sym.n_strx), 0).len + 1;
+        self.strtab_lookup[i] = @intCast(u32, sym_name_len);
+    }
+
+    // Parse __TEXT,__eh_frame header if one exists
+    self.eh_frame_sect = self.getSourceSectionByName("__TEXT", "__eh_frame");
+
+    // Parse __LD,__compact_unwind header if one exists
+    self.unwind_info_sect = self.getSourceSectionByName("__LD", "__compact_unwind");
+    if (self.hasUnwindRecords()) {
+        self.unwind_relocs_lookup = try allocator.alloc(Record, self.getUnwindRecords().len);
+        mem.set(Record, self.unwind_relocs_lookup, .{
+            .dead = true,
+            .reloc = .{
+                .start = 0,
+                .len = 0,
+            },
+        });
     }
 }
 
@@ -192,6 +242,17 @@ const SymbolAtIndex = struct {
         return mem.sliceTo(@ptrCast([*:0]const u8, ctx.in_strtab.?.ptr + off), 0);
     }
 
+    fn getSymbolSeniority(self: SymbolAtIndex, ctx: Context) u2 {
+        const sym = self.getSymbol(ctx);
+        if (!sym.ext()) {
+            const sym_name = self.getSymbolName(ctx);
+            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 0;
+            return 1;
+        }
+        if (sym.weakDef() or sym.pext()) return 2;
+        return 3;
+    }
+
     /// Performs lexicographic-like check.
     /// * lhs and rhs defined
     ///   * if lhs == rhs
@@ -206,23 +267,15 @@ const SymbolAtIndex = struct {
         if (lhs.sect() and rhs.sect()) {
             if (lhs.n_value == rhs.n_value) {
                 if (lhs.n_sect == rhs.n_sect) {
-                    if (lhs.ext() and rhs.ext()) {
-                        if ((lhs.pext() or lhs.weakDef()) and (rhs.pext() or rhs.weakDef())) {
-                            return false;
-                        } else return rhs.pext() or rhs.weakDef();
-                    } else {
-                        const lhs_name = lhs_index.getSymbolName(ctx);
-                        const lhs_temp = mem.startsWith(u8, lhs_name, "l") or mem.startsWith(u8, lhs_name, "L");
-                        const rhs_name = rhs_index.getSymbolName(ctx);
-                        const rhs_temp = mem.startsWith(u8, rhs_name, "l") or mem.startsWith(u8, rhs_name, "L");
-                        if (lhs_temp and rhs_temp) {
-                            return false;
-                        } else return rhs_temp;
-                    }
+                    const lhs_senior = lhs_index.getSymbolSeniority(ctx);
+                    const rhs_senior = rhs_index.getSymbolSeniority(ctx);
+                    if (lhs_senior == rhs_senior) {
+                        return lessThanByNStrx(ctx, lhs_index, rhs_index);
+                    } else return lhs_senior < rhs_senior;
                 } else return lhs.n_sect < rhs.n_sect;
             } else return lhs.n_value < rhs.n_value;
         } else if (lhs.undf() and rhs.undf()) {
-            return false;
+            return lessThanByNStrx(ctx, lhs_index, rhs_index);
         } else return rhs.undf();
     }
 
@@ -295,13 +348,19 @@ fn sectionLessThanByAddress(ctx: void, lhs: SortedSection, rhs: SortedSection) b
     return lhs.header.addr < rhs.header.addr;
 }
 
-/// Splits input sections into Atoms.
+pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u32) !void {
+    log.debug("splitting object({d}, {s}) into atoms", .{ object_id, self.name });
+
+    try self.splitRegularSections(zld, object_id);
+    try self.parseEhFrameSection(zld, object_id);
+    try self.parseUnwindInfo(zld, object_id);
+}
+
+/// Splits input regular sections into Atoms.
 /// If the Object was compiled with `MH_SUBSECTIONS_VIA_SYMBOLS`, splits section
 /// into subsections where each subsection then represents an Atom.
-pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
+pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     const gpa = zld.gpa;
-
-    log.debug("splitting object({d}, {s}) into atoms", .{ object_id, self.name });
 
     const sections = self.getSourceSections();
     for (sections) |sect, id| {
@@ -418,6 +477,9 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                     sect.@"align",
                     out_sect_id,
                 );
+                if (!sect.isZerofill()) {
+                    try self.cacheRelocs(zld, atom_index);
+                }
                 zld.addAtomToSection(atom_index);
             }
 
@@ -431,7 +493,6 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                 const nsyms_trailing = atom_loc.len - 1;
                 next_sym_index += atom_loc.len;
 
-                // TODO: We want to bubble up the first externally defined symbol here.
                 const atom_size = if (next_sym_index < sect_start_index + sect_loc.len)
                     symtab[next_sym_index].n_value - addr
                 else
@@ -461,7 +522,9 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                     const alias_index = self.getSectionAliasSymbolIndex(sect_id);
                     self.atom_by_index_table[alias_index] = atom_index;
                 }
-
+                if (!sect.isZerofill()) {
+                    try self.cacheRelocs(zld, atom_index);
+                }
                 zld.addAtomToSection(atom_index);
             }
         } else {
@@ -476,6 +539,9 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
                 sect.@"align",
                 out_sect_id,
             );
+            if (!sect.isZerofill()) {
+                try self.cacheRelocs(zld, atom_index);
+            }
             zld.addAtomToSection(atom_index);
         }
     }
@@ -484,7 +550,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u31) !void {
 fn createAtomFromSubsection(
     self: *Object,
     zld: *Zld,
-    object_id: u31,
+    object_id: u32,
     sym_index: u32,
     inner_sym_index: u32,
     inner_nsyms_trailing: u32,
@@ -497,7 +563,7 @@ fn createAtomFromSubsection(
     const atom = zld.getAtomPtr(atom_index);
     atom.inner_sym_index = inner_sym_index;
     atom.inner_nsyms_trailing = inner_nsyms_trailing;
-    atom.file = object_id;
+    atom.file = object_id + 1;
     self.symtab[sym_index].n_sect = out_sect_id + 1;
 
     log.debug("creating ATOM(%{d}, '{s}') in sect({d}, '{s},{s}') in object({d})", .{
@@ -519,7 +585,218 @@ fn createAtomFromSubsection(
         self.atom_by_index_table[sym_loc.sym_index] = atom_index;
     }
 
+    const out_sect = zld.sections.items(.header)[out_sect_id];
+    if (out_sect.isCode() and
+        mem.eql(u8, "__TEXT", out_sect.segName()) and
+        mem.eql(u8, "__text", out_sect.sectName()))
+    {
+        // TODO currently assuming a single section for executable machine code
+        try self.exec_atoms.append(gpa, atom_index);
+    }
+
     return atom_index;
+}
+
+fn filterRelocs(
+    relocs: []align(1) const macho.relocation_info,
+    start_addr: u64,
+    end_addr: u64,
+) RelocEntry {
+    const Predicate = struct {
+        addr: u64,
+
+        pub fn predicate(self: @This(), rel: macho.relocation_info) bool {
+            return rel.r_address >= self.addr;
+        }
+    };
+    const LPredicate = struct {
+        addr: u64,
+
+        pub fn predicate(self: @This(), rel: macho.relocation_info) bool {
+            return rel.r_address < self.addr;
+        }
+    };
+
+    const start = @import("zld.zig").bsearch(macho.relocation_info, relocs, Predicate{ .addr = end_addr });
+    const len = @import("zld.zig").lsearch(macho.relocation_info, relocs[start..], LPredicate{ .addr = start_addr });
+
+    return .{ .start = @intCast(u32, start), .len = @intCast(u32, len) };
+}
+
+fn cacheRelocs(self: *Object, zld: *Zld, atom_index: AtomIndex) !void {
+    const atom = zld.getAtom(atom_index);
+
+    const source_sect = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
+        const source_sect = self.getSourceSection(source_sym.n_sect - 1);
+        assert(!source_sect.isZerofill());
+        break :blk source_sect;
+    } else blk: {
+        // If there was no matching symbol present in the source symtab, this means
+        // we are dealing with either an entire section, or part of it, but also
+        // starting at the beginning.
+        const nbase = @intCast(u32, self.in_symtab.?.len);
+        const sect_id = @intCast(u16, atom.sym_index - nbase);
+        const source_sect = self.getSourceSection(sect_id);
+        assert(!source_sect.isZerofill());
+        break :blk source_sect;
+    };
+
+    const relocs = self.getRelocs(source_sect);
+
+    self.relocs_lookup[atom.sym_index] = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
+        const offset = source_sym.n_value - source_sect.addr;
+        break :blk filterRelocs(relocs, offset, offset + atom.size);
+    } else filterRelocs(relocs, 0, atom.size);
+}
+
+fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
+    const sect = self.eh_frame_sect orelse return;
+
+    log.debug("parsing __TEXT,__eh_frame section", .{});
+
+    if (zld.getSectionByName("__TEXT", "__eh_frame") == null) {
+        _ = try zld.initSection("__TEXT", "__eh_frame", .{});
+    }
+
+    const gpa = zld.gpa;
+    const cpu_arch = zld.options.target.cpu.arch;
+    const relocs = self.getRelocs(sect);
+
+    var it = self.getEhFrameRecordsIterator();
+    var record_count: u32 = 0;
+    while (try it.next()) |_| {
+        record_count += 1;
+    }
+
+    try self.eh_frame_relocs_lookup.ensureTotalCapacity(gpa, record_count);
+    try self.eh_frame_records_lookup.ensureTotalCapacity(gpa, record_count);
+
+    it.reset();
+
+    while (try it.next()) |record| {
+        const offset = it.pos - record.getSize();
+        const rel_pos = switch (cpu_arch) {
+            .aarch64 => filterRelocs(relocs, offset, offset + record.getSize()),
+            .x86_64 => RelocEntry{ .start = 0, .len = 0 },
+            else => unreachable,
+        };
+        self.eh_frame_relocs_lookup.putAssumeCapacityNoClobber(offset, .{
+            .dead = false,
+            .reloc = rel_pos,
+        });
+
+        if (record.tag == .fde) {
+            const target = blk: {
+                switch (cpu_arch) {
+                    .aarch64 => {
+                        assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
+                        // Find function symbol that this record describes
+                        const rel = relocs[rel_pos.start..][rel_pos.len - 1];
+                        const target = UnwindInfo.parseRelocTarget(
+                            zld,
+                            object_id,
+                            rel,
+                            it.data[offset..],
+                            @intCast(i32, offset),
+                        );
+                        break :blk target;
+                    },
+                    .x86_64 => {
+                        const target_address = record.getTargetSymbolAddress(.{
+                            .base_addr = sect.addr,
+                            .base_offset = offset,
+                        });
+                        const target_sym_index = self.getSymbolByAddress(target_address, null);
+                        const target = if (self.getGlobal(target_sym_index)) |global_index|
+                            zld.globals.items[global_index]
+                        else
+                            SymbolWithLoc{ .sym_index = target_sym_index, .file = object_id + 1 };
+                        break :blk target;
+                    },
+                    else => unreachable,
+                }
+            };
+            log.debug("FDE at offset {x} tracks {s}", .{ offset, zld.getSymbolName(target) });
+            if (target.getFile() != object_id) {
+                self.eh_frame_relocs_lookup.getPtr(offset).?.dead = true;
+            } else {
+                const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
+                self.eh_frame_records_lookup.putAssumeCapacityNoClobber(atom_index, offset);
+            }
+        }
+    }
+}
+
+fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
+    const sect = self.unwind_info_sect orelse {
+        // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
+        // we will try fully synthesising unwind info records to somewhat match Apple ld's
+        // approach. However, we will only synthesise DWARF records and nothing more. For this reason,
+        // we still create the output `__TEXT,__unwind_info` section.
+        if (self.eh_frame_sect != null) {
+            if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
+                _ = try zld.initSection("__TEXT", "__unwind_info", .{});
+            }
+        }
+        return;
+    };
+
+    log.debug("parsing unwind info in {s}", .{self.name});
+
+    const gpa = zld.gpa;
+    const cpu_arch = zld.options.target.cpu.arch;
+
+    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
+        _ = try zld.initSection("__TEXT", "__unwind_info", .{});
+    }
+
+    try self.unwind_records_lookup.ensureTotalCapacity(gpa, @intCast(u32, self.exec_atoms.items.len));
+
+    const unwind_records = self.getUnwindRecords();
+
+    const needs_eh_frame = for (unwind_records) |record| {
+        if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
+    } else false;
+
+    if (needs_eh_frame) {
+        if (self.eh_frame_sect == null) {
+            log.err("missing __TEXT,__eh_frame section", .{});
+            log.err("  in object {s}", .{self.name});
+            return error.MissingSection;
+        }
+    }
+
+    const relocs = self.getRelocs(sect);
+    for (unwind_records) |record, record_id| {
+        const offset = record_id * @sizeOf(macho.compact_unwind_entry);
+        const rel_pos = filterRelocs(
+            relocs,
+            offset,
+            offset + @sizeOf(macho.compact_unwind_entry),
+        );
+        assert(rel_pos.len > 0); // TODO convert to an error as the unwind info is malformed
+        self.unwind_relocs_lookup[record_id] = .{
+            .dead = false,
+            .reloc = rel_pos,
+        };
+
+        // Find function symbol that this record describes
+        const rel = relocs[rel_pos.start..][rel_pos.len - 1];
+        const target = UnwindInfo.parseRelocTarget(
+            zld,
+            object_id,
+            rel,
+            mem.asBytes(&record),
+            @intCast(i32, offset),
+        );
+        log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
+        if (target.getFile() != object_id) {
+            self.unwind_relocs_lookup[record_id].dead = true;
+        } else {
+            const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
+            self.unwind_records_lookup.putAssumeCapacityNoClobber(atom_index, @intCast(u32, record_id));
+        }
+    }
 }
 
 pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
@@ -529,21 +806,26 @@ pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
     return symtab[mapped_index];
 }
 
-/// Expects an arena allocator.
-/// Caller owns memory.
-pub fn createReverseSymbolLookup(self: Object, arena: Allocator) ![]u32 {
-    const symtab = self.in_symtab orelse return &[0]u32{};
-    const lookup = try arena.alloc(u32, symtab.len);
-    for (self.source_symtab_lookup) |source_id, id| {
-        lookup[source_id] = @intCast(u32, id);
-    }
-    return lookup;
-}
-
 pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
     const sections = self.getSourceSections();
     assert(index < sections.len);
     return sections[index];
+}
+
+pub fn getSourceSectionByName(self: Object, segname: []const u8, sectname: []const u8) ?macho.section_64 {
+    const sections = self.getSourceSections();
+    for (sections) |sect| {
+        if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
+            return sect;
+    } else return null;
+}
+
+pub fn getSourceSectionIndexByName(self: Object, segname: []const u8, sectname: []const u8) ?u8 {
+    const sections = self.getSourceSections();
+    for (sections) |sect, i| {
+        if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
+            return @intCast(u8, i + 1);
+    } else return null;
 }
 
 pub fn getSourceSections(self: Object) []const macho.section_64 {
@@ -652,8 +934,64 @@ pub fn getSymbolName(self: Object, index: u32) []const u8 {
     return strtab[start..][0 .. len - 1 :0];
 }
 
+pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
+    // Find containing atom
+    const Predicate = struct {
+        addr: i64,
+
+        pub fn predicate(pred: @This(), other: i64) bool {
+            return if (other == -1) true else other > pred.addr;
+        }
+    };
+
+    if (sect_hint) |sect_id| {
+        if (self.source_section_index_lookup[sect_id] > -1) {
+            const first_sym_index = @intCast(usize, self.source_section_index_lookup[sect_id]);
+            const target_sym_index = @import("zld.zig").lsearch(i64, self.source_address_lookup[first_sym_index..], Predicate{
+                .addr = @intCast(i64, addr),
+            });
+            if (target_sym_index > 0) {
+                return @intCast(u32, first_sym_index + target_sym_index - 1);
+            }
+        }
+        return self.getSectionAliasSymbolIndex(sect_id);
+    }
+
+    const target_sym_index = @import("zld.zig").lsearch(i64, self.source_address_lookup, Predicate{
+        .addr = @intCast(i64, addr),
+    });
+    assert(target_sym_index > 0);
+    return @intCast(u32, target_sym_index - 1);
+}
+
+pub fn getGlobal(self: Object, sym_index: u32) ?u32 {
+    if (self.globals_lookup[sym_index] == -1) return null;
+    return @intCast(u32, self.globals_lookup[sym_index]);
+}
+
 pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?AtomIndex {
     const atom_index = self.atom_by_index_table[sym_index];
     if (atom_index == 0) return null;
     return atom_index;
+}
+
+pub fn hasUnwindRecords(self: Object) bool {
+    return self.unwind_info_sect != null;
+}
+
+pub fn getUnwindRecords(self: Object) []align(1) const macho.compact_unwind_entry {
+    const sect = self.unwind_info_sect orelse return &[0]macho.compact_unwind_entry{};
+    const data = self.getSectionContents(sect);
+    const num_entries = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
+    return @ptrCast([*]align(1) const macho.compact_unwind_entry, data)[0..num_entries];
+}
+
+pub fn hasEhFrameRecords(self: Object) bool {
+    return self.eh_frame_sect != null;
+}
+
+pub fn getEhFrameRecordsIterator(self: Object) eh_frame.Iterator {
+    const sect = self.eh_frame_sect orelse return .{ .data = &[0]u8{} };
+    const data = self.getSectionContents(sect);
+    return .{ .data = data };
 }
