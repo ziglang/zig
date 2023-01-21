@@ -1479,7 +1479,7 @@ pub const DeclGen = struct {
             try w.print("zig_callconv({s}) ", .{call_conv});
         }
 
-        if (fn_info.alignment > 0 and kind == .Complete) try w.print(" zig_align_fn({})", .{ fn_info.alignment });
+        if (fn_info.alignment > 0 and kind == .Complete) try w.print(" zig_align_fn({})", .{fn_info.alignment});
 
         try dg.renderDeclName(w, dg.decl_index, export_index);
         try w.writeByte('(');
