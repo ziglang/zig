@@ -44,8 +44,11 @@ pub fn GzipStream(comptime ReaderType: type) type {
         },
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
+            var hasher = std.compress.hashedReader(source, std.hash.Crc32.init());
+            const hashed_reader = hasher.reader();
+
             // gzip header format is specified in RFC1952
-            const header = try source.readBytesNoEof(10);
+            const header = try hashed_reader.readBytesNoEof(10);
 
             // Check the ID1/ID2 fields
             if (header[0] != 0x1f or header[1] != 0x8b)
@@ -66,31 +69,31 @@ pub fn GzipStream(comptime ReaderType: type) type {
             _ = XFL;
 
             const extra = if (FLG & FEXTRA != 0) blk: {
-                const len = try source.readIntLittle(u16);
+                const len = try hashed_reader.readIntLittle(u16);
                 const tmp_buf = try allocator.alloc(u8, len);
                 errdefer allocator.free(tmp_buf);
 
-                try source.readNoEof(tmp_buf);
+                try hashed_reader.readNoEof(tmp_buf);
                 break :blk tmp_buf;
             } else null;
             errdefer if (extra) |p| allocator.free(p);
 
             const filename = if (FLG & FNAME != 0)
-                try source.readUntilDelimiterAlloc(allocator, 0, max_string_len)
+                try hashed_reader.readUntilDelimiterAlloc(allocator, 0, max_string_len)
             else
                 null;
             errdefer if (filename) |p| allocator.free(p);
 
             const comment = if (FLG & FCOMMENT != 0)
-                try source.readUntilDelimiterAlloc(allocator, 0, max_string_len)
+                try hashed_reader.readUntilDelimiterAlloc(allocator, 0, max_string_len)
             else
                 null;
             errdefer if (comment) |p| allocator.free(p);
 
             if (FLG & FHCRC != 0) {
-                // TODO: Evaluate and check the header checksum. The stdlib has
-                // no CRC16 yet :(
-                _ = try source.readIntLittle(u16);
+                const hash = try source.readIntLittle(u16);
+                if (hash != @truncate(u16, hasher.hasher.final()))
+                    return error.WrongChecksum;
             }
 
             return Self{
@@ -229,4 +232,17 @@ test "sanity checks" {
             0x00, 0x00, 0x00,
         }, ""),
     );
+}
+
+test "header checksum" {
+    try testReader(&[_]u8{
+        // GZIP header
+        0x1f, 0x8b, 0x08, 0x12, 0x00, 0x09, 0x6e, 0x88, 0x00, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00,
+
+        // header.FHCRC (should cover entire header)
+        0x99, 0xd6,
+
+        // GZIP data
+        0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    }, "");
 }
