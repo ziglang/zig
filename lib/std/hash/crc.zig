@@ -10,6 +10,104 @@ const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
 
+pub usingnamespace @import("crc/catalog.zig");
+
+pub fn Algorithm(comptime W: type) type {
+    return struct {
+        poly: W,
+        init: W,
+        refin: bool,
+        refout: bool,
+        xorout: W,
+        check: W,
+        residue: W,
+    };
+}
+
+pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
+    return struct {
+        const Self = @This();
+        const I = if (@bitSizeOf(W) < 8) u8 else W;
+        const lookup_table = blk: {
+            @setEvalBranchQuota(2500);
+
+            const poly = if (algorithm.refin)
+                @bitReverse(@as(I, algorithm.poly)) >> (@bitSizeOf(I) - @bitSizeOf(W))
+            else
+                @as(I, algorithm.poly) << (@bitSizeOf(I) - @bitSizeOf(W));
+
+            var table: [256]I = undefined;
+            for (table) |*e, i| {
+                var crc: I = i;
+                if (algorithm.refin) {
+                    var j: usize = 0;
+                    while (j < 8) : (j += 1) {
+                        crc = (crc >> 1) ^ ((crc & 1) * poly);
+                    }
+                } else {
+                    crc <<= @bitSizeOf(I) - 8;
+                    var j: usize = 0;
+                    while (j < 8) : (j += 1) {
+                        crc = (crc << 1) ^ (((crc >> (@bitSizeOf(I) - 1)) & 1) * poly);
+                    }
+                }
+                e.* = crc;
+            }
+            break :blk table;
+        };
+
+        crc: I,
+
+        pub fn init() Self {
+            const initial = if (algorithm.refin)
+                @bitReverse(@as(I, algorithm.init)) >> (@bitSizeOf(I) - @bitSizeOf(W))
+            else
+                @as(I, algorithm.init) << (@bitSizeOf(I) - @bitSizeOf(W));
+            return Self{ .crc = initial };
+        }
+
+        inline fn tableEntry(index: I) I {
+            return lookup_table[@intCast(u8, index & 0xFF)];
+        }
+
+        pub fn update(self: *Self, bytes: []const u8) void {
+            var i: usize = 0;
+            if (@bitSizeOf(I) <= 8) {
+                while (i < bytes.len) : (i += 1) {
+                    self.crc = tableEntry(self.crc ^ bytes[i]);
+                }
+            } else if (algorithm.refin) {
+                while (i < bytes.len) : (i += 1) {
+                    const table_index = self.crc ^ bytes[i];
+                    self.crc = tableEntry(table_index) ^ (self.crc >> 8);
+                }
+            } else {
+                while (i < bytes.len) : (i += 1) {
+                    const table_index = (self.crc >> (@bitSizeOf(I) - 8)) ^ bytes[i];
+                    self.crc = tableEntry(table_index) ^ (self.crc << 8);
+                }
+            }
+        }
+
+        pub fn final(self: Self) W {
+            var c = self.crc;
+            if (algorithm.refin != algorithm.refout) {
+                c = @bitReverse(c);
+            }
+            if (!algorithm.refout) {
+                c >>= @bitSizeOf(I) - @bitSizeOf(W);
+            }
+            return @intCast(W, c ^ algorithm.xorout);
+        }
+
+        pub fn hash(bytes: []const u8) W {
+            var c = Self.init();
+            c.update(bytes);
+            return c.final();
+        }
+    };
+}
+
 pub const Polynomial = enum(u32) {
     IEEE = 0xedb88320,
     Castagnoli = 0x82f63b78,
