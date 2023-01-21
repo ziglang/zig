@@ -1289,6 +1289,50 @@ test ". and .. in absolute functions" {
     try fs.deleteDirAbsolute(subdir_path);
 }
 
+test "createFile truncate and append" {
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const fname = "test_file";
+    const contents = "test contents";
+
+    {
+        // write some data to a new tmp file
+        const fp = try tmp.dir.createFile(fname, .{});
+        defer fp.close();
+
+        try fp.writeAll(contents);
+    }
+
+    {
+        // open that file again with truncate = false and ensure
+        // that the existing data is still valid
+        const fp = try tmp.dir.createFile(fname, .{ .read = true, .truncate = false });
+        defer fp.close();
+
+        const buf = try fp.readToEndAlloc(allocator, 256);
+        defer allocator.free(buf);
+
+        try testing.expect(buf.len == contents.len);
+    }
+
+    {
+        // open that file again with truncate = true and ensure
+        // that the existing data has been blown away
+        const fp = try tmp.dir.createFile(fname, .{ .read = true, .truncate = true });
+        defer fp.close();
+
+        const buf = try fp.readToEndAlloc(allocator, 256);
+        defer allocator.free(buf);
+
+        try testing.expect(buf.len == 0);
+    }
+}
+
 test "chmod" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
