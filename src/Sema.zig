@@ -3948,6 +3948,7 @@ fn validateArrayInitTy(
             return;
         },
         .Struct => if (ty.isTuple()) {
+            _ = try sema.resolveTypeFields(ty);
             const array_len = ty.arrayLen();
             if (extra.init_count > array_len) {
                 return sema.fail(block, src, "expected at most {d} tuple fields; found {d}", .{
