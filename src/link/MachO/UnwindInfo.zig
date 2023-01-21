@@ -568,7 +568,8 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         // Finalize missing address values
         rec.rangeStart += text_sect.addr - seg.vmaddr;
         if (rec.personalityFunction > 0) {
-            rec.personalityFunction = personalities[rec.personalityFunction - 1];
+            const index = math.cast(usize, rec.personalityFunction - 1) orelse return error.Overflow;
+            rec.personalityFunction = personalities[index];
         }
 
         if (rec.compactUnwindEncoding > 0 and !UnwindEncoding.isDwarf(rec.compactUnwindEncoding, cpu_arch)) {
@@ -653,13 +654,15 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         try page.write(info, writer);
         const nwritten = cwriter.bytes_written - start;
         if (nwritten < second_level_page_bytes) {
-            try writer.writeByteNTimes(0, second_level_page_bytes - nwritten);
+            const offset = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
+            try writer.writeByteNTimes(0, offset);
         }
     }
 
     const padding = buffer.items.len - cwriter.bytes_written;
     if (padding > 0) {
-        mem.set(u8, buffer.items[cwriter.bytes_written..], 0);
+        const offset = math.cast(usize, cwriter.bytes_written) orelse return error.Overflow;
+        mem.set(u8, buffer.items[offset..], 0);
     }
 
     try zld.file.pwriteAll(buffer.items, sect.offset);
