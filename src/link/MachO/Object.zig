@@ -242,6 +242,17 @@ const SymbolAtIndex = struct {
         return mem.sliceTo(@ptrCast([*:0]const u8, ctx.in_strtab.?.ptr + off), 0);
     }
 
+    fn getSymbolSeniority(self: SymbolAtIndex, ctx: Context) u2 {
+        const sym = self.getSymbol(ctx);
+        if (!sym.ext()) {
+            const sym_name = self.getSymbolName(ctx);
+            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 0;
+            return 1;
+        }
+        if (sym.weakDef() or sym.pext()) return 2;
+        return 3;
+    }
+
     /// Performs lexicographic-like check.
     /// * lhs and rhs defined
     ///   * if lhs == rhs
@@ -256,23 +267,15 @@ const SymbolAtIndex = struct {
         if (lhs.sect() and rhs.sect()) {
             if (lhs.n_value == rhs.n_value) {
                 if (lhs.n_sect == rhs.n_sect) {
-                    if (lhs.ext() and rhs.ext()) {
-                        if ((lhs.pext() or lhs.weakDef()) and (rhs.pext() or rhs.weakDef())) {
-                            return false;
-                        } else return rhs.pext() or rhs.weakDef();
-                    } else {
-                        const lhs_name = lhs_index.getSymbolName(ctx);
-                        const lhs_temp = mem.startsWith(u8, lhs_name, "l") or mem.startsWith(u8, lhs_name, "L");
-                        const rhs_name = rhs_index.getSymbolName(ctx);
-                        const rhs_temp = mem.startsWith(u8, rhs_name, "l") or mem.startsWith(u8, rhs_name, "L");
-                        if (lhs_temp and rhs_temp) {
-                            return false;
-                        } else return rhs_temp;
-                    }
+                    const lhs_senior = lhs_index.getSymbolSeniority(ctx);
+                    const rhs_senior = rhs_index.getSymbolSeniority(ctx);
+                    if (lhs_senior == rhs_senior) {
+                        return lessThanByNStrx(ctx, lhs_index, rhs_index);
+                    } else return lhs_senior < rhs_senior;
                 } else return lhs.n_sect < rhs.n_sect;
             } else return lhs.n_value < rhs.n_value;
         } else if (lhs.undf() and rhs.undf()) {
-            return false;
+            return lessThanByNStrx(ctx, lhs_index, rhs_index);
         } else return rhs.undf();
     }
 
@@ -786,6 +789,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
             mem.asBytes(&record),
             @intCast(i32, offset),
         );
+        log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
         if (target.getFile() != object_id) {
             self.unwind_relocs_lookup[record_id].dead = true;
         } else {

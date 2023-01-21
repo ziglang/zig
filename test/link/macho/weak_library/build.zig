@@ -31,6 +31,8 @@ pub fn build(b: *Builder) void {
 
     check.checkInSymtab();
     check.checkNext("(undefined) weak external _a (from liba)");
+
+    check.checkInSymtab();
     check.checkNext("(undefined) weak external _asStr (from liba)");
 
     const run_cmd = check.runAndCompare();
