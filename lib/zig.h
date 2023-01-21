@@ -1871,6 +1871,7 @@ typedef zig_i32 zig_f32;
 #define zig_bitSizeOf_f64 64
 #define zig_libc_name_f64(name) name
 #if _MSC_VER
+#define zig_bitSizeOf_c_longdouble 64
 #define zig_as_special_constant_f64(sign, name, arg, repr) sign zig_as_f64(zig_msvc_flt_##name, )
 #else
 #define zig_as_special_constant_f64(sign, name, arg, repr) zig_as_special_f64(sign, name, arg, repr)
@@ -2000,12 +2001,18 @@ typedef zig_i128 zig_c_longdouble;
     static inline zig_##Type zig_float_from_repr_##Type(zig_##ReprType repr) { \
         return *((zig_##Type*)&repr); \
     }
+
 zig_float_from_repr(f16, u16)
 zig_float_from_repr(f32, u32)
 zig_float_from_repr(f64, u64)
 zig_float_from_repr(f80, u128)
 zig_float_from_repr(f128, u128)
+#if zig_bitSizeOf_c_longdouble == 80
 zig_float_from_repr(c_longdouble, u128)
+#else
+#define zig_expand_float_from_repr(Type, ReprType) zig_float_from_repr(Type, ReprType)
+zig_expand_float_from_repr(c_longdouble, zig_expand_concat(u, zig_bitSizeOf_c_longdouble))
+#endif
 #endif
 
 #define zig_cast_f16 (zig_f16)
