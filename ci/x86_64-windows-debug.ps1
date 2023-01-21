@@ -68,7 +68,7 @@ Write-Output "Testing Autodocs..."
 CheckLastExitCode
 
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
-& "stage3-release\bin\zig.exe" test `
+& "stage3-debug\bin\zig.exe" test `
   ..\test\behavior.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -I..\test `
@@ -78,7 +78,7 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
   -target x86_64-windows-msvc
 CheckLastExitCode
 
-& "stage3-release\bin\zig.exe" build-obj `
+& "stage3-debug\bin\zig.exe" build-obj `
   ..\lib\compiler_rt.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -ofmt=c `
