@@ -67,14 +67,15 @@ Write-Output "Testing Autodocs..."
   -fno-emit-bin
 CheckLastExitCode
 
-Write-Output "Build behavior tests using the C backend..."
+Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 & "stage3-release\bin\zig.exe" test `
   ..\test\behavior.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -I..\test `
   -I..\lib `
   -ofmt=c `
-  -femit-bin="test_behavior.c"
+  -femit-bin="test-x86_64-windows-msvc.c" `
+  -target x86_64-windows-msvc
 CheckLastExitCode
 
 & "stage3-release\bin\zig.exe" build-obj `
@@ -83,8 +84,9 @@ CheckLastExitCode
   -ofmt=c `
   -OReleaseSmall `
   --name compiler_rt `
-  -femit-bin="compiler_rt.c" `
+  -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
   --pkg-begin build_options config.zig --pkg-end
+  -target x86_64-windows-msvc
 CheckLastExitCode
 
 Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
@@ -96,8 +98,8 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\E
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-& cl.exe -I..\lib test_behavior.c compiler_rt.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
 CheckLastExitCode
 
-& .\test_behavior.exe
+& .\test-x86_64-windows-msvc.exe
 CheckLastExitCode
