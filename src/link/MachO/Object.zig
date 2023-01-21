@@ -725,7 +725,18 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 }
 
 fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
-    const sect = self.unwind_info_sect orelse return;
+    const sect = self.unwind_info_sect orelse {
+        // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
+        // we will try fully synthesising unwind info records to somewhat match Apple ld's
+        // approach. However, we will only synthesise DWARF records and nothing more. For this reason,
+        // we still create the output `__TEXT,__unwind_info` section.
+        if (self.eh_frame_sect != null) {
+            if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
+                _ = try zld.initSection("__TEXT", "__unwind_info", .{});
+            }
+        }
+        return;
+    };
 
     log.debug("parsing unwind info in {s}", .{self.name});
 

@@ -253,37 +253,13 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
         try records.ensureUnusedCapacity(object.exec_atoms.items.len);
         try atom_indexes.ensureUnusedCapacity(object.exec_atoms.items.len);
 
-        var it = object.getEhFrameRecordsIterator();
-
         for (object.exec_atoms.items) |atom_index| {
             var record = if (object.unwind_records_lookup.get(atom_index)) |record_id| blk: {
                 if (object.unwind_relocs_lookup[record_id].dead) continue;
                 var record = unwind_records[record_id];
 
                 if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                    const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
-                    it.seekTo(fde_offset);
-                    const fde = (try it.next()).?;
-                    const cie_ptr = fde.getCiePointer();
-                    const cie_offset = fde_offset + 4 - cie_ptr;
-                    it.seekTo(cie_offset);
-                    const cie = (try it.next()).?;
-
-                    if (cie.getPersonalityPointerReloc(
-                        zld,
-                        @intCast(u32, object_id),
-                        cie_offset,
-                    )) |target| {
-                        const personality_index = info.getPersonalityFunction(target) orelse inner: {
-                            const personality_index = info.personalities_count;
-                            info.personalities[personality_index] = target;
-                            info.personalities_count += 1;
-                            break :inner personality_index;
-                        };
-
-                        record.personalityFunction = personality_index + 1;
-                        UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
-                    }
+                    try info.collectPersonalityFromDwarf(zld, @intCast(u32, object_id), atom_index, &record);
                 } else {
                     if (getPersonalityFunctionReloc(
                         zld,
@@ -324,6 +300,21 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
                 const atom = zld.getAtom(atom_index);
                 const sym = zld.getSymbol(atom.getSymbolWithLoc());
                 if (sym.n_desc == N_DEAD) continue;
+
+                if (!object.hasUnwindRecords()) {
+                    if (object.eh_frame_records_lookup.get(atom_index)) |fde_offset| {
+                        if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
+                        var record = nullRecord();
+                        try info.collectPersonalityFromDwarf(zld, @intCast(u32, object_id), atom_index, &record);
+                        switch (cpu_arch) {
+                            .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
+                            .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
+                            else => unreachable,
+                        }
+                        break :blk record;
+                    }
+                }
+
                 break :blk nullRecord();
             };
 
@@ -496,6 +487,40 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
         info.lsdas_lookup.putAssumeCapacityNoClobber(@intCast(RecordIndex, i), @intCast(u32, info.lsdas.items.len));
         if (rec.lsda == 0) continue;
         try info.lsdas.append(info.gpa, @intCast(RecordIndex, i));
+    }
+}
+
+fn collectPersonalityFromDwarf(
+    info: *UnwindInfo,
+    zld: *Zld,
+    object_id: u32,
+    atom_index: u32,
+    record: *macho.compact_unwind_entry,
+) !void {
+    const object = &zld.objects.items[object_id];
+    var it = object.getEhFrameRecordsIterator();
+    const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
+    it.seekTo(fde_offset);
+    const fde = (try it.next()).?;
+    const cie_ptr = fde.getCiePointer();
+    const cie_offset = fde_offset + 4 - cie_ptr;
+    it.seekTo(cie_offset);
+    const cie = (try it.next()).?;
+
+    if (cie.getPersonalityPointerReloc(
+        zld,
+        @intCast(u32, object_id),
+        cie_offset,
+    )) |target| {
+        const personality_index = info.getPersonalityFunction(target) orelse inner: {
+            const personality_index = info.personalities_count;
+            info.personalities[personality_index] = target;
+            info.personalities_count += 1;
+            break :inner personality_index;
+        };
+
+        record.personalityFunction = personality_index + 1;
+        UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
     }
 }
 
@@ -766,40 +791,26 @@ fn getCommonEncoding(info: UnwindInfo, enc: macho.compact_unwind_encoding_t) ?u7
 }
 
 pub const UnwindEncoding = struct {
-    pub const UNWIND_X86_64_MODE = enum(u4) {
-        none = 0,
-        ebp_frame = 1,
-        stack_immd = 2,
-        stack_ind = 3,
-        dwarf = 4,
-    };
-
-    pub const UNWIND_ARM64_MODE = enum(u4) {
-        none = 0,
-        frameless = 2,
-        dwarf = 3,
-        frame = 4,
-    };
-
-    pub const UNWIND_MODE_MASK: u32 = 0x0F000000;
-    pub const UNWIND_PERSONALITY_INDEX_MASK: u32 = 0x30000000;
-    pub const UNWIND_HAS_LSDA_MASK: u32 = 0x40000000;
-
     pub fn getMode(enc: macho.compact_unwind_encoding_t) u4 {
-        const mode = @truncate(u4, (enc & UNWIND_MODE_MASK) >> 24);
-        return mode;
+        comptime assert(macho.UNWIND_ARM64_MODE_MASK == macho.UNWIND_X86_64_MODE_MASK);
+        return @truncate(u4, (enc & macho.UNWIND_ARM64_MODE_MASK) >> 24);
     }
 
     pub fn isDwarf(enc: macho.compact_unwind_encoding_t, cpu_arch: std.Target.Cpu.Arch) bool {
-        switch (cpu_arch) {
-            .aarch64 => return @intToEnum(UNWIND_ARM64_MODE, getMode(enc)) == .dwarf,
-            .x86_64 => return @intToEnum(UNWIND_X86_64_MODE, getMode(enc)) == .dwarf,
+        const mode = getMode(enc);
+        return switch (cpu_arch) {
+            .aarch64 => @intToEnum(macho.UNWIND_ARM64_MODE, mode) == .DWARF,
+            .x86_64 => @intToEnum(macho.UNWIND_X86_64_MODE, mode) == .DWARF,
             else => unreachable,
-        }
+        };
+    }
+
+    pub fn setMode(enc: *macho.compact_unwind_encoding_t, mode: anytype) void {
+        enc.* |= @intCast(u32, @enumToInt(mode)) << 24;
     }
 
     pub fn hasLsda(enc: macho.compact_unwind_encoding_t) bool {
-        const has_lsda = @truncate(u1, (enc & UNWIND_HAS_LSDA_MASK) >> 31);
+        const has_lsda = @truncate(u1, (enc & macho.UNWIND_HAS_LSDA) >> 31);
         return has_lsda == 1;
     }
 
@@ -809,7 +820,7 @@ pub const UnwindEncoding = struct {
     }
 
     pub fn getPersonalityIndex(enc: macho.compact_unwind_encoding_t) u2 {
-        const index = @truncate(u2, (enc & UNWIND_PERSONALITY_INDEX_MASK) >> 28);
+        const index = @truncate(u2, (enc & macho.UNWIND_PERSONALITY_MASK) >> 28);
         return index;
     }
 
