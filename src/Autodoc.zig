@@ -586,6 +586,8 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             // (use src->fields to find field names)
+            tag: ?Expr = null, // tag type if specified
+            nonexhaustive: bool,
         },
         Union: struct {
             name: []const u8,
@@ -593,6 +595,8 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             fields: []Expr = &.{}, // (use src->fields to find names)
+            tag: ?Expr, // tag type if specified
+            auto_enum: bool, // tag is an auto enum
         },
         Fn: struct {
             name: []const u8,
@@ -2559,12 +2563,13 @@ fn walkInstruction(
                     else
                         parent_src;
 
-                    const tag_type: ?Ref = if (small.has_tag_type) blk: {
+                    const tag_type: ?DocData.Expr = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
-                        break :blk @intToEnum(Ref, tag_type);
+                        const tag_ref = @intToEnum(Ref, tag_type);
+                        const wr = try self.walkRef(file, parent_scope, parent_src, tag_ref, false);
+                        break :blk wr.expr;
                     } else null;
-                    _ = tag_type;
 
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
@@ -2652,6 +2657,8 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
+                            .tag = tag_type,
+                            .auto_enum = small.auto_enum_tag,
                         },
                     };
 
@@ -2698,12 +2705,13 @@ fn walkInstruction(
                     else
                         parent_src;
 
-                    const tag_type: ?Ref = if (small.has_tag_type) blk: {
+                    const tag_type: ?DocData.Expr = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
-                        break :blk @intToEnum(Ref, tag_type);
+                        const tag_ref = @intToEnum(Ref, tag_type);
+                        const wr = try self.walkRef(file, parent_scope, parent_src, tag_ref, false);
+                        break :blk wr.expr;
                     } else null;
-                    _ = tag_type;
 
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
@@ -2816,6 +2824,8 @@ fn walkInstruction(
                             .src = self_ast_node_index,
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
+                            .tag = tag_type,
+                            .nonexhaustive = small.nonexhaustive,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -4185,6 +4195,12 @@ fn collectStructFieldInfo(
 
             const break_inst = body[body.len - 1];
             const operand = data[break_inst].@"break".operand;
+            try self.ast_nodes.append(self.arena, .{
+                .file = self.files.getIndex(file).?,
+                .line = parent_src.line,
+                .col = 0,
+                .fields = null, // walkInstruction will fill `fields` if necessary
+            });
             const walk_result = try self.walkRef(file, scope, parent_src, operand, false);
             break :expr walk_result.expr;
         };
