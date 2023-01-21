@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
 
@@ -26,7 +27,14 @@ fn testUnwindInfo(
     check.checkStart("segname __TEXT");
     check.checkNext("sectname __gcc_except_tab");
     check.checkNext("sectname __unwind_info");
-    check.checkNext("sectname __eh_frame");
+
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            check.checkNext("sectname __eh_frame");
+        },
+        .x86_64 => {}, // We do not expect `__eh_frame` section on x86_64 in this case
+        else => unreachable,
+    }
 
     check.checkInSymtab();
     check.checkNext("{*} (__TEXT,__text) external ___gxx_personality_v0");
