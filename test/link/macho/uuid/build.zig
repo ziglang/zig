@@ -21,9 +21,9 @@ pub fn build(b: *Builder) void {
         .os_tag = .macos,
     };
 
-    testUuid(b, test_step, .ReleaseSafe, x86_64_macos, "63f47191c7153f5fba48bd63cb2f5f57");
-    testUuid(b, test_step, .ReleaseFast, x86_64_macos, "63f47191c7153f5fba48bd63cb2f5f57");
-    testUuid(b, test_step, .ReleaseSmall, x86_64_macos, "e7bba66220e33eda9e73ab293ccf93d2");
+    testUuid(b, test_step, .ReleaseSafe, x86_64_macos, "5b7071b4587c3071b0d2352fadce0e48");
+    testUuid(b, test_step, .ReleaseFast, x86_64_macos, "5b7071b4587c3071b0d2352fadce0e48");
+    testUuid(b, test_step, .ReleaseSmall, x86_64_macos, "4b58f2583c383169bbe3a716bd240048");
 }
 
 fn testUuid(

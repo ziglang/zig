@@ -159,6 +159,14 @@ pub fn write(zld: *Zld, unwind_info: *UnwindInfo) !void {
             switch (cpu_arch) {
                 .aarch64 => {}, // relocs take care of LSDA pointers
                 .x86_64 => {
+                    // We need to relocate target symbol address ourselves.
+                    const atom = zld.getAtom(atom_index);
+                    const atom_sym = zld.getSymbol(atom.getSymbolWithLoc());
+                    try fde_record.setTargetSymbolAddress(atom_sym.n_value, .{
+                        .base_addr = sect.addr,
+                        .base_offset = eh_frame_offset,
+                    });
+
                     // We need to parse LSDA pointer and relocate ourselves.
                     const cie_record = eh_records.get(
                         eh_frame_offset + 4 - fde_record.getCiePointer(),
@@ -267,7 +275,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
         }) !void {
             assert(rec.tag == .fde);
             const addend = @intCast(i64, value) - @intCast(i64, ctx.base_addr + ctx.base_offset + 8);
-            mem.writeIntLittle(i64, addend, rec.data[4..][0..8]);
+            mem.writeIntLittle(i64, rec.data[4..][0..8], addend);
         }
 
         pub fn getPersonalityPointerReloc(
