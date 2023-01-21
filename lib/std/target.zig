@@ -1821,7 +1821,7 @@ pub const Target = struct {
             .wasm64,
             => 8,
 
-            .x86 => return switch (target.os.tag) {
+            .x86 => if (target.ofmt == .c) 16 else return switch (target.os.tag) {
                 .windows, .uefi => 8,
                 else => 4,
             },
