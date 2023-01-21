@@ -585,12 +585,16 @@ pub fn linkLibrary(self: *LibExeObjStep, lib: *LibExeObjStep) void {
 }
 
 pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
-    return self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic;
+    return self.kind == .lib and self.linkage == Linkage.dynamic;
+}
+
+pub fn isStaticLibrary(self: *LibExeObjStep) bool {
+    return self.kind == .lib and self.linkage != Linkage.dynamic;
 }
 
 pub fn producesPdbFile(self: *LibExeObjStep) bool {
     if (!self.target.isWindows() and !self.target.isUefi()) return false;
-    if (self.strip != null and self.strip.?) return false;
+    if (self.strip == true) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .test_exe;
 }
 
@@ -1132,16 +1136,19 @@ fn make(step: *Step) !void {
                 .obj => {
                     try zig_args.append(other.getOutputSource().getPath(builder));
                 },
-                .lib => {
+                .lib => l: {
+                    if (self.isStaticLibrary() and other.isStaticLibrary()) {
+                        // Avoid putting a static library inside a static library.
+                        break :l;
+                    }
+
                     const full_path_lib = other.getOutputLibSource().getPath(builder);
                     try zig_args.append(full_path_lib);
 
-                    if (other.linkage) |linkage| {
-                        if (linkage == .dynamic and !self.target.isWindows()) {
-                            if (fs.path.dirname(full_path_lib)) |dirname| {
-                                try zig_args.append("-rpath");
-                                try zig_args.append(dirname);
-                            }
+                    if (other.linkage == Linkage.dynamic and !self.target.isWindows()) {
+                        if (fs.path.dirname(full_path_lib)) |dirname| {
+                            try zig_args.append("-rpath");
+                            try zig_args.append(dirname);
                         }
                     }
                 },
