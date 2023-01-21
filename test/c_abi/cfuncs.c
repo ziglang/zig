@@ -1015,3 +1015,15 @@ void __attribute__((stdcall)) stdcall_big_union(union BigUnion x) {
     assert_or_panic(x.a.c == 3);
     assert_or_panic(x.a.d == 4);
 }
+
+#ifdef __x86_64__
+struct ByRef __attribute__((ms_abi)) c_explict_win64(struct ByRef in) {
+    in.val = 42;
+    return in;
+}
+
+struct ByRef __attribute__((sysv_abi)) c_explict_sys_v(struct ByRef in) {
+    in.val = 42;
+    return in;
+}
+#endif
