@@ -1871,11 +1871,13 @@ typedef zig_i32 zig_f32;
 #define zig_bitSizeOf_f64 64
 #define zig_libc_name_f64(name) name
 #if _MSC_VER
+#ifdef ZIG_TARGET_ABI_MSVC
 #define zig_bitSizeOf_c_longdouble 64
-#define zig_as_special_constant_f64(sign, name, arg, repr) sign zig_as_f64(zig_msvc_flt_##name, )
-#else
-#define zig_as_special_constant_f64(sign, name, arg, repr) zig_as_special_f64(sign, name, arg, repr)
 #endif
+#define zig_as_special_constant_f64(sign, name, arg, repr) sign zig_as_f64(zig_msvc_flt_##name, )
+#else /* _MSC_VER */
+#define zig_as_special_constant_f64(sign, name, arg, repr) zig_as_special_f64(sign, name, arg, repr)
+#endif /* _MSC_VER */
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
 #define zig_as_f64(fp, repr) fp##f
@@ -1977,16 +1979,32 @@ typedef zig_i128 zig_f128;
 #endif
 
 #define zig_has_c_longdouble 1
+
+#ifdef ZIG_TARGET_ABI_MSVC
+#define zig_libc_name_c_longdouble(name) name
+#else
 #define zig_libc_name_c_longdouble(name) name##l
+#endif
+
 #define zig_as_special_constant_c_longdouble(sign, name, arg, repr) zig_as_special_c_longdouble(sign, name, arg, repr)
 #ifdef zig_bitSizeOf_c_longdouble
+
+#ifdef ZIG_TARGET_ABI_MSVC
+typedef double zig_c_longdouble;
+#undef zig_bitSizeOf_c_longdouble
+#define zig_bitSizeOf_c_longdouble 64
+#define zig_as_c_longdouble(fp, repr) fp
+#else
 typedef long double zig_c_longdouble;
 #define zig_as_c_longdouble(fp, repr) fp##l
-#else
+#endif
+
+#else /* zig_bitSizeOf_c_longdouble */
+
 #undef zig_has_c_longdouble
+#define zig_has_c_longdouble 0
 #define zig_bitSizeOf_c_longdouble 80
 #define zig_compiler_rt_abbrev_c_longdouble zig_compiler_rt_abbrev_f80
-#define zig_has_c_longdouble 0
 #define zig_repr_c_longdouble i128
 typedef zig_i128 zig_c_longdouble;
 #define zig_as_c_longdouble(fp, repr) repr
@@ -1994,7 +2012,8 @@ typedef zig_i128 zig_c_longdouble;
 #define zig_as_special_c_longdouble(sign, name, arg, repr) repr
 #undef zig_as_special_constant_c_longdouble
 #define zig_as_special_constant_c_longdouble(sign, name, arg, repr) repr
-#endif
+
+#endif /* zig_bitSizeOf_c_longdouble */
 
 #if !zig_has_float_builtins
 #define zig_float_from_repr(Type, ReprType) \
