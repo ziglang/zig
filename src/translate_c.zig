@@ -1420,7 +1420,34 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
         return try Tag.asm_simple.create(c.arena, asm_string_literal);
     }
 
-    var inputs: ?[]Node = blk: {
+    const outputs: ?[]Node = blk: {
+        if (outputs_num == 0)
+            break :blk null;
+        var i: c_uint = 0;
+        var temp = std.ArrayList(Node).init(c.arena);
+        while (i < outputs_num) : (i = i + 1) {
+            const name = if (gcc_stmt.getOutputName(i).toSlice()) |name| name else "_";
+
+            // TODO: parse and translate constraints
+            const constraint = transAsmRegisterName(gcc_stmt.getOutputConstraint(i).toSlice().?);
+            const str = try std.fmt.allocPrint(c.arena, "\"{{{}}}\"", .{std.zig.fmtEscapes(constraint)});
+            const constraint_string_literal = try Tag.string_literal.create(c.arena, str);
+
+            const expr = try transExpr(c, scope, gcc_stmt.getOutputExpr(i), .used);
+
+            try temp.append(try Tag.asm_inputoutput.create(c.arena, .{
+                .tag = .asm_output,
+                .name = try Tag.identifier.create(c.arena, name),
+                .constraint = constraint_string_literal,
+                .expr = expr,
+            }));
+
+            std.debug.print("output[{}] = \"{s}\" \"{s}\" \"{any}\"\n", .{ i, name, constraint, expr });
+        }
+        break :blk temp.items;
+    };
+
+    const inputs: ?[]Node = blk: {
         if (inputs_num == 0)
             break :blk null;
         var i: c_uint = 0;
@@ -1435,7 +1462,8 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
 
             const expr = try transExpr(c, scope, gcc_stmt.getInputExpr(i), .used);
 
-            try temp.append(try Tag.asm_input.create(c.arena, .{
+            try temp.append(try Tag.asm_inputoutput.create(c.arena, .{
+                .tag = .asm_input,
                 .name = try Tag.identifier.create(c.arena, name),
                 .constraint = constraint_string_literal,
                 .expr = expr,
@@ -1463,7 +1491,7 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
     return try Tag.@"asm".create(c.arena, .{
         .code = asm_string_literal,
         .@"volatile" = true, // TODO
-        .outputs = null,
+        .outputs = outputs,
         .inputs = inputs,
         .clobbers = clobbers,
     });
