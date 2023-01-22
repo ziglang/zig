@@ -81,8 +81,8 @@ fn make(step: *Step) !void {
         try builder.updateFile(self.artifact.getOutputPdbSource().getPath(builder), full_pdb_path);
     }
     if (self.h_dir) |h_dir| {
-        const full_pdb_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
-        try builder.updateFile(self.artifact.getOutputHSource().getPath(builder), full_pdb_path);
+        const full_h_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
+        try builder.updateFile(self.artifact.getOutputHSource().getPath(builder), full_h_path);
     }
     self.artifact.installed_path = full_dest_path;
 }
