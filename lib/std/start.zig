@@ -210,6 +210,14 @@ extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.C) noreturn;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Contains any logic that should be run on exe startup to bully Windows
+/// into being a sane environment
+inline fn setupWindows() void {
+    if (std.options.windows_force_utf8_codepage) {
+        _ = std.os.windows.kernel32.SetConsoleOutputCP(65001); // use UTF-8 codepage
+    }
+}
+
 fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
@@ -382,6 +390,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
         _ = @import("start_windows_tls.zig");
     }
 
+    setupWindows();
     std.debug.maybeEnableSegfaultHandler();
 
     std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
@@ -393,6 +402,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
         _ = @import("start_windows_tls.zig");
     }
 
+    setupWindows();
     std.debug.maybeEnableSegfaultHandler();
 
     const result: std.os.windows.INT = initEventLoopAndCallWinMain();
@@ -495,6 +505,9 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
+    if (builtin.os.tag == .windows) {
+        setupWindows();
+    }
     std.debug.maybeEnableSegfaultHandler();
 
     return initEventLoopAndCallMain();

@@ -159,6 +159,11 @@ pub const options = struct {
         options_override.crypto_always_getrandom
     else
         false;
+
+    pub const windows_force_utf8_codepage: bool = if (@hasDecl(options_override, "windows_force_utf8_codepage"))
+        options_override.windows_force_utf8_codepage
+    else
+        true;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
