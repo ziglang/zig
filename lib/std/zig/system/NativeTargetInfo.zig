@@ -533,8 +533,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
                 @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
             );
             const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
-            // TODO this pointer cast should not be necessary
-            const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
+            const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
             if (mem.eql(u8, sh_name, ".dynstr")) {
                 break :find_dyn_str .{
                     .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -789,8 +788,7 @@ pub fn abiAndDynamicLinkerFromFile(
                     @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
                 );
                 const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
-                // TODO this pointer cast should not be necessary
-                const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
+                const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
                 if (mem.eql(u8, sh_name, ".dynstr")) {
                     break :find_dyn_str .{
                         .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -812,7 +810,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
 
-                const rpath_list = mem.sliceTo(std.meta.assumeSentinel(strtab.ptr, 0), 0);
+                const rpath_list = mem.sliceTo(strtab, 0);
                 var it = mem.tokenize(u8, rpath_list, ":");
                 while (it.next()) |rpath| {
                     if (glibcVerFromRPath(rpath)) |ver| {

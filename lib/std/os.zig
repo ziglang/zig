@@ -1977,7 +1977,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        .SUCCESS => return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0),
+        .SUCCESS => return mem.sliceTo(out_buffer, 0),
         .FAULT => unreachable,
         .INVAL => unreachable,
         .NOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -5131,10 +5131,10 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..len];
         },
         .linux => {
-            var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
-            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{d}\x00", .{fd}) catch unreachable;
+            var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
+            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}) catch unreachable;
 
-            const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
+            const target = readlinkZ(proc_path, out_buffer) catch |err| {
                 switch (err) {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
                     error.NotLink => unreachable,
@@ -5144,7 +5144,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return target;
         },
         .solaris => {
-            var procfs_buf: ["/proc/self/path/-2147483648".len:0]u8 = undefined;
+            var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
 
             const target = readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
@@ -5561,7 +5561,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            .SUCCESS => return mem.sliceTo(std.meta.assumeSentinel(name_buffer, 0), 0),
+            .SUCCESS => return mem.sliceTo(name_buffer, 0),
             .FAULT => unreachable,
             .NAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             .PERM => return error.PermissionDenied,
@@ -5570,7 +5570,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
     if (builtin.os.tag == .linux) {
         const uts = uname();
-        const hostname = mem.sliceTo(std.meta.assumeSentinel(&uts.nodename, 0), 0);
+        const hostname = mem.sliceTo(&uts.nodename, 0);
         mem.copy(u8, name_buffer, hostname);
         return name_buffer[0..hostname.len];
     }
