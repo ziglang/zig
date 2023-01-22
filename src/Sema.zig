@@ -5211,6 +5211,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     }
     const c_import_pkg = Package.create(
         sema.gpa,
+        "c_import", // TODO: should we make this unique?
         null,
         c_import_res.out_zig_path,
     ) catch |err| switch (err) {
@@ -11663,20 +11664,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         },
         error.PackageNotFound => {
             const cur_pkg = block.getFileScope().pkg;
-            const parent = if (cur_pkg == sema.mod.main_pkg or cur_pkg == sema.mod.root_pkg)
-                "root"
-            else if (cur_pkg.parent) |parent| blk: {
-                var it = parent.table.iterator();
-                while (it.next()) |pkg| {
-                    if (pkg.value_ptr.* == cur_pkg) {
-                        break :blk pkg.key_ptr.*;
-                    }
-                }
-                unreachable;
-            } else {
-                return sema.fail(block, operand_src, "no package named '{s}' available", .{operand});
-            };
-            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, parent });
+            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, cur_pkg.name });
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will

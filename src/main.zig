@@ -857,6 +857,7 @@ fn buildOutputType(
     var pkg_tree_root: Package = .{
         .root_src_directory = .{ .path = null, .handle = fs.cwd() },
         .root_src_path = &[0]u8{},
+        .name = &[0]u8{},
     };
     defer freePkgTree(gpa, &pkg_tree_root, false);
     var cur_pkg: *Package = &pkg_tree_root;
@@ -947,6 +948,7 @@ fn buildOutputType(
 
                         const new_cur_pkg = Package.create(
                             gpa,
+                            pkg_name,
                             fs.path.dirname(pkg_path),
                             fs.path.basename(pkg_path),
                         ) catch |err| {
@@ -958,7 +960,7 @@ fn buildOutputType(
                         } else if (cur_pkg.table.get(pkg_name)) |prev| {
                             fatal("unable to add package '{s}' -> '{s}': already exists as '{s}", .{ pkg_name, pkg_path, prev.root_src_path });
                         }
-                        try cur_pkg.addAndAdopt(gpa, pkg_name, new_cur_pkg);
+                        try cur_pkg.addAndAdopt(gpa, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -2841,14 +2843,14 @@ fn buildOutputType(
         if (main_pkg_path) |unresolved_main_pkg_path| {
             const p = try introspect.resolvePath(arena, unresolved_main_pkg_path);
             if (p.len == 0) {
-                break :blk try Package.create(gpa, null, src_path);
+                break :blk try Package.create(gpa, "root", null, src_path);
             } else {
                 const rel_src_path = try fs.path.relative(arena, p, src_path);
-                break :blk try Package.create(gpa, p, rel_src_path);
+                break :blk try Package.create(gpa, "root", p, rel_src_path);
             }
         } else {
             const root_src_dir_path = fs.path.dirname(src_path);
-            break :blk Package.create(gpa, root_src_dir_path, fs.path.basename(src_path)) catch |err| {
+            break :blk Package.create(gpa, "root", root_src_dir_path, fs.path.basename(src_path)) catch |err| {
                 if (root_src_dir_path) |p| {
                     fatal("unable to open '{s}': {s}", .{ p, @errorName(err) });
                 } else {
@@ -4093,6 +4095,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var main_pkg: Package = .{
             .root_src_directory = zig_lib_directory,
             .root_src_path = "build_runner.zig",
+            .name = "root",
         };
 
         if (!build_options.omit_pkg_fetching_code) {
@@ -4133,20 +4136,22 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             const deps_pkg = try Package.createFilePkg(
                 gpa,
+                "@dependencies",
                 local_cache_directory,
                 "dependencies.zig",
                 dependencies_source.items,
             );
 
             mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
-            try main_pkg.addAndAdopt(gpa, "@dependencies", deps_pkg);
+            try main_pkg.addAndAdopt(gpa, deps_pkg);
         }
 
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
+            .name = "@build",
         };
-        try main_pkg.addAndAdopt(gpa, "@build", &build_pkg);
+        try main_pkg.addAndAdopt(gpa, &build_pkg);
 
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
@@ -4381,7 +4386,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .root_decl = .none,
             };
 
-            file.pkg = try Package.create(gpa, null, file.sub_file_path);
+            file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
             defer file.pkg.destroy(gpa);
 
             file.zir = try AstGen.generate(gpa, file.tree);
@@ -4591,7 +4596,7 @@ fn fmtPathFile(
             .root_decl = .none,
         };
 
-        file.pkg = try Package.create(fmt.gpa, null, file.sub_file_path);
+        file.pkg = try Package.create(fmt.gpa, "root", null, file.sub_file_path);
         defer file.pkg.destroy(fmt.gpa);
 
         if (stat.size > max_src_size)
@@ -5303,7 +5308,7 @@ pub fn cmdAstCheck(
         file.stat.size = source.len;
     }
 
-    file.pkg = try Package.create(gpa, null, file.sub_file_path);
+    file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
     file.tree = try std.zig.parse(gpa, file.source);
@@ -5422,7 +5427,7 @@ pub fn cmdChangelist(
         .root_decl = .none,
     };
 
-    file.pkg = try Package.create(gpa, null, file.sub_file_path);
+    file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
     const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);

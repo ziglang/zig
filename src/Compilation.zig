@@ -1610,6 +1610,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
+                "builtin",
                 zig_cache_artifact_directory,
                 null,
                 "builtin.zig",
@@ -1618,6 +1619,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const std_pkg = try Package.createWithDir(
                 gpa,
+                "std",
                 options.zig_lib_directory,
                 "std",
                 "std.zig",
@@ -1625,11 +1627,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             errdefer std_pkg.destroy(gpa);
 
             const root_pkg = if (options.is_test) root_pkg: {
+                // TODO: we currently have two packages named 'root' here, which is weird. This
+                // should be changed as part of the resolution of #12201
                 const test_pkg = if (options.test_runner_path) |test_runner|
-                    try Package.create(gpa, null, test_runner)
+                    try Package.create(gpa, "root", null, test_runner)
                 else
                     try Package.createWithDir(
                         gpa,
+                        "root",
                         options.zig_lib_directory,
                         null,
                         "test_runner.zig",
@@ -1640,9 +1645,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
-            try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
-            try main_pkg.add(gpa, "root", root_pkg);
-            try main_pkg.addAndAdopt(gpa, "std", std_pkg);
+            try main_pkg.addAndAdopt(gpa, builtin_pkg);
+            try main_pkg.add(gpa, root_pkg);
+            try main_pkg.addAndAdopt(gpa, std_pkg);
 
             const main_pkg_is_std = m: {
                 const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
@@ -5320,6 +5325,7 @@ fn buildOutputFromZig(
     var main_pkg: Package = .{
         .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
+        .name = "root",
     };
     defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];

@@ -3220,15 +3220,10 @@ pub fn deinit(mod: *Module) void {
     // The callsite of `Compilation.create` owns the `main_pkg`, however
     // Module owns the builtin and std packages that it adds.
     if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
-        gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
     if (mod.main_pkg.table.fetchRemove("std")) |kv| {
-        gpa.free(kv.key);
         kv.value.destroy(gpa);
-    }
-    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
-        gpa.free(kv.key);
     }
     if (mod.root_pkg != mod.main_pkg) {
         mod.root_pkg.destroy(gpa);
