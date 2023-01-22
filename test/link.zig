@@ -190,6 +190,11 @@ fn addMachOCases(cases: *tests.StandaloneContext) void {
         .requires_symlinks = true,
     });
 
+    cases.addBuildFile("test/link/macho/unwind_info/build.zig", .{
+        .build_modes = true,
+        .requires_symlinks = true,
+    });
+
     cases.addBuildFile("test/link/macho/uuid/build.zig", .{
         .build_modes = false,
         .requires_symlinks = true,

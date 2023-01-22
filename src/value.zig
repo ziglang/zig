@@ -2076,13 +2076,22 @@ pub const Value = extern union {
     /// For vectors, returns true if comparison is true for ALL elements.
     ///
     /// Note that `!compareAllWithZero(.eq, ...) != compareAllWithZero(.neq, ...)`
-    pub fn compareAllWithZero(lhs: Value, op: std.math.CompareOperator) bool {
-        return compareAllWithZeroAdvanced(lhs, op, null) catch unreachable;
+    pub fn compareAllWithZero(lhs: Value, op: std.math.CompareOperator, mod: *Module) bool {
+        return compareAllWithZeroAdvancedExtra(lhs, op, mod, null) catch unreachable;
     }
 
     pub fn compareAllWithZeroAdvanced(
         lhs: Value,
         op: std.math.CompareOperator,
+        sema: *Sema,
+    ) Module.CompileError!bool {
+        return compareAllWithZeroAdvancedExtra(lhs, op, sema.mod, sema);
+    }
+
+    pub fn compareAllWithZeroAdvancedExtra(
+        lhs: Value,
+        op: std.math.CompareOperator,
+        mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!bool {
         if (lhs.isInf()) {
@@ -2095,10 +2104,25 @@ pub const Value = extern union {
         }
 
         switch (lhs.tag()) {
-            .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvanced(op, opt_sema),
+            .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
             .aggregate => {
                 for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                    if (!(try elem_val.compareAllWithZeroAdvanced(op, opt_sema))) return false;
+                    if (!(try elem_val.compareAllWithZeroAdvancedExtra(op, mod, opt_sema))) return false;
+                }
+                return true;
+            },
+            .str_lit => {
+                const str_lit = lhs.castTag(.str_lit).?.data;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                for (bytes) |byte| {
+                    if (!std.math.compare(byte, op, 0)) return false;
+                }
+                return true;
+            },
+            .bytes => {
+                const bytes = lhs.castTag(.bytes).?.data;
+                for (bytes) |byte| {
+                    if (!std.math.compare(byte, op, 0)) return false;
                 }
                 return true;
             },
@@ -3103,7 +3127,7 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            => compareAllWithZero(self, .eq),
+            => self.orderAgainstZero().compare(.eq),
 
             .undef => unreachable,
             .unreachable_value => unreachable,

@@ -2011,6 +2011,7 @@ pub const UNWIND_PERSONALITY_MASK: u32 = 0x30000000;
 // x86_64
 pub const UNWIND_X86_64_MODE_MASK: u32 = 0x0F000000;
 pub const UNWIND_X86_64_MODE = enum(u4) {
+    OLD = 0,
     RBP_FRAME = 1,
     STACK_IMMD = 2,
     STACK_IND = 3,
@@ -2039,6 +2040,7 @@ pub const UNWIND_X86_64_REG = enum(u3) {
 // arm64
 pub const UNWIND_ARM64_MODE_MASK: u32 = 0x0F000000;
 pub const UNWIND_ARM64_MODE = enum(u4) {
+    OLD = 0,
     FRAMELESS = 2,
     DWARF = 3,
     FRAME = 4,

@@ -1573,3 +1573,8 @@ test "struct fields get automatically reordered" {
     };
     try expect(@sizeOf(S1) == @sizeOf(S2));
 }
+
+test "directly initiating tuple like struct" {
+    const a = struct { u8 }{8};
+    try expect(a[0] == 8);
+}

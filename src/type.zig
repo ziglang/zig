@@ -3789,6 +3789,39 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns true if the type's layout is already resolved and it is safe
+    /// to use `abiSize`, `abiAlignment` and `bitSize` on it.
+    pub fn layoutIsResolved(ty: Type) bool {
+        switch (ty.zigTypeTag()) {
+            .Struct => {
+                if (ty.castTag(.@"struct")) |struct_ty| {
+                    return struct_ty.data.haveLayout();
+                }
+                return true;
+            },
+            .Union => {
+                if (ty.cast(Payload.Union)) |union_ty| {
+                    return union_ty.data.haveLayout();
+                }
+                return true;
+            },
+            .Array => {
+                if (ty.arrayLenIncludingSentinel() == 0) return true;
+                return ty.childType().layoutIsResolved();
+            },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_ty = ty.optionalChild(&buf);
+                return payload_ty.layoutIsResolved();
+            },
+            .ErrorUnion => {
+                const payload_ty = ty.errorUnionPayload();
+                return payload_ty.layoutIsResolved();
+            },
+            else => return true,
+        }
+    }
+
     pub fn isSinglePointer(self: Type) bool {
         return switch (self.tag()) {
             .single_const_pointer,
@@ -5500,7 +5533,7 @@ pub const Type = extern union {
         }
         const S = struct {
             fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, m: *Module) ?usize {
-                if (int_val.compareAllWithZero(.lt)) return null;
+                if (int_val.compareAllWithZero(.lt, m)) return null;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
@@ -6498,12 +6531,7 @@ pub const Type = extern union {
         // pointee type needs to be resolved more, that needs to be done before calling
         // this ptr() function.
         if (d.@"align" != 0) canonicalize: {
-            if (d.pointee_type.castTag(.@"struct")) |struct_ty| {
-                if (!struct_ty.data.haveLayout()) break :canonicalize;
-            }
-            if (d.pointee_type.cast(Payload.Union)) |union_ty| {
-                if (!union_ty.data.haveLayout()) break :canonicalize;
-            }
+            if (!d.pointee_type.layoutIsResolved()) break :canonicalize;
             if (d.@"align" == d.pointee_type.abiAlignment(target)) {
                 d.@"align" = 0;
             }
@@ -6528,12 +6556,12 @@ pub const Type = extern union {
                 if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
                     switch (d.size) {
                         .Slice => {
-                            if (sent.compareAllWithZero(.eq)) {
+                            if (sent.compareAllWithZero(.eq, mod)) {
                                 return Type.initTag(.const_slice_u8_sentinel_0);
                             }
                         },
                         .Many => {
-                            if (sent.compareAllWithZero(.eq)) {
+                            if (sent.compareAllWithZero(.eq, mod)) {
                                 return Type.initTag(.manyptr_const_u8_sentinel_0);
                             }
                         },

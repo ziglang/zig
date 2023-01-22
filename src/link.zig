@@ -697,6 +697,7 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
+        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
@@ -737,6 +738,8 @@ pub const File = struct {
         MissingEndForExpression,
         /// TODO: this should be removed from the error set in favor of using ErrorFlags
         MissingMainEntrypoint,
+        /// TODO: this should be removed from the error set in favor of using ErrorFlags
+        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,

@@ -77,11 +77,11 @@ end_di_column: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
 
-/// For every argument, we postpone the creation of debug info for
-/// later after all Mir instructions have been generated. Only then we
+/// We postpone the creation of debug info for function args and locals
+/// until after all Mir instructions have been generated. Only then we
 /// will know saved_regs_stack_space which is necessary in order to
-/// address parameters passed on the stack.
-dbg_arg_relocs: std.ArrayListUnmanaged(DbgArgReloc) = .{},
+/// calculate the right stack offsest with respect to the `.fp` register.
+dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .{},
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -243,9 +243,107 @@ const BigTomb = struct {
     }
 };
 
-const DbgArgReloc = struct {
-    inst: Air.Inst.Index,
-    index: u32,
+const DbgInfoReloc = struct {
+    tag: Air.Inst.Tag,
+    ty: Type,
+    name: [:0]const u8,
+    mcv: MCValue,
+
+    fn genDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+        switch (reloc.tag) {
+            .arg => try reloc.genArgDbgInfo(function),
+
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try reloc.genVarDbgInfo(function),
+
+            else => unreachable,
+        }
+    }
+
+    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
+        switch (function.debug_output) {
+            .dwarf => |dw| {
+                const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
+                    .register => |reg| .{ .register = reg.dwarfLocOp() },
+                    .stack_offset,
+                    .stack_argument_offset,
+                    => blk: {
+                        const adjusted_stack_offset = switch (reloc.mcv) {
+                            .stack_offset => |offset| -@intCast(i32, offset),
+                            .stack_argument_offset => |offset| @intCast(i32, function.saved_regs_stack_space + offset),
+                            else => unreachable,
+                        };
+                        break :blk .{ .stack = .{
+                            .fp_register = DW.OP.breg11,
+                            .offset = adjusted_stack_offset,
+                        } };
+                    },
+                    else => unreachable, // not a possible argument
+                };
+
+                try dw.genArgDbgInfo(
+                    reloc.name,
+                    reloc.ty,
+                    function.bin_file.tag,
+                    function.mod_fn.owner_decl,
+                    loc,
+                );
+            },
+            .plan9 => {},
+            .none => {},
+        }
+    }
+
+    fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+        const is_ptr = switch (reloc.tag) {
+            .dbg_var_ptr => true,
+            .dbg_var_val => false,
+            else => unreachable,
+        };
+
+        switch (function.debug_output) {
+            .dwarf => |dw| {
+                const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
+                    .register => |reg| .{ .register = reg.dwarfLocOp() },
+                    .ptr_stack_offset,
+                    .stack_offset,
+                    .stack_argument_offset,
+                    => |offset| blk: {
+                        const adjusted_offset = switch (reloc.mcv) {
+                            .ptr_stack_offset,
+                            .stack_offset,
+                            => -@intCast(i32, offset),
+                            .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
+                            else => unreachable,
+                        };
+                        break :blk .{ .stack = .{
+                            .fp_register = DW.OP.breg11,
+                            .offset = adjusted_offset,
+                        } };
+                    },
+                    .memory => |address| .{ .memory = address },
+                    .immediate => |x| .{ .immediate = x },
+                    .undef => .undef,
+                    .none => .none,
+                    else => blk: {
+                        log.debug("TODO generate debug info for {}", .{reloc.mcv});
+                        break :blk .nop;
+                    },
+                };
+                try dw.genVarDbgInfo(
+                    reloc.name,
+                    reloc.ty,
+                    function.bin_file.tag,
+                    function.mod_fn.owner_decl,
+                    is_ptr,
+                    loc,
+                );
+            },
+            .plan9 => {},
+            .none => {},
+        }
+    }
 };
 
 const Self = @This();
@@ -298,7 +396,7 @@ pub fn generate(
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
-    defer function.dbg_arg_relocs.deinit(bin_file.allocator);
+    defer function.dbg_info_relocs.deinit(bin_file.allocator);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
@@ -322,8 +420,8 @@ pub fn generate(
         else => |e| return e,
     };
 
-    for (function.dbg_arg_relocs.items) |reloc| {
-        try function.genArgDbgInfo(reloc.inst, reloc.index);
+    for (function.dbg_info_relocs.items) |reloc| {
+        try reloc.genDbgInfo(function);
     }
 
     var mir = Mir{
@@ -895,9 +993,6 @@ fn allocMem(
 ) !u32 {
     assert(abi_size > 0);
     assert(abi_align > 0);
-
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
 
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
@@ -4035,46 +4130,20 @@ fn genInlineMemsetCode(
     // end:
 }
 
-fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMemory}!void {
-    const mcv = self.args[arg_index];
-    const arg = self.air.instructions.items(.data)[inst].arg;
-    const ty = self.air.getRefType(arg.ty);
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg.src_index);
-
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
-                .register => |reg| .{ .register = reg.dwarfLocOp() },
-                .stack_offset,
-                .stack_argument_offset,
-                => blk: {
-                    const adjusted_stack_offset = switch (mcv) {
-                        .stack_offset => |offset| -@intCast(i32, offset),
-                        .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
-                        else => unreachable,
-                    };
-                    break :blk .{ .stack = .{
-                        .fp_register = DW.OP.breg11,
-                        .offset = adjusted_stack_offset,
-                    } };
-                },
-                else => unreachable, // not a possible argument
-
-            };
-            try dw.genArgDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, loc);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const arg_index = self.arg_index;
     self.arg_index += 1;
 
-    try self.dbg_arg_relocs.append(self.gpa, .{
-        .inst = inst,
-        .index = arg_index,
+    const ty = self.air.typeOfIndex(inst);
+    const tag = self.air.instructions.items(.tag)[inst];
+    const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
+
+    try self.dbg_info_relocs.append(self.gpa, .{
+        .tag = tag,
+        .ty = ty,
+        .name = name,
+        .mcv = self.args[arg_index],
     });
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
@@ -4485,10 +4554,21 @@ fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const name = self.air.nullTerminatedString(pl_op.payload);
     const operand = pl_op.operand;
-    // TODO emit debug info for this variable
-    _ = name;
+    const tag = self.air.instructions.items(.tag)[inst];
+    const ty = self.air.typeOf(operand);
+    const mcv = try self.resolveInst(operand);
+    const name = self.air.nullTerminatedString(pl_op.payload);
+
+    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), mcv });
+
+    try self.dbg_info_relocs.append(self.gpa, .{
+        .tag = tag,
+        .ty = ty,
+        .name = name,
+        .mcv = mcv,
+    });
+
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
 }
 

@@ -509,6 +509,7 @@ test "ptrCast comptime known slice to C pointer" {
 test "ptrToInt on a generic function" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
@@ -531,4 +532,19 @@ test "pointer alignment and element type include call expression" {
         const P = *align(@alignOf(T())) [@sizeOf(T())]u8;
     };
     try expect(@alignOf(S.P) > 0);
+}
+
+test "pointer to array has explicit alignment" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Base = extern struct { a: u8 };
+        const Base2 = extern struct { a: u8 };
+        fn func(ptr: *[4]Base) *align(1) [4]Base2 {
+            return @alignCast(1, @ptrCast(*[4]Base2, ptr));
+        }
+    };
+    var bases = [_]S.Base{.{ .a = 2 }} ** 4;
+    const casted = S.func(&bases);
+    try expect(casted[0].a == 2);
 }

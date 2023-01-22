@@ -155,6 +155,8 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     /// get address to use bind()
     pub const PASSIVE = 0x00000001;
@@ -1271,60 +1273,96 @@ pub const siginfo_t = extern struct {
     },
 };
 
-pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => struct {
-        pub const ucontext_t = extern struct {
-            sigmask: sigset_t,
-            mcontext: mcontext_t,
-            link: ?*ucontext_t,
-            stack: stack_t,
-            flags: c_int,
-            __spare__: [4]c_int,
-        };
-
-        /// XXX x86_64 specific
-        pub const mcontext_t = extern struct {
-            onstack: u64,
-            rdi: u64,
-            rsi: u64,
-            rdx: u64,
-            rcx: u64,
-            r8: u64,
-            r9: u64,
-            rax: u64,
-            rbx: u64,
-            rbp: u64,
-            r10: u64,
-            r11: u64,
-            r12: u64,
-            r13: u64,
-            r14: u64,
-            r15: u64,
-            trapno: u32,
-            fs: u16,
-            gs: u16,
-            addr: u64,
+pub const mcontext_t = switch (builtin.cpu.arch) {
+    .x86_64 => extern struct {
+        onstack: u64,
+        rdi: u64,
+        rsi: u64,
+        rdx: u64,
+        rcx: u64,
+        r8: u64,
+        r9: u64,
+        rax: u64,
+        rbx: u64,
+        rbp: u64,
+        r10: u64,
+        r11: u64,
+        r12: u64,
+        r13: u64,
+        r14: u64,
+        r15: u64,
+        trapno: u32,
+        fs: u16,
+        gs: u16,
+        addr: u64,
+        flags: u32,
+        es: u16,
+        ds: u16,
+        err: u64,
+        rip: u64,
+        cs: u64,
+        rflags: u64,
+        rsp: u64,
+        ss: u64,
+        len: u64,
+        fpformat: u64,
+        ownedfp: u64,
+        fpstate: [64]u64 align(16),
+        fsbase: u64,
+        gsbase: u64,
+        xfpustate: u64,
+        xfpustate_len: u64,
+        spare: [4]u64,
+    },
+    .aarch64 => extern struct {
+        gpregs: extern struct {
+            x: [30]u64,
+            lr: u64,
+            sp: u64,
+            elr: u64,
+            spsr: u32,
+            _pad: u32,
+        },
+        fpregs: extern struct {
+            q: [32]u128,
+            sr: u32,
+            cr: u32,
             flags: u32,
-            es: u16,
-            ds: u16,
-            err: u64,
-            rip: u64,
-            cs: u64,
-            rflags: u64,
-            rsp: u64,
-            ss: u64,
-            len: u64,
-            fpformat: u64,
-            ownedfp: u64,
-            fpstate: [64]u64 align(16),
-            fsbase: u64,
-            gsbase: u64,
-            xfpustate: u64,
-            xfpustate_len: u64,
-            spare: [4]u64,
-        };
+            _pad: u32,
+        },
+        flags: u32,
+        _pad: u32,
+        _spare: [8]u64,
     },
     else => struct {},
+};
+
+pub const REG = switch (builtin.cpu.arch) {
+    .aarch64 => struct {
+        pub const FP = 29;
+        pub const SP = 31;
+        pub const PC = 32;
+    },
+    .arm => struct {
+        pub const FP = 11;
+        pub const SP = 13;
+        pub const PC = 15;
+    },
+    .x86_64 => struct {
+        pub const RBP = 12;
+        pub const RIP = 21;
+        pub const RSP = 24;
+    },
+    else => struct {},
+};
+
+pub const ucontext_t = extern struct {
+    sigmask: sigset_t,
+    mcontext: mcontext_t,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    flags: c_int,
+    __spare__: [4]c_int,
 };
 
 pub const E = enum(u16) {

@@ -517,3 +517,26 @@ test "peer type resolution of inferred error set with non-void payload" {
     };
     try expect(try S.openDataFile(.read) == 1);
 }
+
+test "lazy values passed to anytype parameter" {
+    const A = struct {
+        a: u32,
+        fn foo(comptime a: anytype) !void {
+            try expect(a[0][0] == @sizeOf(@This()));
+        }
+    };
+    try A.foo(.{[_]usize{@sizeOf(A)}});
+
+    const B = struct {
+        fn foo(comptime a: anytype) !void {
+            try expect(a.x == 0);
+        }
+    };
+    try B.foo(.{ .x = @sizeOf(B) });
+
+    const C = struct {};
+    try expect(@truncate(u32, @sizeOf(C)) == 0);
+
+    const D = struct {};
+    try expect(@sizeOf(D) << 1 == 0);
+}
