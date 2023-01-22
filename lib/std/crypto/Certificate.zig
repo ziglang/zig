@@ -95,6 +95,14 @@ pub const NamedCurve = enum {
         .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
     });
+
+    pub fn Curve(comptime curve: NamedCurve) type {
+        return switch (curve) {
+            .X9_62_prime256v1 => crypto.ecc.P256,
+            .secp384r1 => crypto.ecc.P384,
+            .secp521r1 => @compileError("unimplemented"),
+        };
+    }
 };
 
 pub const ExtensionId = enum {
@@ -783,9 +791,10 @@ fn verify_ecdsa(
         .secp521r1 => {
             return error.CertificateSignatureNamedCurveUnsupported;
         },
-        .secp384r1 => {
-            const P = crypto.ecc.P384;
-            const Ecdsa = crypto.sign.ecdsa.Ecdsa(P, Hash);
+        inline .X9_62_prime256v1,
+        .secp384r1,
+        => |curve| {
+            const Ecdsa = crypto.sign.ecdsa.Ecdsa(curve.Curve(), Hash);
             const sig = Ecdsa.Signature.fromDer(encoded_sig) catch |err| switch (err) {
                 error.InvalidEncoding => return error.CertificateSignatureInvalid,
             };
@@ -799,9 +808,6 @@ fn verify_ecdsa(
                 error.NonCanonical => return error.CertificateSignatureInvalid,
                 error.SignatureVerificationFailed => return error.CertificateSignatureInvalid,
             };
-        },
-        .X9_62_prime256v1 => {
-            return error.CertificateSignatureNamedCurveUnsupported;
         },
     }
 }
