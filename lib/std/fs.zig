@@ -834,7 +834,7 @@ pub const IterableDir = struct {
                         self.end_index = self.index; // Force fd_readdir in the next loop.
                         continue :start_over;
                     }
-                    const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
+                    const name = self.buf[name_index .. name_index + entry.d_namlen];
 
                     const next_index = name_index + entry.d_namlen;
                     self.index = next_index;

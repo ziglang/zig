@@ -703,7 +703,7 @@ test "string concatenation" {
     comptime try expect(@TypeOf(a) == *const [12:0]u8);
     comptime try expect(@TypeOf(b) == *const [12:0]u8);
 
-    const len = mem.len(b);
+    const len = b.len;
     const len_with_null = len + 1;
     {
         var i: u32 = 0;

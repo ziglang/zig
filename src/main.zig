@@ -893,7 +893,7 @@ fn buildOutputType(
                 i: usize = 0,
                 fn next(it: *@This()) ?[]const u8 {
                     if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| return if (resp.next()) |sentinel| std.mem.span(sentinel) else null;
+                        if (it.resp_file) |*resp| return resp.next();
                         return null;
                     }
                     defer it.i += 1;
@@ -901,7 +901,7 @@ fn buildOutputType(
                 }
                 fn nextOrFatal(it: *@This()) []const u8 {
                     if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| if (resp.next()) |sentinel| return std.mem.span(sentinel);
+                        if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
                         fatal("expected parameter after {s}", .{it.args[it.i - 1]});
                     }
                     defer it.i += 1;
@@ -4973,7 +4973,7 @@ pub const ClangArgIterator = struct {
         // rather than an argument to a parameter.
         // We adjust the len below when necessary.
         self.other_args = (self.argv.ptr + self.next_index)[0..1];
-        var arg = mem.span(self.argv[self.next_index]);
+        var arg = self.argv[self.next_index];
         self.incrementArgIndex();
 
         if (mem.startsWith(u8, arg, "@")) {
@@ -5017,7 +5017,7 @@ pub const ClangArgIterator = struct {
 
             self.has_next = true;
             self.other_args = (self.argv.ptr + self.next_index)[0..1]; // We adjust len below when necessary.
-            arg = mem.span(self.argv[self.next_index]);
+            arg = self.argv[self.next_index];
             self.incrementArgIndex();
         }
 

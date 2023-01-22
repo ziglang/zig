@@ -113,14 +113,27 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
     };
 }
 
-pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(NonSentinelSpan(@TypeOf(buffer))) {
-    return .{ .buffer = mem.span(buffer), .pos = 0 };
+pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {
+    return .{ .buffer = buffer, .pos = 0 };
 }
 
-fn NonSentinelSpan(comptime T: type) type {
-    var ptr_info = @typeInfo(mem.Span(T)).Pointer;
-    ptr_info.sentinel = null;
-    return @Type(.{ .Pointer = ptr_info });
+fn Slice(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .Pointer => |ptr_info| {
+            var new_ptr_info = ptr_info;
+            switch (ptr_info.size) {
+                .Slice => {},
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |info| new_ptr_info.child = info.child,
+                    else => @compileError("invalid type given to fixedBufferStream"),
+                },
+                else => @compileError("invalid type given to fixedBufferStream"),
+            }
+            new_ptr_info.size = .Slice;
+            return @Type(.{ .Pointer = new_ptr_info });
+        },
+        else => @compileError("invalid type given to fixedBufferStream"),
+    }
 }
 
 test "FixedBufferStream output" {
