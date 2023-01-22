@@ -1286,3 +1286,14 @@ test "store to vector in slice" {
     s[i] = s[0];
     try expectEqual(v[1], v[0]);
 }
+
+test "addition of vectors represented as strings" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const V = @Vector(3, u8);
+    const foo: V = "foo".*;
+    const bar: V = @typeName(u32).*;
+    try expectEqual(V{ 219, 162, 161 }, foo + bar);
+}

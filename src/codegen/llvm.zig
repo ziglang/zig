@@ -10396,12 +10396,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .mips, .mipsel => return false,
             .x86_64 => switch (target.os.tag) {
                 .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
-                else => {
-                    const class = x86_64_abi.classifySystemV(fn_info.return_type, target, .ret);
-                    if (class[0] == .memory) return true;
-                    if (class[0] == .x87 and class[2] != .none) return true;
-                    return false;
-                },
+                else => return firstParamSRetSystemV(fn_info.return_type, target),
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target) == .memory,
@@ -10413,9 +10408,18 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
             .riscv32, .riscv64 => return riscv_c_abi.classifyType(fn_info.return_type, target) == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
+        .SysV => return firstParamSRetSystemV(fn_info.return_type, target),
+        .Win64 => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
         .Stdcall => return !isScalar(fn_info.return_type),
         else => return false,
     }
+}
+
+fn firstParamSRetSystemV(ty: Type, target: std.Target) bool {
+    const class = x86_64_abi.classifySystemV(ty, target, .ret);
+    if (class[0] == .memory) return true;
+    if (class[0] == .x87 and class[2] != .none) return true;
+    return false;
 }
 
 /// In order to support the C calling convention, some return types need to be lowered
@@ -10442,77 +10446,14 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
             }
         },
         .C => {
-            const is_scalar = isScalar(fn_info.return_type);
             switch (target.cpu.arch) {
                 .mips, .mipsel => return dg.lowerType(fn_info.return_type),
                 .x86_64 => switch (target.os.tag) {
-                    .windows => switch (x86_64_abi.classifyWindows(fn_info.return_type, target)) {
-                        .integer => {
-                            if (is_scalar) {
-                                return dg.lowerType(fn_info.return_type);
-                            } else {
-                                const abi_size = fn_info.return_type.abiSize(target);
-                                return dg.context.intType(@intCast(c_uint, abi_size * 8));
-                            }
-                        },
-                        .win_i128 => return dg.context.intType(64).vectorType(2),
-                        .memory => return dg.context.voidType(),
-                        .sse => return dg.lowerType(fn_info.return_type),
-                        else => unreachable,
-                    },
-                    else => {
-                        if (is_scalar) {
-                            return dg.lowerType(fn_info.return_type);
-                        }
-                        const classes = x86_64_abi.classifySystemV(fn_info.return_type, target, .ret);
-                        if (classes[0] == .memory) {
-                            return dg.context.voidType();
-                        }
-                        var llvm_types_buffer: [8]*llvm.Type = undefined;
-                        var llvm_types_index: u32 = 0;
-                        for (classes) |class| {
-                            switch (class) {
-                                .integer => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
-                                    llvm_types_index += 1;
-                                },
-                                .sse, .sseup => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
-                                    llvm_types_index += 1;
-                                },
-                                .float => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType();
-                                    llvm_types_index += 1;
-                                },
-                                .float_combine => {
-                                    llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
-                                    llvm_types_index += 1;
-                                },
-                                .x87 => {
-                                    if (llvm_types_index != 0 or classes[2] != .none) {
-                                        return dg.context.voidType();
-                                    }
-                                    llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
-                                    llvm_types_index += 1;
-                                },
-                                .x87up => continue,
-                                .complex_x87 => {
-                                    @panic("TODO");
-                                },
-                                .memory => unreachable, // handled above
-                                .win_i128 => unreachable, // windows only
-                                .none => break,
-                            }
-                        }
-                        if (classes[0] == .integer and classes[1] == .none) {
-                            const abi_size = fn_info.return_type.abiSize(target);
-                            return dg.context.intType(@intCast(c_uint, abi_size * 8));
-                        }
-                        return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
-                    },
+                    .windows => return lowerWin64FnRetTy(dg, fn_info),
+                    else => return lowerSystemVFnRetTy(dg, fn_info),
                 },
                 .wasm32 => {
-                    if (is_scalar) {
+                    if (isScalar(fn_info.return_type)) {
                         return dg.lowerType(fn_info.return_type);
                     }
                     const classes = wasm_c_abi.classifyType(fn_info.return_type, target);
@@ -10569,6 +10510,8 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
                 else => return dg.lowerType(fn_info.return_type),
             }
         },
+        .Win64 => return lowerWin64FnRetTy(dg, fn_info),
+        .SysV => return lowerSystemVFnRetTy(dg, fn_info),
         .Stdcall => {
             if (isScalar(fn_info.return_type)) {
                 return dg.lowerType(fn_info.return_type);
@@ -10578,6 +10521,76 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
         },
         else => return dg.lowerType(fn_info.return_type),
     }
+}
+
+fn lowerWin64FnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
+    const target = dg.module.getTarget();
+    switch (x86_64_abi.classifyWindows(fn_info.return_type, target)) {
+        .integer => {
+            if (isScalar(fn_info.return_type)) {
+                return dg.lowerType(fn_info.return_type);
+            } else {
+                const abi_size = fn_info.return_type.abiSize(target);
+                return dg.context.intType(@intCast(c_uint, abi_size * 8));
+            }
+        },
+        .win_i128 => return dg.context.intType(64).vectorType(2),
+        .memory => return dg.context.voidType(),
+        .sse => return dg.lowerType(fn_info.return_type),
+        else => unreachable,
+    }
+}
+
+fn lowerSystemVFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*llvm.Type {
+    if (isScalar(fn_info.return_type)) {
+        return dg.lowerType(fn_info.return_type);
+    }
+    const target = dg.module.getTarget();
+    const classes = x86_64_abi.classifySystemV(fn_info.return_type, target, .ret);
+    if (classes[0] == .memory) {
+        return dg.context.voidType();
+    }
+    var llvm_types_buffer: [8]*llvm.Type = undefined;
+    var llvm_types_index: u32 = 0;
+    for (classes) |class| {
+        switch (class) {
+            .integer => {
+                llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
+                llvm_types_index += 1;
+            },
+            .sse, .sseup => {
+                llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                llvm_types_index += 1;
+            },
+            .float => {
+                llvm_types_buffer[llvm_types_index] = dg.context.floatType();
+                llvm_types_index += 1;
+            },
+            .float_combine => {
+                llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
+                llvm_types_index += 1;
+            },
+            .x87 => {
+                if (llvm_types_index != 0 or classes[2] != .none) {
+                    return dg.context.voidType();
+                }
+                llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
+                llvm_types_index += 1;
+            },
+            .x87up => continue,
+            .complex_x87 => {
+                @panic("TODO");
+            },
+            .memory => unreachable, // handled above
+            .win_i128 => unreachable, // windows only
+            .none => break,
+        }
+    }
+    if (classes[0] == .integer and classes[1] == .none) {
+        const abi_size = fn_info.return_type.abiSize(target);
+        return dg.context.intType(@intCast(c_uint, abi_size * 8));
+    }
+    return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
 }
 
 const ParamTypeIterator = struct {
@@ -10629,7 +10642,6 @@ const ParamTypeIterator = struct {
             it.zig_index += 1;
             return .no_bits;
         }
-        const dg = it.dg;
         switch (it.fn_info.cc) {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
@@ -10648,7 +10660,6 @@ const ParamTypeIterator = struct {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
             .C => {
-                const is_scalar = isScalar(ty);
                 switch (it.target.cpu.arch) {
                     .mips, .mipsel => {
                         it.zig_index += 1;
@@ -10656,99 +10667,13 @@ const ParamTypeIterator = struct {
                         return .byval;
                     },
                     .x86_64 => switch (it.target.os.tag) {
-                        .windows => switch (x86_64_abi.classifyWindows(ty, it.target)) {
-                            .integer => {
-                                if (is_scalar) {
-                                    it.zig_index += 1;
-                                    it.llvm_index += 1;
-                                    return .byval;
-                                } else {
-                                    it.zig_index += 1;
-                                    it.llvm_index += 1;
-                                    return .abi_sized_int;
-                                }
-                            },
-                            .win_i128 => {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .byref;
-                            },
-                            .memory => {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .byref_mut;
-                            },
-                            .sse => {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .byval;
-                            },
-                            else => unreachable,
-                        },
-                        else => {
-                            const classes = x86_64_abi.classifySystemV(ty, it.target, .arg);
-                            if (classes[0] == .memory) {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                it.byval_attr = true;
-                                return .byref;
-                            }
-                            if (is_scalar) {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .byval;
-                            }
-                            var llvm_types_buffer: [8]*llvm.Type = undefined;
-                            var llvm_types_index: u32 = 0;
-                            for (classes) |class| {
-                                switch (class) {
-                                    .integer => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
-                                        llvm_types_index += 1;
-                                    },
-                                    .sse, .sseup => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
-                                        llvm_types_index += 1;
-                                    },
-                                    .float => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType();
-                                        llvm_types_index += 1;
-                                    },
-                                    .float_combine => {
-                                        llvm_types_buffer[llvm_types_index] = dg.context.floatType().vectorType(2);
-                                        llvm_types_index += 1;
-                                    },
-                                    .x87 => {
-                                        it.zig_index += 1;
-                                        it.llvm_index += 1;
-                                        it.byval_attr = true;
-                                        return .byref;
-                                    },
-                                    .x87up => unreachable,
-                                    .complex_x87 => {
-                                        @panic("TODO");
-                                    },
-                                    .memory => unreachable, // handled above
-                                    .win_i128 => unreachable, // windows only
-                                    .none => break,
-                                }
-                            }
-                            if (classes[0] == .integer and classes[1] == .none) {
-                                it.zig_index += 1;
-                                it.llvm_index += 1;
-                                return .abi_sized_int;
-                            }
-                            it.llvm_types_buffer = llvm_types_buffer;
-                            it.llvm_types_len = llvm_types_index;
-                            it.llvm_index += llvm_types_index;
-                            it.zig_index += 1;
-                            return .multiple_llvm_types;
-                        },
+                        .windows => return it.nextWin64(ty),
+                        else => return it.nextSystemV(ty),
                     },
                     .wasm32 => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
-                        if (is_scalar) {
+                        if (isScalar(ty)) {
                             return .byval;
                         }
                         const classes = wasm_c_abi.classifyType(ty, it.target);
@@ -10766,7 +10691,7 @@ const ParamTypeIterator = struct {
                             .byval => return .byval,
                             .integer => {
                                 it.llvm_types_len = 1;
-                                it.llvm_types_buffer[0] = dg.context.intType(64);
+                                it.llvm_types_buffer[0] = it.dg.context.intType(64);
                                 return .multiple_llvm_types;
                             },
                             .double_integer => return Lowering{ .i64_array = 2 },
@@ -10806,6 +10731,8 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
+            .Win64 => return it.nextWin64(ty),
+            .SysV => return it.nextSystemV(ty),
             .Stdcall => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
@@ -10823,6 +10750,98 @@ const ParamTypeIterator = struct {
                 return .byval;
             },
         }
+    }
+
+    fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
+        switch (x86_64_abi.classifyWindows(ty, it.target)) {
+            .integer => {
+                if (isScalar(ty)) {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                } else {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .abi_sized_int;
+                }
+            },
+            .win_i128 => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .byref;
+            },
+            .memory => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .byref_mut;
+            },
+            .sse => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .byval;
+            },
+            else => unreachable,
+        }
+    }
+
+    fn nextSystemV(it: *ParamTypeIterator, ty: Type) ?Lowering {
+        const classes = x86_64_abi.classifySystemV(ty, it.target, .arg);
+        if (classes[0] == .memory) {
+            it.zig_index += 1;
+            it.llvm_index += 1;
+            it.byval_attr = true;
+            return .byref;
+        }
+        if (isScalar(ty)) {
+            it.zig_index += 1;
+            it.llvm_index += 1;
+            return .byval;
+        }
+        var llvm_types_buffer: [8]*llvm.Type = undefined;
+        var llvm_types_index: u32 = 0;
+        for (classes) |class| {
+            switch (class) {
+                .integer => {
+                    llvm_types_buffer[llvm_types_index] = it.dg.context.intType(64);
+                    llvm_types_index += 1;
+                },
+                .sse, .sseup => {
+                    llvm_types_buffer[llvm_types_index] = it.dg.context.doubleType();
+                    llvm_types_index += 1;
+                },
+                .float => {
+                    llvm_types_buffer[llvm_types_index] = it.dg.context.floatType();
+                    llvm_types_index += 1;
+                },
+                .float_combine => {
+                    llvm_types_buffer[llvm_types_index] = it.dg.context.floatType().vectorType(2);
+                    llvm_types_index += 1;
+                },
+                .x87 => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    it.byval_attr = true;
+                    return .byref;
+                },
+                .x87up => unreachable,
+                .complex_x87 => {
+                    @panic("TODO");
+                },
+                .memory => unreachable, // handled above
+                .win_i128 => unreachable, // windows only
+                .none => break,
+            }
+        }
+        if (classes[0] == .integer and classes[1] == .none) {
+            it.zig_index += 1;
+            it.llvm_index += 1;
+            return .abi_sized_int;
+        }
+        it.llvm_types_buffer = llvm_types_buffer;
+        it.llvm_types_len = llvm_types_index;
+        it.llvm_index += llvm_types_index;
+        it.zig_index += 1;
+        return .multiple_llvm_types;
     }
 };
 

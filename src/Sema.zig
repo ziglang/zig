@@ -3948,6 +3948,7 @@ fn validateArrayInitTy(
             return;
         },
         .Struct => if (ty.isTuple()) {
+            _ = try sema.resolveTypeFields(ty);
             const array_len = ty.arrayLen();
             if (extra.init_count > array_len) {
                 return sema.fail(block, src, "expected at most {d} tuple fields; found {d}", .{
@@ -4642,11 +4643,11 @@ fn failWithBadMemberAccess(
         .Enum => "enum",
         else => unreachable,
     };
-    if (sema.mod.declIsRoot(agg_ty.getOwnerDecl())) {
+    if (agg_ty.getOwnerDeclOrNull()) |some| if (sema.mod.declIsRoot(some)) {
         return sema.fail(block, field_src, "root struct of file '{}' has no member named '{s}'", .{
             agg_ty.fmt(sema.mod), field_name,
         });
-    }
+    };
     const msg = msg: {
         const msg = try sema.errMsg(block, field_src, "{s} '{}' has no member named '{s}'", .{
             kw_name, agg_ty.fmt(sema.mod), field_name,
@@ -7514,7 +7515,7 @@ fn resolveGenericInstantiationType(
 }
 
 fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
-    if (!ty.isSimpleTuple()) return;
+    if (!ty.isSimpleTupleOrAnonStruct()) return;
     const tuple = ty.tupleFields();
     for (tuple.values) |field_val, i| {
         try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
@@ -11771,8 +11772,8 @@ fn zirShl(
     // TODO coerce rhs if air_tag is not shl_sat
     const rhs_is_comptime_int = try sema.checkIntType(block, rhs_src, scalar_rhs_ty);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
 
     if (maybe_rhs_val) |rhs_val| {
         if (rhs_val.isUndef()) {
@@ -11842,7 +11843,7 @@ fn zirShl(
                 if (scalar_ty.zigTypeTag() == .ComptimeInt) {
                     break :val shifted.wrapped_result;
                 }
-                if (shifted.overflow_bit.compareAllWithZero(.eq)) {
+                if (shifted.overflow_bit.compareAllWithZero(.eq, sema.mod)) {
                     break :val shifted.wrapped_result;
                 }
                 return sema.fail(block, src, "operation caused overflow", .{});
@@ -11959,8 +11960,8 @@ fn zirShr(
     const target = sema.mod.getTarget();
     const scalar_ty = lhs_ty.scalarType();
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
 
     const runtime_src = if (maybe_rhs_val) |rhs_val| rs: {
         if (rhs_val.isUndef()) {
@@ -12799,7 +12800,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -12831,7 +12832,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         const lhs_val = maybe_lhs_val orelse unreachable;
         const rhs_val = maybe_rhs_val orelse unreachable;
         const rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, mod) catch unreachable;
-        if (!rem.compareAllWithZero(.eq)) {
+        if (!rem.compareAllWithZero(.eq, mod)) {
             return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; non-zero remainder '{}'", .{
                 @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), rem.fmtValue(resolved_type, sema.mod),
             });
@@ -12959,7 +12960,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_exact);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -13024,7 +13025,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
                     const modulus_val = try lhs_val.intMod(rhs_val, resolved_type, sema.arena, mod);
-                    if (!(modulus_val.compareAllWithZero(.eq))) {
+                    if (!(modulus_val.compareAllWithZero(.eq, mod))) {
                         return sema.fail(block, src, "exact division produced remainder", .{});
                     }
                     const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, mod);
@@ -13035,7 +13036,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     return sema.addConstant(resolved_type, res);
                 } else {
                     const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, mod);
-                    if (!(modulus_val.compareAllWithZero(.eq))) {
+                    if (!(modulus_val.compareAllWithZero(.eq, mod))) {
                         return sema.fail(block, src, "exact division produced remainder", .{});
                     }
                     return sema.addConstant(
@@ -13122,7 +13123,7 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_floor);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -13238,7 +13239,7 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_trunc);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -13481,7 +13482,7 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .mod_rem);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -13664,7 +13665,7 @@ fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .mod);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -13766,7 +13767,7 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .rem);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -14106,12 +14107,7 @@ fn analyzeArithmetic(
             const air_tag: Air.Inst.Tag = switch (zir_tag) {
                 .add => .ptr_add,
                 .sub => .ptr_sub,
-                else => return sema.fail(
-                    block,
-                    src,
-                    "invalid pointer arithmetic operand: '{s}''",
-                    .{@tagName(zir_tag)},
-                ),
+                else => return sema.fail(block, src, "invalid pointer arithmetic operator", .{}),
             };
             return sema.analyzePtrArithmetic(block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
         },
@@ -19697,7 +19693,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
     }
 
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveMaybeUndefValIntable(operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(dest_ty);
         if (!is_vector) {
             return sema.addConstant(
@@ -19901,7 +19897,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
+    const scalar_ty = try sema.checkIntOrVector(block, operand, operand_src);
 
     if (try sema.typeHasOnePossibleValue(operand_ty)) |val| {
         return sema.addConstant(operand_ty, val);
@@ -19909,7 +19905,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 
     const target = sema.mod.getTarget();
     switch (operand_ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {
+        .Int => {
             const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(operand_ty);
                 const result_val = try val.bitReverse(operand_ty, target, sema.arena);
@@ -19929,7 +19925,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 const elems = try sema.arena.alloc(Value, vec_len);
                 for (elems) |*elem, i| {
                     const elem_val = val.elemValueBuffer(sema.mod, i, &elem_buf);
-                    elem.* = try elem_val.bitReverse(operand_ty, target, sema.arena);
+                    elem.* = try elem_val.bitReverse(scalar_ty, target, sema.arena);
                 }
                 return sema.addConstant(
                     operand_ty,
@@ -20028,7 +20024,6 @@ fn checkInvalidPtrArithmetic(
     block: *Block,
     src: LazySrcLoc,
     ty: Type,
-    zir_tag: Zir.Inst.Tag,
 ) CompileError!void {
     switch (try ty.zigTypeTagOrPoison()) {
         .Pointer => switch (ty.ptrSize()) {
@@ -20036,8 +20031,8 @@ fn checkInvalidPtrArithmetic(
             .Many, .C => return sema.fail(
                 block,
                 src,
-                "invalid pointer arithmetic operand: '{s}''",
-                .{@tagName(zir_tag)},
+                "invalid pointer arithmetic operator",
+                .{},
             ),
         },
         else => return,
