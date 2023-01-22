@@ -286,6 +286,61 @@ pub const ChooseExpr = opaque {
     extern fn ZigClangChooseExpr_getChosenSubExpr(*const ChooseExpr) *const Expr;
 };
 
+pub const IdentifierInfo = opaque {};
+
+pub const GCCAsmStmt = opaque {
+    pub const getAsmString = ZigClangGCCAsmStmt_getAsmString;
+    extern fn ZigClangGCCAsmStmt_getAsmString(*const GCCAsmStmt) *const StringLiteral;
+
+    pub const isSimple = ZigClangGCCAsmStmt_isSimple;
+    extern fn ZigClangGCCAsmStmt_isSimple(*const GCCAsmStmt) bool;
+
+    pub const getNumOutputs = ZigClangGCCAsmStmt_getNumOutputs;
+    extern fn ZigClangGCCAsmStmt_getNumOutputs(*const GCCAsmStmt) c_uint;
+
+    pub const getOutputIdentifier = ZigClangGCCAsmStmt_getOutputIdentifier;
+    extern fn ZigClangGCCAsmStmt_getOutputIdentifier(*const GCCAsmStmt, c_uint) *const IdentifierInfo;
+
+    pub const getOutputName = ZigClangGCCAsmStmt_getOutputName;
+    extern fn ZigClangGCCAsmStmt_getOutputName(*const GCCAsmStmt, usize) StringRef;
+
+    pub const getOutputConstraint = ZigClangGCCAsmStmt_getOutputConstraint;
+    extern fn ZigClangGCCAsmStmt_getOutputConstraint(*const GCCAsmStmt, usize) StringRef;
+
+    pub const getOutputConstraintLiteral = ZigClangGCCAsmStmt_getOutputConstraintLiteral;
+    extern fn ZigClangGCCAsmStmt_getOutputConstraintLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
+
+    pub const getOutputExpr = ZigClangGCCAsmStmt_getOutputExpr;
+    extern fn ZigClangGCCAsmStmt_getOutputExpr(*const GCCAsmStmt, usize) *const Expr;
+
+    pub const getNumInputs = ZigClangGCCAsmStmt_getNumInputs;
+    extern fn ZigClangGCCAsmStmt_getNumInputs(*const GCCAsmStmt) c_uint;
+
+    pub const getInputIdentifier = ZigClangGCCAsmStmt_getInputIdentifier;
+    extern fn ZigClangGCCAsmStmt_getInputIdentifier(*const GCCAsmStmt, usize) *const IdentifierInfo;
+
+    pub const getInputName = ZigClangGCCAsmStmt_getInputName;
+    extern fn ZigClangGCCAsmStmt_getInputName(*const GCCAsmStmt, usize) StringRef;
+
+    pub const getInputConstraint = ZigClangGCCAsmStmt_getInputConstraint;
+    extern fn ZigClangGCCAsmStmt_getInputConstraint(*const GCCAsmStmt, usize) StringRef;
+
+    pub const getInputConstraintLiteral = ZigClangGCCAsmStmt_getInputConstraintLiteral;
+    extern fn ZigClangGCCAsmStmt_getInputConstraintLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
+
+    pub const getInputExpr = ZigClangGCCAsmStmt_getInputExpr;
+    extern fn ZigClangGCCAsmStmt_getInputExpr(*const GCCAsmStmt, usize) *const Expr;
+
+    pub const getNumClobbers = ZigClangGCCAsmStmt_getNumClobbers;
+    extern fn ZigClangGCCAsmStmt_getNumClobbers(*const GCCAsmStmt) c_uint;
+
+    pub const getClobberStringLiteral = ZigClangGCCAsmStmt_getClobberStringLiteral;
+    extern fn ZigClangGCCAsmStmt_getClobberStringLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
+
+    pub const isAsmGoto = ZigClangGCCAsmStmt_isAsmGoto;
+    extern fn ZigClangGCCAsmStmt_isAsmGoto(*const GCCAsmStmt) bool;
+};
+
 pub const CompoundAssignOperator = opaque {
     pub const getType = ZigClangCompoundAssignOperator_getType;
     extern fn ZigClangCompoundAssignOperator_getType(*const CompoundAssignOperator) QualType;
@@ -876,7 +931,16 @@ pub const StringLiteral = opaque {
     extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const StringLiteral, *usize) [*]const u8;
 };
 
-pub const StringRef = opaque {};
+pub const StringRef = extern struct {
+    ptr: [*]const u8,
+    len: c_uint,
+
+    pub fn toSlice(self: StringRef) ?[]const u8 {
+        if (self.len == 0)
+            return null;
+        return self.ptr[0..self.len];
+    }
+};
 
 pub const SwitchStmt = opaque {
     pub const getConditionVariableDeclStmt = ZigClangSwitchStmt_getConditionVariableDeclStmt;

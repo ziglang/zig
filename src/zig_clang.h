@@ -106,6 +106,8 @@ struct ZigClangCaseStmt;
 struct ZigClangCastExpr;
 struct ZigClangCharacterLiteral;
 struct ZigClangChooseExpr;
+struct ZigClangIdentifierInfo;
+struct ZigClangGCCAsmStmt;
 struct ZigClangCompoundAssignOperator;
 struct ZigClangCompoundStmt;
 struct ZigClangConditionalOperator;
@@ -161,7 +163,6 @@ struct ZigClangSourceRange;
 struct ZigClangStmt;
 struct ZigClangStmtExpr;
 struct ZigClangStringLiteral;
-struct ZigClangStringRef;
 struct ZigClangSwitchStmt;
 struct ZigClangTagDecl;
 struct ZigClangType;
@@ -176,6 +177,12 @@ struct ZigClangInitListExpr;
 
 typedef struct ZigClangStmt *const * ZigClangCompoundStmt_const_body_iterator;
 typedef struct ZigClangDecl *const * ZigClangDeclStmt_const_decl_iterator;
+
+// INFO: keep in sync with src/clang.zig:StringRef
+struct ZigClangStringRef {
+  const char *ptr;
+  unsigned len;
+};
 
 struct ZigClangRecordDecl_field_iterator {
     void *opaque;
@@ -1347,6 +1354,27 @@ ZIG_EXTERN_C const struct ZigClangFieldDecl *ZigClangCastExpr_getTargetFieldForT
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangCharacterLiteral_getBeginLoc(const struct ZigClangCharacterLiteral *);
 ZIG_EXTERN_C enum ZigClangCharacterLiteral_CharacterKind ZigClangCharacterLiteral_getKind(const struct ZigClangCharacterLiteral *);
 ZIG_EXTERN_C unsigned ZigClangCharacterLiteral_getValue(const struct ZigClangCharacterLiteral *);
+
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getAsmString(const struct ZigClangGCCAsmStmt *self);
+ZIG_EXTERN_C bool ZigClangGCCAsmStmt_isSimple(const struct ZigClangGCCAsmStmt *self);
+ZIG_EXTERN_C unsigned ZigClangGCCAsmStmt_getNumOutputs(const struct ZigClangGCCAsmStmt *self);
+ZIG_EXTERN_C const struct ZigClangIdentifierInfo *ZigClangGCCAsmStmt_getOutputIdentifier(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringRef ZigClangGCCAsmStmt_getOutputName(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringRef ZigClangGCCAsmStmt_getOutputConstraint(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getOutputConstraintLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangGCCAsmStmt_getOutputExpr(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C unsigned ZigClangGCCAsmStmt_getNumInputs(const struct ZigClangGCCAsmStmt *self);
+ZIG_EXTERN_C const struct ZigClangIdentifierInfo *ZigClangGCCAsmStmt_getInputIdentifier(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringRef ZigClangGCCAsmStmt_getInputName(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringRef ZigClangGCCAsmStmt_getInputConstraint(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getInputConstraintLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangGCCAsmStmt_getInputExpr(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C unsigned ZigClangGCCAsmStmt_getNumClobbers(const struct ZigClangGCCAsmStmt *self);
+ZIG_EXTERN_C const struct ZigClangStringRef ZigClangGCCAsmStmt_getClobber(const struct ZigClangGCCAsmStmt *self, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getClobberStringLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i);
+
+ZIG_EXTERN_C const bool ZigClangGCCAsmStmt_isAsmGoto(const struct ZigClangGCCAsmStmt *self);
+
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangChooseExpr_getChosenSubExpr(const struct ZigClangChooseExpr *);
 

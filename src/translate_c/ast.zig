@@ -163,6 +163,8 @@ pub const Node = extern union {
         macro_arithmetic,
 
         asm_simple,
+        @"asm",
+        asm_input,
 
         negate,
         negate_wrap,
@@ -348,6 +350,8 @@ pub const Node = extern union {
                 .helpers_macro,
                 .import_c_builtin,
                 => Payload.Value,
+                .@"asm" => Payload.Asm,
+                .asm_input => Payload.AsmInput,
                 .discard => Payload.Discard,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
@@ -469,6 +473,26 @@ pub const Payload = struct {
         data: struct {
             lhs: Node,
             rhs: Node,
+        },
+    };
+
+    pub const Asm = struct {
+        base: Payload,
+        data: struct {
+            code: Node,
+            @"volatile": bool,
+            outputs: ?[]Node,
+            inputs: ?[]Node,
+            clobbers: ?[]Node,
+        },
+    };
+
+    pub const AsmInput = struct {
+        base: Payload,
+        data: struct {
+            name: Node,
+            constraint: Node,
+            expr: Node,
         },
     };
 
@@ -1062,6 +1086,81 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .@"asm" => {
+            const payload = node.castTag(.@"asm").?.data;
+
+            var items = std.ArrayList(NodeIndex).init(c.gpa);
+            defer items.deinit();
+
+            const asm_token = try c.addToken(.keyword_asm, "asm");
+
+            if (payload.@"volatile")
+                _ = try c.addToken(.keyword_volatile, "volatile");
+
+            _ = try c.addToken(.l_paren, "(");
+            const template = try renderNode(c, payload.code);
+
+            _ = try c.addToken(.colon, ":");
+            // TODO: outputs
+
+            _ = try c.addToken(.colon, ":");
+            if (payload.inputs) |inputs| {
+                for (inputs) |input_node, i| {
+                    const input = input_node.castTag(.asm_input).?.data;
+                    if (i != 0)
+                        _ = try c.addToken(.comma, ",");
+
+                    // name
+                    _ = try c.addToken(.l_bracket, "[");
+                    const ident = try c.addToken(.identifier, input.name.castTag(.identifier).?.data);
+                    _ = try c.addToken(.r_bracket, "]");
+
+                    // constraint
+                    _ = try c.addToken(.string_literal, input.constraint.castTag(.string_literal).?.data);
+
+                    // expression
+                    _ = try c.addToken(.l_paren, "(");
+                    const expr = try renderNode(c, input.expr);
+                    const rparen = try c.addToken(.r_paren, ")");
+
+                    try items.append(try c.addNode(.{
+                        .tag = .asm_input,
+                        .main_token = ident,
+                        .data = .{
+                            .lhs = expr,
+                            .rhs = rparen,
+                        },
+                    }));
+                }
+            }
+            _ = try c.addToken(.colon, ":");
+            // this should be first clobber
+            if (payload.clobbers) |clobbers| {
+                for (clobbers) |clobber, i| {
+                    const clobber_payload = clobber.castTag(.string_literal).?.data;
+                    if (i != 0)
+                        _ = try c.addToken(.comma, ",");
+                    _ = try c.addToken(.string_literal, clobber_payload);
+                }
+            }
+            const rparen = try c.addToken(.r_paren, "}");
+
+            const span = try c.listToSpan(items.items);
+
+            return c.addNode(.{
+                .tag = .@"asm",
+                .main_token = asm_token,
+                .data = .{
+                    .lhs = template,
+                    .rhs = try c.addExtra(std.zig.Ast.Node.Asm{
+                        .items_start = span.start,
+                        .items_end = span.end,
+                        .rparen = rparen,
+                    }),
+                },
+            });
+        },
+        .asm_input => unreachable, // should be handled inside @"asm"
         .type => {
             const payload = node.castTag(.type).?.data;
             return c.addNode(.{
@@ -2422,6 +2521,8 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"comptime",
         .@"defer",
         .asm_simple,
+        .@"asm",
+        .asm_input,
         .while_true,
         .if_not_break,
         .switch_else,

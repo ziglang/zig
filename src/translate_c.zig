@@ -1364,7 +1364,10 @@ fn transStmt(
             return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
         },
         // When adding new cases here, see comment for maybeBlockify()
-        .GCCAsmStmtClass,
+        .GCCAsmStmtClass => {
+            const gcc_asm_stmt = @ptrCast(*const clang.GCCAsmStmt, stmt);
+            return transAsmStmt(c, scope, gcc_asm_stmt, result_used);
+        },
         .GotoStmtClass,
         .IndirectGotoStmtClass,
         .AttributedStmtClass,
@@ -1378,6 +1381,94 @@ fn transStmt(
         => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)}),
         else => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported stmt class {s}", .{@tagName(sc)}),
     }
+}
+
+// TODO: find a better way
+fn transAsmRegisterName(gcc_name: []const u8) []const u8 {
+    const mapping = std.ComptimeStringMap([]const u8, .{
+        .{ "A", "rax" },
+        .{ "D", "rdi" },
+        .{ "S", "rsi" },
+        .{ "d", "rdx" },
+    });
+
+    if (mapping.get(gcc_name)) |name| {
+        return name;
+    }
+
+    return gcc_name;
+}
+
+fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, result_used: ResultUsed) TransError!Node {
+    assert(result_used == .unused); // C asm statements always return void
+
+    // TODO: handle new lines
+    const asm_string_literal = try transStringLiteral(c, scope, gcc_stmt.getAsmString(), .used);
+
+    const outputs_num = gcc_stmt.getNumOutputs();
+    const inputs_num = gcc_stmt.getNumInputs();
+    const clobbers_num = gcc_stmt.getNumClobbers();
+
+    const is_simple = gcc_stmt.isSimple();
+
+    std.debug.print("is_simple: {} outputs: {} inputs: {} clobbers: {}\n", .{ is_simple, outputs_num, inputs_num, clobbers_num });
+
+    if (is_simple) {
+        assert(outputs_num == 0);
+        assert(inputs_num == 0);
+        assert(clobbers_num == 0);
+        return try Tag.asm_simple.create(c.arena, asm_string_literal);
+    }
+
+    var inputs: ?[]Node = blk: {
+        if (inputs_num == 0)
+            break :blk null;
+        var i: c_uint = 0;
+        var temp = std.ArrayList(Node).init(c.arena);
+        while (i < inputs_num) : (i = i + 1) {
+            const name = if (gcc_stmt.getInputName(i).toSlice()) |name| name else "_";
+
+            // TODO: parse and translate constraints
+            const constraint = transAsmRegisterName(gcc_stmt.getInputConstraint(i).toSlice().?);
+            const str = try std.fmt.allocPrint(c.arena, "\"{{{}}}\"", .{std.zig.fmtEscapes(constraint)});
+            const constraint_string_literal = try Tag.string_literal.create(c.arena, str);
+
+            const expr = try transExpr(c, scope, gcc_stmt.getInputExpr(i), .used);
+
+            try temp.append(try Tag.asm_input.create(c.arena, .{
+                .name = try Tag.identifier.create(c.arena, name),
+                .constraint = constraint_string_literal,
+                .expr = expr,
+            }));
+
+            std.debug.print("input[{}] = \"{s}\" \"{s}\" \"{any}\"\n", .{ i, name, constraint, expr });
+        }
+        break :blk temp.items;
+    };
+
+    var clobbers: ?[]Node = blk: {
+        if (clobbers_num == 0)
+            break :blk null;
+
+        var temp = std.ArrayList(Node).init(c.arena);
+        var i: c_uint = 0;
+        while (i < clobbers_num) : (i = i + 1) {
+            const name = gcc_stmt.getClobberStringLiteral(i);
+            try temp.append(try transStringLiteral(c, scope, name, .used));
+            std.debug.print("clobber[{}] = \"{s}\" \n", .{ i, name });
+        }
+        break :blk temp.items;
+    };
+
+    return try Tag.@"asm".create(c.arena, .{
+        .code = asm_string_literal,
+        .@"volatile" = true, // TODO
+        .outputs = null,
+        .inputs = inputs,
+        .clobbers = clobbers,
+    });
+
+    //return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO more complex asm statements", .{});
 }
 
 /// See https://clang.llvm.org/docs/LanguageExtensions.html#langext-builtin-convertvector
