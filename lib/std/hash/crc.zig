@@ -14,13 +14,11 @@ pub usingnamespace @import("crc/catalog.zig");
 
 pub fn Algorithm(comptime W: type) type {
     return struct {
-        poly: W,
-        init: W,
-        refin: bool,
-        refout: bool,
-        xorout: W,
-        check: W,
-        residue: W,
+        polynomial: W,
+        initial: W,
+        reflect_input: bool,
+        reflect_output: bool,
+        xor_output: W,
     };
 }
 
@@ -31,15 +29,15 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         const lookup_table = blk: {
             @setEvalBranchQuota(2500);
 
-            const poly = if (algorithm.refin)
-                @bitReverse(@as(I, algorithm.poly)) >> (@bitSizeOf(I) - @bitSizeOf(W))
+            const poly = if (algorithm.reflect_input)
+                @bitReverse(@as(I, algorithm.polynomial)) >> (@bitSizeOf(I) - @bitSizeOf(W))
             else
-                @as(I, algorithm.poly) << (@bitSizeOf(I) - @bitSizeOf(W));
+                @as(I, algorithm.polynomial) << (@bitSizeOf(I) - @bitSizeOf(W));
 
             var table: [256]I = undefined;
             for (table) |*e, i| {
                 var crc: I = i;
-                if (algorithm.refin) {
+                if (algorithm.reflect_input) {
                     var j: usize = 0;
                     while (j < 8) : (j += 1) {
                         crc = (crc >> 1) ^ ((crc & 1) * poly);
@@ -59,10 +57,10 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         crc: I,
 
         pub fn init() Self {
-            const initial = if (algorithm.refin)
-                @bitReverse(@as(I, algorithm.init)) >> (@bitSizeOf(I) - @bitSizeOf(W))
+            const initial = if (algorithm.reflect_input)
+                @bitReverse(@as(I, algorithm.initial)) >> (@bitSizeOf(I) - @bitSizeOf(W))
             else
-                @as(I, algorithm.init) << (@bitSizeOf(I) - @bitSizeOf(W));
+                @as(I, algorithm.initial) << (@bitSizeOf(I) - @bitSizeOf(W));
             return Self{ .crc = initial };
         }
 
@@ -76,7 +74,7 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
                 while (i < bytes.len) : (i += 1) {
                     self.crc = tableEntry(self.crc ^ bytes[i]);
                 }
-            } else if (algorithm.refin) {
+            } else if (algorithm.reflect_input) {
                 while (i < bytes.len) : (i += 1) {
                     const table_index = self.crc ^ bytes[i];
                     self.crc = tableEntry(table_index) ^ (self.crc >> 8);
@@ -91,13 +89,13 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
 
         pub fn final(self: Self) W {
             var c = self.crc;
-            if (algorithm.refin != algorithm.refout) {
+            if (algorithm.reflect_input != algorithm.reflect_output) {
                 c = @bitReverse(c);
             }
-            if (!algorithm.refout) {
+            if (!algorithm.reflect_output) {
                 c >>= @bitSizeOf(I) - @bitSizeOf(W);
             }
-            return @intCast(W, c ^ algorithm.xorout);
+            return @intCast(W, c ^ algorithm.xor_output);
         }
 
         pub fn hash(bytes: []const u8) W {
