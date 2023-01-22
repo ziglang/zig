@@ -6879,6 +6879,8 @@ fn analyzeInlineCallArg(
                     if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
+            } else if (!is_comptime_call and zir_tags[inst] == .param_comptime) {
+                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
             }
             const casted_arg = sema.coerceExtra(arg_block, param_ty, uncasted_arg, arg_src, .{ .param_src = .{
                 .func_inst = func_inst,
@@ -6952,6 +6954,9 @@ fn analyzeInlineCallArg(
                     .val = arg_val,
                 };
             } else {
+                if (zir_tags[inst] == .param_anytype_comptime) {
+                    _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
+                }
                 sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
             }
 
