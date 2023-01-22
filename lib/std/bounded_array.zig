@@ -29,7 +29,11 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
         }
 
         /// View the internal array as a slice whose size was previously set.
-        pub fn slice(self: anytype) mem.Span(@TypeOf(&self.buffer)) {
+        pub fn slice(self: anytype) switch (@TypeOf(&self.buffer)) {
+            *[buffer_capacity]T => []T,
+            *const [buffer_capacity]T => []const T,
+            else => unreachable,
+        } {
             return self.buffer[0..self.len];
         }
 
