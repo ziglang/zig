@@ -3044,56 +3044,62 @@ unsigned ZigClangCharacterLiteral_getValue(const struct ZigClangCharacterLiteral
 }
 
 
-const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getAsmString(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const ZigClangStringLiteral *>(casted->getAsmString());
-}
-
-bool ZigClangGCCAsmStmt_isSimple(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
+bool ZigClangAsmStmt_isSimple(const struct ZigClangAsmStmt *self) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
     return casted->isSimple();
 }
 
-unsigned ZigClangGCCAsmStmt_getNumOutputs(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
+bool ZigClangAsmStmt_isVolatile(const struct ZigClangAsmStmt *self) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
+    return casted->isVolatile();
+}
+
+unsigned ZigClangAsmStmt_getNumOutputs(const struct ZigClangAsmStmt *self) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
     return casted->getNumOutputs();
 }
 
-const struct ZigClangIdentifierInfo *ZigClangGCCAsmStmt_getOutputIdentifier(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangIdentifierInfo *>(casted->getOutputIdentifier(i));
-}
-
-const struct ZigClangStringRef ZigClangGCCAsmStmt_getOutputName(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    auto temp = casted->getOutputName(i);
-    return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
-}
-//
-const struct ZigClangStringRef ZigClangGCCAsmStmt_getOutputConstraint(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
+const struct ZigClangStringRef ZigClangAsmStmt_getOutputConstraint(const struct ZigClangAsmStmt *self, unsigned i) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
     auto temp = casted->getOutputConstraint(i);
     return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
 }
 
-const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getOutputConstraintLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangStringLiteral *>(casted->getOutputConstraintLiteral(i));
-}
-
-const struct ZigClangExpr *ZigClangGCCAsmStmt_getOutputExpr(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
+const struct ZigClangExpr *ZigClangAsmStmt_getOutputExpr(const struct ZigClangAsmStmt *self, unsigned i) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getOutputExpr(i));
 }
 
-unsigned ZigClangGCCAsmStmt_getNumInputs(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
+unsigned ZigClangAsmStmt_getNumInputs(const struct ZigClangAsmStmt *self) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
     return casted->getNumInputs();
 }
 
-const struct ZigClangIdentifierInfo *ZigClangGCCAsmStmt_getInputIdentifier(const struct ZigClangGCCAsmStmt *self, unsigned i) {
+const struct ZigClangStringRef ZigClangAsmStmt_getInputConstraint(const struct ZigClangAsmStmt *self, unsigned i) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
+    auto temp = casted->getInputConstraint(i);
+    return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
+}
+
+const struct ZigClangExpr *ZigClangAsmStmt_getInputExpr(const struct ZigClangAsmStmt *self, unsigned i) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getInputExpr(i));
+}
+
+unsigned ZigClangAsmStmt_getNumClobbers(const struct ZigClangAsmStmt *self) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
+    return casted->getNumClobbers();
+}
+
+const struct ZigClangStringRef ZigClangAsmStmt_getClobber(const struct ZigClangAsmStmt *self, unsigned i) {
+    auto casted = reinterpret_cast<const clang::AsmStmt *>(self);
+    auto temp = casted->getClobber(i);
+    return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
+}
+
+const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getAsmString(const struct ZigClangGCCAsmStmt *self) {
     auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangIdentifierInfo *>(casted->getInputIdentifier(i));
+    return reinterpret_cast<const ZigClangStringLiteral *>(casted->getAsmString());
 }
 
 const struct ZigClangStringRef ZigClangGCCAsmStmt_getInputName(const struct ZigClangGCCAsmStmt *self, unsigned i) {
@@ -3102,43 +3108,11 @@ const struct ZigClangStringRef ZigClangGCCAsmStmt_getInputName(const struct ZigC
     return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
 }
 
-const struct ZigClangStringRef ZigClangGCCAsmStmt_getInputConstraint(const struct ZigClangGCCAsmStmt *self, unsigned i) {
+const struct ZigClangStringRef ZigClangGCCAsmStmt_getOutputName(const struct ZigClangGCCAsmStmt *self, unsigned i) {
     auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    auto temp = casted->getInputConstraint(i);
+    auto temp = casted->getOutputName(i);
     return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
 }
-
-const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getInputConstraintLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangStringLiteral *>(casted->getInputConstraintLiteral(i));
-}
-
-const struct ZigClangExpr *ZigClangGCCAsmStmt_getInputExpr(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangExpr *>(casted->getInputExpr(i));
-}
-
-unsigned ZigClangGCCAsmStmt_getNumClobbers(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return casted->getNumClobbers();
-}
-
-const struct ZigClangStringRef ZigClangGCCAsmStmt_getClobber(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    auto temp = casted->getClobber(i);
-    return ZigClangStringRef{ temp.data(), static_cast<unsigned>(temp.size()) };
-}
-
-const struct ZigClangStringLiteral *ZigClangGCCAsmStmt_getClobberStringLiteral(const struct ZigClangGCCAsmStmt *self, unsigned i) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return reinterpret_cast<const struct ZigClangStringLiteral *>(casted->getClobberStringLiteral(i));
-}
-
-const bool ZigClangGCCAsmStmt_isAsmGoto(const struct ZigClangGCCAsmStmt *self) {
-    auto casted = reinterpret_cast<const clang::GCCAsmStmt *>(self);
-    return casted->isAsmGoto();
-}
-
 
 const struct ZigClangExpr *ZigClangChooseExpr_getChosenSubExpr(const struct ZigClangChooseExpr *self) {
     auto casted = reinterpret_cast<const clang::ChooseExpr *>(self);

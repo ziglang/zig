@@ -288,57 +288,53 @@ pub const ChooseExpr = opaque {
 
 pub const IdentifierInfo = opaque {};
 
+pub const AsmStmt = opaque {
+    pub const isSimple = ZigClangAsmStmt_isSimple;
+    extern fn ZigClangAsmStmt_isSimple(*const AsmStmt) bool;
+
+    pub const isVolatile = ZigClangAsmStmt_isVolatile;
+    extern fn ZigClangAsmStmt_isVolatile(*const AsmStmt) bool;
+
+    pub const getNumOutputs = ZigClangAsmStmt_getNumOutputs;
+    extern fn ZigClangAsmStmt_getNumOutputs(*const AsmStmt) c_uint;
+
+    pub const getOutputIdentifier = ZigClangAsmStmt_getOutputIdentifier;
+    extern fn ZigClangAsmStmt_getOutputIdentifier(*const AsmStmt, c_uint) *const IdentifierInfo;
+
+    pub const getOutputConstraint = ZigClangAsmStmt_getOutputConstraint;
+    extern fn ZigClangAsmStmt_getOutputConstraint(*const AsmStmt, usize) StringRef;
+
+    pub const getOutputConstraintLiteral = ZigClangAsmStmt_getOutputConstraintLiteral;
+    extern fn ZigClangAsmStmt_getOutputConstraintLiteral(*const AsmStmt, usize) *const StringLiteral;
+
+    pub const getOutputExpr = ZigClangAsmStmt_getOutputExpr;
+    extern fn ZigClangAsmStmt_getOutputExpr(*const AsmStmt, usize) *const Expr;
+
+    pub const getNumInputs = ZigClangAsmStmt_getNumInputs;
+    extern fn ZigClangAsmStmt_getNumInputs(*const AsmStmt) c_uint;
+
+    pub const getInputConstraint = ZigClangAsmStmt_getInputConstraint;
+    extern fn ZigClangAsmStmt_getInputConstraint(*const AsmStmt, usize) StringRef;
+
+    pub const getInputExpr = ZigClangAsmStmt_getInputExpr;
+    extern fn ZigClangAsmStmt_getInputExpr(*const AsmStmt, usize) *const Expr;
+
+    pub const getNumClobbers = ZigClangAsmStmt_getNumClobbers;
+    extern fn ZigClangAsmStmt_getNumClobbers(*const AsmStmt) c_uint;
+
+    pub const getClobber = ZigClangAsmStmt_getClobber;
+    extern fn ZigClangAsmStmt_getClobber(*const AsmStmt, usize) StringRef;
+};
+
 pub const GCCAsmStmt = opaque {
     pub const getAsmString = ZigClangGCCAsmStmt_getAsmString;
     extern fn ZigClangGCCAsmStmt_getAsmString(*const GCCAsmStmt) *const StringLiteral;
 
-    pub const isSimple = ZigClangGCCAsmStmt_isSimple;
-    extern fn ZigClangGCCAsmStmt_isSimple(*const GCCAsmStmt) bool;
-
-    pub const getNumOutputs = ZigClangGCCAsmStmt_getNumOutputs;
-    extern fn ZigClangGCCAsmStmt_getNumOutputs(*const GCCAsmStmt) c_uint;
-
-    pub const getOutputIdentifier = ZigClangGCCAsmStmt_getOutputIdentifier;
-    extern fn ZigClangGCCAsmStmt_getOutputIdentifier(*const GCCAsmStmt, c_uint) *const IdentifierInfo;
-
     pub const getOutputName = ZigClangGCCAsmStmt_getOutputName;
     extern fn ZigClangGCCAsmStmt_getOutputName(*const GCCAsmStmt, usize) StringRef;
 
-    pub const getOutputConstraint = ZigClangGCCAsmStmt_getOutputConstraint;
-    extern fn ZigClangGCCAsmStmt_getOutputConstraint(*const GCCAsmStmt, usize) StringRef;
-
-    pub const getOutputConstraintLiteral = ZigClangGCCAsmStmt_getOutputConstraintLiteral;
-    extern fn ZigClangGCCAsmStmt_getOutputConstraintLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
-
-    pub const getOutputExpr = ZigClangGCCAsmStmt_getOutputExpr;
-    extern fn ZigClangGCCAsmStmt_getOutputExpr(*const GCCAsmStmt, usize) *const Expr;
-
-    pub const getNumInputs = ZigClangGCCAsmStmt_getNumInputs;
-    extern fn ZigClangGCCAsmStmt_getNumInputs(*const GCCAsmStmt) c_uint;
-
-    pub const getInputIdentifier = ZigClangGCCAsmStmt_getInputIdentifier;
-    extern fn ZigClangGCCAsmStmt_getInputIdentifier(*const GCCAsmStmt, usize) *const IdentifierInfo;
-
     pub const getInputName = ZigClangGCCAsmStmt_getInputName;
     extern fn ZigClangGCCAsmStmt_getInputName(*const GCCAsmStmt, usize) StringRef;
-
-    pub const getInputConstraint = ZigClangGCCAsmStmt_getInputConstraint;
-    extern fn ZigClangGCCAsmStmt_getInputConstraint(*const GCCAsmStmt, usize) StringRef;
-
-    pub const getInputConstraintLiteral = ZigClangGCCAsmStmt_getInputConstraintLiteral;
-    extern fn ZigClangGCCAsmStmt_getInputConstraintLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
-
-    pub const getInputExpr = ZigClangGCCAsmStmt_getInputExpr;
-    extern fn ZigClangGCCAsmStmt_getInputExpr(*const GCCAsmStmt, usize) *const Expr;
-
-    pub const getNumClobbers = ZigClangGCCAsmStmt_getNumClobbers;
-    extern fn ZigClangGCCAsmStmt_getNumClobbers(*const GCCAsmStmt) c_uint;
-
-    pub const getClobberStringLiteral = ZigClangGCCAsmStmt_getClobberStringLiteral;
-    extern fn ZigClangGCCAsmStmt_getClobberStringLiteral(*const GCCAsmStmt, usize) *const StringLiteral;
-
-    pub const isAsmGoto = ZigClangGCCAsmStmt_isAsmGoto;
-    extern fn ZigClangGCCAsmStmt_isAsmGoto(*const GCCAsmStmt) bool;
 };
 
 pub const CompoundAssignOperator = opaque {
@@ -1234,7 +1230,7 @@ pub const TypeClass = enum(c_int) {
     ExtVector,
 };
 
-const StmtClass = enum(c_int) {
+pub const StmtClass = enum(c_int) {
     NoStmtClass,
     GCCAsmStmtClass,
     MSAsmStmtClass,

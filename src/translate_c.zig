@@ -1364,9 +1364,11 @@ fn transStmt(
             return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
         },
         // When adding new cases here, see comment for maybeBlockify()
-        .GCCAsmStmtClass => {
-            const gcc_asm_stmt = @ptrCast(*const clang.GCCAsmStmt, stmt);
-            return transAsmStmt(c, scope, gcc_asm_stmt, result_used);
+        .GCCAsmStmtClass, .MSAsmStmtClass => |e| {
+            assert(result_used == .unused); // C asm statements always return void
+
+            const gcc_asm_stmt = @ptrCast(*const clang.AsmStmt, stmt);
+            return transAsmStmt(c, scope, gcc_asm_stmt, e);
         },
         .GotoStmtClass,
         .IndirectGotoStmtClass,
@@ -1399,17 +1401,21 @@ fn transAsmRegisterName(gcc_name: []const u8) []const u8 {
     return gcc_name;
 }
 
-fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, result_used: ResultUsed) TransError!Node {
-    assert(result_used == .unused); // C asm statements always return void
+fn transAsmStmt(c: *Context, scope: *Scope, asm_stmt: *const clang.AsmStmt, sc: clang.StmtClass) TransError!Node {
+    if (sc != .GCCAsmStmtClass)
+        return fail(c, error.UnsupportedTranslation, @ptrCast(*const clang.Stmt, asm_stmt).getBeginLoc(), "TODO implement transAsmStmt for {s}", .{@tagName(sc)});
 
-    // TODO: handle new lines
-    const asm_string_literal = try transStringLiteral(c, scope, gcc_stmt.getAsmString(), .used);
+    const gcc_asm_stmt = @ptrCast(*const clang.GCCAsmStmt, asm_stmt);
+    const asm_string_literal = try transStringLiteral(c, scope, gcc_asm_stmt.getAsmString(), .used);
 
-    const outputs_num = gcc_stmt.getNumOutputs();
-    const inputs_num = gcc_stmt.getNumInputs();
-    const clobbers_num = gcc_stmt.getNumClobbers();
+    const outputs_num = asm_stmt.getNumOutputs();
+    const inputs_num = asm_stmt.getNumInputs();
+    const clobbers_num = asm_stmt.getNumClobbers();
 
-    const is_simple = gcc_stmt.isSimple();
+    const is_simple = asm_stmt.isSimple();
+
+    // C allows non-volatile asm statements without outputs
+    const is_volatile = asm_stmt.isVolatile() or (outputs_num == 0);
 
     std.debug.print("is_simple: {} outputs: {} inputs: {} clobbers: {}\n", .{ is_simple, outputs_num, inputs_num, clobbers_num });
 
@@ -1417,25 +1423,27 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
         assert(outputs_num == 0);
         assert(inputs_num == 0);
         assert(clobbers_num == 0);
+        // TODO: pass is_volatile
         return try Tag.asm_simple.create(c.arena, asm_string_literal);
     }
 
     const outputs: ?[]Node = blk: {
         if (outputs_num == 0)
             break :blk null;
+
         var i: c_uint = 0;
-        var temp = std.ArrayList(Node).init(c.arena);
+        var temp_list = std.ArrayList(Node).init(c.arena);
         while (i < outputs_num) : (i = i + 1) {
-            const name = if (gcc_stmt.getOutputName(i).toSlice()) |name| name else "_";
+            const name = if (gcc_asm_stmt.getOutputName(i).toSlice()) |name| name else "_";
 
             // TODO: parse and translate constraints
-            const constraint = transAsmRegisterName(gcc_stmt.getOutputConstraint(i).toSlice().?);
-            const str = try std.fmt.allocPrint(c.arena, "\"{{{}}}\"", .{std.zig.fmtEscapes(constraint)});
+            const constraint = asm_stmt.getOutputConstraint(i).toSlice().?;
+            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(constraint)});
             const constraint_string_literal = try Tag.string_literal.create(c.arena, str);
 
-            const expr = try transExpr(c, scope, gcc_stmt.getOutputExpr(i), .used);
+            const expr = try transExpr(c, scope, asm_stmt.getOutputExpr(i), .used);
 
-            try temp.append(try Tag.asm_inputoutput.create(c.arena, .{
+            try temp_list.append(try Tag.asm_inputoutput.create(c.arena, .{
                 .tag = .asm_output,
                 .name = try Tag.identifier.create(c.arena, name),
                 .constraint = constraint_string_literal,
@@ -1444,25 +1452,25 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
 
             std.debug.print("output[{}] = \"{s}\" \"{s}\" \"{any}\"\n", .{ i, name, constraint, expr });
         }
-        break :blk temp.items;
+        break :blk temp_list.items;
     };
 
     const inputs: ?[]Node = blk: {
         if (inputs_num == 0)
             break :blk null;
         var i: c_uint = 0;
-        var temp = std.ArrayList(Node).init(c.arena);
+        var temp_list = std.ArrayList(Node).init(c.arena);
         while (i < inputs_num) : (i = i + 1) {
-            const name = if (gcc_stmt.getInputName(i).toSlice()) |name| name else "_";
+            const name = if (gcc_asm_stmt.getInputName(i).toSlice()) |name| name else "_";
 
             // TODO: parse and translate constraints
-            const constraint = transAsmRegisterName(gcc_stmt.getInputConstraint(i).toSlice().?);
-            const str = try std.fmt.allocPrint(c.arena, "\"{{{}}}\"", .{std.zig.fmtEscapes(constraint)});
+            const constraint = asm_stmt.getInputConstraint(i).toSlice().?;
+            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(constraint)});
             const constraint_string_literal = try Tag.string_literal.create(c.arena, str);
 
-            const expr = try transExpr(c, scope, gcc_stmt.getInputExpr(i), .used);
+            const expr = try transExpr(c, scope, asm_stmt.getInputExpr(i), .used);
 
-            try temp.append(try Tag.asm_inputoutput.create(c.arena, .{
+            try temp_list.append(try Tag.asm_inputoutput.create(c.arena, .{
                 .tag = .asm_input,
                 .name = try Tag.identifier.create(c.arena, name),
                 .constraint = constraint_string_literal,
@@ -1471,26 +1479,27 @@ fn transAsmStmt(c: *Context, scope: *Scope, gcc_stmt: *const clang.GCCAsmStmt, r
 
             std.debug.print("input[{}] = \"{s}\" \"{s}\" \"{any}\"\n", .{ i, name, constraint, expr });
         }
-        break :blk temp.items;
+        break :blk temp_list.items;
     };
 
     var clobbers: ?[]Node = blk: {
         if (clobbers_num == 0)
             break :blk null;
 
-        var temp = std.ArrayList(Node).init(c.arena);
+        var temp_list = std.ArrayList(Node).init(c.arena);
         var i: c_uint = 0;
         while (i < clobbers_num) : (i = i + 1) {
-            const name = gcc_stmt.getClobberStringLiteral(i);
-            try temp.append(try transStringLiteral(c, scope, name, .used));
+            const name = asm_stmt.getClobber(i).toSlice().?;
+            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(name)});
+            try temp_list.append(try Tag.string_literal.create(c.arena, str));
             std.debug.print("clobber[{}] = \"{s}\" \n", .{ i, name });
         }
-        break :blk temp.items;
+        break :blk temp_list.items;
     };
 
     return try Tag.@"asm".create(c.arena, .{
         .code = asm_string_literal,
-        .@"volatile" = true, // TODO
+        .@"volatile" = is_volatile,
         .outputs = outputs,
         .inputs = inputs,
         .clobbers = clobbers,
