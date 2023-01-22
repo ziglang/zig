@@ -480,6 +480,90 @@ pub fn decodeZStandardFrame(dest: []u8, src: []const u8, verify_checksum: bool) 
     return ReadWriteCount{ .read_count = consumed_count, .write_count = written_count };
 }
 
+pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, verify_checksum: bool) ![]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    assert(readInt(u32, src[0..4]) == frame.ZStandard.magic_number);
+    var consumed_count: usize = 4;
+
+    const frame_header = try decodeZStandardHeader(src[consumed_count..], &consumed_count);
+
+    if (frame_header.descriptor.dictionary_id_flag != 0) return error.DictionaryIdFlagUnsupported;
+
+    const window_size = frameWindowSize(frame_header) orelse return error.WindowSizeUnknown;
+    log.debug("window size = {d}", .{window_size});
+
+    const should_compute_checksum = frame_header.descriptor.content_checksum_flag and verify_checksum;
+    var hash = if (should_compute_checksum) std.hash.XxHash64.init(0) else null;
+
+    const block_size_maximum = @min(1 << 17, window_size);
+    log.debug("block size maximum = {d}", .{block_size_maximum});
+
+    var window_data = try allocator.alloc(u8, window_size);
+    defer allocator.free(window_data);
+    var ring_buffer = RingBuffer{
+        .data = window_data,
+        .write_index = 0,
+        .read_index = 0,
+    };
+
+    // These tables take 7680 bytes
+    var literal_fse_data: [literal_table_size_max]Table.Fse = undefined;
+    var match_fse_data: [match_table_size_max]Table.Fse = undefined;
+    var offset_fse_data: [offset_table_size_max]Table.Fse = undefined;
+
+    var block_header = decodeBlockHeader(src[consumed_count..][0..3]);
+    consumed_count += 3;
+    var decode_state = DecodeState{
+        .repeat_offsets = .{
+            types.compressed_block.start_repeated_offset_1,
+            types.compressed_block.start_repeated_offset_2,
+            types.compressed_block.start_repeated_offset_3,
+        },
+
+        .offset = undefined,
+        .match = undefined,
+        .literal = undefined,
+
+        .literal_fse_buffer = &literal_fse_data,
+        .match_fse_buffer = &match_fse_data,
+        .offset_fse_buffer = &offset_fse_data,
+
+        .fse_tables_undefined = true,
+
+        .literal_written_count = 0,
+        .literal_stream_reader = undefined,
+        .literal_stream_bytes = undefined,
+        .literal_stream_index = undefined,
+        .huffman_tree = null,
+    };
+    var written_count: usize = 0;
+    while (true) : ({
+        block_header = decodeBlockHeader(src[consumed_count..][0..3]);
+        consumed_count += 3;
+    }) {
+        if (block_header.block_size > block_size_maximum) return error.CompressedBlockSizeOverMaximum;
+        const written_size = try decodeBlockRingBuffer(
+            &ring_buffer,
+            src[consumed_count..],
+            block_header,
+            &decode_state,
+            &consumed_count,
+            block_size_maximum,
+        );
+        if (written_size > block_size_maximum) return error.DecompressedBlockSizeOverMaximum;
+        const written_slice = ring_buffer.sliceLast(written_size);
+        try result.appendSlice(written_slice.first);
+        try result.appendSlice(written_slice.second);
+        if (hash) |*hash_state| {
+            hash_state.update(written_slice.first);
+            hash_state.update(written_slice.second);
+        }
+        written_count += written_size;
+        if (block_header.last_block) break;
+    }
+    return result.toOwnedSlice();
+}
+
 pub fn decodeFrameBlocks(dest: []u8, src: []const u8, consumed_count: *usize, hash: ?*std.hash.XxHash64) !usize {
     // These tables take 7680 bytes
     var literal_fse_data: [literal_table_size_max]Table.Fse = undefined;
