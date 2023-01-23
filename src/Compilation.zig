@@ -4319,11 +4319,18 @@ pub fn addCCArgs(
                     }
                 },
                 .macos => {
+                    try argv.ensureUnusedCapacity(2);
                     // Pass the proper -m<os>-version-min argument for darwin.
                     const ver = target.os.version_range.semver.min;
-                    try argv.append(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
+                    argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
                         ver.major, ver.minor, ver.patch,
                     }));
+                    // This avoids a warning that sometimes occurs when
+                    // providing both a -target argument that contains a
+                    // version as well as the -mmacosx-version-min argument.
+                    // Zig provides the correct value in both places, so it
+                    // doesn't matter which one gets overridden.
+                    argv.appendAssumeCapacity("-Wno-overriding-t-option");
                 },
                 .ios, .tvos, .watchos => switch (target.cpu.arch) {
                     // Pass the proper -m<os>-version-min argument for darwin.

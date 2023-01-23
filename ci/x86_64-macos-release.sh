@@ -3,13 +3,10 @@
 set -x
 set -e
 
-# Script assumes the presence of the following:
-# s3cmd
-
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.534+b0b1cc356"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.1416+8484df5bd"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j3"
 
@@ -40,7 +37,6 @@ export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
 
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
@@ -51,7 +47,7 @@ cmake .. \
 
 make $JOBS install
 
-stage3-release/bin/zig build test docs \
+stage3/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
@@ -59,20 +55,20 @@ stage3-release/bin/zig build test docs \
   --search-prefix "$PREFIX"
 
 # Produce the experimental std lib documentation.
-stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
+stage3/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
-stage3-release/bin/zig build \
-  --prefix stage4-release \
+stage3/bin/zig build \
+  --prefix stage4 \
   -Denable-llvm \
   -Dno-lib \
   -Drelease \
   -Dstrip \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \
-  -Dversion-string="$(stage3-release/bin/zig version)"
+  -Dversion-string="$(stage3/bin/zig version)"
 
 # diff returns an error code if the files differ.
 echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-diff stage3-release/bin/zig stage4-release/bin/zig
+diff stage3/bin/zig stage4/bin/zig
