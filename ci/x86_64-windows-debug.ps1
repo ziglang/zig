@@ -75,6 +75,7 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
   -I..\lib `
   -ofmt=c `
   -femit-bin="test-x86_64-windows-msvc.c" `
+  --test-no-exec `
   -target x86_64-windows-msvc
 CheckLastExitCode
 
@@ -85,7 +86,7 @@ CheckLastExitCode
   -OReleaseSmall `
   --name compiler_rt `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
-  --pkg-begin build_options config.zig --pkg-end
+  --pkg-begin build_options config.zig --pkg-end `
   -target x86_64-windows-msvc
 CheckLastExitCode
 
