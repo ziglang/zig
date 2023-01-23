@@ -240,10 +240,9 @@ pub const MemoryDescriptorAttribute = packed struct(u64) {
 
 pub const MemoryDescriptor = extern struct {
     type: MemoryType,
-    padding: u32,
     physical_start: u64,
     virtual_start: u64,
-    number_of_pages: usize,
+    number_of_pages: u64,
     attribute: MemoryDescriptorAttribute,
 };
 
