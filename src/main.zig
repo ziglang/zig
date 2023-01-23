@@ -3020,6 +3020,41 @@ fn buildOutputType(
         break :l global_cache_directory;
     };
 
+    var temp_stdin_file: ?[]const u8 = null;
+    defer {
+        if (temp_stdin_file) |file| {
+            // some garbage may stay in the file system if removal fails.
+            // Alternatively, we could tell the user that the removal failed,
+            // but it's not as much of a deal: it's a temporary cache directory
+            // at all.
+            local_cache_directory.handle.deleteFile(file) catch {};
+        }
+    }
+
+    for (c_source_files.items) |*src| {
+        if (!mem.eql(u8, src.src_path, "-")) continue;
+
+        const ext = src.ext orelse
+            fatal("-E or -x is required when reading from a non-regular file", .{});
+
+        // "-" is stdin. Dump it to a real file.
+        const new_file = blk: {
+            var buf: ["stdin.".len + Compilation.FileExt.max_len]u8 = undefined;
+            const fname = try std.fmt.bufPrint(&buf, "stdin.{s}", .{@tagName(ext)});
+            const new_name = try local_cache_directory.tmpFilePath(arena, fname);
+
+            try local_cache_directory.handle.makePath("tmp");
+            var outfile = try local_cache_directory.handle.createFile(new_name, .{});
+            defer outfile.close();
+            errdefer local_cache_directory.handle.deleteFile(new_name) catch {};
+
+            try outfile.writeFileAll(io.getStdIn(), .{});
+            break :blk new_name;
+        };
+        temp_stdin_file = new_file;
+        src.src_path = new_file;
+    }
+
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
@@ -3873,7 +3908,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Translate
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
             const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
-            const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
+            const out_dep_path = try comp.local_cache_directory.tmpFilePath(arena, dep_basename);
             break :blk out_dep_path;
         };
 
