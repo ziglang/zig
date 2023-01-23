@@ -829,6 +829,12 @@ if(MSVC OR MINGW)
     target_link_libraries(zig2 LINK_PUBLIC version)
 endif()
 
+set(ZIG_SKIP_STAGE3 off CACHE BOOL "Skip building stage3 compiler")
+
+if(ZIG_SKIP_STAGE3)
+    return()
+endif()
+
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   set(ZIG_RELEASE_ARG "")
 elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
