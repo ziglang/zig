@@ -1,11 +1,16 @@
 const std = @import("std");
+const mem = std.mem;
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
 const fatal = @import("main.zig").fatal;
 
+const Env = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
-    _ = args;
     const self_exe_path = try introspect.findZigExePath(gpa);
     defer gpa.free(self_exe_path);
 
@@ -25,32 +30,33 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     const triple = try info.target.zigTriple(gpa);
     defer gpa.free(triple);
 
+    const envars: []Env = &[_]Env{
+        .{ .name = "zig_exe", .value = self_exe_path },
+        .{ .name = "lib_dir", .value = zig_lib_directory.path.? },
+        .{ .name = "std_dir", .value = zig_std_dir },
+        .{ .name = "global_cache_dir", .value = global_cache_dir },
+        .{ .name = "version", .value = build_options.version },
+        .{ .name = "target", .value = triple },
+    };
+
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
 
-    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
+    if (args.len > 0) {
+        for (args) |name| {
+            for (envars) |env| {
+                if (mem.eql(u8, name, env.name)) {
+                    try w.print("{s}\n", .{env.value});
+                }
+            }
+        }
+        try bw.flush();
 
-    try jws.beginObject();
+        return;
+    }
 
-    try jws.objectField("zig_exe");
-    try jws.write(self_exe_path);
-
-    try jws.objectField("lib_dir");
-    try jws.write(zig_lib_directory.path.?);
-
-    try jws.objectField("std_dir");
-    try jws.write(zig_std_dir);
-
-    try jws.objectField("global_cache_dir");
-    try jws.write(global_cache_dir);
-
-    try jws.objectField("version");
-    try jws.write(build_options.version);
-
-    try jws.objectField("target");
-    try jws.write(triple);
-
-    try jws.endObject();
-    try w.writeByte('\n');
+    for (envars) |env| {
+        try w.print("{[name]s}=\"{[value]s}\"\n", env);
+    }
     try bw.flush();
 }
