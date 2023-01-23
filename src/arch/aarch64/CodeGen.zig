@@ -181,6 +181,7 @@ const DbgInfoReloc = struct {
             else => unreachable,
         }
     }
+
     fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
         switch (function.debug_output) {
             .dwarf => |dw| {
@@ -525,6 +526,28 @@ fn gen(self: *Self) !void {
 
             try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = ret_ptr_reg });
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
+        }
+
+        for (self.args) |*arg, arg_index| {
+            // Copy register arguments to the stack
+            switch (arg.*) {
+                .register => |reg| {
+                    // The first AIR instructions of the main body are guaranteed
+                    // to be the functions arguments
+                    const inst = self.air.getMainBody()[arg_index];
+                    assert(self.air.instructions.items(.tag)[inst] == .arg);
+
+                    const ty = self.air.typeOfIndex(inst);
+
+                    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const abi_align = ty.abiAlignment(self.target.*);
+                    const stack_offset = try self.allocMem(abi_size, abi_align, inst);
+                    try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+
+                    arg.* = MCValue{ .stack_offset = stack_offset };
+                },
+                else => {},
+            }
         }
 
         _ = try self.addInst(.{
@@ -4163,45 +4186,19 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     self.arg_index += 1;
 
     const ty = self.air.typeOfIndex(inst);
-    const result = self.args[arg_index];
+    const tag = self.air.instructions.items(.tag)[inst];
     const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
 
-    const mcv = switch (result) {
-        // Copy registers to the stack
-        .register => |reg| blk: {
-            const mod = self.bin_file.options.module.?;
-            const abi_size = math.cast(u32, ty.abiSize(self.target.*)) orelse {
-                return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
-            };
-            const abi_align = ty.abiAlignment(self.target.*);
-            const stack_offset = try self.allocMem(abi_size, abi_align, inst);
-            try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
-
-            break :blk MCValue{ .stack_offset = stack_offset };
-        },
-        else => result,
-    };
-
-    const tag = self.air.instructions.items(.tag)[inst];
     try self.dbg_info_relocs.append(self.gpa, .{
         .tag = tag,
         .ty = ty,
         .name = name,
-        .mcv = result,
+        .mcv = self.args[arg_index],
     });
 
-    if (self.liveness.isUnused(inst))
-        return self.finishAirBookkeeping();
-
-    switch (mcv) {
-        .register => |reg| {
-            self.register_manager.getRegAssumeFree(reg, inst);
-        },
-        else => {},
-    }
-
-    return self.finishAir(inst, mcv, .{ .none, .none, .none });
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airBreakpoint(self: *Self) !void {
