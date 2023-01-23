@@ -1943,6 +1943,10 @@ pub const File = struct {
     zir: Zir,
     /// Package that this file is a part of, managed externally.
     pkg: *Package,
+    /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
+    multi_pkg: bool = false,
+    /// List of references to this file, used for multi-package errors.
+    references: std.ArrayListUnmanaged(Reference) = .{},
 
     /// Used by change detection algorithm, after astgen, contains the
     /// set of decls that existed in the previous ZIR but not in the new one.
@@ -1957,6 +1961,14 @@ pub const File = struct {
     /// newly introduces compile errors during an update. When ZIR is
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
+
+    /// A single reference to a file.
+    const Reference = union(enum) {
+        /// The file is imported directly (i.e. not as a package) with @import.
+        import: SrcLoc,
+        /// The file is the root of a package.
+        root: *Package,
+    };
 
     pub fn unload(file: *File, gpa: Allocator) void {
         file.unloadTree(gpa);
@@ -1990,6 +2002,7 @@ pub const File = struct {
         log.debug("deinit File {s}", .{file.sub_file_path});
         file.deleted_decls.deinit(gpa);
         file.outdated_decls.deinit(gpa);
+        file.references.deinit(gpa);
         if (file.root_decl.unwrap()) |root_decl| {
             mod.destroyDecl(root_decl);
         }
@@ -2109,6 +2122,44 @@ pub const File = struct {
             .parse_failure, .astgen_failure => false,
             else => true,
         };
+    }
+
+    /// Add a reference to this file during AstGen.
+    pub fn addReference(file: *File, mod: Module, ref: Reference) !void {
+        try file.references.append(mod.gpa, ref);
+
+        const pkg = switch (ref) {
+            .import => |loc| loc.file_scope.pkg,
+            .root => |pkg| pkg,
+        };
+        if (pkg != file.pkg) file.multi_pkg = true;
+    }
+
+    /// Mark this file and every file referenced by it as multi_pkg and report an
+    /// astgen_failure error for them. AstGen must have completed in its entirety.
+    pub fn recursiveMarkMultiPkg(file: *File, mod: *Module) void {
+        file.multi_pkg = true;
+        file.status = .astgen_failure;
+
+        std.debug.assert(file.zir_loaded);
+        const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+        if (imports_index == 0) return;
+        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+
+        var import_i: u32 = 0;
+        var extra_index = extra.end;
+        while (import_i < extra.data.imports_len) : (import_i += 1) {
+            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            extra_index = item.end;
+
+            const import_path = file.zir.nullTerminatedString(item.data.name);
+            if (mem.eql(u8, import_path, "builtin")) continue;
+
+            const res = mod.importFile(file, import_path) catch continue;
+            if (!res.is_pkg and !res.file.multi_pkg) {
+                res.file.recursiveMarkMultiPkg(mod);
+            }
+        }
     }
 };
 
@@ -3220,15 +3271,10 @@ pub fn deinit(mod: *Module) void {
     // The callsite of `Compilation.create` owns the `main_pkg`, however
     // Module owns the builtin and std packages that it adds.
     if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
-        gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
     if (mod.main_pkg.table.fetchRemove("std")) |kv| {
-        gpa.free(kv.key);
         kv.value.destroy(gpa);
-    }
-    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
-        gpa.free(kv.key);
     }
     if (mod.root_pkg != mod.main_pkg) {
         mod.root_pkg.destroy(gpa);
@@ -4695,6 +4741,7 @@ pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_
 pub const ImportFileResult = struct {
     file: *File,
     is_new: bool,
+    is_pkg: bool,
 };
 
 pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
@@ -4714,6 +4761,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
+        .is_pkg = true,
     };
 
     const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
@@ -4737,9 +4785,11 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
         .pkg = pkg,
         .root_decl = .none,
     };
+    try new_file.addReference(mod.*, .{ .root = pkg });
     return ImportFileResult{
         .file = new_file,
         .is_new = true,
+        .is_pkg = true,
     };
 }
 
@@ -4780,6 +4830,7 @@ pub fn importFile(
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
+        .is_pkg = false,
     };
 
     const new_file = try gpa.create(File);
@@ -4825,6 +4876,7 @@ pub fn importFile(
     return ImportFileResult{
         .file = new_file,
         .is_new = true,
+        .is_pkg = false,
     };
 }
 

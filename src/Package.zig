@@ -24,10 +24,13 @@ table: Table = .{},
 parent: ?*Package = null,
 /// Whether to free `root_src_directory` on `destroy`.
 root_src_directory_owned: bool = false,
+/// This information can be recovered from 'table', but it's more convenient to store on the package.
+name: []const u8,
 
 /// Allocate a Package. No references to the slices passed are kept.
 pub fn create(
     gpa: Allocator,
+    name: []const u8,
     /// Null indicates the current working directory
     root_src_dir_path: ?[]const u8,
     /// Relative to root_src_dir_path
@@ -42,6 +45,9 @@ pub fn create(
     const owned_src_path = try gpa.dupe(u8, root_src_path);
     errdefer gpa.free(owned_src_path);
 
+    const owned_name = try gpa.dupe(u8, name);
+    errdefer gpa.free(owned_name);
+
     ptr.* = .{
         .root_src_directory = .{
             .path = owned_dir_path,
@@ -49,6 +55,7 @@ pub fn create(
         },
         .root_src_path = owned_src_path,
         .root_src_directory_owned = true,
+        .name = owned_name,
     };
 
     return ptr;
@@ -56,6 +63,7 @@ pub fn create(
 
 pub fn createWithDir(
     gpa: Allocator,
+    name: []const u8,
     directory: Compilation.Directory,
     /// Relative to `directory`. If null, means `directory` is the root src dir
     /// and is owned externally.
@@ -69,6 +77,9 @@ pub fn createWithDir(
     const owned_src_path = try gpa.dupe(u8, root_src_path);
     errdefer gpa.free(owned_src_path);
 
+    const owned_name = try gpa.dupe(u8, name);
+    errdefer gpa.free(owned_name);
+
     if (root_src_dir_path) |p| {
         const owned_dir_path = try directory.join(gpa, &[1][]const u8{p});
         errdefer gpa.free(owned_dir_path);
@@ -80,12 +91,14 @@ pub fn createWithDir(
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
+            .name = owned_name,
         };
     } else {
         ptr.* = .{
             .root_src_directory = directory,
             .root_src_directory_owned = false,
             .root_src_path = owned_src_path,
+            .name = owned_name,
         };
     }
     return ptr;
@@ -95,6 +108,7 @@ pub fn createWithDir(
 /// inside its table; the caller is responsible for calling destroy() on them.
 pub fn destroy(pkg: *Package, gpa: Allocator) void {
     gpa.free(pkg.root_src_path);
+    gpa.free(pkg.name);
 
     if (pkg.root_src_directory_owned) {
         // If root_src_directory.path is null then the handle is the cwd()
@@ -111,24 +125,18 @@ pub fn destroy(pkg: *Package, gpa: Allocator) void {
 
 /// Only frees memory associated with the table.
 pub fn deinitTable(pkg: *Package, gpa: Allocator) void {
-    var it = pkg.table.keyIterator();
-    while (it.next()) |key| {
-        gpa.free(key.*);
-    }
-
     pkg.table.deinit(gpa);
 }
 
-pub fn add(pkg: *Package, gpa: Allocator, name: []const u8, package: *Package) !void {
+pub fn add(pkg: *Package, gpa: Allocator, package: *Package) !void {
     try pkg.table.ensureUnusedCapacity(gpa, 1);
-    const name_dupe = try gpa.dupe(u8, name);
-    pkg.table.putAssumeCapacityNoClobber(name_dupe, package);
+    pkg.table.putAssumeCapacityNoClobber(package.name, package);
 }
 
-pub fn addAndAdopt(parent: *Package, gpa: Allocator, name: []const u8, child: *Package) !void {
+pub fn addAndAdopt(parent: *Package, gpa: Allocator, child: *Package) !void {
     assert(child.parent == null); // make up your mind, who is the parent??
     child.parent = parent;
-    return parent.add(gpa, name, child);
+    return parent.add(gpa, child);
 }
 
 pub const build_zig_basename = "build.zig";
@@ -237,7 +245,7 @@ pub fn fetchAndAddDependencies(
             sub_prefix,
         );
 
-        try addAndAdopt(pkg, gpa, fqn, sub_pkg);
+        try addAndAdopt(pkg, gpa, sub_pkg);
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
             std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
@@ -249,6 +257,7 @@ pub fn fetchAndAddDependencies(
 
 pub fn createFilePkg(
     gpa: Allocator,
+    name: []const u8,
     cache_directory: Compilation.Directory,
     basename: []const u8,
     contents: []const u8,
@@ -269,7 +278,7 @@ pub fn createFilePkg(
     const o_dir_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
     try renameTmpIntoCache(cache_directory.handle, tmp_dir_sub_path, o_dir_sub_path);
 
-    return createWithDir(gpa, cache_directory, o_dir_sub_path, basename);
+    return createWithDir(gpa, name, cache_directory, o_dir_sub_path, basename);
 }
 
 fn fetchAndUnpack(
@@ -312,6 +321,9 @@ fn fetchAndUnpack(
         const owned_src_path = try gpa.dupe(u8, build_zig_basename);
         errdefer gpa.free(owned_src_path);
 
+        const owned_name = try gpa.dupe(u8, fqn);
+        errdefer gpa.free(owned_name);
+
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
 
@@ -326,6 +338,7 @@ fn fetchAndUnpack(
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
+            .name = owned_name,
         };
 
         return ptr;
@@ -414,7 +427,7 @@ fn fetchAndUnpack(
         std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
     });
 
-    return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    return createWithDir(gpa, fqn, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
 }
 
 fn reportError(

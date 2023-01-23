@@ -639,14 +639,6 @@ pub const AllErrors = struct {
                 note_i += 1;
             }
         }
-        if (module_err_msg.src_loc.lazy == .entire_file) {
-            try errors.append(.{
-                .plain = .{
-                    .msg = try allocator.dupe(u8, module_err_msg.msg),
-                },
-            });
-            return;
-        }
 
         const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
         for (reference_trace) |*reference, i| {
@@ -683,7 +675,7 @@ pub const AllErrors = struct {
                 .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
                 .reference_trace = reference_trace,
-                .source_line = try allocator.dupe(u8, err_loc.source_line),
+                .source_line = if (module_err_msg.src_loc.lazy == .entire_file) null else try allocator.dupe(u8, err_loc.source_line),
             },
         });
     }
@@ -1610,6 +1602,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
+                "builtin",
                 zig_cache_artifact_directory,
                 null,
                 "builtin.zig",
@@ -1618,6 +1611,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const std_pkg = try Package.createWithDir(
                 gpa,
+                "std",
                 options.zig_lib_directory,
                 "std",
                 "std.zig",
@@ -1625,11 +1619,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             errdefer std_pkg.destroy(gpa);
 
             const root_pkg = if (options.is_test) root_pkg: {
+                // TODO: we currently have two packages named 'root' here, which is weird. This
+                // should be changed as part of the resolution of #12201
                 const test_pkg = if (options.test_runner_path) |test_runner|
-                    try Package.create(gpa, null, test_runner)
+                    try Package.create(gpa, "root", null, test_runner)
                 else
                     try Package.createWithDir(
                         gpa,
+                        "root",
                         options.zig_lib_directory,
                         null,
                         "test_runner.zig",
@@ -1640,9 +1637,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
-            try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
-            try main_pkg.add(gpa, "root", root_pkg);
-            try main_pkg.addAndAdopt(gpa, "std", std_pkg);
+            try main_pkg.addAndAdopt(gpa, builtin_pkg);
+            try main_pkg.add(gpa, root_pkg);
+            try main_pkg.addAndAdopt(gpa, std_pkg);
 
             const main_pkg_is_std = m: {
                 const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
@@ -3075,6 +3072,57 @@ pub fn performAllTheWork(
         }
     }
 
+    if (comp.bin_file.options.module) |mod| {
+        for (mod.import_table.values()) |file| {
+            if (!file.multi_pkg) continue;
+            const err = err_blk: {
+                const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
+                errdefer mod.gpa.free(notes);
+
+                for (notes) |*note, i| {
+                    errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
+                    note.* = switch (file.references.items[i]) {
+                        .import => |loc| try Module.ErrorMsg.init(
+                            mod.gpa,
+                            loc,
+                            "imported from package {s}",
+                            .{loc.file_scope.pkg.name},
+                        ),
+                        .root => |pkg| try Module.ErrorMsg.init(
+                            mod.gpa,
+                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                            "root of package {s}",
+                            .{pkg.name},
+                        ),
+                    };
+                }
+                errdefer for (notes) |*n| n.deinit(mod.gpa);
+
+                const err = try Module.ErrorMsg.create(
+                    mod.gpa,
+                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                    "file exists in multiple packages",
+                    .{},
+                );
+                err.notes = notes;
+                break :err_blk err;
+            };
+            errdefer err.destroy(mod.gpa);
+            try mod.failed_files.putNoClobber(mod.gpa, file, err);
+        }
+
+        // Now that we've reported the errors, we need to deal with
+        // dependencies. Any file referenced by a multi_pkg file should also be
+        // marked multi_pkg and have its status set to astgen_failure, as it's
+        // ambiguous which package they should be analyzed as a part of. We need
+        // to add this flag after reporting the errors however, as otherwise
+        // we'd get an error for every single downstream file, which wouldn't be
+        // very useful.
+        for (mod.import_table.values()) |file| {
+            if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
+        }
+    }
+
     {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
@@ -3499,7 +3547,15 @@ fn workerAstGenFile(
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
-                break :blk mod.importFile(file, import_path) catch continue;
+                const res = mod.importFile(file, import_path) catch continue;
+                if (!res.is_pkg) {
+                    res.file.addReference(mod.*, .{ .import = .{
+                        .file_scope = file,
+                        .parent_decl_node = 0,
+                        .lazy = .{ .token_abs = item.data.token },
+                    } }) catch continue;
+                }
+                break :blk res;
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
@@ -5327,6 +5383,7 @@ fn buildOutputFromZig(
     var main_pkg: Package = .{
         .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
+        .name = "root",
     };
     defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
