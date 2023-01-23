@@ -52,7 +52,7 @@ pub const frame = struct {
 };
 
 pub const compressed_block = struct {
-    pub const Literals = struct {
+    pub const LiteralsSection = struct {
         header: Header,
         huffman_tree: ?HuffmanTree,
         streams: Streams,
@@ -119,8 +119,8 @@ pub const compressed_block = struct {
         }
     };
 
-    pub const Sequences = struct {
-        header: Sequences.Header,
+    pub const SequencesSection = struct {
+        header: SequencesSection.Header,
         literals_length_table: Table,
         offset_table: Table,
         match_length_table: Table,

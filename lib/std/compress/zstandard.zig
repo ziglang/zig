@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const decompress = @import("zstandard/decompress.zig");
+pub usingnamespace @import("zstandard/types.zig");
 
 test "decompression" {
     const uncompressed = @embedFile("testdata/rfc8478.txt");
