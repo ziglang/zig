@@ -601,7 +601,6 @@ pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, 
         .literal_stream_index = undefined,
         .huffman_tree = null,
     };
-    var written_count: usize = 0;
     while (true) : ({
         block_header = decodeBlockHeader(src[consumed_count..][0..3]);
         consumed_count += 3;
@@ -623,7 +622,6 @@ pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, 
             hash_state.update(written_slice.first);
             hash_state.update(written_slice.second);
         }
-        written_count += written_size;
         if (block_header.last_block) break;
     }
     return result.toOwnedSlice();
@@ -637,6 +635,7 @@ pub fn decodeFrameBlocks(dest: []u8, src: []const u8, consumed_count: *usize, ha
 
     var block_header = decodeBlockHeader(src[0..3]);
     var bytes_read: usize = 3;
+    defer consumed_count.* += bytes_read;
     var decode_state = DecodeState{
         .repeat_offsets = .{
             types.compressed_block.start_repeated_offset_1,
@@ -676,7 +675,6 @@ pub fn decodeFrameBlocks(dest: []u8, src: []const u8, consumed_count: *usize, ha
         written_count += written_size;
         if (block_header.last_block) break;
     }
-    consumed_count.* += bytes_read;
     return written_count;
 }
 
