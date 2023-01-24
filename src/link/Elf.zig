@@ -756,10 +756,11 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.writeSymbol(0);
     }
 
-    if (self.dwarf) |dw| {
+    if (self.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
             self.debug_str_section_index = @intCast(u16, self.sections.items.len);
             assert(dw.strtab.items.len == 0);
+            try dw.strtab.append(self.base.allocator, 0);
             try self.sections.append(self.base.allocator, .{
                 .sh_name = try self.makeString(".debug_str"),
                 .sh_type = elf.SHT_PROGBITS,
