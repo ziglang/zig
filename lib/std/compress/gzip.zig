@@ -1,7 +1,7 @@
 //
 // Decompressor for GZIP data streams (RFC1952)
 
-const std = @import("std");
+const std = @import("../std.zig");
 const io = std.io;
 const fs = std.fs;
 const testing = std.testing;
@@ -17,10 +17,7 @@ const FCOMMENT = 1 << 4;
 
 const max_string_len = 1024;
 
-/// TODO: the fully qualified namespace to this declaration is
-/// std.compress.gzip.GzipStream which has a redundant "gzip" in the name.
-/// Instead, it should be `std.compress.gzip.Stream`.
-pub fn GzipStream(comptime ReaderType: type) type {
+pub fn Decompress(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
 
@@ -154,14 +151,14 @@ pub fn GzipStream(comptime ReaderType: type) type {
     };
 }
 
-pub fn gzipStream(allocator: mem.Allocator, reader: anytype) !GzipStream(@TypeOf(reader)) {
-    return GzipStream(@TypeOf(reader)).init(allocator, reader);
+pub fn decompress(allocator: mem.Allocator, reader: anytype) !Decompress(@TypeOf(reader)) {
+    return Decompress(@TypeOf(reader)).init(allocator, reader);
 }
 
 fn testReader(data: []const u8, comptime expected: []const u8) !void {
     var in_stream = io.fixedBufferStream(data);
 
-    var gzip_stream = try gzipStream(testing.allocator, in_stream.reader());
+    var gzip_stream = try decompress(testing.allocator, in_stream.reader());
     defer gzip_stream.deinit();
 
     // Read and decompress the whole file

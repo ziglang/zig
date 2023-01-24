@@ -370,14 +370,11 @@ fn fetchAndUnpack(
         if (mem.endsWith(u8, uri.path, ".tar.gz")) {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
-
-            var gzip_stream = try std.compress.gzip.gzipStream(gpa, br.reader());
-            defer gzip_stream.deinit();
-
-            try std.tar.pipeToFileSystem(tmp_directory.handle, gzip_stream.reader(), .{
-                .strip_components = 1,
-            });
+            try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
+        } else if (mem.endsWith(u8, uri.path, ".tar.xz")) {
+            // I have not checked what buffer sizes the xz decompression implementation uses
+            // by default, so the same logic applies for buffering the reader as for gzip.
+            try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
             return reportError(
                 ini,
@@ -428,6 +425,22 @@ fn fetchAndUnpack(
     });
 
     return createWithDir(gpa, fqn, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+}
+
+fn unpackTarball(
+    gpa: Allocator,
+    req: *std.http.Client.Request,
+    out_dir: fs.Dir,
+    comptime compression: type,
+) !void {
+    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
+
+    var decompress = try compression.decompress(gpa, br.reader());
+    defer decompress.deinit();
+
+    try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
+        .strip_components = 1,
+    });
 }
 
 fn reportError(
