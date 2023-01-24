@@ -1415,7 +1415,13 @@ fn make(step: *Step) !void {
         try zig_args.append("-fno-stack-check");
     }
     try addFlag(&zig_args, "stack-protector", self.stack_protector);
-    try addFlag(&zig_args, "red-zone", self.red_zone);
+    if (self.red_zone) |red_zone| {
+        if (red_zone) {
+            try zig_args.append("-mred-zone");
+        } else {
+            try zig_args.append("-mno-red-zone");
+        }
+    }
     try addFlag(&zig_args, "omit-frame-pointer", self.omit_frame_pointer);
     try addFlag(&zig_args, "dll-export-fns", self.dll_export_fns);
 
