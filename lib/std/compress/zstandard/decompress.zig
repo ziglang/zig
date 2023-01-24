@@ -1418,8 +1418,7 @@ fn decodeFseTable(
     }
     bit_reader.alignToByte();
 
-    // TODO: check there are at least 2 non-zero probabilities
-
+    if (value_count < 2) return error.MalformedFseTable;
     if (accumulated_probability != total_probability) return error.MalformedFseTable;
     if (value_count > expected_symbol_count) return error.MalformedFseTable;
 
