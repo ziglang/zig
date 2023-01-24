@@ -332,41 +332,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
 }
 
-/// Takes a Slice or Many Pointer and returns it with the Type modified to have the given sentinel value.
-/// This function assumes the caller has verified the memory contains the sentinel value.
-pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Sentinel(@TypeOf(p), sentinel_val) {
-    const T = @TypeOf(p);
-    const ReturnType = Sentinel(T, sentinel_val);
-    switch (@typeInfo(T)) {
-        .Pointer => |info| switch (info.size) {
-            .Slice, .Many, .One => return @ptrCast(ReturnType, p),
-            .C => {},
-        },
-        .Optional => |info| switch (@typeInfo(info.child)) {
-            .Pointer => |ptr_info| switch (ptr_info.size) {
-                .Many => return @ptrCast(ReturnType, p),
-                else => {},
-            },
-            else => {},
-        },
-        else => {},
-    }
-    @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
-}
-
-test "std.meta.assumeSentinel" {
-    try testing.expect([*:0]u8 == @TypeOf(assumeSentinel(@as([*]u8, undefined), 0)));
-    try testing.expect([:0]u8 == @TypeOf(assumeSentinel(@as([]u8, undefined), 0)));
-    try testing.expect([*:0]const u8 == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
-    try testing.expect([:0]const u8 == @TypeOf(assumeSentinel(@as([]const u8, undefined), 0)));
-    try testing.expect([*:0]u16 == @TypeOf(assumeSentinel(@as([*]u16, undefined), 0)));
-    try testing.expect([:0]const u16 == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
-    try testing.expect([*:3]u8 == @TypeOf(assumeSentinel(@as([*:1]u8, undefined), 3)));
-    try testing.expect([:null]?[*]u8 == @TypeOf(assumeSentinel(@as([]?[*]u8, undefined), null)));
-    try testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8, undefined), null)));
-    try testing.expect(*[10:0]u8 == @TypeOf(assumeSentinel(@as(*[10]u8, undefined), 0)));
-    try testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
-}
+const assumeSentinel = @compileError("This function has been removed, consider using std.mem.sliceTo() or if needed a @ptrCast()");
 
 pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {
