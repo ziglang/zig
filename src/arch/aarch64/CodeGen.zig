@@ -3999,7 +3999,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 const mod = self.bin_file.options.module.?;
                                 const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                                 const atom_index = switch (self.bin_file.tag) {
-                                    .macho => owner_decl.link.macho.sym_index,
+                                    .macho => owner_decl.link.macho.getSymbolIndex().?,
                                     .coff => owner_decl.link.coff.sym_index,
                                     else => unreachable, // unsupported target format
                                 };
@@ -4328,10 +4328,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
+                try fn_owner_decl.link.macho.ensureInitialized(macho_file);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.macho.sym_index,
+                        .sym_index = fn_owner_decl.link.macho.getSymbolIndex().?,
                     },
                 });
                 // blr x30
@@ -4354,7 +4355,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .tag = .call_extern,
                     .data = .{
                         .relocation = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.getSymbolIndex().?,
                             .sym_index = sym_index,
                         },
                     },
@@ -5537,7 +5538,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.sym_index,
+                            .macho => owner_decl.link.macho.getSymbolIndex().?,
                             .coff => owner_decl.link.coff.sym_index,
                             else => unreachable, // unsupported target format
                         };
@@ -5651,7 +5652,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const mod = self.bin_file.options.module.?;
             const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = switch (self.bin_file.tag) {
-                .macho => owner_decl.link.macho.sym_index,
+                .macho => owner_decl.link.macho.getSymbolIndex().?,
                 .coff => owner_decl.link.coff.sym_index,
                 else => unreachable, // unsupported target format
             };
@@ -5845,7 +5846,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.sym_index,
+                            .macho => owner_decl.link.macho.getSymbolIndex().?,
                             .coff => owner_decl.link.coff.sym_index,
                             else => unreachable, // unsupported target format
                         };
@@ -6168,13 +6169,13 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
-    } else if (self.bin_file.cast(link.File.MachO)) |_| {
+    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         // Because MachO is PIE-always-on, we defer memory address resolution until
         // the linker has enough info to perform relocations.
-        assert(decl.link.macho.sym_index != 0);
+        try decl.link.macho.ensureInitialized(macho_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.macho.sym_index,
+            .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         // Because COFF is PIE-always-on, we defer memory address resolution until

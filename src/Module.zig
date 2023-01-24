@@ -5324,7 +5324,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
     // must call `freeDecl` in the linker backend now.
     switch (mod.comp.bin_file.tag) {
-        .c => {}, // this linker backend has already migrated to the new API
+        .macho, .c => {}, // this linker backend has already migrated to the new API
         else => if (decl.has_tv) {
             if (decl.ty.isFnOrHasRuntimeBits()) {
                 mod.comp.bin_file.freeDecl(decl_index);

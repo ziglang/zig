@@ -617,7 +617,7 @@ pub const File = struct {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index),
+            .macho => {}, // no-op
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
             .c, .spirv, .nvptx => {},
@@ -911,6 +911,8 @@ pub const File = struct {
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
+    /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
+    /// the block/atom.
     pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
         if (build_options.only_c) unreachable;
         switch (base.tag) {

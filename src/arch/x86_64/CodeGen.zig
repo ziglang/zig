@@ -2671,7 +2671,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
             const mod = self.bin_file.options.module.?;
             const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = if (self.bin_file.tag == link.File.MachO.base_tag)
-                fn_owner_decl.link.macho.sym_index
+                fn_owner_decl.link.macho.getSymbolIndex().?
             else
                 fn_owner_decl.link.coff.sym_index;
             const flags: u2 = switch (load_struct.type) {
@@ -4090,7 +4090,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const sym_index = fn_owner_decl.link.macho.sym_index;
+                try fn_owner_decl.link.macho.ensureInitialized(macho_file);
+                const sym_index = fn_owner_decl.link.macho.getSymbolIndex().?;
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
                         .type = .got,
@@ -4121,7 +4122,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .ops = undefined,
                     .data = .{
                         .relocation = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.getSymbolIndex().?,
                             .sym_index = sym_index,
                         },
                     },
@@ -6784,11 +6785,11 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
-    } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        assert(decl.link.macho.sym_index != 0);
+    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+        try decl.link.macho.ensureInitialized(macho_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.macho.sym_index,
+            .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         assert(decl.link.coff.sym_index != 0);
