@@ -83,6 +83,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols) !void {
 
     if (self.debug_str_section_index == null) {
         assert(self.dwarf.strtab.items.len == 0);
+        try self.dwarf.strtab.append(self.allocator, 0);
         self.debug_str_section_index = try self.allocateSection(
             "__debug_str",
             @intCast(u32, self.dwarf.strtab.items.len),
