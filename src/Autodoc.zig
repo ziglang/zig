@@ -28,6 +28,7 @@ decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 exprs: std.ArrayListUnmanaged(DocData.Expr) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
 comptime_exprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
+guides: std.StringHashMapUnmanaged([]const u8) = .{},
 
 // These fields hold temporary state of the analysis process
 // and are mainly used by the decl path resolving algorithm.
@@ -193,10 +194,15 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
+    const rootName = blk: {
+        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
+        break :blk rootName[0 .. rootName.len - 4];
+    };
+
     const main_type_index = self.types.items.len;
     {
         try self.packages.put(self.arena, self.module.main_pkg, .{
-            .name = "root",
+            .name = rootName,
             .main = main_type_index,
             .table = .{},
         });
@@ -204,7 +210,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             self.arena,
             self.module.main_pkg,
             .{
-                .name = "root",
+                .name = rootName,
                 .value = 0,
             },
         );
@@ -215,12 +221,13 @@ pub fn generateZirData(self: *Autodoc) !void {
         .enclosing_type = main_type_index,
     };
 
-    const maybe_tldoc_comment = try self.getTLDocComment(file);
+    const tldoc_comment = try self.getTLDocComment(file);
     try self.ast_nodes.append(self.arena, .{
         .name = "(root)",
-        .docs = maybe_tldoc_comment,
+        .docs = tldoc_comment,
     });
     try self.files.put(self.arena, file, main_type_index);
+    try self.findGuidePaths(file, tldoc_comment);
 
     _ = try self.walkInstruction(file, &root_scope, .{}, Zir.main_struct_inst, false);
 
@@ -236,13 +243,8 @@ pub fn generateZirData(self: *Autodoc) !void {
         @panic("some decl paths were never fully analized");
     }
 
-    const rootName = blk: {
-        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
-        break :blk rootName[0 .. rootName.len - 4];
-    };
     var data = DocData{
-        .rootPkgName = rootName,
-        .params = .{ .rootName = "root" },
+        .params = .{},
         .packages = self.packages.values(),
         .files = self.files,
         .calls = self.calls.items,
@@ -251,6 +253,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .exprs = self.exprs.items,
         .astNodes = self.ast_nodes.items,
         .comptimeExprs = self.comptime_exprs.items,
+        .guides = self.guides,
     };
 
     const base_dir = self.doc_location.directory orelse
@@ -370,12 +373,10 @@ const Scope = struct {
 const DocData = struct {
     typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
     rootPkg: u32 = 0,
-    rootPkgName: []const u8,
     params: struct {
         zigId: []const u8 = "arst",
         zigVersion: []const u8 = build_options.version,
         target: []const u8 = "arst",
-        rootName: []const u8,
         builds: []const struct { target: []const u8 } = &.{
             .{ .target = "arst" },
         },
@@ -391,6 +392,9 @@ const DocData = struct {
     decls: []Decl,
     exprs: []Expr,
     comptimeExprs: []ComptimeExpr,
+
+    guides: std.StringHashMapUnmanaged([]const u8),
+
     const Call = struct {
         func: Expr,
         args: []Expr,
@@ -410,6 +414,7 @@ const DocData = struct {
             try jsw.objectField(f_name);
             switch (f) {
                 .files => try writeFileTableToJson(self.files, &jsw),
+                .guides => try writeGuidesToJson(self.guides, &jsw),
                 else => {
                     try std.json.stringify(@field(self, f_name), opts, w);
                     jsw.state_index -= 1;
@@ -852,7 +857,7 @@ fn walkInstruction(
 
             const maybe_other_package: ?*Package = blk: {
                 if (self.module.main_pkg_is_std and std.mem.eql(u8, path, "std")) {
-                    path = "root";
+                    path = "std";
                     break :blk self.module.main_pkg;
                 } else {
                     break :blk file.pkg.table.get(path);
@@ -4364,6 +4369,16 @@ fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: a
     try jsw.endArray();
 }
 
+fn writeGuidesToJson(map: std.StringHashMapUnmanaged([]const u8), jsw: anytype) !void {
+    try jsw.beginObject();
+    var it = map.iterator();
+    while (it.next()) |entry| {
+        try jsw.objectField(entry.key_ptr.*);
+        try jsw.emitString(entry.value_ptr.*);
+    }
+    try jsw.endObject();
+}
+
 fn writePackageTableToJson(
     map: std.AutoHashMapUnmanaged(*Package, DocData.DocPackage.TableEntry),
     jsw: anytype,
@@ -4422,8 +4437,40 @@ fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
     var tok = tokenizer.next();
     var comment = std.ArrayList(u8).init(self.arena);
     while (tok.tag == .container_doc_comment) : (tok = tokenizer.next()) {
-        try comment.appendSlice(source[tok.loc.start + 3 .. tok.loc.end + 1]);
+        try comment.appendSlice(source[tok.loc.start + "//!".len .. tok.loc.end + 1]);
     }
 
     return comment.items;
+}
+
+fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
+    const prefix = "zig-autodoc-guide:";
+    var it = std.mem.tokenize(u8, str, "\n");
+    while (it.next()) |line| {
+        const trimmed_line = std.mem.trim(u8, line, " ");
+        if (std.mem.startsWith(u8, trimmed_line, prefix)) {
+            const path = trimmed_line[prefix.len..];
+            const trimmed_path = std.mem.trim(u8, path, " ");
+            try self.addGuide(file, trimmed_path);
+        }
+    }
+}
+
+fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8) !void {
+    if (guide_path.len == 0) return error.MissingAutodocGuideName;
+
+    const cur_pkg_dir_path = file.pkg.root_src_directory.path orelse ".";
+    const resolved_path = try std.fs.path.resolve(self.arena, &[_][]const u8{
+        cur_pkg_dir_path, file.sub_file_path, "..", guide_path,
+    });
+
+    var guide_file = try file.pkg.root_src_directory.handle.openFile(resolved_path, .{});
+    defer guide_file.close();
+
+    const guide = guide_file.reader().readAllAlloc(self.arena, 1 * 1024 * 1024) catch |err| switch (err) {
+        error.StreamTooLong => @panic("stream too long"),
+        else => |e| return e,
+    };
+
+    try self.guides.put(self.arena, resolved_path, guide);
 }

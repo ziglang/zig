@@ -117,6 +117,48 @@
         overflow: visible;
       }
 
+      .sidebar ul.guides-api-switch {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        text-align: center;
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .sidebar .guides-api-switch a {
+        display: block;
+        padding: 0.5rem 1rem;      
+        color: var(--sidebar-pkglnk-tx-color);
+        background-color: var(--sidebar-pkglnk-bg-color);
+        border: 1px solid var(--tx-color);
+      }
+
+
+      #ApiSwitch {
+        border-radius: 10px 0 0 10px;        
+      }
+
+      #guideSwitch {
+        border-radius: 0 10px 10px 0;
+      }
+
+      
+      #ApiSwitch:hover, #guideSwitch:hover {
+        text-decoration: none;      
+      }
+
+      #ApiSwitch:hover:not(.active), #guideSwitch:hover:not(.active) {
+        color: var(--sidebar-pkglnk-tx-color-hover);
+        background-color: var(--sidebar-pkglnk-bg-color-hover);
+      }
+
+      .sidebar .guides-api-switch .active {
+        color: var(--sidebar-pkglnk-tx-color-active);
+        background-color: var(--sidebar-pkglnk-bg-color-active);
+      }
+
       .sidebar h2 {
         margin: 0.5rem;
         padding: 0;
@@ -155,6 +197,14 @@
       .sidebar p.str {
         margin: 0.5rem;
         font-family: var(--mono);
+      }
+
+      #guides {
+        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        box-sizing: border-box;
+        font-size: 1rem;
+        background-color: var(--bg-color);
+        overflow-wrap: break-word;
       }
 
       /* docs section */
@@ -643,28 +693,42 @@
             </g>
             </svg>
           </div>
-          <div id="sectMainPkg" class="hidden">
-            <h2><span>Main Package</span></h2>
-            <ul class="packages">
-              <li><a id="mainPkg" class="" href=""></a></li>
+          <div id="sectGudeApiSwitch">
+            <ul class="guides-api-switch">
+              <li><a id="ApiSwitch" class="active" href="#A;">API</a></li>
+              <li><a id="guideSwitch" class="" href="#G;">Guides</a></li>
             </ul>
           </div>
-          <div id="sectPkgs" class="hidden">
-            <h2><span>Dependencies</span></h2>
-            <ul id="listPkgs" class="packages"></ul>
+          <div id="guidesMenu" class="hidden">
+            <h2><span>Guide List</span></h2>
+            <ul id="guidesList" class="packages"></ul>
           </div>
-          <div id="sectInfo" class="hidden">
-            <h2><span>Zig Version</span></h2>
-            <p class="str" id="tdZigVer"></p>
-          </div>
-          <div>
-            <input id="privDeclsBox" type="checkbox"/>
-            <label for="privDeclsBox">Internal Doc Mode</label>
+          <div id="apiMenu" class="hidden">
+            <div id="sectMainPkg" class="hidden">
+              <h2><span>Main Package</span></h2>
+              <ul class="packages">
+                <li><a id="mainPkg" class="" href=""></a></li>
+              </ul>
+            </div>
+            <div id="sectPkgs" class="hidden">
+              <h2><span>Dependencies</span></h2>
+              <ul id="listPkgs" class="packages"></ul>
+            </div>
+            <div id="sectInfo" class="hidden">
+              <h2><span>Zig Version</span></h2>
+              <p class="str" id="tdZigVer"></p>
+            </div>
+            <div>
+              <input id="privDeclsBox" type="checkbox"/>
+              <label for="privDeclsBox">Internal Doc Mode</label>
+            </div>
           </div>
         </nav>
       </div>
-      <div id="docs" class="flex-right">
-        <div class="wrap">
+      <div class="flex-right">
+        <div id="guides" class="wrap hidden">
+        </div> 
+        <div id="docs" class="wrap hidden">
           <section class="docs">
             <div style="position: relative">
               <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
