@@ -420,6 +420,7 @@ const usage_build_generic =
     \\  --deps [dep],[dep],...    Set dependency names for the root package
     \\      dep:  [[import=]name]
     \\  --main-mod-path           Set the directory of the root module
+    \\  --error-limit [num]       Set the maximum amount of distinct error values
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fPIE                     Force-enable Position Independent Executable
@@ -921,6 +922,8 @@ fn buildOutputType(
     var error_tracing: ?bool = null;
     var pdb_out_path: ?[]const u8 = null;
     var dwarf_format: ?std.dwarf.Format = null;
+    var error_limit: ?Module.ErrorInt = null;
+
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
     // CPU features.
@@ -1050,6 +1053,11 @@ fn buildOutputType(
                         root_deps_str = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--main-mod-path")) {
                         main_mod_path = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--error-limit")) {
+                        const next_arg = args_iter.nextOrFatal();
+                        error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
+                            fatal("unable to parse error limit '{s}': {s}", .{ next_arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -3556,6 +3564,7 @@ fn buildOutputType(
         .reference_trace = reference_trace,
         .error_tracing = error_tracing,
         .pdb_out_path = pdb_out_path,
+        .error_limit = error_limit,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
