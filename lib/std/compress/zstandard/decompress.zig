@@ -14,8 +14,6 @@ fn readVarInt(comptime T: type, bytes: []const u8) T {
     return std.mem.readVarInt(T, bytes, .Little);
 }
 
-const log = std.log.scoped(.Decompress);
-
 fn isSkippableMagic(magic: u32) bool {
     return frame.Skippable.magic_number_min <= magic and magic <= frame.Skippable.magic_number_max;
 }
@@ -136,11 +134,6 @@ pub const DecodeState = struct {
         self.literal.state = try bit_reader.readBitsNoEof(u9, self.literal.accuracy_log);
         self.offset.state = try bit_reader.readBitsNoEof(u8, self.offset.accuracy_log);
         self.match.state = try bit_reader.readBitsNoEof(u9, self.match.accuracy_log);
-        log.debug("initial decoder state: literal = {d}, offset = {d} match = {d}", .{
-            self.literal.state,
-            self.offset.state,
-            self.match.state,
-        });
     }
 
     fn updateRepeatOffset(self: *DecodeState, offset: u32) void {
@@ -208,10 +201,6 @@ pub const DecodeState = struct {
                 );
                 @field(self, field_name).table = .{ .fse = @field(self, field_name ++ "_fse_buffer")[0..table_size] };
                 @field(self, field_name).accuracy_log = std.math.log2_int_ceil(usize, table_size);
-                log.debug("decoded fse " ++ field_name ++ " table '{}'", .{
-                    std.fmt.fmtSliceHexUpper(src[0..counting_reader.bytes_read]),
-                });
-                dumpFseTable(field_name, @field(self, field_name).table.fse);
                 return counting_reader.bytes_read;
             },
             .repeat => return if (self.fse_tables_undefined) error.RepeatModeFirst else 0,
@@ -227,7 +216,6 @@ pub const DecodeState = struct {
     fn nextSequence(self: *DecodeState, bit_reader: anytype) !Sequence {
         const raw_code = self.getCode(.offset);
         const offset_code = std.math.cast(u5, raw_code) orelse {
-            log.err("got offset code of {d}", .{raw_code});
             return error.OffsetCodeTooLarge;
         };
         const offset_value = (@as(u32, 1) << offset_code) + try bit_reader.readBitsNoEof(u32, offset_code);
@@ -256,7 +244,6 @@ pub const DecodeState = struct {
             break :offset self.useRepeatOffset(offset_value - 1);
         };
 
-        log.debug("sequence = ({d}, {d}, {d})", .{ literal_length, offset, match_length });
         return .{
             .literal_length = literal_length,
             .match_length = match_length,
@@ -310,9 +297,6 @@ pub const DecodeState = struct {
         if (sequence_length > sequence_size_limit) return error.MalformedSequence;
 
         try self.executeSequenceSlice(dest, write_pos, literals, sequence);
-        log.debug("sequence decompressed into '{x}'", .{
-            std.fmt.fmtSliceHexUpper(dest[write_pos .. write_pos + sequence.literal_length + sequence.match_length]),
-        });
         if (!last_sequence) {
             try self.updateState(.literal, bit_reader);
             try self.updateState(.match, bit_reader);
@@ -334,13 +318,6 @@ pub const DecodeState = struct {
         if (sequence_length > sequence_size_limit) return error.MalformedSequence;
 
         try self.executeSequenceRingBuffer(dest, literals, sequence);
-        if (std.options.log_level == .debug) {
-            const written_slice = dest.sliceLast(sequence_length);
-            log.debug("sequence decompressed into '{x}{x}'", .{
-                std.fmt.fmtSliceHexUpper(written_slice.first),
-                std.fmt.fmtSliceHexUpper(written_slice.second),
-            });
-        }
         if (!last_sequence) {
             try self.updateState(.literal, bit_reader);
             try self.updateState(.match, bit_reader);
@@ -355,7 +332,6 @@ pub const DecodeState = struct {
     }
 
     fn initLiteralStream(self: *DecodeState, bytes: []const u8) !void {
-        log.debug("initing literal stream: {}", .{std.fmt.fmtSliceHexUpper(bytes)});
         try self.literal_stream_reader.init(bytes);
     }
 
@@ -372,7 +348,6 @@ pub const DecodeState = struct {
                 while (i < len) : (i += 1) {
                     dest[i] = literals.streams.one[0];
                 }
-                log.debug("rle: {}", .{std.fmt.fmtSliceHexUpper(dest[0..len])});
                 self.literal_written_count += len;
             },
             .compressed, .treeless => {
@@ -538,7 +513,6 @@ pub fn decodeZStandardFrame(dest: []u8, src: []const u8, verify_checksum: bool) 
             const hash = hash_state.final();
             const hash_low_bytes = hash & 0xFFFFFFFF;
             if (checksum != hash_low_bytes) {
-                std.log.err("expected checksum {x}, got {x} (full hash {x})", .{ checksum, hash_low_bytes, hash });
                 return error.ChecksumFailure;
             }
         }
@@ -556,13 +530,11 @@ pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, 
     if (frame_header.descriptor.dictionary_id_flag != 0) return error.DictionaryIdFlagUnsupported;
 
     const window_size = frameWindowSize(frame_header) orelse return error.WindowSizeUnknown;
-    log.debug("window size = {d}", .{window_size});
 
     const should_compute_checksum = frame_header.descriptor.content_checksum_flag and verify_checksum;
     var hash = if (should_compute_checksum) std.hash.XxHash64.init(0) else null;
 
     const block_size_maximum = @min(1 << 17, window_size);
-    log.debug("block size maximum = {d}", .{block_size_maximum});
 
     var window_data = try allocator.alloc(u8, window_size);
     defer allocator.free(window_data);
@@ -680,7 +652,6 @@ pub fn decodeFrameBlocks(dest: []u8, src: []const u8, consumed_count: *usize, ha
 
 fn decodeRawBlock(dest: []u8, src: []const u8, block_size: u21, consumed_count: *usize) !usize {
     if (src.len < block_size) return error.MalformedBlockSize;
-    log.debug("writing raw block - size {d}", .{block_size});
     const data = src[0..block_size];
     std.mem.copy(u8, dest, data);
     consumed_count.* += block_size;
@@ -689,7 +660,6 @@ fn decodeRawBlock(dest: []u8, src: []const u8, block_size: u21, consumed_count: 
 
 fn decodeRawBlockRingBuffer(dest: *RingBuffer, src: []const u8, block_size: u21, consumed_count: *usize) !usize {
     if (src.len < block_size) return error.MalformedBlockSize;
-    log.debug("writing raw block - size {d}", .{block_size});
     const data = src[0..block_size];
     dest.writeSliceAssumeCapacity(data);
     consumed_count.* += block_size;
@@ -698,7 +668,6 @@ fn decodeRawBlockRingBuffer(dest: *RingBuffer, src: []const u8, block_size: u21,
 
 fn decodeRleBlock(dest: []u8, src: []const u8, block_size: u21, consumed_count: *usize) !usize {
     if (src.len < 1) return error.MalformedRleBlock;
-    log.debug("writing rle block - '{x}'x{d}", .{ src[0], block_size });
     var write_pos: usize = 0;
     while (write_pos < block_size) : (write_pos += 1) {
         dest[write_pos] = src[0];
@@ -709,7 +678,6 @@ fn decodeRleBlock(dest: []u8, src: []const u8, block_size: u21, consumed_count: 
 
 fn decodeRleBlockRingBuffer(dest: *RingBuffer, src: []const u8, block_size: u21, consumed_count: *usize) !usize {
     if (src.len < 1) return error.MalformedRleBlock;
-    log.debug("writing rle block - '{x}'x{d}", .{ src[0], block_size });
     var write_pos: usize = 0;
     while (write_pos < block_size) : (write_pos += 1) {
         dest.writeAssumeCapacity(src[0]);
@@ -751,7 +719,6 @@ pub fn decodeBlock(
                 var sequence_size_limit = block_size_max;
                 var i: usize = 0;
                 while (i < sequences_header.sequence_count) : (i += 1) {
-                    log.debug("decoding sequence {d}", .{i});
                     const write_pos = written_count + bytes_written;
                     const decompressed_size = try decode_state.decodeSequenceSlice(
                         dest,
@@ -769,13 +736,8 @@ pub fn decodeBlock(
             }
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
-                log.debug("decoding remaining literals", .{});
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
                 try decode_state.decodeLiteralsSlice(dest[written_count + bytes_written ..], literals, len);
-                log.debug("remaining decoded literals at {d}: {}", .{
-                    written_count,
-                    std.fmt.fmtSliceHexUpper(dest[written_count .. written_count + len]),
-                });
                 bytes_written += len;
             }
 
@@ -820,7 +782,6 @@ pub fn decodeBlockRingBuffer(
                 var sequence_size_limit = block_size_max;
                 var i: usize = 0;
                 while (i < sequences_header.sequence_count) : (i += 1) {
-                    log.debug("decoding sequence {d}", .{i});
                     const decompressed_size = try decode_state.decodeSequenceRingBuffer(
                         dest,
                         literals,
@@ -836,15 +797,8 @@ pub fn decodeBlockRingBuffer(
             }
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
-                log.debug("decoding remaining literals", .{});
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
                 try decode_state.decodeLiteralsRingBuffer(dest, literals, len);
-                const written_slice = dest.sliceLast(len);
-                log.debug("remaining decoded literals at {d}: {}{}", .{
-                    bytes_written,
-                    std.fmt.fmtSliceHexUpper(written_slice.first),
-                    std.fmt.fmtSliceHexUpper(written_slice.second),
-                });
                 bytes_written += len;
             }
 
@@ -922,22 +876,6 @@ pub fn decodeZStandardHeader(src: []const u8, consumed_count: ?*usize) !frame.ZS
         .dictionary_id = dictionary_id,
         .content_size = content_size,
     };
-    log.debug(
-        "decoded ZStandard frame header {x}: " ++
-            "desc = (d={d},c={},r={},u={},s={},cs={d}), win_desc = {?x}, dict_id = {?x}, content_size = {?d}",
-        .{
-            std.fmt.fmtSliceHexUpper(src[0..bytes_read_count]),
-            header.descriptor.dictionary_id_flag,
-            header.descriptor.content_checksum_flag,
-            header.descriptor.reserved,
-            header.descriptor.unused,
-            header.descriptor.single_segment_flag,
-            header.descriptor.content_size_flag,
-            header.window_descriptor,
-            header.dictionary_id,
-            header.content_size,
-        },
-    );
     return header;
 }
 
@@ -945,12 +883,6 @@ pub fn decodeBlockHeader(src: *const [3]u8) frame.ZStandard.Block.Header {
     const last_block = src[0] & 1 == 1;
     const block_type = @intToEnum(frame.ZStandard.Block.Type, (src[0] & 0b110) >> 1);
     const block_size = ((src[0] & 0b11111000) >> 3) + (@as(u21, src[1]) << 5) + (@as(u21, src[2]) << 13);
-    log.debug("decoded block header {}: last = {}, type = {s}, size = {d}", .{
-        std.fmt.fmtSliceHexUpper(src),
-        last_block,
-        @tagName(block_type),
-        block_size,
-    });
     return .{
         .last_block = last_block,
         .block_type = block_type,
@@ -990,8 +922,6 @@ pub fn decodeLiteralsSection(src: []const u8, consumed_count: *usize) !LiteralsS
                 null;
             const huffman_tree_size = bytes_read - huffman_tree_start;
             const total_streams_size = @as(usize, header.compressed_size.?) - huffman_tree_size;
-            log.debug("huffman tree size = {}, total streams size = {}", .{ huffman_tree_size, total_streams_size });
-            if (huffman_tree) |tree| dumpHuffmanTree(tree);
 
             if (src.len < bytes_read + total_streams_size) return error.MalformedLiteralsSection;
             const stream_data = src[bytes_read .. bytes_read + total_streams_size];
@@ -1007,7 +937,6 @@ pub fn decodeLiteralsSection(src: []const u8, consumed_count: *usize) !LiteralsS
 
             if (stream_data.len < 6) return error.MalformedLiteralsSection;
 
-            log.debug("jump table: {}", .{std.fmt.fmtSliceHexUpper(stream_data[0..6])});
             const stream_1_length = @as(usize, readInt(u16, stream_data[0..2]));
             const stream_2_length = @as(usize, readInt(u16, stream_data[2..4]));
             const stream_3_length = @as(usize, readInt(u16, stream_data[4..6]));
@@ -1059,8 +988,6 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
         var huff_bits: ReverseBitReader = undefined;
         try huff_bits.init(huff_data);
 
-        dumpFseTable("huffman", entries[0..table_size]);
-
         var i: usize = 0;
         var even_state: u32 = try huff_bits.readBitsNoEof(u32, accuracy_log);
         var odd_state: u32 = try huff_bits.readBitsNoEof(u32, accuracy_log);
@@ -1073,7 +1000,6 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
             i += 1;
             if (read_bits < even_data.bits) {
                 weights[i] = std.math.cast(u4, entries[odd_state].symbol) orelse return error.MalformedHuffmanTree;
-                log.debug("overflow condition: setting weights[{d}] = {d}", .{ i, weights[i] });
                 i += 1;
                 break;
             }
@@ -1087,7 +1013,6 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
             if (read_bits < odd_data.bits) {
                 if (i == 256) return error.MalformedHuffmanTree;
                 weights[i] = std.math.cast(u4, entries[even_state].symbol) orelse return error.MalformedHuffmanTree;
-                log.debug("overflow condition: setting weights[{d}] = {d}", .{ i, weights[i] });
                 i += 1;
                 break;
             }
@@ -1099,19 +1024,12 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
     } else {
         const encoded_symbol_count = header - 127;
         symbol_count = encoded_symbol_count + 1;
-        log.debug("huffman tree symbol count = {d}", .{symbol_count});
         const weights_byte_count = (encoded_symbol_count + 1) / 2;
-        log.debug("decoding direct huffman tree: {}|{}", .{
-            std.fmt.fmtSliceHexUpper(src[0..1]),
-            std.fmt.fmtSliceHexUpper(src[1 .. weights_byte_count + 1]),
-        });
         if (src.len < weights_byte_count) return error.MalformedHuffmanTree;
         var i: usize = 0;
         while (i < weights_byte_count) : (i += 1) {
             weights[2 * i] = @intCast(u4, src[i + 1] >> 4);
             weights[2 * i + 1] = @intCast(u4, src[i + 1] & 0xF);
-            log.debug("weights[{d}] = {d}", .{ 2 * i, weights[2 * i] });
-            log.debug("weights[{d}] = {d}", .{ 2 * i + 1, weights[2 * i + 1] });
         }
         bytes_read += weights_byte_count;
     }
@@ -1121,13 +1039,11 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
             weight_power_sum += @as(u16, 1) << (value - 1);
         }
     }
-    log.debug("weight power sum = {d}", .{weight_power_sum});
 
     // advance to next power of two (even if weight_power_sum is a power of 2)
     max_number_of_bits = std.math.log2_int(u16, weight_power_sum) + 1;
     const next_power_of_two = @as(u16, 1) << max_number_of_bits;
     weights[symbol_count - 1] = std.math.log2_int(u16, next_power_of_two - weight_power_sum) + 1;
-    log.debug("weights[{d}] = {d}", .{ symbol_count - 1, weights[symbol_count - 1] });
 
     var weight_sorted_prefixed_symbols: [256]LiteralsSection.HuffmanTree.PrefixedSymbol = undefined;
     for (weight_sorted_prefixed_symbols[0..symbol_count]) |_, i| {
@@ -1177,7 +1093,6 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
         .symbol_count_minus_one = @intCast(u8, prefixed_symbol_count - 1),
         .nodes = weight_sorted_prefixed_symbols,
     };
-    log.debug("decoded huffman tree {}:", .{std.fmt.fmtSliceHexUpper(src[0..bytes_read])});
     return tree;
 }
 
@@ -1194,7 +1109,6 @@ fn lessThanByWeight(
 
 pub fn decodeLiteralsHeader(src: []const u8, consumed_count: *usize) !LiteralsSection.Header {
     if (src.len == 0) return error.MalformedLiteralsSection;
-    const start = consumed_count.*;
     const byte0 = src[0];
     const block_type = @intToEnum(LiteralsSection.BlockType, byte0 & 0b11);
     const size_format = @intCast(u2, (byte0 & 0b1100) >> 2);
@@ -1250,16 +1164,6 @@ pub fn decodeLiteralsHeader(src: []const u8, consumed_count: *usize) !LiteralsSe
             }
         },
     }
-    log.debug(
-        "decoded literals section header '{}': type = {s}, size_format = {}, regen_size = {d}, compressed size = {?d}",
-        .{
-            std.fmt.fmtSliceHexUpper(src[0 .. consumed_count.* - start]),
-            @tagName(block_type),
-            size_format,
-            regenerated_size,
-            compressed_size,
-        },
-    );
     return LiteralsSection.Header{
         .block_type = block_type,
         .size_format = size_format,
@@ -1276,7 +1180,6 @@ pub fn decodeSequencesHeader(src: []const u8, consumed_count: *usize) !Sequences
     const byte0 = src[0];
     if (byte0 == 0) {
         bytes_read += 1;
-        log.debug("decoded sequences header '{}': sequence count = 0", .{std.fmt.fmtSliceHexUpper(src[0..bytes_read])});
         consumed_count.* += bytes_read;
         return SequencesSection.Header{
             .sequence_count = 0,
@@ -1305,13 +1208,6 @@ pub fn decodeSequencesHeader(src: []const u8, consumed_count: *usize) !Sequences
     const matches_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b00001100) >> 2);
     const offsets_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b00110000) >> 4);
     const literal_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b11000000) >> 6);
-    log.debug("decoded sequences header '{}': (sc={d},o={s},m={s},l={s})", .{
-        std.fmt.fmtSliceHexUpper(src[0..bytes_read]),
-        sequence_count,
-        @tagName(offsets_mode),
-        @tagName(matches_mode),
-        @tagName(literal_mode),
-    });
     if (compression_modes & 0b11 != 0) return error.ReservedBitSet;
 
     return SequencesSection.Header{
@@ -1383,10 +1279,7 @@ fn decodeFseTable(
     max_accuracy_log: u4,
     entries: []Table.Fse,
 ) !usize {
-    log.debug("decoding fse table {d} {d}", .{ max_accuracy_log, expected_symbol_count });
-
     const accuracy_log_biased = try bit_reader.readBitsNoEof(u4, 4);
-    log.debug("accuracy_log_biased = {d}", .{accuracy_log_biased});
     if (accuracy_log_biased > max_accuracy_log -| 5) return error.MalformedAccuracyLog;
     const accuracy_log = accuracy_log_biased + 5;
 
@@ -1394,7 +1287,6 @@ fn decodeFseTable(
     var value_count: usize = 0;
 
     const total_probability = @as(u16, 1) << accuracy_log;
-    log.debug("total probability = {d}", .{total_probability});
     var accumulated_probability: u16 = 0;
 
     while (accumulated_probability < total_probability) {
@@ -1548,18 +1440,4 @@ test buildFseTable {
 
     try buildFseTable(&offset_codes_default_values, entries[0..32]);
     try std.testing.expectEqualSlices(Table.Fse, types.compressed_block.predefined_offset_fse_table.fse, entries[0..32]);
-}
-
-fn dumpFseTable(prefix: []const u8, table: []const Table.Fse) void {
-    log.debug("{s} fse table:", .{prefix});
-    for (table) |entry, i| {
-        log.debug("state = {d} symbol = {d} bl = {d}, bits = {d}", .{ i, entry.symbol, entry.baseline, entry.bits });
-    }
-}
-
-fn dumpHuffmanTree(tree: LiteralsSection.HuffmanTree) void {
-    log.debug("Huffman tree: max bit count = {}, symbol count = {}", .{ tree.max_bit_count, tree.symbol_count_minus_one + 1 });
-    for (tree.nodes[0 .. tree.symbol_count_minus_one + 1]) |node| {
-        log.debug("symbol = {[symbol]d}, prefix = {[prefix]d}, weight = {[weight]d}", node);
-    }
 }
