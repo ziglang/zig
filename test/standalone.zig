@@ -3,6 +3,12 @@ const builtin = @import("builtin");
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.StandaloneContext) void {
+
+    // TESTING SIZES ON CI ONLY
+    if (builtin.cpu.arch == .aarch64) {
+        cases.addBuildFile("test/standalone/test_ci_fcntl_sizes/build.zig", .{});
+    }
+
     cases.add("test/standalone/hello_world/hello.zig");
     cases.addC("test/standalone/hello_world/hello_libc.zig");
 
