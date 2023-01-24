@@ -8018,7 +8018,7 @@ pub const CallModifier = enum {
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in an integer.
+      Counts the number of most-significant (leading in a big-endian sense) zeroes in an integer - "count leading zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8168,7 +8168,7 @@ test "main" {
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in an integer.
+      Counts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - "count trailing zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8781,7 +8781,9 @@ test "@wasmMemoryGrow" {
       <pre>{#syntax#}@popCount(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
-      <p>Counts the number of bits set in an integer.</p>
+      <p>
+      Counts the number of bits set in an integer - "population count".
+      </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
