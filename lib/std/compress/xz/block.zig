@@ -1,11 +1,10 @@
-const std = @import("std");
-const check = @import("check.zig");
+const std = @import("../../std.zig");
 const lzma = @import("lzma.zig");
-const multibyte = @import("multibyte.zig");
 const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;
 const Crc64 = std.hash.crc.Crc64Xz;
 const Sha256 = std.crypto.hash.sha2.Sha256;
+const xz = std.compress.xz;
 
 const DecodeError = error{
     CorruptInput,
@@ -16,8 +15,8 @@ const DecodeError = error{
     Overflow,
 };
 
-pub fn decoder(allocator: Allocator, reader: anytype, check_kind: check.Kind) !Decoder(@TypeOf(reader)) {
-    return Decoder(@TypeOf(reader)).init(allocator, reader, check_kind);
+pub fn decoder(allocator: Allocator, reader: anytype, check: xz.Check) !Decoder(@TypeOf(reader)) {
+    return Decoder(@TypeOf(reader)).init(allocator, reader, check);
 }
 
 pub fn Decoder(comptime ReaderType: type) type {
@@ -31,17 +30,17 @@ pub fn Decoder(comptime ReaderType: type) type {
 
         allocator: Allocator,
         inner_reader: ReaderType,
-        check_kind: check.Kind,
+        check: xz.Check,
         err: ?Error,
         accum: lzma.LzAccumBuffer,
         lzma_state: lzma.DecoderState,
         block_count: usize,
 
-        fn init(allocator: Allocator, in_reader: ReaderType, check_kind: check.Kind) !Self {
+        fn init(allocator: Allocator, in_reader: ReaderType, check: xz.Check) !Self {
             return Self{
                 .allocator = allocator,
                 .inner_reader = in_reader,
-                .check_kind = check_kind,
+                .check = check,
                 .err = null,
                 .accum = .{},
                 .lzma_state = try lzma.DecoderState.init(allocator),
@@ -116,10 +115,10 @@ pub fn Decoder(comptime ReaderType: type) type {
                     return error.Unsupported;
 
                 if (flags.has_packed_size)
-                    packed_size = try multibyte.readInt(header_reader);
+                    packed_size = try std.leb.readULEB128(u64, header_reader);
 
                 if (flags.has_unpacked_size)
-                    unpacked_size = try multibyte.readInt(header_reader);
+                    unpacked_size = try std.leb.readULEB128(u64, header_reader);
 
                 const FilterId = enum(u64) {
                     lzma2 = 0x21,
@@ -128,7 +127,7 @@ pub fn Decoder(comptime ReaderType: type) type {
 
                 const filter_id = @intToEnum(
                     FilterId,
-                    try multibyte.readInt(header_reader),
+                    try std.leb.readULEB128(u64, header_reader),
                 );
 
                 if (@enumToInt(filter_id) >= 0x4000_0000_0000_0000)
@@ -137,7 +136,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 if (filter_id != .lzma2)
                     return error.Unsupported;
 
-                const properties_size = try multibyte.readInt(header_reader);
+                const properties_size = try std.leb.readULEB128(u64, header_reader);
                 if (properties_size != 1)
                     return error.CorruptInput;
 
@@ -177,8 +176,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                     return error.CorruptInput;
             }
 
-            // Check
-            switch (self.check_kind) {
+            switch (self.check) {
                 .none => {},
                 .crc32 => {
                     const hash_a = Crc32.hash(unpacked_bytes);

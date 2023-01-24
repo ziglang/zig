@@ -1,6 +1,6 @@
 // Ported from https://github.com/gendx/lzma-rs
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;

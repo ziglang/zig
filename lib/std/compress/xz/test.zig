@@ -1,11 +1,11 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
-const stream = @import("stream.zig").stream;
+const xz = std.compress.xz;
 
 fn decompress(data: []const u8) ![]u8 {
     var in_stream = std.io.fixedBufferStream(data);
 
-    var xz_stream = try stream(testing.allocator, in_stream.reader());
+    var xz_stream = try xz.decompress(testing.allocator, in_stream.reader());
     defer xz_stream.deinit();
 
     return xz_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));
