@@ -1459,7 +1459,12 @@ pub const DeclGen = struct {
 
     fn renderFunctionSignature(dg: *DeclGen, w: anytype, kind: TypedefKind, export_index: u32) !void {
         const fn_info = dg.decl.ty.fnInfo();
-        if (fn_info.cc == .Naked) try w.writeAll("zig_naked ");
+        if (fn_info.cc == .Naked) {
+            switch (kind) {
+                .Forward => try w.writeAll("zig_naked_decl "),
+                .Complete => try w.writeAll("zig_naked "),
+            }
+        }
         if (dg.decl.val.castTag(.function)) |func_payload|
             if (func_payload.data.is_cold) try w.writeAll("zig_cold ");
 
@@ -1469,6 +1474,13 @@ pub const DeclGen = struct {
 
         try dg.renderType(w, ret_ty, kind);
         try w.writeByte(' ');
+
+        if (toCallingConvention(fn_info.cc)) |call_conv| {
+            try w.print("zig_callconv({s}) ", .{call_conv});
+        }
+
+        if (fn_info.alignment > 0 and kind == .Complete) try w.print(" zig_align_fn({})", .{fn_info.alignment});
+
         try dg.renderDeclName(w, dg.decl_index, export_index);
         try w.writeByte('(');
 
@@ -1488,7 +1500,7 @@ pub const DeclGen = struct {
             try dg.renderType(w, Type.void, kind);
         }
         try w.writeByte(')');
-        if (fn_info.alignment > 0) try w.print(" zig_align_fn({})", .{fn_info.alignment});
+        if (fn_info.alignment > 0 and kind == .Forward) try w.print(" zig_align_fn({})", .{fn_info.alignment});
     }
 
     fn renderPtrToFnTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
@@ -7033,6 +7045,15 @@ fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
 
 fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
+}
+
+fn toCallingConvention(call_conv: std.builtin.CallingConvention) ?[]const u8 {
+    return switch (call_conv) {
+        .Stdcall => "stdcall",
+        .Fastcall => "fastcall",
+        .Vectorcall => "vectorcall",
+        else => null,
+    };
 }
 
 fn toAtomicRmwSuffix(order: std.builtin.AtomicRmwOp) []const u8 {

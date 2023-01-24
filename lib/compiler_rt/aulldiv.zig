@@ -7,7 +7,7 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (arch == .x86 and abi == .msvc) {
+    if (arch == .x86 and abi == .msvc and builtin.zig_backend != .stage2_c) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
         @export(_alldiv, .{ .name = "\x01__alldiv", .linkage = common.linkage, .visibility = common.visibility });
         @export(_aulldiv, .{ .name = "\x01__aulldiv", .linkage = common.linkage, .visibility = common.visibility });

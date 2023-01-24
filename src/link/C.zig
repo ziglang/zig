@@ -231,6 +231,13 @@ pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void 
     return self.flushModule(comp, prog_node);
 }
 
+fn abiDefine(comp: *Compilation) ?[]const u8 {
+    return switch (comp.getTarget().abi) {
+        .msvc => "#define ZIG_TARGET_ABI_MSVC\n",
+        else => null,
+    };
+}
+
 pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -248,9 +255,14 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    // Covers zig.h, typedef, and asm.
-    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
+    const abi_define = abiDefine(comp);
 
+    // Covers defines, zig.h, typedef, and asm.
+    var buf_count: usize = 2;
+    if (abi_define != null) buf_count += 1;
+    try f.all_buffers.ensureUnusedCapacity(gpa, buf_count);
+
+    if (abi_define) |buf| f.appendBufAssumeCapacity(buf);
     f.appendBufAssumeCapacity(zig_h);
 
     const typedef_index = f.all_buffers.items.len;

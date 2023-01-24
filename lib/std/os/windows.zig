@@ -1804,14 +1804,21 @@ pub fn UnlockFile(
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
+extern fn zig_x86_windows_teb() callconv(.C) *anyopaque;
 extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
 
 pub fn teb() *TEB {
     return switch (native_arch) {
-        .x86 => asm volatile (
-            \\ movl %%fs:0x18, %[ptr]
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .x86 => blk: {
+            if (builtin.zig_backend == .stage2_c) {
+                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_windows_teb()));
+            } else {
+                break :blk asm volatile (
+                    \\ movl %%fs:0x18, %[ptr]
+                    : [ptr] "=r" (-> *TEB),
+                );
+            }
+        },
         .x86_64 => blk: {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_64_windows_teb()));
