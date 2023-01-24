@@ -103,10 +103,10 @@ pub const Address = extern union {
             .path = undefined,
         };
 
-        // this enables us to have the proper length of the socket in getOsSockLen
-        mem.set(u8, &sock_addr.path, 0);
+        // Add 1 to ensure a terminating 0 is present in the path array for maximum portability.
+        if (path.len + 1 > sock_addr.path.len) return error.NameTooLong;
 
-        if (path.len > sock_addr.path.len) return error.NameTooLong;
+        mem.set(u8, &sock_addr.path, 0);
         mem.copy(u8, &sock_addr.path, path);
 
         return Address{ .un = sock_addr };
@@ -179,9 +179,17 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                const path_len = std.mem.len(std.meta.assumeSentinel(&self.un.path, 0));
-                return @intCast(os.socklen_t, @sizeOf(os.sockaddr.un) - self.un.path.len + path_len);
+                // Using the full length of the structure here is more portable than returning
+                // the number of bytes actually used by the currently stored path.
+                // This also is correct regardless if we are passing a socket address to the kernel
+                // (e.g. in bind, connect, sendto) since we ensure the path is 0 terminated in
+                // initUnix() or if we are receiving a socket address from the kernel and must
+                // provide the full buffer size (e.g. getsockname, getpeername, recvfrom, accept).
+                //
+                // To access the path, std.mem.sliceTo(&address.un.path, 0) should be used.
+                return @intCast(os.socklen_t, @sizeOf(os.sockaddr.un));
             },
+
             else => unreachable,
         }
     }
@@ -1687,7 +1695,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
-            const canon_name = mem.sliceTo(std.meta.assumeSentinel(&tmp, 0), 0);
+            const canon_name = mem.sliceTo(&tmp, 0);
             if (isValidHostName(canon_name)) {
                 ctx.canon.items.len = 0;
                 try ctx.canon.appendSlice(canon_name);

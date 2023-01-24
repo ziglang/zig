@@ -2968,14 +2968,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0);
+            return mem.sliceTo(out_buffer, 0);
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC_ARGS, -1, os.KERN.PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0);
+            return mem.sliceTo(out_buffer, 0);
         },
         .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it

@@ -978,7 +978,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
 
-            const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
+            const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
             if (mem.eql(u8, name, ".debug_info")) {
                 opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_abbrev")) {

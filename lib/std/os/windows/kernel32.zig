@@ -223,7 +223,7 @@ pub extern "kernel32" fn GetFinalPathNameByHandleW(
 pub extern "kernel32" fn GetFullPathNameW(
     lpFileName: [*:0]const u16,
     nBufferLength: u32,
-    lpBuffer: ?[*:0]u16,
+    lpBuffer: [*]u16,
     lpFilePart: ?*?[*:0]u16,
 ) callconv(@import("std").os.windows.WINAPI) u32;
 
