@@ -898,8 +898,8 @@ pub fn decodeZStandardHeader(src: []const u8, consumed_count: ?*usize) !frame.ZS
 
     var dictionary_id: ?u32 = null;
     if (descriptor.dictionary_id_flag > 0) {
-        // if flag is 3 we field_size = 4, else field_size = flag
-        const field_size = (@as(u3, 1) << descriptor.dictionary_id_flag) >> 1;
+        // if flag is 3 then field_size = 4, else field_size = flag
+        const field_size = (@as(u4, 1) << descriptor.dictionary_id_flag) >> 1;
         dictionary_id = readVarInt(u32, src[bytes_read_count .. bytes_read_count + field_size]);
         bytes_read_count += field_size;
     }
