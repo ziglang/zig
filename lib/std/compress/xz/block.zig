@@ -268,7 +268,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                     };
 
                     const packed_size = blk: {
-                        var tmp: u64 = try packed_reader.readIntBig(u16);
+                        const tmp: u17 = try packed_reader.readIntBig(u16);
                         break :blk tmp + 1;
                     };
 
