@@ -501,6 +501,29 @@ pub fn installHeadersDirectoryOptions(
     a.installed_headers.append(&install_dir.step) catch unreachable;
 }
 
+pub fn installLibraryHeaders(a: *LibExeObjStep, l: *LibExeObjStep) void {
+    assert(l.kind == .lib);
+    const install_step = a.builder.getInstallStep();
+    // Copy each element from installed_headers, modifying the builder
+    // to be the new parent's builder.
+    for (l.installed_headers.items) |step| {
+        const step_copy = switch (step.id) {
+            inline .install_file, .install_dir => |id| blk: {
+                const T = id.Type();
+                const ptr = a.builder.allocator.create(T) catch unreachable;
+                ptr.* = step.cast(T).?.*;
+                ptr.override_source_builder = ptr.builder;
+                ptr.builder = a.builder;
+                break :blk &ptr.step;
+            },
+            else => unreachable,
+        };
+        a.installed_headers.append(step_copy) catch unreachable;
+        install_step.dependOn(step_copy);
+    }
+    a.installed_headers.appendSlice(l.installed_headers.items) catch unreachable;
+}
+
 /// Creates a `RunStep` with an executable built with `addExecutable`.
 /// Add command line arguments with `addArg`.
 pub fn run(exe: *LibExeObjStep) *RunStep {

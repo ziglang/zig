@@ -13,6 +13,9 @@ builder: *Builder,
 source: FileSource,
 dir: InstallDir,
 dest_rel_path: []const u8,
+/// This is used by the build system when a file being installed comes from one
+/// package but is being installed by another.
+override_source_builder: ?*Builder = null,
 
 pub fn init(
     builder: *Builder,
@@ -32,7 +35,8 @@ pub fn init(
 
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(InstallFileStep, "step", step);
+    const src_builder = self.override_source_builder orelse self.builder;
+    const full_src_path = self.source.getPath(src_builder);
     const full_dest_path = self.builder.getInstallPath(self.dir, self.dest_rel_path);
-    const full_src_path = self.source.getPath(self.builder);
     try self.builder.updateFile(full_src_path, full_dest_path);
 }

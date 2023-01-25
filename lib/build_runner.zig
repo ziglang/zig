@@ -220,6 +220,11 @@ pub fn main() !void {
                 return usageAndErr(builder, true, stderr_stream);
             },
             error.UncleanExit => process.exit(1),
+            // This error is intended to indicate that the step has already
+            // logged an error message and so printing the error return trace
+            // here would be unwanted extra information, unless the user opts
+            // into it with a debug flag.
+            error.StepFailed => process.exit(1),
             else => return err,
         }
     };
