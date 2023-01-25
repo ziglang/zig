@@ -26434,7 +26434,7 @@ fn coerceVarArgParam(
         .ComptimeInt, .ComptimeFloat => return sema.fail(
             block,
             inst_src,
-            "integer and float literals passed variadic function must be casted to a fixed-size number type",
+            "integer and float literals passed to variadic function must be casted to a fixed-size number type",
             .{},
         ),
         .Fn => blk: {
