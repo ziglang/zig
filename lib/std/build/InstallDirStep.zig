@@ -6,10 +6,14 @@ const Step = build.Step;
 const Builder = build.Builder;
 const InstallDir = std.build.InstallDir;
 const InstallDirStep = @This();
+const log = std.log;
 
 step: Step,
 builder: *Builder,
 options: Options,
+/// This is used by the build system when a file being installed comes from one
+/// package but is being installed by another.
+override_source_builder: ?*Builder = null,
 
 pub const base_id = .install_dir;
 
@@ -53,8 +57,14 @@ pub fn init(
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(InstallDirStep, "step", step);
     const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
-    const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
-    var src_dir = try std.fs.cwd().openIterableDir(full_src_dir, .{});
+    const src_builder = self.override_source_builder orelse self.builder;
+    const full_src_dir = src_builder.pathFromRoot(self.options.source_dir);
+    var src_dir = std.fs.cwd().openIterableDir(full_src_dir, .{}) catch |err| {
+        log.err("InstallDirStep: unable to open source directory '{s}': {s}", .{
+            full_src_dir, @errorName(err),
+        });
+        return error.StepFailed;
+    };
     defer src_dir.close();
     var it = try src_dir.walk(self.builder.allocator);
     next_entry: while (try it.next()) |entry| {
@@ -64,13 +74,8 @@ fn make(step: *Step) !void {
             }
         }
 
-        const full_path = self.builder.pathJoin(&.{
-            full_src_dir, entry.path,
-        });
-
-        const dest_path = self.builder.pathJoin(&.{
-            dest_prefix, entry.path,
-        });
+        const full_path = self.builder.pathJoin(&.{ full_src_dir, entry.path });
+        const dest_path = self.builder.pathJoin(&.{ dest_prefix, entry.path });
 
         switch (entry.kind) {
             .Directory => try fs.cwd().makePath(dest_path),

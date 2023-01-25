@@ -316,9 +316,20 @@ pub const Builder = struct {
         // options to its dependencies. It is the programmatic way to give
         // command line arguments to a build.zig script.
         _ = args;
-        // TODO create a hash based on the args and the package hash, use this
-        // to compute the install prefix.
-        const install_prefix = b.pathJoin(&.{ b.cache_root, "pkg" });
+        const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
+        // Random bytes to make unique. Refresh this with new random bytes when
+        // implementation is modified in a non-backwards-compatible way.
+        var hash = Hasher.init("ZaEsvQ5ClaA2IdH9");
+        hash.update(b.dep_prefix);
+        // TODO additionally update the hash with `args`.
+
+        var digest: [16]u8 = undefined;
+        hash.final(&digest);
+        var hash_basename: [digest.len * 2]u8 = undefined;
+        _ = std.fmt.bufPrint(&hash_basename, "{s}", .{std.fmt.fmtSliceHexLower(&digest)}) catch
+            unreachable;
+
+        const install_prefix = b.pathJoin(&.{ b.cache_root, "i", &hash_basename });
         b.resolveInstallPrefix(install_prefix, .{});
     }
 
@@ -1600,6 +1611,29 @@ pub const Step = struct {
         install_raw,
         options,
         custom,
+
+        pub fn Type(comptime id: Id) type {
+            return switch (id) {
+                .top_level => Builder.TopLevelStep,
+                .lib_exe_obj => LibExeObjStep,
+                .install_artifact => InstallArtifactStep,
+                .install_file => InstallFileStep,
+                .install_dir => InstallDirStep,
+                .log => LogStep,
+                .remove_dir => RemoveDirStep,
+                .fmt => FmtStep,
+                .translate_c => TranslateCStep,
+                .write_file => WriteFileStep,
+                .run => RunStep,
+                .emulatable_run => EmulatableRunStep,
+                .check_file => CheckFileStep,
+                .check_object => CheckObjectStep,
+                .config_header => ConfigHeaderStep,
+                .install_raw => InstallRawStep,
+                .options => OptionsStep,
+                .custom => @compileError("no type available for custom step"),
+            };
+        }
     };
 
     pub fn init(id: Id, name: []const u8, allocator: Allocator, makeFn: MakeFn) Step {
