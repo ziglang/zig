@@ -3839,7 +3839,7 @@ test "simple union" {
       <p>Unions can be declared with an enum tag type.
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions.
-      Tagged unions coerce to their tag type: {#link|Type Coercion: unions and enums#}.
+      Tagged unions coerce to their tag type: {#link|Type Coercion: Unions and Enums#}.
       </p>
       {#code_begin|test|test_tagged_union#}
 const std = @import("std");
@@ -6275,7 +6275,7 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Type Coercion: Coercion Float to Int#}
+      {#header_open|Type Coercion: Float to Int#}
       <p>
       A compiler error is appropriate because this ambiguous expression leaves the compiler
       two choices about the coercion.
@@ -6427,7 +6427,7 @@ test "coercing large integer type to smaller one when value is comptime-known to
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Type Coercion: unions and enums#}
+      {#header_open|Type Coercion: Unions and Enums#}
       <p>Tagged unions can be coerced to enums, and enums can be coerced to tagged unions
       when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
       {#link|void#}:
@@ -6464,7 +6464,7 @@ test "coercion between unions and enums" {
       <p>{#link|undefined#} can be coerced to any type.</p>
       {#header_close#}
 
-      {#header_open|Type Coercion: tuples to arrays#}
+      {#header_open|Type Coercion: Tuples to Arrays#}
       <p>{#link|Tuples#} can be coerced to arrays, if all of the fields have the same type.</p>
       {#code_begin|test|test_coerce_tuples_arrays#}
 const std = @import("std");
