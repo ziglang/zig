@@ -3,25 +3,6 @@ const block = @import("xz/block.zig");
 const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;
 
-pub const Flags = packed struct(u16) {
-    reserved1: u8,
-    check_kind: Check,
-    reserved2: u4,
-};
-
-pub const Header = extern struct {
-    magic: [6]u8,
-    flags: Flags,
-    crc32: u32,
-};
-
-pub const Footer = extern struct {
-    crc32: u32,
-    backward_size: u32,
-    flags: Flags,
-    magic: [2]u8,
-};
-
 pub const Check = enum(u4) {
     none = 0x00,
     crc32 = 0x01,
@@ -29,6 +10,20 @@ pub const Check = enum(u4) {
     sha256 = 0x0A,
     _,
 };
+
+fn readStreamFlags(reader: anytype, check: *Check) !void {
+    var bit_reader = std.io.bitReader(.Little, reader);
+
+    const reserved1 = try bit_reader.readBitsNoEof(u8, 8);
+    if (reserved1 != 0)
+        return error.CorruptInput;
+
+    check.* = @intToEnum(Check, try bit_reader.readBitsNoEof(u4, 4));
+
+    const reserved2 = try bit_reader.readBitsNoEof(u4, 4);
+    if (reserved2 != 0)
+        return error.CorruptInput;
+}
 
 pub fn decompress(allocator: Allocator, reader: anytype) !Decompress(@TypeOf(reader)) {
     return Decompress(@TypeOf(reader)).init(allocator, reader);
@@ -46,21 +41,24 @@ pub fn Decompress(comptime ReaderType: type) type {
         in_reader: ReaderType,
 
         fn init(allocator: Allocator, source: ReaderType) !Self {
-            const header = try source.readStruct(Header);
-
-            if (!std.mem.eql(u8, &header.magic, &.{ 0xFD, '7', 'z', 'X', 'Z', 0x00 }))
+            const magic = try source.readBytesNoEof(6);
+            if (!std.mem.eql(u8, &magic, &.{ 0xFD, '7', 'z', 'X', 'Z', 0x00 }))
                 return error.BadHeader;
 
-            if (header.flags.reserved1 != 0 or header.flags.reserved2 != 0)
-                return error.BadHeader;
+            var check: Check = undefined;
+            const hash_a = blk: {
+                var hasher = std.compress.hashedReader(source, Crc32.init());
+                try readStreamFlags(hasher.reader(), &check);
+                break :blk hasher.hasher.final();
+            };
 
-            const hash = Crc32.hash(std.mem.asBytes(&header.flags));
-            if (hash != header.crc32)
+            const hash_b = try source.readIntLittle(u32);
+            if (hash_a != hash_b)
                 return error.WrongChecksum;
 
             return Self{
                 .allocator = allocator,
-                .block_decoder = try block.decoder(allocator, source, header.flags.check_kind),
+                .block_decoder = try block.decoder(allocator, source, check),
                 .in_reader = source,
             };
         }
@@ -114,22 +112,27 @@ pub fn Decompress(comptime ReaderType: type) type {
                 break :blk counter.bytes_read;
             };
 
-            const footer = try self.in_reader.readStruct(Footer);
-            const backward_size = (footer.backward_size + 1) * 4;
-            if (backward_size != index_size)
-                return error.CorruptInput;
+            const hash_a = try self.in_reader.readIntLittle(u32);
 
-            if (footer.flags.reserved1 != 0 or footer.flags.reserved2 != 0)
-                return error.CorruptInput;
+            const hash_b = blk: {
+                var hasher = std.compress.hashedReader(self.in_reader, Crc32.init());
+                const hashed_reader = hasher.reader();
 
-            var hasher = Crc32.init();
-            hasher.update(std.mem.asBytes(&footer.backward_size));
-            hasher.update(std.mem.asBytes(&footer.flags));
-            const hash = hasher.final();
-            if (hash != footer.crc32)
+                const backward_size = (try hashed_reader.readIntLittle(u32) + 1) * 4;
+                if (backward_size != index_size)
+                    return error.CorruptInput;
+
+                var check: Check = undefined;
+                try readStreamFlags(hashed_reader, &check);
+
+                break :blk hasher.hasher.final();
+            };
+
+            if (hash_a != hash_b)
                 return error.WrongChecksum;
 
-            if (!std.mem.eql(u8, &footer.magic, &.{ 'Y', 'Z' }))
+            const magic = try self.in_reader.readBytesNoEof(2);
+            if (!std.mem.eql(u8, &magic, &.{ 'Y', 'Z' }))
                 return error.CorruptInput;
 
             return 0;

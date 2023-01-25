@@ -109,7 +109,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                     has_unpacked_size: bool,
                 };
 
-                const flags = try header_reader.readStruct(Flags);
+                const flags = @bitCast(Flags, try header_reader.readByte());
                 const filter_count = @as(u3, flags.last_filter_index) + 1;
                 if (filter_count > 1)
                     return error.Unsupported;
