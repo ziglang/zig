@@ -10869,7 +10869,7 @@ test "variadic function" {
 }
       {#code_end#}
       <p>
-        Variadic functions can be implemented using {#link|@cVaStart#}, {#link|@cVaEnd#}, {#link|@cVaArg#} and {#link|@cVaCopy#}
+        Variadic functions can be implemented using {#link|@cVaStart#}, {#link|@cVaEnd#}, {#link|@cVaArg#} and {#link|@cVaCopy#}.
       </p>
       {#code_begin|test|test_defining_variadic_function#}
 const std = @import("std");
