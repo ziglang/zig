@@ -29,6 +29,8 @@ builder: *std.Build,
 source: std.Build.FileSource,
 style: Style,
 values: std.StringHashMap(Value),
+gen_keys: std.ArrayList([]const u8),
+gen_values: std.ArrayList(Value),
 max_bytes: usize = 2 * 1024 * 1024,
 output_dir: []const u8,
 output_path: []const u8,
@@ -43,6 +45,8 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *
         .source = source,
         .style = style,
         .values = std.StringHashMap(Value).init(builder.allocator),
+        .gen_keys = std.ArrayList([]const u8).init(builder.allocator),
+        .gen_values = std.ArrayList(Value).init(builder.allocator),
         .output_dir = undefined,
         .output_path = "config.h",
         .output_gen = std.build.GeneratedFile{ .step = &self.step },
@@ -196,7 +200,7 @@ fn make(step: *Step) !void {
     switch (self.style) {
         .autoconf => try render_autoconf(contents, &output, &values_copy, src_path),
         .cmake => try render_cmake(contents, &output, &values_copy, src_path),
-        .generated => try render_generated(gpa, &output, &values_copy, self.source.getDisplayName()),
+        .generated => try render_generated(gpa, &output, &self.gen_keys, &self.gen_values, self.source.getDisplayName()),
     }
 
     try dir.writeFile(outpath, output.items);
@@ -336,7 +340,8 @@ fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void
 fn render_generated(
     gpa: std.mem.Allocator,
     output: *std.ArrayList(u8),
-    values_copy: *std.StringHashMap(Value),
+    keys: *std.ArrayList([]const u8),
+    values: *std.ArrayList(Value),
     src_path: []const u8,
 ) !void {
     var include_guard = try gpa.dupe(u8, src_path);
@@ -353,9 +358,8 @@ fn render_generated(
     try output.writer().print("#ifndef {s}\n", .{include_guard});
     try output.writer().print("#define {s}\n", .{include_guard});
 
-    var it = values_copy.iterator();
-    while (it.next()) |kv| {
-        try renderValue(output, kv.key_ptr.*, kv.value_ptr.*);
+    for (keys.items) |k, i| {
+        try renderValue(output, k, values.items[i]);
     }
 
     try output.writer().print("#endif /* {s} */\n", .{include_guard});
