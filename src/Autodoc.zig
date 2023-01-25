@@ -561,6 +561,7 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             fields: ?[]Expr = null, // (use src->fields to find names)
+            is_tuple: bool,
             line_number: usize,
             outer_decl: usize,
         },
@@ -2942,6 +2943,7 @@ fn walkInstruction(
                         &field_type_refs,
                         &field_name_indexes,
                         extra_index,
+                        small.is_tuple,
                     );
 
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
@@ -2953,6 +2955,7 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
+                            .is_tuple = small.is_tuple,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .outer_decl = type_slot_index - 1,
                         },
@@ -4116,6 +4119,7 @@ fn collectStructFieldInfo(
     field_type_refs: *std.ArrayListUnmanaged(DocData.Expr),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
     ei: usize,
+    is_tuple: bool,
 ) !void {
     if (fields_len == 0) return;
     var extra_index = ei;
@@ -4125,7 +4129,7 @@ fn collectStructFieldInfo(
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
 
     const Field = struct {
-        field_name: u32,
+        field_name: ?u32,
         doc_comment_index: u32,
         type_body_len: u32 = 0,
         align_body_len: u32 = 0,
@@ -4153,8 +4157,12 @@ fn collectStructFieldInfo(
         const has_type_body = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
 
-        const field_name = file.zir.extra[extra_index];
-        extra_index += 1;
+        const field_name: ?u32 = if (!is_tuple) blk: {
+            const fname = file.zir.extra[extra_index];
+            extra_index += 1;
+            break :blk fname;
+        } else null;
+
         const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
 
@@ -4217,8 +4225,13 @@ fn collectStructFieldInfo(
                 file.zir.nullTerminatedString(field.doc_comment_index)
             else
                 null;
+            const field_name: []const u8 = if (field.field_name) |f_name|
+                file.zir.nullTerminatedString(f_name)
+            else
+                "";
+
             try self.ast_nodes.append(self.arena, .{
-                .name = file.zir.nullTerminatedString(field.field_name),
+                .name = field_name,
                 .docs = doc_comment,
             });
         }
