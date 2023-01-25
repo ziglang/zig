@@ -358,7 +358,6 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
         .parent_atom_index = @enumToInt(decl_index),
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -403,7 +402,6 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
         .parent_atom_index = @enumToInt(decl_index),
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;

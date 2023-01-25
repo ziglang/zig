@@ -981,7 +981,6 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         .parent_atom_index = atom.sym_index,
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1042,7 +1041,6 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
         .parent_atom_index = decl.link.coff.sym_index,
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;

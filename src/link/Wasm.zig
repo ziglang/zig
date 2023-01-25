@@ -1113,7 +1113,6 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     );
 
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1250,7 +1249,6 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
         },
     );
     const code = switch (result) {
-        .externally_managed => |x| x,
         .appended => value_bytes.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;

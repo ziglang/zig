@@ -21,16 +21,9 @@ const TypedValue = @import("TypedValue.zig");
 const Value = @import("value.zig").Value;
 const Zir = @import("Zir.zig");
 
-pub const FnResult = union(enum) {
-    /// The `code` parameter passed to `generateSymbol` has the value appended.
-    appended: void,
-    fail: *ErrorMsg,
-};
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
     appended: void,
-    /// The value is available externally, `code` is unused.
-    externally_managed: []const u8,
     fail: *ErrorMsg,
 };
 
@@ -89,7 +82,7 @@ pub fn generateFunction(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!FnResult {
+) GenerateSymbolError!Result {
     switch (bin_file.options.target.cpu.arch) {
         .arm,
         .armeb,
@@ -209,9 +202,6 @@ pub fn generateSymbol(
                         .val = elem_val,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -230,9 +220,6 @@ pub fn generateSymbol(
                         .val = array,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -243,9 +230,6 @@ pub fn generateSymbol(
                         .val = sentinel_val,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -260,9 +244,6 @@ pub fn generateSymbol(
                     .val = sentinel_val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |slice| {
-                        code.appendSliceAssumeCapacity(slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
                 return Result{ .appended = {} };
@@ -310,9 +291,6 @@ pub fn generateSymbol(
                     .val = slice.ptr,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
 
@@ -322,9 +300,6 @@ pub fn generateSymbol(
                     .val = slice.len,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
 
@@ -376,9 +351,6 @@ pub fn generateSymbol(
                             .val = container_ptr,
                         }, code, debug_output, reloc_info)) {
                             .appended => {},
-                            .externally_managed => |external_slice| {
-                                code.appendSliceAssumeCapacity(external_slice);
-                            },
                             .fail => |em| return Result{ .fail = em },
                         }
                         return Result{ .appended = {} };
@@ -552,9 +524,6 @@ pub fn generateSymbol(
                             .appended => {
                                 mem.copy(u8, code.items[current_pos..], tmp_list.items);
                             },
-                            .externally_managed => |external_slice| {
-                                mem.copy(u8, code.items[current_pos..], external_slice);
-                            },
                             .fail => |em| return Result{ .fail = em },
                         }
                     } else {
@@ -577,9 +546,6 @@ pub fn generateSymbol(
                     .val = field_val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_field_end = code.items.len - struct_begin;
@@ -613,9 +579,6 @@ pub fn generateSymbol(
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
             }
@@ -633,9 +596,6 @@ pub fn generateSymbol(
                     .val = union_obj.val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
 
@@ -651,9 +611,6 @@ pub fn generateSymbol(
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
             }
@@ -679,9 +636,6 @@ pub fn generateSymbol(
                         .val = payload.data,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |external_slice| {
-                            code.appendSliceAssumeCapacity(external_slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 } else if (!typed_value.val.isNull()) {
@@ -690,9 +644,6 @@ pub fn generateSymbol(
                         .val = typed_value.val,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |external_slice| {
-                            code.appendSliceAssumeCapacity(external_slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 } else {
@@ -709,9 +660,6 @@ pub fn generateSymbol(
                 .val = value,
             }, code, debug_output, reloc_info)) {
                 .appended => {},
-                .externally_managed => |external_slice| {
-                    code.appendSliceAssumeCapacity(external_slice);
-                },
                 .fail => |em| return Result{ .fail = em },
             }
 
@@ -741,9 +689,6 @@ pub fn generateSymbol(
                     .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
             }
@@ -757,9 +702,6 @@ pub fn generateSymbol(
                     .val = payload_val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
@@ -779,9 +721,6 @@ pub fn generateSymbol(
                     .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
@@ -826,9 +765,6 @@ pub fn generateSymbol(
                         .val = elem_val,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -846,9 +782,6 @@ pub fn generateSymbol(
                         .val = array,
                     }, code, debug_output, reloc_info)) {
                         .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -902,9 +835,6 @@ fn lowerDeclRef(
             .val = typed_value.val,
         }, code, debug_output, reloc_info)) {
             .appended => {},
-            .externally_managed => |external_slice| {
-                code.appendSliceAssumeCapacity(external_slice);
-            },
             .fail => |em| return Result{ .fail = em },
         }
 
@@ -918,9 +848,6 @@ fn lowerDeclRef(
             .val = Value.initPayload(&slice_len.base),
         }, code, debug_output, reloc_info)) {
             .appended => {},
-            .externally_managed => |external_slice| {
-                code.appendSliceAssumeCapacity(external_slice);
-            },
             .fail => |em| return Result{ .fail = em },
         }
 
