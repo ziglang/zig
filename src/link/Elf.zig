@@ -10,6 +10,7 @@ const fs = std.fs;
 const elf = std.elf;
 const log = std.log.scoped(.link);
 
+const Atom = @import("Elf/Atom.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -30,6 +31,8 @@ const Cache = @import("../Cache.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+
+pub const TextBlock = Atom;
 
 const default_entry_addr = 0x8000000;
 
@@ -188,61 +191,9 @@ const ideal_factor = 3;
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
 /// (plus extra for reserved capacity).
 const minimum_text_block_size = 64;
-const min_text_capacity = padToIdeal(minimum_text_block_size);
+pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 pub const PtrWidth = enum { p32, p64 };
-
-pub const TextBlock = struct {
-    /// Each decl always gets a local symbol with the fully qualified name.
-    /// The vaddr and size are found here directly.
-    /// The file offset is found by computing the vaddr offset from the section vaddr
-    /// the symbol references, and adding that to the file offset of the section.
-    /// If this field is 0, it means the codegen size = 0 and there is no symbol or
-    /// offset table entry.
-    local_sym_index: u32,
-    /// This field is undefined for symbols with size = 0.
-    offset_table_index: u32,
-    /// Points to the previous and next neighbors, based on the `text_offset`.
-    /// This can be used to find, for example, the capacity of this `TextBlock`.
-    prev: ?*TextBlock,
-    next: ?*TextBlock,
-
-    dbg_info_atom: Dwarf.Atom,
-
-    pub const empty = TextBlock{
-        .local_sym_index = 0,
-        .offset_table_index = undefined,
-        .prev = null,
-        .next = null,
-        .dbg_info_atom = undefined,
-    };
-
-    /// Returns how much room there is to grow in virtual address space.
-    /// File offset relocation happens transparently, so it is not included in
-    /// this calculation.
-    fn capacity(self: TextBlock, elf_file: Elf) u64 {
-        const self_sym = elf_file.local_symbols.items[self.local_sym_index];
-        if (self.next) |next| {
-            const next_sym = elf_file.local_symbols.items[next.local_sym_index];
-            return next_sym.st_value - self_sym.st_value;
-        } else {
-            // We are the last block. The capacity is limited only by virtual address space.
-            return std.math.maxInt(u32) - self_sym.st_value;
-        }
-    }
-
-    fn freeListEligible(self: TextBlock, elf_file: Elf) bool {
-        // No need to keep a free list node for the last block.
-        const next = self.next orelse return false;
-        const self_sym = elf_file.local_symbols.items[self.local_sym_index];
-        const next_sym = elf_file.local_symbols.items[next.local_sym_index];
-        const cap = next_sym.st_value - self_sym.st_value;
-        const ideal_cap = padToIdeal(self_sym.st_size);
-        if (cap <= ideal_cap) return false;
-        const surplus = cap - ideal_cap;
-        return surplus >= min_text_capacity;
-    }
-};
 
 pub const Export = struct {
     sym_index: ?u32 = null,
@@ -3052,7 +3003,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
     }
 }
 
-fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
+pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return actual_size +| (actual_size / ideal_factor);
 }
 
