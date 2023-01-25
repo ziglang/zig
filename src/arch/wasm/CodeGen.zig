@@ -1187,7 +1187,7 @@ pub fn generate(
         else => |e| return e,
     };
 
-    return codegen.Result{ .appended = {} };
+    return codegen.Result.ok;
 }
 
 fn genFunc(func: *CodeGen) InnerError!void {

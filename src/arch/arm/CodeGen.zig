@@ -453,7 +453,7 @@ pub fn generate(
     if (function.err_msg) |em| {
         return Result{ .fail = em };
     } else {
-        return Result{ .appended = {} };
+        return Result.ok;
     }
 }
 

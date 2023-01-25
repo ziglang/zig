@@ -299,7 +299,7 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
         },
     );
     const code = switch (res) {
-        .appended => try code_buffer.toOwnedSlice(),
+        .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -358,7 +358,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
         .parent_atom_index = @enumToInt(decl_index),
     });
     const code = switch (res) {
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
@@ -402,7 +402,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
         .parent_atom_index = @enumToInt(decl_index),
     });
     const code = switch (res) {
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
