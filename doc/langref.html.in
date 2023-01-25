@@ -10656,9 +10656,11 @@ const c = @cImport({
       {#header_close#}
 
       {#header_open|C Translation CLI#}
+      <p>
       Zig's C translation capability is available as a CLI tool via <kbd>zig translate-c</kbd>.
       It requires a single filename as an argument. It may also take a set of optional flags that are
       forwarded to clang. It writes the translated file to stdout.
+      </p>
       {#header_open|Command line flags#}
       <ul>
         <li>
