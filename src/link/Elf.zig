@@ -2289,31 +2289,43 @@ fn allocateLocalSymbol(self: *Elf) !u32 {
     return index;
 }
 
+fn allocateGotOffset(self: *Elf) !u32 {
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
+
+    const index = blk: {
+        if (self.offset_table_free_list.popOrNull()) |index| {
+            log.debug("  (reusing GOT offset at index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating GOT offset at index {d})", .{self.offset_table.items.len});
+            const index = @intCast(u32, self.offset_table.items.len);
+            _ = self.offset_table.addOneAssumeCapacity();
+            self.offset_table_count_dirty = true;
+            break :blk index;
+        }
+    };
+
+    self.offset_table.items[index] = 0;
+    return index;
+}
+
 pub fn allocateDeclIndexes(self: *Elf, decl_index: Module.Decl.Index) !void {
     if (self.llvm_object) |_| return;
 
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    if (decl.link.elf.local_sym_index != 0) return;
-
-    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.putNoClobber(self.base.allocator, decl_index, null);
+    const block = &decl.link.elf;
+    if (block.local_sym_index != 0) return;
 
     const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(decl_name);
 
     log.debug("allocating symbol indexes for {s}", .{decl_name});
-    decl.link.elf.local_sym_index = try self.allocateLocalSymbol();
-    try self.atom_by_index_table.putNoClobber(self.base.allocator, decl.link.elf.local_sym_index, &decl.link.elf);
 
-    if (self.offset_table_free_list.popOrNull()) |i| {
-        decl.link.elf.offset_table_index = i;
-    } else {
-        decl.link.elf.offset_table_index = @intCast(u32, self.offset_table.items.len);
-        _ = self.offset_table.addOneAssumeCapacity();
-        self.offset_table_count_dirty = true;
-    }
-    self.offset_table.items[decl.link.elf.offset_table_index] = 0;
+    block.local_sym_index = try self.allocateLocalSymbol();
+    block.offset_table_index = try self.allocateGotOffset();
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, block.local_sym_index, block);
+    try self.decls.putNoClobber(self.base.allocator, decl_index, null);
 }
 
 fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
