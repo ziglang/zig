@@ -12396,11 +12396,11 @@ void __ovld vstorea_half16_rtn(double16, size_t, __private half *);
  * image objects and then want to read the updated data.
  */
 
-void __ovld __conv barrier(cl_mem_fence_flags flags);
+void __ovld __conv barrier(cl_mem_fence_flags);
 
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
-void __ovld __conv work_group_barrier(cl_mem_fence_flags flags, memory_scope);
-void __ovld __conv work_group_barrier(cl_mem_fence_flags flags);
+void __ovld __conv work_group_barrier(cl_mem_fence_flags, memory_scope);
+void __ovld __conv work_group_barrier(cl_mem_fence_flags);
 #endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.9, v1.2 s6.12.9 - Explicit Memory Fence Functions
@@ -12418,7 +12418,7 @@ void __ovld __conv work_group_barrier(cl_mem_fence_flags flags);
  * CLK_LOCAL_MEM_FENCE
  * CLK_GLOBAL_MEM_FENCE.
  */
-void __ovld mem_fence(cl_mem_fence_flags flags);
+void __ovld mem_fence(cl_mem_fence_flags);
 
 /**
  * Read memory barrier that orders only
@@ -12430,7 +12430,7 @@ void __ovld mem_fence(cl_mem_fence_flags flags);
  * CLK_LOCAL_MEM_FENCE
  * CLK_GLOBAL_MEM_FENCE.
  */
-void __ovld read_mem_fence(cl_mem_fence_flags flags);
+void __ovld read_mem_fence(cl_mem_fence_flags);
 
 /**
  * Write memory barrier that orders only
@@ -12442,7 +12442,7 @@ void __ovld read_mem_fence(cl_mem_fence_flags flags);
  * CLK_LOCAL_MEM_FENCE
  * CLK_GLOBAL_MEM_FENCE.
  */
-void __ovld write_mem_fence(cl_mem_fence_flags flags);
+void __ovld write_mem_fence(cl_mem_fence_flags);
 
 // OpenCL v2.0 s6.13.9 - Address Space Qualifier Functions
 
@@ -12891,29 +12891,29 @@ void __ovld prefetch(const __global half16 *, size_t);
  * (old + val) and store result at location
  * pointed by p. The function returns old.
  */
-int __ovld atomic_add(volatile __global int *p, int val);
-uint __ovld atomic_add(volatile __global uint *p, uint val);
-int __ovld atomic_add(volatile __local int *p, int val);
-uint __ovld atomic_add(volatile __local uint *p, uint val);
+int __ovld atomic_add(volatile __global int *, int);
+uint __ovld atomic_add(volatile __global uint *, uint);
+int __ovld atomic_add(volatile __local int *, int);
+uint __ovld atomic_add(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_add(volatile int *p, int val);
-uint __ovld atomic_add(volatile uint *p, uint val);
+int __ovld atomic_add(volatile int *, int);
+uint __ovld atomic_add(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_base_atomics)
-int __ovld atom_add(volatile __global int *p, int val);
-uint __ovld atom_add(volatile __global uint *p, uint val);
+int __ovld atom_add(volatile __global int *, int);
+uint __ovld atom_add(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_base_atomics)
-int __ovld atom_add(volatile __local int *p, int val);
-uint __ovld atom_add(volatile __local uint *p, uint val);
+int __ovld atom_add(volatile __local int *, int);
+uint __ovld atom_add(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_base_atomics)
-long __ovld atom_add(volatile __global long *p, long val);
-ulong __ovld atom_add(volatile __global ulong *p, ulong val);
-long __ovld atom_add(volatile __local long *p, long val);
-ulong __ovld atom_add(volatile __local ulong *p, ulong val);
+long __ovld atom_add(volatile __global long *, long);
+ulong __ovld atom_add(volatile __global ulong *, ulong);
+long __ovld atom_add(volatile __local long *, long);
+ulong __ovld atom_add(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -12921,29 +12921,29 @@ ulong __ovld atom_add(volatile __local ulong *p, ulong val);
  * Compute (old - val) and store result at location pointed by p. The function
  * returns old.
  */
-int __ovld atomic_sub(volatile __global int *p, int val);
-uint __ovld atomic_sub(volatile __global uint *p, uint val);
-int __ovld atomic_sub(volatile __local int *p, int val);
-uint __ovld atomic_sub(volatile __local uint *p, uint val);
+int __ovld atomic_sub(volatile __global int *, int);
+uint __ovld atomic_sub(volatile __global uint *, uint);
+int __ovld atomic_sub(volatile __local int *, int);
+uint __ovld atomic_sub(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_sub(volatile int *p, int val);
-uint __ovld atomic_sub(volatile uint *p, uint val);
+int __ovld atomic_sub(volatile int *, int);
+uint __ovld atomic_sub(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_base_atomics)
-int __ovld atom_sub(volatile __global int *p, int val);
-uint __ovld atom_sub(volatile __global uint *p, uint val);
+int __ovld atom_sub(volatile __global int *, int);
+uint __ovld atom_sub(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_base_atomics)
-int __ovld atom_sub(volatile __local int *p, int val);
-uint __ovld atom_sub(volatile __local uint *p, uint val);
+int __ovld atom_sub(volatile __local int *, int);
+uint __ovld atom_sub(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_base_atomics)
-long __ovld atom_sub(volatile __global long *p, long val);
-ulong __ovld atom_sub(volatile __global ulong *p, ulong val);
-long __ovld atom_sub(volatile __local long *p, long val);
-ulong __ovld atom_sub(volatile __local ulong *p, ulong val);
+long __ovld atom_sub(volatile __global long *, long);
+ulong __ovld atom_sub(volatile __global ulong *, ulong);
+long __ovld atom_sub(volatile __local long *, long);
+ulong __ovld atom_sub(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -12951,32 +12951,32 @@ ulong __ovld atom_sub(volatile __local ulong *p, ulong val);
  * with new value given by val. Returns old
  * value.
  */
-int __ovld atomic_xchg(volatile __global int *p, int val);
-uint __ovld atomic_xchg(volatile __global uint *p, uint val);
-int __ovld atomic_xchg(volatile __local int *p, int val);
-uint __ovld atomic_xchg(volatile __local uint *p, uint val);
-float __ovld atomic_xchg(volatile __global float *p, float val);
-float __ovld atomic_xchg(volatile __local float *p, float val);
+int __ovld atomic_xchg(volatile __global int *, int);
+uint __ovld atomic_xchg(volatile __global uint *, uint);
+int __ovld atomic_xchg(volatile __local int *, int);
+uint __ovld atomic_xchg(volatile __local uint *, uint);
+float __ovld atomic_xchg(volatile __global float *, float);
+float __ovld atomic_xchg(volatile __local float *, float);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_xchg(volatile int *p, int val);
-uint __ovld atomic_xchg(volatile uint *p, uint val);
-float __ovld atomic_xchg(volatile float *p, float val);
+int __ovld atomic_xchg(volatile int *, int);
+uint __ovld atomic_xchg(volatile uint *, uint);
+float __ovld atomic_xchg(volatile float *, float);
 #endif
 
 #if defined(cl_khr_global_int32_base_atomics)
-int __ovld atom_xchg(volatile __global int *p, int val);
-uint __ovld atom_xchg(volatile __global uint *p, uint val);
+int __ovld atom_xchg(volatile __global int *, int);
+uint __ovld atom_xchg(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_base_atomics)
-int __ovld atom_xchg(volatile __local int *p, int val);
-uint __ovld atom_xchg(volatile __local uint *p, uint val);
+int __ovld atom_xchg(volatile __local int *, int);
+uint __ovld atom_xchg(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_base_atomics)
-long __ovld atom_xchg(volatile __global long *p, long val);
-long __ovld atom_xchg(volatile __local long *p, long val);
-ulong __ovld atom_xchg(volatile __global ulong *p, ulong val);
-ulong __ovld atom_xchg(volatile __local ulong *p, ulong val);
+long __ovld atom_xchg(volatile __global long *, long);
+long __ovld atom_xchg(volatile __local long *, long);
+ulong __ovld atom_xchg(volatile __global ulong *, ulong);
+ulong __ovld atom_xchg(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -13048,29 +13048,29 @@ ulong __ovld atom_dec(volatile __local ulong *);
  * location pointed by p. The function
  * returns old.
  */
-int __ovld atomic_cmpxchg(volatile __global int *p, int cmp, int val);
-uint __ovld atomic_cmpxchg(volatile __global uint *p, uint cmp, uint val);
-int __ovld atomic_cmpxchg(volatile __local int *p, int cmp, int val);
-uint __ovld atomic_cmpxchg(volatile __local uint *p, uint cmp, uint val);
+int __ovld atomic_cmpxchg(volatile __global int *, int, int);
+uint __ovld atomic_cmpxchg(volatile __global uint *, uint, uint);
+int __ovld atomic_cmpxchg(volatile __local int *, int, int);
+uint __ovld atomic_cmpxchg(volatile __local uint *, uint, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_cmpxchg(volatile int *p, int cmp, int val);
-uint __ovld atomic_cmpxchg(volatile uint *p, uint cmp, uint val);
+int __ovld atomic_cmpxchg(volatile int *, int, int);
+uint __ovld atomic_cmpxchg(volatile uint *, uint, uint);
 #endif
 
 #if defined(cl_khr_global_int32_base_atomics)
-int __ovld atom_cmpxchg(volatile __global int *p, int cmp, int val);
-uint __ovld atom_cmpxchg(volatile __global uint *p, uint cmp, uint val);
+int __ovld atom_cmpxchg(volatile __global int *, int, int);
+uint __ovld atom_cmpxchg(volatile __global uint *, uint, uint);
 #endif
 #if defined(cl_khr_local_int32_base_atomics)
-int __ovld atom_cmpxchg(volatile __local int *p, int cmp, int val);
-uint __ovld atom_cmpxchg(volatile __local uint *p, uint cmp, uint val);
+int __ovld atom_cmpxchg(volatile __local int *, int, int);
+uint __ovld atom_cmpxchg(volatile __local uint *, uint, uint);
 #endif
 
 #if defined(cl_khr_int64_base_atomics)
-long __ovld atom_cmpxchg(volatile __global long *p, long cmp, long val);
-ulong __ovld atom_cmpxchg(volatile __global ulong *p, ulong cmp, ulong val);
-long __ovld atom_cmpxchg(volatile __local long *p, long cmp, long val);
-ulong __ovld atom_cmpxchg(volatile __local ulong *p, ulong cmp, ulong val);
+long __ovld atom_cmpxchg(volatile __global long *, long, long);
+ulong __ovld atom_cmpxchg(volatile __global ulong *, ulong, ulong);
+long __ovld atom_cmpxchg(volatile __local long *, long, long);
+ulong __ovld atom_cmpxchg(volatile __local ulong *, ulong, ulong);
 #endif
 
 /**
@@ -13080,29 +13080,29 @@ ulong __ovld atom_cmpxchg(volatile __local ulong *p, ulong cmp, ulong val);
  * location pointed by p. The function
  * returns old.
  */
-int __ovld atomic_min(volatile __global int *p, int val);
-uint __ovld atomic_min(volatile __global uint *p, uint val);
-int __ovld atomic_min(volatile __local int *p, int val);
-uint __ovld atomic_min(volatile __local uint *p, uint val);
+int __ovld atomic_min(volatile __global int *, int);
+uint __ovld atomic_min(volatile __global uint *, uint);
+int __ovld atomic_min(volatile __local int *, int);
+uint __ovld atomic_min(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_min(volatile int *p, int val);
-uint __ovld atomic_min(volatile uint *p, uint val);
+int __ovld atomic_min(volatile int *, int);
+uint __ovld atomic_min(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
-int __ovld atom_min(volatile __global int *p, int val);
-uint __ovld atom_min(volatile __global uint *p, uint val);
+int __ovld atom_min(volatile __global int *, int);
+uint __ovld atom_min(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_extended_atomics)
-int __ovld atom_min(volatile __local int *p, int val);
-uint __ovld atom_min(volatile __local uint *p, uint val);
+int __ovld atom_min(volatile __local int *, int);
+uint __ovld atom_min(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_extended_atomics)
-long __ovld atom_min(volatile __global long *p, long val);
-ulong __ovld atom_min(volatile __global ulong *p, ulong val);
-long __ovld atom_min(volatile __local long *p, long val);
-ulong __ovld atom_min(volatile __local ulong *p, ulong val);
+long __ovld atom_min(volatile __global long *, long);
+ulong __ovld atom_min(volatile __global ulong *, ulong);
+long __ovld atom_min(volatile __local long *, long);
+ulong __ovld atom_min(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -13112,29 +13112,29 @@ ulong __ovld atom_min(volatile __local ulong *p, ulong val);
  * location pointed by p. The function
  * returns old.
  */
-int __ovld atomic_max(volatile __global int *p, int val);
-uint __ovld atomic_max(volatile __global uint *p, uint val);
-int __ovld atomic_max(volatile __local int *p, int val);
-uint __ovld atomic_max(volatile __local uint *p, uint val);
+int __ovld atomic_max(volatile __global int *, int);
+uint __ovld atomic_max(volatile __global uint *, uint);
+int __ovld atomic_max(volatile __local int *, int);
+uint __ovld atomic_max(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_max(volatile int *p, int val);
-uint __ovld atomic_max(volatile uint *p, uint val);
+int __ovld atomic_max(volatile int *, int);
+uint __ovld atomic_max(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
-int __ovld atom_max(volatile __global int *p, int val);
-uint __ovld atom_max(volatile __global uint *p, uint val);
+int __ovld atom_max(volatile __global int *, int);
+uint __ovld atom_max(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_extended_atomics)
-int __ovld atom_max(volatile __local int *p, int val);
-uint __ovld atom_max(volatile __local uint *p, uint val);
+int __ovld atom_max(volatile __local int *, int);
+uint __ovld atom_max(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_extended_atomics)
-long __ovld atom_max(volatile __global long *p, long val);
-ulong __ovld atom_max(volatile __global ulong *p, ulong val);
-long __ovld atom_max(volatile __local long *p, long val);
-ulong __ovld atom_max(volatile __local ulong *p, ulong val);
+long __ovld atom_max(volatile __global long *, long);
+ulong __ovld atom_max(volatile __global ulong *, ulong);
+long __ovld atom_max(volatile __local long *, long);
+ulong __ovld atom_max(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -13143,29 +13143,29 @@ ulong __ovld atom_max(volatile __local ulong *p, ulong val);
  * (old & val) and store result at location
  * pointed by p. The function returns old.
  */
-int __ovld atomic_and(volatile __global int *p, int val);
-uint __ovld atomic_and(volatile __global uint *p, uint val);
-int __ovld atomic_and(volatile __local int *p, int val);
-uint __ovld atomic_and(volatile __local uint *p, uint val);
+int __ovld atomic_and(volatile __global int *, int);
+uint __ovld atomic_and(volatile __global uint *, uint);
+int __ovld atomic_and(volatile __local int *, int);
+uint __ovld atomic_and(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_and(volatile int *p, int val);
-uint __ovld atomic_and(volatile uint *p, uint val);
+int __ovld atomic_and(volatile int *, int);
+uint __ovld atomic_and(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
-int __ovld atom_and(volatile __global int *p, int val);
-uint __ovld atom_and(volatile __global uint *p, uint val);
+int __ovld atom_and(volatile __global int *, int);
+uint __ovld atom_and(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_extended_atomics)
-int __ovld atom_and(volatile __local int *p, int val);
-uint __ovld atom_and(volatile __local uint *p, uint val);
+int __ovld atom_and(volatile __local int *, int);
+uint __ovld atom_and(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_extended_atomics)
-long __ovld atom_and(volatile __global long *p, long val);
-ulong __ovld atom_and(volatile __global ulong *p, ulong val);
-long __ovld atom_and(volatile __local long *p, long val);
-ulong __ovld atom_and(volatile __local ulong *p, ulong val);
+long __ovld atom_and(volatile __global long *, long);
+ulong __ovld atom_and(volatile __global ulong *, ulong);
+long __ovld atom_and(volatile __local long *, long);
+ulong __ovld atom_and(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -13174,29 +13174,29 @@ ulong __ovld atom_and(volatile __local ulong *p, ulong val);
  * (old | val) and store result at location
  * pointed by p. The function returns old.
  */
-int __ovld atomic_or(volatile __global int *p, int val);
-uint __ovld atomic_or(volatile __global uint *p, uint val);
-int __ovld atomic_or(volatile __local int *p, int val);
-uint __ovld atomic_or(volatile __local uint *p, uint val);
+int __ovld atomic_or(volatile __global int *, int);
+uint __ovld atomic_or(volatile __global uint *, uint);
+int __ovld atomic_or(volatile __local int *, int);
+uint __ovld atomic_or(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_or(volatile int *p, int val);
-uint __ovld atomic_or(volatile uint *p, uint val);
+int __ovld atomic_or(volatile int *, int);
+uint __ovld atomic_or(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
-int __ovld atom_or(volatile __global int *p, int val);
-uint __ovld atom_or(volatile __global uint *p, uint val);
+int __ovld atom_or(volatile __global int *, int);
+uint __ovld atom_or(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_extended_atomics)
-int __ovld atom_or(volatile __local int *p, int val);
-uint __ovld atom_or(volatile __local uint *p, uint val);
+int __ovld atom_or(volatile __local int *, int);
+uint __ovld atom_or(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_extended_atomics)
-long __ovld atom_or(volatile __global long *p, long val);
-ulong __ovld atom_or(volatile __global ulong *p, ulong val);
-long __ovld atom_or(volatile __local long *p, long val);
-ulong __ovld atom_or(volatile __local ulong *p, ulong val);
+long __ovld atom_or(volatile __global long *, long);
+ulong __ovld atom_or(volatile __global ulong *, ulong);
+long __ovld atom_or(volatile __local long *, long);
+ulong __ovld atom_or(volatile __local ulong *, ulong);
 #endif
 
 /**
@@ -13205,29 +13205,29 @@ ulong __ovld atom_or(volatile __local ulong *p, ulong val);
  * (old ^ val) and store result at location
  * pointed by p. The function returns old.
  */
-int __ovld atomic_xor(volatile __global int *p, int val);
-uint __ovld atomic_xor(volatile __global uint *p, uint val);
-int __ovld atomic_xor(volatile __local int *p, int val);
-uint __ovld atomic_xor(volatile __local uint *p, uint val);
+int __ovld atomic_xor(volatile __global int *, int);
+uint __ovld atomic_xor(volatile __global uint *, uint);
+int __ovld atomic_xor(volatile __local int *, int);
+uint __ovld atomic_xor(volatile __local uint *, uint);
 #ifdef __OPENCL_CPP_VERSION__
-int __ovld atomic_xor(volatile int *p, int val);
-uint __ovld atomic_xor(volatile uint *p, uint val);
+int __ovld atomic_xor(volatile int *, int);
+uint __ovld atomic_xor(volatile uint *, uint);
 #endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
-int __ovld atom_xor(volatile __global int *p, int val);
-uint __ovld atom_xor(volatile __global uint *p, uint val);
+int __ovld atom_xor(volatile __global int *, int);
+uint __ovld atom_xor(volatile __global uint *, uint);
 #endif
 #if defined(cl_khr_local_int32_extended_atomics)
-int __ovld atom_xor(volatile __local int *p, int val);
-uint __ovld atom_xor(volatile __local uint *p, uint val);
+int __ovld atom_xor(volatile __local int *, int);
+uint __ovld atom_xor(volatile __local uint *, uint);
 #endif
 
 #if defined(cl_khr_int64_extended_atomics)
-long __ovld atom_xor(volatile __global long *p, long val);
-ulong __ovld atom_xor(volatile __global ulong *p, ulong val);
-long __ovld atom_xor(volatile __local long *p, long val);
-ulong __ovld atom_xor(volatile __local ulong *p, ulong val);
+long __ovld atom_xor(volatile __global long *, long);
+ulong __ovld atom_xor(volatile __global ulong *, ulong);
+long __ovld atom_xor(volatile __local long *, long);
+ulong __ovld atom_xor(volatile __local ulong *, ulong);
 #endif
 
 #if defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
@@ -15257,13 +15257,17 @@ float4 __ovld __purefn read_imagef(read_only image2d_t, sampler_t, float2, float
 int4 __ovld __purefn read_imagei(read_only image2d_t, sampler_t, float2, float);
 uint4 __ovld __purefn read_imageui(read_only image2d_t, sampler_t, float2, float);
 
+#ifdef cl_khr_depth_images
 float __ovld __purefn read_imagef(read_only image2d_depth_t, sampler_t, float2, float);
+#endif // cl_khr_depth_images
 
 float4 __ovld __purefn read_imagef(read_only image2d_array_t, sampler_t, float4, float);
 int4 __ovld __purefn read_imagei(read_only image2d_array_t, sampler_t, float4, float);
 uint4 __ovld __purefn read_imageui(read_only image2d_array_t, sampler_t, float4, float);
 
+#ifdef cl_khr_depth_images
 float __ovld __purefn read_imagef(read_only image2d_array_depth_t, sampler_t, float4, float);
+#endif // cl_khr_depth_images
 
 float4 __ovld __purefn read_imagef(read_only image3d_t, sampler_t, float4, float);
 int4 __ovld __purefn read_imagei(read_only image3d_t, sampler_t, float4, float);
@@ -15281,13 +15285,17 @@ float4 __ovld __purefn read_imagef(read_only image2d_t, sampler_t, float2, float
 int4 __ovld __purefn read_imagei(read_only image2d_t, sampler_t, float2, float2, float2);
 uint4 __ovld __purefn read_imageui(read_only image2d_t, sampler_t, float2, float2, float2);
 
+#ifdef cl_khr_depth_images
 float __ovld __purefn read_imagef(read_only image2d_depth_t, sampler_t, float2, float2, float2);
+#endif // cl_khr_depth_images
 
 float4 __ovld __purefn read_imagef(read_only image2d_array_t, sampler_t, float4, float2, float2);
 int4 __ovld __purefn read_imagei(read_only image2d_array_t, sampler_t, float4, float2, float2);
 uint4 __ovld __purefn read_imageui(read_only image2d_array_t, sampler_t, float4, float2, float2);
 
+#ifdef cl_khr_depth_images
 float __ovld __purefn read_imagef(read_only image2d_array_depth_t, sampler_t, float4, float2, float2);
+#endif // cl_khr_depth_images
 
 float4 __ovld __purefn read_imagef(read_only image3d_t, sampler_t, float4, float4, float4);
 int4 __ovld __purefn read_imagei(read_only image3d_t, sampler_t, float4, float4, float4);
@@ -15380,9 +15388,11 @@ float4 __ovld __purefn read_imagef(read_write image2d_array_t, int4);
 int4 __ovld __purefn read_imagei(read_write image2d_array_t, int4);
 uint4 __ovld __purefn read_imageui(read_write image2d_array_t, int4);
 
+#ifdef cl_khr_3d_image_writes
 float4 __ovld __purefn read_imagef(read_write image3d_t, int4);
 int4 __ovld __purefn read_imagei(read_write image3d_t, int4);
 uint4 __ovld __purefn read_imageui(read_write image3d_t, int4);
+#endif // cl_khr_3d_image_writes
 
 #ifdef cl_khr_depth_images
 float __ovld __purefn read_imagef(read_write image2d_depth_t, int2);
@@ -15423,9 +15433,11 @@ uint4 __ovld __purefn read_imageui(read_write image2d_array_t, sampler_t, float4
 
 float __ovld __purefn read_imagef(read_write image2d_array_depth_t, sampler_t, float4, float);
 
+#ifdef cl_khr_3d_image_writes
 float4 __ovld __purefn read_imagef(read_write image3d_t, sampler_t, float4, float);
 int4 __ovld __purefn read_imagei(read_write image3d_t, sampler_t, float4, float);
 uint4 __ovld __purefn read_imageui(read_write image3d_t, sampler_t, float4, float);
+#endif // cl_khr_3d_image_writes
 
 float4 __ovld __purefn read_imagef(read_write image1d_t, sampler_t, float, float, float);
 int4 __ovld __purefn read_imagei(read_write image1d_t, sampler_t, float, float, float);
@@ -15447,9 +15459,11 @@ uint4 __ovld __purefn read_imageui(read_write image2d_array_t, sampler_t, float4
 
 float __ovld __purefn read_imagef(read_write image2d_array_depth_t, sampler_t, float4, float2, float2);
 
+#ifdef cl_khr_3d_image_writes
 float4 __ovld __purefn read_imagef(read_write image3d_t, sampler_t, float4, float4, float4);
 int4 __ovld __purefn read_imagei(read_write image3d_t, sampler_t, float4, float4, float4);
 uint4 __ovld __purefn read_imageui(read_write image3d_t, sampler_t, float4, float4, float4);
+#endif // cl_khr_3d_image_writes
 
 #endif //cl_khr_mipmap_image
 
@@ -15457,7 +15471,9 @@ uint4 __ovld __purefn read_imageui(read_write image3d_t, sampler_t, float4, floa
 #ifdef cl_khr_fp16
 half4 __ovld __purefn read_imageh(read_write image1d_t, int);
 half4 __ovld __purefn read_imageh(read_write image2d_t, int2);
+#ifdef cl_khr_3d_image_writes
 half4 __ovld __purefn read_imageh(read_write image3d_t, int4);
+#endif // cl_khr_3d_image_writes
 half4 __ovld __purefn read_imageh(read_write image1d_array_t, int2);
 half4 __ovld __purefn read_imageh(read_write image2d_array_t, int4);
 half4 __ovld __purefn read_imageh(read_write image1d_buffer_t, int);
@@ -15727,7 +15743,9 @@ int __ovld __cnfn get_image_width(write_only image2d_array_msaa_depth_t);
 int __ovld __cnfn get_image_width(read_write image1d_t);
 int __ovld __cnfn get_image_width(read_write image1d_buffer_t);
 int __ovld __cnfn get_image_width(read_write image2d_t);
+#ifdef cl_khr_3d_image_writes
 int __ovld __cnfn get_image_width(read_write image3d_t);
+#endif // cl_khr_3d_image_writes
 int __ovld __cnfn get_image_width(read_write image1d_array_t);
 int __ovld __cnfn get_image_width(read_write image2d_array_t);
 #ifdef cl_khr_depth_images
@@ -15777,7 +15795,9 @@ int __ovld __cnfn get_image_height(write_only image2d_array_msaa_depth_t);
 
 #if defined(__opencl_c_read_write_images)
 int __ovld __cnfn get_image_height(read_write image2d_t);
+#ifdef cl_khr_3d_image_writes
 int __ovld __cnfn get_image_height(read_write image3d_t);
+#endif // cl_khr_3d_image_writes
 int __ovld __cnfn get_image_height(read_write image2d_array_t);
 #ifdef cl_khr_depth_images
 int __ovld __cnfn get_image_height(read_write image2d_depth_t);
@@ -15798,11 +15818,11 @@ int __ovld __cnfn get_image_depth(read_only image3d_t);
 
 #ifdef cl_khr_3d_image_writes
 int __ovld __cnfn get_image_depth(write_only image3d_t);
-#endif
 
 #if defined(__opencl_c_read_write_images)
 int __ovld __cnfn get_image_depth(read_write image3d_t);
 #endif //defined(__opencl_c_read_write_images)
+#endif // cl_khr_3d_image_writes
 
 // OpenCL Extension v2.0 s9.18 - Mipmaps
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
@@ -15824,24 +15844,32 @@ int __ovld get_image_num_mip_levels(write_only image3d_t);
 #if defined(__opencl_c_read_write_images)
 int __ovld get_image_num_mip_levels(read_write image1d_t);
 int __ovld get_image_num_mip_levels(read_write image2d_t);
+#ifdef cl_khr_3d_image_writes
 int __ovld get_image_num_mip_levels(read_write image3d_t);
+#endif // cl_khr_3d_image_writes
 #endif //defined(__opencl_c_read_write_images)
 
 int __ovld get_image_num_mip_levels(read_only image1d_array_t);
 int __ovld get_image_num_mip_levels(read_only image2d_array_t);
+#ifdef cl_khr_depth_images
 int __ovld get_image_num_mip_levels(read_only image2d_array_depth_t);
 int __ovld get_image_num_mip_levels(read_only image2d_depth_t);
+#endif // cl_khr_depth_images
 
 int __ovld get_image_num_mip_levels(write_only image1d_array_t);
 int __ovld get_image_num_mip_levels(write_only image2d_array_t);
+#ifdef cl_khr_depth_images
 int __ovld get_image_num_mip_levels(write_only image2d_array_depth_t);
 int __ovld get_image_num_mip_levels(write_only image2d_depth_t);
+#endif // cl_khr_depth_images
 
 #if defined(__opencl_c_read_write_images)
 int __ovld get_image_num_mip_levels(read_write image1d_array_t);
 int __ovld get_image_num_mip_levels(read_write image2d_array_t);
+#ifdef cl_khr_depth_images
 int __ovld get_image_num_mip_levels(read_write image2d_array_depth_t);
 int __ovld get_image_num_mip_levels(read_write image2d_depth_t);
+#endif // cl_khr_depth_images
 #endif //defined(__opencl_c_read_write_images)
 
 #endif //cl_khr_mipmap_image
@@ -15906,7 +15934,9 @@ int __ovld __cnfn get_image_channel_data_type(write_only image2d_array_msaa_dept
 int __ovld __cnfn get_image_channel_data_type(read_write image1d_t);
 int __ovld __cnfn get_image_channel_data_type(read_write image1d_buffer_t);
 int __ovld __cnfn get_image_channel_data_type(read_write image2d_t);
+#ifdef cl_khr_3d_image_writes
 int __ovld __cnfn get_image_channel_data_type(read_write image3d_t);
+#endif // cl_khr_3d_image_writes
 int __ovld __cnfn get_image_channel_data_type(read_write image1d_array_t);
 int __ovld __cnfn get_image_channel_data_type(read_write image2d_array_t);
 #ifdef cl_khr_depth_images
@@ -15978,7 +16008,9 @@ int __ovld __cnfn get_image_channel_order(write_only image2d_array_msaa_depth_t)
 int __ovld __cnfn get_image_channel_order(read_write image1d_t);
 int __ovld __cnfn get_image_channel_order(read_write image1d_buffer_t);
 int __ovld __cnfn get_image_channel_order(read_write image2d_t);
+#ifdef cl_khr_3d_image_writes
 int __ovld __cnfn get_image_channel_order(read_write image3d_t);
+#endif // cl_khr_3d_image_writes
 int __ovld __cnfn get_image_channel_order(read_write image1d_array_t);
 int __ovld __cnfn get_image_channel_order(read_write image2d_array_t);
 #ifdef cl_khr_depth_images
@@ -16048,10 +16080,10 @@ int2 __ovld __cnfn get_image_dim(read_write image2d_array_msaa_depth_t);
 int4 __ovld __cnfn get_image_dim(read_only image3d_t);
 #ifdef cl_khr_3d_image_writes
 int4 __ovld __cnfn get_image_dim(write_only image3d_t);
-#endif
 #if defined(__opencl_c_read_write_images)
 int4 __ovld __cnfn get_image_dim(read_write image3d_t);
 #endif //defined(__opencl_c_read_write_images)
+#endif // cl_khr_3d_image_writes
 
 /**
  * Return the image array size.
@@ -16266,9 +16298,9 @@ uint    __ovld get_enqueued_num_sub_groups(void);
 uint    __ovld get_sub_group_id(void);
 uint    __ovld get_sub_group_local_id(void);
 
-void    __ovld __conv sub_group_barrier(cl_mem_fence_flags flags);
+void    __ovld __conv sub_group_barrier(cl_mem_fence_flags);
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
-void    __ovld __conv sub_group_barrier(cl_mem_fence_flags flags, memory_scope);
+void    __ovld __conv sub_group_barrier(cl_mem_fence_flags, memory_scope);
 #endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 int     __ovld __conv sub_group_all(int predicate);
@@ -17847,15 +17879,13 @@ intel_sub_group_avc_sic_configure_skc(
     uint skip_block_partition_type, uint skip_motion_vector_mask,
     ulong motion_vectors, uchar bidirectional_weight, uchar skip_sad_adjustment,
     intel_sub_group_avc_sic_payload_t payload);
-intel_sub_group_avc_sic_payload_t __ovld
-intel_sub_group_avc_sic_configure_ipe(
-    uchar luma_intra_partition_mask, uchar intra_neighbour_availabilty,
+intel_sub_group_avc_sic_payload_t __ovld intel_sub_group_avc_sic_configure_ipe(
+    uchar luma_intra_partition_mask, uchar intra_neighbour_availability,
     uchar left_edge_luma_pixels, uchar upper_left_corner_luma_pixel,
     uchar upper_edge_luma_pixels, uchar upper_right_edge_luma_pixels,
     uchar intra_sad_adjustment, intel_sub_group_avc_sic_payload_t payload);
-intel_sub_group_avc_sic_payload_t __ovld
-intel_sub_group_avc_sic_configure_ipe(
-    uchar luma_intra_partition_mask, uchar intra_neighbour_availabilty,
+intel_sub_group_avc_sic_payload_t __ovld intel_sub_group_avc_sic_configure_ipe(
+    uchar luma_intra_partition_mask, uchar intra_neighbour_availability,
     uchar left_edge_luma_pixels, uchar upper_left_corner_luma_pixel,
     uchar upper_edge_luma_pixels, uchar upper_right_edge_luma_pixels,
     ushort left_edge_chroma_pixels, ushort upper_left_corner_chroma_pixel,

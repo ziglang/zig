@@ -818,7 +818,7 @@ static __inline__ __m128i __DEFAULT_FN_ATTRS _mm_max_epu32(__m128i __V1,
 ///    parameter, is copied to the result.
 /// \param N
 ///    Specifies which bits from operand \a Y will be copied, which bits in the
-///    result they will be be copied to, and which bits in the result will be
+///    result they will be copied to, and which bits in the result will be
 ///    cleared. The following assignments are made: \n
 ///    Bits [7:6] specify the bits to copy from operand \a Y: \n
 ///      00: Selects bits [31:0] from operand \a Y. \n

@@ -11,6 +11,8 @@
     "Never use <avx512vlfp16intrin.h> directly; include <immintrin.h> instead."
 #endif
 
+#ifdef __SSE2__
+
 #ifndef __AVX512VLFP16INTRIN_H
 #define __AVX512VLFP16INTRIN_H
 
@@ -2065,4 +2067,5 @@ _mm_reduce_min_ph(__m128h __V) {
 #undef __DEFAULT_FN_ATTRS128
 #undef __DEFAULT_FN_ATTRS256
 
+#endif
 #endif

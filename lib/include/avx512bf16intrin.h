@@ -10,12 +10,14 @@
 #error "Never use <avx512bf16intrin.h> directly; include <immintrin.h> instead."
 #endif
 
+#ifdef __SSE2__
+
 #ifndef __AVX512BF16INTRIN_H
 #define __AVX512BF16INTRIN_H
 
-typedef short __m512bh __attribute__((__vector_size__(64), __aligned__(64)));
-typedef short __m256bh __attribute__((__vector_size__(32), __aligned__(32)));
-typedef unsigned short __bfloat16;
+typedef __bf16 __v32bf __attribute__((__vector_size__(64), __aligned__(64)));
+typedef __bf16 __m512bh __attribute__((__vector_size__(64), __aligned__(64)));
+typedef __bf16 __bfloat16 __attribute__((deprecated("use __bf16 instead")));
 
 #define __DEFAULT_FN_ATTRS512 \
   __attribute__((__always_inline__, __nodebug__, __target__("avx512bf16"), \
@@ -33,7 +35,7 @@ typedef unsigned short __bfloat16;
 ///    A bfloat data.
 /// \returns A float data whose sign field and exponent field keep unchanged,
 ///    and fraction field is extended to 23 bits.
-static __inline__ float __DEFAULT_FN_ATTRS _mm_cvtsbh_ss(__bfloat16 __A) {
+static __inline__ float __DEFAULT_FN_ATTRS _mm_cvtsbh_ss(__bf16 __A) {
   return __builtin_ia32_cvtsbf162ss_32(__A);
 }
 
@@ -74,9 +76,9 @@ _mm512_cvtne2ps_pbh(__m512 __A, __m512 __B) {
 ///    conversion of __B, and higher 256 bits come from conversion of __A.
 static __inline__ __m512bh __DEFAULT_FN_ATTRS512
 _mm512_mask_cvtne2ps_pbh(__m512bh __W, __mmask32 __U, __m512 __A, __m512 __B) {
-  return (__m512bh)__builtin_ia32_selectw_512((__mmask32)__U,
-                                        (__v32hi)_mm512_cvtne2ps_pbh(__A, __B),
-                                        (__v32hi)__W);
+  return (__m512bh)__builtin_ia32_selectpbf_512((__mmask32)__U,
+                                        (__v32bf)_mm512_cvtne2ps_pbh(__A, __B),
+                                        (__v32bf)__W);
 }
 
 /// Convert Two Packed Single Data to One Packed BF16 Data.
@@ -96,9 +98,9 @@ _mm512_mask_cvtne2ps_pbh(__m512bh __W, __mmask32 __U, __m512 __A, __m512 __B) {
 ///    conversion of __B, and higher 256 bits come from conversion of __A.
 static __inline__ __m512bh __DEFAULT_FN_ATTRS512
 _mm512_maskz_cvtne2ps_pbh(__mmask32 __U, __m512 __A, __m512 __B) {
-  return (__m512bh)__builtin_ia32_selectw_512((__mmask32)__U,
-                                        (__v32hi)_mm512_cvtne2ps_pbh(__A, __B),
-                                        (__v32hi)_mm512_setzero_si512());
+  return (__m512bh)__builtin_ia32_selectpbf_512((__mmask32)__U,
+                                        (__v32bf)_mm512_cvtne2ps_pbh(__A, __B),
+                                        (__v32bf)_mm512_setzero_si512());
 }
 
 /// Convert Packed Single Data to Packed BF16 Data.
@@ -113,7 +115,7 @@ _mm512_maskz_cvtne2ps_pbh(__mmask32 __U, __m512 __A, __m512 __B) {
 static __inline__ __m256bh __DEFAULT_FN_ATTRS512
 _mm512_cvtneps_pbh(__m512 __A) {
   return (__m256bh)__builtin_ia32_cvtneps2bf16_512_mask((__v16sf)__A,
-                                              (__v16hi)_mm256_undefined_si256(),
+                                              (__v16bf)_mm256_undefined_si256(),
                                               (__mmask16)-1);
 }
 
@@ -134,7 +136,7 @@ _mm512_cvtneps_pbh(__m512 __A) {
 static __inline__ __m256bh __DEFAULT_FN_ATTRS512
 _mm512_mask_cvtneps_pbh(__m256bh __W, __mmask16 __U, __m512 __A) {
   return (__m256bh)__builtin_ia32_cvtneps2bf16_512_mask((__v16sf)__A,
-                                                        (__v16hi)__W,
+                                                        (__v16bf)__W,
                                                         (__mmask16)__U);
 }
 
@@ -153,7 +155,7 @@ _mm512_mask_cvtneps_pbh(__m256bh __W, __mmask16 __U, __m512 __A) {
 static __inline__ __m256bh __DEFAULT_FN_ATTRS512
 _mm512_maskz_cvtneps_pbh(__mmask16 __U, __m512 __A) {
   return (__m256bh)__builtin_ia32_cvtneps2bf16_512_mask((__v16sf)__A,
-                                                (__v16hi)_mm256_setzero_si256(),
+                                                (__v16bf)_mm256_setzero_si256(),
                                                 (__mmask16)__U);
 }
 
@@ -174,8 +176,8 @@ _mm512_maskz_cvtneps_pbh(__mmask16 __U, __m512 __A) {
 static __inline__ __m512 __DEFAULT_FN_ATTRS512
 _mm512_dpbf16_ps(__m512 __D, __m512bh __A, __m512bh __B) {
   return (__m512)__builtin_ia32_dpbf16ps_512((__v16sf) __D,
-                                             (__v16si) __A,
-                                             (__v16si) __B);
+                                             (__v32bf) __A,
+                                             (__v32bf) __B);
 }
 
 /// Dot Product of BF16 Pairs Accumulated into Packed Single Precision.
@@ -276,4 +278,5 @@ _mm512_mask_cvtpbh_ps(__m512 __S, __mmask16 __U, __m256bh __A) {
 #undef __DEFAULT_FN_ATTRS
 #undef __DEFAULT_FN_ATTRS512
 
+#endif
 #endif

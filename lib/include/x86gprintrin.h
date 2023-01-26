@@ -25,22 +25,34 @@
 #include <crc32intrin.h>
 #endif
 
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__PRFCHI__)
+#include <prfchiintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__RAOINT__)
+#include <raointintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__CMPCCXADD__)
+#include <cmpccxaddintrin.h>
+#endif
+
 #if defined(__i386__)
-#define __FULLBX "ebx"
+#define __SAVE_GPRBX "mov {%%ebx, %%eax |eax, ebx};"
+#define __RESTORE_GPRBX "mov {%%eax, %%ebx |ebx, eax};"
 #define __TMPGPR "eax"
 #else
 // When in 64-bit target, the 32-bit operands generate a 32-bit result,
 // zero-extended to a 64-bit result in the destination general-purpose,
 // It means "mov x %ebx" will clobber the higher 32 bits of rbx, so we
 // should preserve the 64-bit register rbx.
-#define __FULLBX "rbx"
+#define __SAVE_GPRBX "mov {%%rbx, %%rax |rax, rbx};"
+#define __RESTORE_GPRBX "mov {%%rax, %%rbx |rbx, rax};"
 #define __TMPGPR "rax"
 #endif
-
-#define __MOVEGPR(__r1, __r2) "mov {%%"__r1 ", %%"__r2 "|"__r2 ", "__r1"};"
-
-#define __SAVE_GPRBX __MOVEGPR(__FULLBX, __TMPGPR)
-#define __RESTORE_GPRBX __MOVEGPR(__TMPGPR, __FULLBX)
 
 #define __SSC_MARK(__Tag)                                                      \
   __asm__ __volatile__( __SAVE_GPRBX                                           \

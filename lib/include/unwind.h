@@ -65,7 +65,8 @@ struct _Unwind_Context;
 #if defined(__arm__) && !(defined(__USING_SJLJ_EXCEPTIONS__) || \
                           defined(__ARM_DWARF_EH__) || defined(__SEH__))
 struct _Unwind_Control_Block;
-typedef struct _Unwind_Control_Block _Unwind_Exception; /* Alias */
+typedef struct _Unwind_Control_Block _Unwind_Control_Block;
+#define _Unwind_Exception _Unwind_Control_Block /* Alias */
 #else
 struct _Unwind_Exception;
 typedef struct _Unwind_Exception _Unwind_Exception;

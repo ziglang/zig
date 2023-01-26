@@ -666,6 +666,7 @@ __device__ static void __tex_fetch(__T *__ptr, cudaTextureObject_t __handle,
       __tex_fetch_v4<__op>::template __run<__FetchT>(__handle, __args...));
 }
 
+#if CUDA_VERSION < 12000
 // texture<> objects get magically converted into a texture reference.  However,
 // there's no way to convert them to cudaTextureObject_t on C++ level. So, we
 // cheat a bit and use inline assembly to do it. It costs us an extra register
@@ -713,6 +714,7 @@ __tex_fetch(__DataT *, __RetT *__ptr,
       __tex_fetch_v4<__op>::template __run<__FetchT>(
           __tex_handle_to_obj(__handle), __args...));
 }
+#endif // CUDA_VERSION
 } // namespace __cuda_tex
 } // namespace
 #pragma pop_macro("__ASM_OUT")

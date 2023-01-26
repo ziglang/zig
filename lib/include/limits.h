@@ -65,7 +65,7 @@
 /* C2x 5.2.4.2.1 */
 /* FIXME: This is using the placeholder dates Clang produces for these macros
    in C2x mode; switch to the correct values once they've been published. */
-#if __STDC_VERSION__ >= 202000L
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
 #define BOOL_WIDTH   __BOOL_WIDTH__
 #define CHAR_WIDTH   CHAR_BIT
 #define SCHAR_WIDTH  CHAR_BIT
@@ -93,7 +93,8 @@
 /* C99 5.2.4.2.1: Added long long.
    C++11 18.3.3.2: same contents as the Standard C Library header <limits.h>.
  */
-#if __STDC_VERSION__ >= 199901L || __cplusplus >= 201103L
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||              \
+    (defined(__cplusplus) && __cplusplus >= 201103L)
 
 #undef  LLONG_MIN
 #undef  LLONG_MAX

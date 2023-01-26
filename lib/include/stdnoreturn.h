@@ -13,7 +13,7 @@
 #define noreturn _Noreturn
 #define __noreturn_is_defined 1
 
-#if __STDC_VERSION__ > 201710L &&                                              \
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L) &&               \
     !defined(_CLANG_DISABLE_CRT_DEPRECATION_WARNINGS)
 /* The noreturn macro is deprecated in C2x. We do not mark it as such because
    including the header file in C2x is also deprecated and we do not want to

@@ -288,12 +288,17 @@ __llvm_amdgcn_rsq_f64(double __x) {
 
 __device__ __attribute__((const)) _Float16 __ocml_ceil_f16(_Float16);
 __device__ _Float16 __ocml_cos_f16(_Float16);
+__device__ __attribute__((const)) _Float16 __ocml_cvtrtn_f16_f32(float);
+__device__ __attribute__((const)) _Float16 __ocml_cvtrtp_f16_f32(float);
+__device__ __attribute__((const)) _Float16 __ocml_cvtrtz_f16_f32(float);
 __device__ __attribute__((pure)) _Float16 __ocml_exp_f16(_Float16);
 __device__ __attribute__((pure)) _Float16 __ocml_exp10_f16(_Float16);
 __device__ __attribute__((pure)) _Float16 __ocml_exp2_f16(_Float16);
 __device__ __attribute__((const)) _Float16 __ocml_floor_f16(_Float16);
 __device__ __attribute__((const)) _Float16 __ocml_fma_f16(_Float16, _Float16,
                                                           _Float16);
+__device__ __attribute__((const)) _Float16 __ocml_fmax_f16(_Float16, _Float16);
+__device__ __attribute__((const)) _Float16 __ocml_fmin_f16(_Float16, _Float16);
 __device__ __attribute__((const)) _Float16 __ocml_fabs_f16(_Float16);
 __device__ __attribute__((const)) int __ocml_isinf_f16(_Float16);
 __device__ __attribute__((const)) int __ocml_isnan_f16(_Float16);

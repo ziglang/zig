@@ -17323,32 +17323,32 @@ provided.
 #define vec_ncipherlast_be __builtin_altivec_crypto_vncipherlast
 
 #ifdef __VSX__
-static __inline__ vector unsigned long long __attribute__((__always_inline__))
-__builtin_crypto_vsbox(vector unsigned long long __a) {
+static __inline__ vector unsigned char __attribute__((__always_inline__))
+__builtin_crypto_vsbox(vector unsigned char __a) {
   return __builtin_altivec_crypto_vsbox(__a);
 }
 
-static __inline__ vector unsigned long long __attribute__((__always_inline__))
-__builtin_crypto_vcipher(vector unsigned long long __a,
-                         vector unsigned long long __b) {
+static __inline__ vector unsigned char __attribute__((__always_inline__))
+__builtin_crypto_vcipher(vector unsigned char __a,
+                         vector unsigned char __b) {
   return __builtin_altivec_crypto_vcipher(__a, __b);
 }
 
-static __inline__ vector unsigned long long __attribute__((__always_inline__))
-__builtin_crypto_vcipherlast(vector unsigned long long __a,
-                             vector unsigned long long __b) {
+static __inline__ vector unsigned char __attribute__((__always_inline__))
+__builtin_crypto_vcipherlast(vector unsigned char __a,
+                             vector unsigned char __b) {
   return __builtin_altivec_crypto_vcipherlast(__a, __b);
 }
 
-static __inline__ vector unsigned long long __attribute__((__always_inline__))
-__builtin_crypto_vncipher(vector unsigned long long __a,
-                          vector unsigned long long __b) {
+static __inline__ vector unsigned char __attribute__((__always_inline__))
+__builtin_crypto_vncipher(vector unsigned char __a,
+                          vector unsigned char __b) {
   return __builtin_altivec_crypto_vncipher(__a, __b);
 }
 
-static __inline__ vector unsigned long long __attribute__((__always_inline__))
-__builtin_crypto_vncipherlast(vector unsigned long long __a,
-                              vector unsigned long long __b) {
+static __inline__ vector unsigned char  __attribute__((__always_inline__))
+__builtin_crypto_vncipherlast(vector unsigned char __a,
+                              vector unsigned char __b) {
   return __builtin_altivec_crypto_vncipherlast(__a, __b);
 }
 #endif /* __VSX__ */
