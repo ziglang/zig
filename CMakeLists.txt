@@ -127,9 +127,9 @@ if(ZIG_AR_WORKAROUND)
   string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
-find_package(llvm 15)
-find_package(clang 15)
-find_package(lld 15)
+find_package(llvm 16)
+find_package(clang 16)
+find_package(lld 16)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
