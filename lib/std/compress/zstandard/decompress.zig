@@ -562,7 +562,12 @@ pub fn decodeZStandardFrame(dest: []u8, src: []const u8, verify_checksum: bool) 
 /// `decodeZStandardFrame()`. Returns `error.WindowSizeUnknown` if the frame
 /// does not declare its content size or a window descriptor (this indicates a
 /// malformed frame).
-pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, verify_checksum: bool) ![]u8 {
+pub fn decodeZStandardFrameAlloc(
+    allocator: std.mem.Allocator,
+    src: []const u8,
+    verify_checksum: bool,
+    window_size_max: usize,
+) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
     assert(readInt(u32, src[0..4]) == frame.ZStandard.magic_number);
     var consumed_count: usize = 4;
@@ -572,7 +577,10 @@ pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, 
     if (frame_header.descriptor.dictionary_id_flag != 0) return error.DictionaryIdFlagUnsupported;
 
     const window_size_raw = frameWindowSize(frame_header) orelse return error.WindowSizeUnknown;
-    const window_size = std.math.cast(usize, window_size_raw) orelse return error.WindowTooLarge;
+    const window_size = if (window_size_raw > window_size_max)
+        return error.WindowTooLarge
+    else
+        @intCast(usize, window_size_raw);
 
     const should_compute_checksum = frame_header.descriptor.content_checksum_flag and verify_checksum;
     var hash = if (should_compute_checksum) std.hash.XxHash64.init(0) else null;
