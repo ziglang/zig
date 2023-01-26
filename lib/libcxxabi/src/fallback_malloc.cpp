@@ -15,6 +15,7 @@
 #endif
 #endif
 
+#include <assert.h>
 #include <stdlib.h> // for malloc, calloc, free
 #include <string.h> // for memset
 #include <new> // for std::__libcpp_aligned_{alloc,free}
@@ -63,10 +64,27 @@ char heap[HEAP_SIZE] __attribute__((aligned));
 typedef unsigned short heap_offset;
 typedef unsigned short heap_size;
 
+// On both 64 and 32 bit targets heap_node should have the following properties
+// Size: 4
+// Alignment: 2
 struct heap_node {
   heap_offset next_node; // offset into heap
   heap_size len;         // size in units of "sizeof(heap_node)"
 };
+
+// All pointers returned by fallback_malloc must be at least aligned
+// as RequiredAligned. Note that RequiredAlignment can be greater than
+// alignof(std::max_align_t) on 64 bit systems compiling 32 bit code.
+struct FallbackMaxAlignType {
+} __attribute__((aligned));
+const size_t RequiredAlignment = alignof(FallbackMaxAlignType);
+
+static_assert(alignof(FallbackMaxAlignType) % sizeof(heap_node) == 0,
+              "The required alignment must be evenly divisible by the sizeof(heap_node)");
+
+// The number of heap_node's that can fit in a chunk of memory with the size
+// of the RequiredAlignment. On 64 bit targets NodesPerAlignment should be 4.
+const size_t NodesPerAlignment = alignof(FallbackMaxAlignType) / sizeof(heap_node);
 
 static const heap_node* list_end =
     (heap_node*)(&heap[HEAP_SIZE]); // one past the end of the heap
@@ -82,10 +100,23 @@ heap_offset offset_from_node(const heap_node* ptr) {
       sizeof(heap_node));
 }
 
+// Return a pointer to the first address, 'A', in `heap` that can actually be
+// used to represent a heap_node. 'A' must be aligned so that
+// '(A + sizeof(heap_node)) % RequiredAlignment == 0'. On 64 bit systems this
+// address should be 12 bytes after the first 16 byte boundary.
+heap_node* getFirstAlignedNodeInHeap() {
+  heap_node* node = (heap_node*)heap;
+  const size_t alignNBytesAfterBoundary = RequiredAlignment - sizeof(heap_node);
+  size_t boundaryOffset = reinterpret_cast<size_t>(node) % RequiredAlignment;
+  size_t requiredOffset = alignNBytesAfterBoundary - boundaryOffset;
+  size_t NElemOffset = requiredOffset / sizeof(heap_node);
+  return node + NElemOffset;
+}
+
 void init_heap() {
-  freelist = (heap_node*)heap;
+  freelist = getFirstAlignedNodeInHeap();
   freelist->next_node = offset_from_node(list_end);
-  freelist->len = HEAP_SIZE / sizeof(heap_node);
+  freelist->len = static_cast<heap_size>(list_end - freelist);
 }
 
 //  How big a chunk we allocate
@@ -109,23 +140,44 @@ void* fallback_malloc(size_t len) {
   for (p = freelist, prev = 0; p && p != list_end;
        prev = p, p = node_from_offset(p->next_node)) {
 
-    if (p->len > nelems) { //  chunk is larger, shorten, and return the tail
-      heap_node* q;
+    // Check the invariant that all heap_nodes pointers 'p' are aligned
+    // so that 'p + 1' has an alignment of at least RequiredAlignment
+    assert(reinterpret_cast<size_t>(p + 1) % RequiredAlignment == 0);
 
-      p->len = static_cast<heap_size>(p->len - nelems);
-      q = p + p->len;
-      q->next_node = 0;
-      q->len = static_cast<heap_size>(nelems);
-      return (void*)(q + 1);
+    // Calculate the number of extra padding elements needed in order
+    // to split 'p' and create a properly aligned heap_node from the tail
+    // of 'p'. We calculate aligned_nelems such that 'p->len - aligned_nelems'
+    // will be a multiple of NodesPerAlignment.
+    size_t aligned_nelems = nelems;
+    if (p->len > nelems) {
+      heap_size remaining_len = static_cast<heap_size>(p->len - nelems);
+      aligned_nelems += remaining_len % NodesPerAlignment;
     }
 
-    if (p->len == nelems) { // exact size match
+    // chunk is larger and we can create a properly aligned heap_node
+    // from the tail. In this case we shorten 'p' and return the tail.
+    if (p->len > aligned_nelems) {
+      heap_node* q;
+      p->len = static_cast<heap_size>(p->len - aligned_nelems);
+      q = p + p->len;
+      q->next_node = 0;
+      q->len = static_cast<heap_size>(aligned_nelems);
+      void* ptr = q + 1;
+      assert(reinterpret_cast<size_t>(ptr) % RequiredAlignment == 0);
+      return ptr;
+    }
+
+    // The chunk is the exact size or the chunk is larger but not large
+    // enough to split due to alignment constraints.
+    if (p->len >= nelems) {
       if (prev == 0)
         freelist = node_from_offset(p->next_node);
       else
         prev->next_node = p->next_node;
       p->next_node = 0;
-      return (void*)(p + 1);
+      void* ptr = p + 1;
+      assert(reinterpret_cast<size_t>(ptr) % RequiredAlignment == 0);
+      return ptr;
     }
   }
   return NULL; // couldn't find a spot big enough

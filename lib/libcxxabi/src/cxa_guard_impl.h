@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef LIBCXXABI_SRC_INCLUDE_CXA_GUARD_IMPL_H
 #define LIBCXXABI_SRC_INCLUDE_CXA_GUARD_IMPL_H
 
@@ -54,9 +55,12 @@
 #  endif
 #endif
 
+#include <__threading_support>
+#include <cstdint>
+#include <cstring>
 #include <limits.h>
 #include <stdlib.h>
-#include <__threading_support>
+
 #ifndef _LIBCXXABI_HAS_NO_THREADS
 #  if defined(__ELF__) && defined(_LIBCXXABI_LINK_PTHREAD_LIB)
 #    pragma comment(lib, "pthread")

@@ -69,19 +69,15 @@ class OutputBuffer {
 
 public:
   OutputBuffer(char *StartBuf, size_t Size)
-      : Buffer(StartBuf), CurrentPosition(0), BufferCapacity(Size) {}
+      : Buffer(StartBuf), BufferCapacity(Size) {}
+  OutputBuffer(char *StartBuf, size_t *SizePtr)
+      : OutputBuffer(StartBuf, StartBuf ? *SizePtr : 0) {}
   OutputBuffer() = default;
   // Non-copyable
   OutputBuffer(const OutputBuffer &) = delete;
   OutputBuffer &operator=(const OutputBuffer &) = delete;
 
   operator StringView() const { return StringView(Buffer, CurrentPosition); }
-
-  void reset(char *Buffer_, size_t BufferCapacity_) {
-    CurrentPosition = 0;
-    Buffer = Buffer_;
-    BufferCapacity = BufferCapacity_;
-  }
 
   /// If a ParameterPackExpansion (or similar type) is encountered, the offset
   /// into the pack that we're currently printing.
@@ -197,21 +193,6 @@ public:
   ScopedOverride(const ScopedOverride &) = delete;
   ScopedOverride &operator=(const ScopedOverride &) = delete;
 };
-
-inline bool initializeOutputBuffer(char *Buf, size_t *N, OutputBuffer &OB,
-                                   size_t InitSize) {
-  size_t BufferSize;
-  if (Buf == nullptr) {
-    Buf = static_cast<char *>(std::malloc(InitSize));
-    if (Buf == nullptr)
-      return false;
-    BufferSize = InitSize;
-  } else
-    BufferSize = *N;
-
-  OB.reset(Buf, BufferSize);
-  return true;
-}
 
 DEMANGLE_NAMESPACE_END
 
