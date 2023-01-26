@@ -344,9 +344,10 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: File.
     const decl = mod.declPtr(decl_index);
 
     assert(self.llvm_object == null);
-    assert(decl.link.elf.local_sym_index != 0);
 
-    const target = decl.link.elf.local_sym_index;
+    try decl.link.elf.ensureInitialized(self);
+    const target = decl.link.elf.getSymbolIndex().?;
+
     const vaddr = self.local_symbols.items[target].st_value;
     const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
     const gop = try self.relocs.getOrPut(self.base.allocator, atom);
@@ -447,7 +448,7 @@ fn makeString(self: *Elf, bytes: []const u8) !u32 {
     return @intCast(u32, result);
 }
 
-fn getString(self: Elf, str_off: u32) []const u8 {
+pub fn getString(self: Elf, str_off: u32) []const u8 {
     assert(str_off < self.shstrtab.items.len);
     return mem.sliceTo(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off), 0);
 }
@@ -2069,7 +2070,7 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
     if (text_block.prev) |prev| {
         prev.next = text_block.next;
 
-        if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
+        if (!already_have_free_list_node and prev.freeListEligible(self)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
             // ignore the OOM here.
             free_list.append(self.base.allocator, prev) catch {};
@@ -2083,6 +2084,15 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
     } else {
         text_block.next = null;
     }
+
+    // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
+    const local_sym_index = text_block.getSymbolIndex().?;
+    self.local_symbol_free_list.append(self.base.allocator, local_sym_index) catch {};
+    self.local_symbols.items[local_sym_index].st_info = 0;
+    _ = self.atom_by_index_table.remove(local_sym_index);
+    text_block.local_sym_index = 0;
+
+    self.offset_table_free_list.append(self.base.allocator, text_block.offset_table_index) catch {};
 
     if (self.dwarf) |*dw| {
         dw.freeAtom(&text_block.dbg_info_atom);
@@ -2099,7 +2109,7 @@ fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, phdr
 fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64, phdr_index: u16) !u64 {
     const sym = self.local_symbols.items[text_block.local_sym_index];
     const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
-    const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
+    const need_realloc = !align_ok or new_block_size > text_block.capacity(self);
     if (!need_realloc) return sym.st_value;
     return self.allocateTextBlock(text_block, new_block_size, alignment, phdr_index);
 }
@@ -2128,7 +2138,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // We now have a pointer to a live text block that has too much capacity.
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
-            const capacity = big_block.capacity(self.*);
+            const capacity = big_block.capacity(self);
             const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = std.math.add(u64, sym.st_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.st_value + capacity;
@@ -2138,7 +2148,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the block that it points to has grown to take up
                 // more of the extra capacity.
-                if (!big_block.freeListEligible(self.*)) {
+                if (!big_block.freeListEligible(self)) {
                     _ = free_list.swapRemove(i);
                 } else {
                     i += 1;
@@ -2213,7 +2223,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
     return vaddr;
 }
 
-fn allocateLocalSymbol(self: *Elf) !u32 {
+pub fn allocateLocalSymbol(self: *Elf) !u32 {
     try self.local_symbols.ensureUnusedCapacity(self.base.allocator, 1);
 
     const index = blk: {
@@ -2240,7 +2250,7 @@ fn allocateLocalSymbol(self: *Elf) !u32 {
     return index;
 }
 
-fn allocateGotOffset(self: *Elf) !u32 {
+pub fn allocateGotOffset(self: *Elf) !u32 {
     try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
 
     const index = blk: {
@@ -2260,32 +2270,10 @@ fn allocateGotOffset(self: *Elf) !u32 {
     return index;
 }
 
-pub fn allocateDeclIndexes(self: *Elf, decl_index: Module.Decl.Index) !void {
-    if (self.llvm_object) |_| return;
-
-    const mod = self.base.options.module.?;
-    const decl = mod.declPtr(decl_index);
-    const block = &decl.link.elf;
-    if (block.local_sym_index != 0) return;
-
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer self.base.allocator.free(decl_name);
-
-    log.debug("allocating symbol indexes for {s}", .{decl_name});
-
-    block.local_sym_index = try self.allocateLocalSymbol();
-    block.offset_table_index = try self.allocateGotOffset();
-    try self.atom_by_index_table.putNoClobber(self.base.allocator, block.local_sym_index, block);
-    try self.decls.putNoClobber(self.base.allocator, decl_index, null);
-}
-
 fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
         self.freeTextBlock(atom, self.phdr_load_ro_index.?);
-        self.local_symbol_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
-        self.local_symbols.items[atom.local_sym_index].st_info = 0;
-        _ = self.atom_by_index_table.remove(atom.local_sym_index);
     }
     unnamed_consts.clearAndFree(self.base.allocator);
 }
@@ -2298,20 +2286,13 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const kv = self.decls.fetchRemove(decl_index);
-    if (kv.?.value) |index| {
-        self.freeTextBlock(&decl.link.elf, index);
-        self.freeUnnamedConsts(decl_index);
-    }
+    log.debug("freeDecl {*}", .{decl});
 
-    // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-    if (decl.link.elf.local_sym_index != 0) {
-        self.local_symbol_free_list.append(self.base.allocator, decl.link.elf.local_sym_index) catch {};
-        self.local_symbols.items[decl.link.elf.local_sym_index].st_info = 0;
-        _ = self.atom_by_index_table.remove(decl.link.elf.local_sym_index);
-        decl.link.elf.local_sym_index = 0;
-
-        self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
+    if (self.decls.fetchRemove(decl_index)) |kv| {
+        if (kv.value) |index| {
+            self.freeTextBlock(&decl.link.elf, index);
+            self.freeUnnamedConsts(decl_index);
+        }
     }
 
     if (self.dwarf) |*dw| {
@@ -2363,7 +2344,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
     const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
     if (local_sym.st_size != 0) {
-        const capacity = decl.link.elf.capacity(self.*);
+        const capacity = decl.link.elf.capacity(self);
         const need_realloc = code.len > capacity or
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
         if (need_realloc) {
@@ -2424,12 +2405,19 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const tracy = trace(@src());
     defer tracy.end();
 
-    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer code_buffer.deinit();
-
     const decl_index = func.owner_decl;
     const decl = module.declPtr(decl_index);
-    self.freeUnnamedConsts(decl_index);
+    const atom = &decl.link.elf;
+    try atom.ensureInitialized(self);
+    const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
+    if (gop.found_existing) {
+        self.freeUnnamedConsts(decl_index);
+    } else {
+        gop.value_ptr.* = null;
+    }
+
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
 
     var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
@@ -2489,6 +2477,13 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     }
 
     assert(!self.unnamed_const_atoms.contains(decl_index));
+
+    const atom = &decl.link.elf;
+    try atom.ensureInitialized(self);
+    const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = null;
+    }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2633,16 +2628,19 @@ pub fn updateDeclExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try self.global_symbols.ensureUnusedCapacity(self.base.allocator, exports.len);
     const decl = module.declPtr(decl_index);
-    if (decl.link.elf.local_sym_index == 0) return;
-    const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
+    const atom = &decl.link.elf;
 
-    const decl_ptr = self.decls.getPtr(decl_index).?;
-    if (decl_ptr.* == null) {
-        decl_ptr.* = try self.getDeclPhdrIndex(decl);
+    if (atom.getSymbolIndex() == null) return;
+
+    const decl_sym = atom.getSymbol(self);
+    try self.global_symbols.ensureUnusedCapacity(self.base.allocator, exports.len);
+
+    const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = try self.getDeclPhdrIndex(decl);
     }
-    const phdr_index = decl_ptr.*.?;
+    const phdr_index = gop.value_ptr.*.?;
     const shdr_index = self.phdr_shdr_table.get(phdr_index).?;
 
     for (exports) |exp| {

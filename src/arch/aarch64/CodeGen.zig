@@ -4307,12 +4307,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const fn_owner_decl = mod.declPtr(func.owner_decl);
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const got_addr = blk: {
-                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                    break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                };
+                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
+                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 try fn_owner_decl.link.macho.ensureInitialized(macho_file);
@@ -6125,20 +6121,15 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     mod.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+        try decl.link.elf.ensureInitialized(elf_file);
+        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        // Because MachO is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
         try decl.link.macho.ensureInitialized(macho_file);
         return MCValue{ .linker_load = .{
             .type = .got,
             .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        // Because COFF is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
         assert(decl.link.coff.sym_index != 0);
         return MCValue{ .linker_load = .{
             .type = .got,

@@ -2472,14 +2472,15 @@ pub fn updateDeclExports(
 
     const decl = module.declPtr(decl_index);
     const atom = &decl.link.macho;
-    try atom.ensureInitialized(self);
+
+    if (atom.getSymbolIndex() == null) return;
 
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
-        gop.value_ptr.* = null;
+        gop.value_ptr.* = self.getDeclOutputSection(decl);
     }
 
-    const decl_sym = decl.link.macho.getSymbol(self);
+    const decl_sym = atom.getSymbol(self);
 
     for (exports) |exp| {
         const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{exp.options.name});
