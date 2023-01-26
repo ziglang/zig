@@ -19,6 +19,7 @@
 #include <mach-o/compact_unwind_encoding.h>
 
 #include "Registers.hpp"
+#include "libunwind_ext.h"
 
 #define EXTRACT_BITS(value, mask)                                              \
   ((value >> __builtin_ctz(mask)) & (((1 << __builtin_popcount(mask))) - 1))

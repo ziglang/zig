@@ -137,7 +137,7 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     // If we were called by __libunwind_seh_personality(), indicate that
     // a handler was found; otherwise, initiate phase 2 by unwinding.
     if (ours && ms_exc->NumberParameters > 1)
-      return 4 /* ExecptionExecuteHandler in mingw */;
+      return 4 /* ExceptionExecuteHandler in mingw */;
     // This should never happen in phase 2.
     if (IS_UNWINDING(ms_exc->ExceptionFlags))
       _LIBUNWIND_ABORT("Personality indicated exception handler in phase 2!");
@@ -155,7 +155,7 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     // a handler was found; otherwise, it's time to initiate a collided
     // unwind to the target.
     if (ours && !IS_UNWINDING(ms_exc->ExceptionFlags) && ms_exc->NumberParameters > 1)
-      return 4 /* ExecptionExecuteHandler in mingw */;
+      return 4 /* ExceptionExecuteHandler in mingw */;
     // This should never happen in phase 1.
     if (!IS_UNWINDING(ms_exc->ExceptionFlags))
       _LIBUNWIND_ABORT("Personality installed context during phase 1!");
@@ -354,7 +354,7 @@ _Unwind_RaiseException(_Unwind_Exception *exception_object) {
 /// may force a jump to a landing pad in that function; the landing
 /// pad code may then call \c _Unwind_Resume() to continue with the
 /// unwinding.  Note: the call to \c _Unwind_Resume() is from compiler
-/// geneated user code.  All other \c _Unwind_* routines are called
+/// generated user code.  All other \c _Unwind_* routines are called
 /// by the C++ runtime \c __cxa_* routines.
 ///
 /// Note: re-throwing an exception (as opposed to continuing the unwind)

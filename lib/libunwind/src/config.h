@@ -115,7 +115,7 @@
 #if defined(__i386__) || defined(__x86_64__) || defined(__powerpc__) ||        \
     (!defined(__APPLE__) && defined(__arm__)) || defined(__aarch64__) ||       \
     defined(__mips__) || defined(__riscv) || defined(__hexagon__) ||           \
-    defined(__sparc__) || defined(__s390x__)
+    defined(__sparc__) || defined(__s390x__) || defined(__loongarch__)
 #if !defined(_LIBUNWIND_BUILD_SJLJ_APIS)
 #define _LIBUNWIND_BUILD_ZERO_COST_APIS
 #endif

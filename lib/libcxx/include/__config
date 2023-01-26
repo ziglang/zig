@@ -10,8 +10,6 @@
 #ifndef _LIBCPP___CONFIG
 #define _LIBCPP___CONFIG
 
-#include <__config_site>
-
 #if defined(_MSC_VER) && !defined(__clang__)
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    define _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
