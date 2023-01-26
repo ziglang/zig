@@ -329,6 +329,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_OMPCriticalDirectiveClass,
     ZigClangStmt_OMPDepobjDirectiveClass,
     ZigClangStmt_OMPDispatchDirectiveClass,
+    ZigClangStmt_OMPErrorDirectiveClass,
     ZigClangStmt_OMPFlushDirectiveClass,
     ZigClangStmt_OMPInteropDirectiveClass,
     ZigClangStmt_OMPDistributeDirectiveClass,
@@ -433,6 +434,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_CXXNewExprClass,
     ZigClangStmt_CXXNoexceptExprClass,
     ZigClangStmt_CXXNullPtrLiteralExprClass,
+    ZigClangStmt_CXXParenListInitExprClass,
     ZigClangStmt_CXXPseudoDestructorExprClass,
     ZigClangStmt_CXXRewrittenBinaryOperatorClass,
     ZigClangStmt_CXXScalarValueInitExprClass,
@@ -614,11 +616,13 @@ enum ZigClangDeclKind {
     ZigClangDeclFileScopeAsm,
     ZigClangDeclFriend,
     ZigClangDeclFriendTemplate,
+    ZigClangDeclImplicitConceptSpecialization,
     ZigClangDeclImport,
     ZigClangDeclLifetimeExtendedTemporary,
     ZigClangDeclLinkageSpec,
     ZigClangDeclUsing,
     ZigClangDeclUsingEnum,
+    ZigClangDeclHLSLBuffer,
     ZigClangDeclLabel,
     ZigClangDeclNamespace,
     ZigClangDeclNamespaceAlias,
@@ -687,6 +691,7 @@ enum ZigClangDeclKind {
     ZigClangDeclPragmaDetectMismatch,
     ZigClangDeclRequiresExprBody,
     ZigClangDeclStaticAssert,
+    ZigClangDeclTopLevelStmt,
     ZigClangDeclTranslationUnit,
 };
 
@@ -1301,7 +1306,7 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangAttributedType_getEquivalentType(co
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangMacroQualifiedType_getModifiedType(const struct ZigClangMacroQualifiedType *);
 
-ZIG_EXTERN_C struct ZigClangQualType ZigClangTypeOfType_getUnderlyingType(const struct ZigClangTypeOfType *);
+ZIG_EXTERN_C struct ZigClangQualType ZigClangTypeOfType_getUnmodifiedType(const struct ZigClangTypeOfType *);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangTypeOfExprType_getUnderlyingExpr(const struct ZigClangTypeOfExprType *);
 

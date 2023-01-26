@@ -425,6 +425,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::OMPCriticalDirectiveClass:
         case clang::Stmt::OMPDepobjDirectiveClass:
         case clang::Stmt::OMPDispatchDirectiveClass:
+        case clang::Stmt::OMPErrorDirectiveClass:
         case clang::Stmt::OMPFlushDirectiveClass:
         case clang::Stmt::OMPInteropDirectiveClass:
         case clang::Stmt::OMPDistributeDirectiveClass:
@@ -529,6 +530,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::CXXNewExprClass:
         case clang::Stmt::CXXNoexceptExprClass:
         case clang::Stmt::CXXNullPtrLiteralExprClass:
+        case clang::Stmt::CXXParenListInitExprClass:
         case clang::Stmt::CXXPseudoDestructorExprClass:
         case clang::Stmt::CXXRewrittenBinaryOperatorClass:
         case clang::Stmt::CXXScalarValueInitExprClass:
@@ -661,6 +663,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCancellationPointDirective
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCriticalDirectiveClass == clang::Stmt::OMPCriticalDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDepobjDirectiveClass == clang::Stmt::OMPDepobjDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDispatchDirectiveClass == clang::Stmt::OMPDispatchDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPErrorDirectiveClass == clang::Stmt::OMPErrorDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPFlushDirectiveClass == clang::Stmt::OMPFlushDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPInteropDirectiveClass == clang::Stmt::OMPInteropDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeDirectiveClass == clang::Stmt::OMPDistributeDirectiveClass, "");
@@ -765,6 +768,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXInheritedCtorInitExprClass
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNewExprClass == clang::Stmt::CXXNewExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNoexceptExprClass == clang::Stmt::CXXNoexceptExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNullPtrLiteralExprClass == clang::Stmt::CXXNullPtrLiteralExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXParenListInitExprClass == clang::Stmt::CXXParenListInitExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXPseudoDestructorExprClass == clang::Stmt::CXXPseudoDestructorExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXRewrittenBinaryOperatorClass == clang::Stmt::CXXRewrittenBinaryOperatorClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXScalarValueInitExprClass == clang::Stmt::CXXScalarValueInitExprClass, "");
@@ -915,11 +919,13 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::FileScopeAsm:
         case clang::Decl::Friend:
         case clang::Decl::FriendTemplate:
+        case clang::Decl::ImplicitConceptSpecialization:
         case clang::Decl::Import:
         case clang::Decl::LifetimeExtendedTemporary:
         case clang::Decl::LinkageSpec:
         case clang::Decl::Using:
         case clang::Decl::UsingEnum:
+        case clang::Decl::HLSLBuffer:
         case clang::Decl::Label:
         case clang::Decl::Namespace:
         case clang::Decl::NamespaceAlias:
@@ -988,6 +994,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::PragmaDetectMismatch:
         case clang::Decl::RequiresExprBody:
         case clang::Decl::StaticAssert:
+        case clang::Decl::TopLevelStmt:
         case clang::Decl::TranslationUnit:
             break;
     }
@@ -1003,11 +1010,13 @@ static_assert((clang::Decl::Kind)ZigClangDeclExternCContext == clang::Decl::Exte
 static_assert((clang::Decl::Kind)ZigClangDeclFileScopeAsm == clang::Decl::FileScopeAsm, "");
 static_assert((clang::Decl::Kind)ZigClangDeclFriend == clang::Decl::Friend, "");
 static_assert((clang::Decl::Kind)ZigClangDeclFriendTemplate == clang::Decl::FriendTemplate, "");
+static_assert((clang::Decl::Kind)ZigClangDeclImplicitConceptSpecialization == clang::Decl::ImplicitConceptSpecialization, "");
 static_assert((clang::Decl::Kind)ZigClangDeclImport == clang::Decl::Import, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLifetimeExtendedTemporary == clang::Decl::LifetimeExtendedTemporary, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLinkageSpec == clang::Decl::LinkageSpec, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUsing == clang::Decl::Using, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUsingEnum == clang::Decl::UsingEnum, "");
+static_assert((clang::Decl::Kind)ZigClangDeclHLSLBuffer == clang::Decl::HLSLBuffer, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLabel == clang::Decl::Label, "");
 static_assert((clang::Decl::Kind)ZigClangDeclNamespace == clang::Decl::Namespace, "");
 static_assert((clang::Decl::Kind)ZigClangDeclNamespaceAlias == clang::Decl::NamespaceAlias, "");
@@ -1076,6 +1085,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclPragmaComment == clang::Decl::Pragm
 static_assert((clang::Decl::Kind)ZigClangDeclPragmaDetectMismatch == clang::Decl::PragmaDetectMismatch, "");
 static_assert((clang::Decl::Kind)ZigClangDeclRequiresExprBody == clang::Decl::RequiresExprBody, "");
 static_assert((clang::Decl::Kind)ZigClangDeclStaticAssert == clang::Decl::StaticAssert, "");
+static_assert((clang::Decl::Kind)ZigClangDeclTopLevelStmt == clang::Decl::TopLevelStmt, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTranslationUnit == clang::Decl::TranslationUnit, "");
 
 void ZigClang_detect_enum_BuiltinTypeKind(clang::BuiltinType::Kind x) {
@@ -2496,14 +2506,32 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     bool single_file_parse = false;
     bool for_serialization = false;
     bool retain_excluded_conditional_blocks = false;
+    clang::ArrayRef<clang::ASTUnit::RemappedFile> remapped_files = std::nullopt;
     std::unique_ptr<clang::ASTUnit> err_unit;
+    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS = nullptr;
+    std::optional<llvm::StringRef> ModuleFormat = std::nullopt;
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
-            args_begin, args_end,
-            pch_container_ops, diags, resources_path,
-            only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
-            false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, retain_excluded_conditional_blocks,
-            clang::None, &err_unit, nullptr);
+        args_begin, args_end,
+        pch_container_ops,
+        diags,
+        resources_path,
+        only_local_decls,
+        clang::CaptureDiagsKind::All,
+        remapped_files,
+        true, // remapped files keep original name
+        0, // precompiled preable after n parses
+        clang::TU_Complete,
+        false, // cache code completion results
+        false, // include brief comments in code completion
+        allow_pch_with_compiler_errors,
+        clang::SkipFunctionBodiesScope::None,
+        single_file_parse,
+        user_files_are_volatile,
+        for_serialization,
+        retain_excluded_conditional_blocks,
+        ModuleFormat,
+        &err_unit,
+        VFS);
 
     *errors_len = 0;
 
@@ -2836,9 +2864,9 @@ struct ZigClangQualType ZigClangMacroQualifiedType_getModifiedType(const struct 
     return bitcast(casted->getModifiedType());
 }
 
-struct ZigClangQualType ZigClangTypeOfType_getUnderlyingType(const struct ZigClangTypeOfType *self) {
+struct ZigClangQualType ZigClangTypeOfType_getUnmodifiedType(const struct ZigClangTypeOfType *self) {
     auto casted = reinterpret_cast<const clang::TypeOfType *>(self);
-    return bitcast(casted->getUnderlyingType());
+    return bitcast(casted->getUnmodifiedType());
 }
 
 const struct ZigClangExpr *ZigClangTypeOfExprType_getUnderlyingExpr(const struct ZigClangTypeOfExprType *self) {

@@ -4825,7 +4825,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         },
         .TypeOf => {
             const typeof_ty = @ptrCast(*const clang.TypeOfType, ty);
-            return transQualType(c, scope, typeof_ty.getUnderlyingType(), source_loc);
+            return transQualType(c, scope, typeof_ty.getUnmodifiedType(), source_loc);
         },
         .TypeOfExpr => {
             const typeofexpr_ty = @ptrCast(*const clang.TypeOfExprType, ty);
