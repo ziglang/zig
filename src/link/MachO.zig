@@ -2017,7 +2017,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -2082,8 +2082,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
         .parent_atom_index = atom.sym_index,
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -2167,8 +2166,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
         });
 
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);

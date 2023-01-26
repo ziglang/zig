@@ -2479,7 +2479,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -2553,8 +2553,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
         });
 
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -2618,8 +2617,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
         .parent_atom_index = atom.local_sym_index,
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);

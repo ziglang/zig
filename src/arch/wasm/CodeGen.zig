@@ -627,13 +627,6 @@ test "Wasm - buildOpcode" {
     try testing.expectEqual(@as(wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
 }
 
-pub const Result = union(enum) {
-    /// The codegen bytes have been appended to `Context.code`
-    appended: void,
-    /// The data is managed externally and are part of the `Result`
-    externally_managed: []const u8,
-};
-
 /// Hashmap to store generated `WValue` for each `Air.Inst.Ref`
 pub const ValueTable = std.AutoArrayHashMapUnmanaged(Air.Inst.Ref, WValue);
 
@@ -1171,7 +1164,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
-) codegen.GenerateSymbolError!codegen.FnResult {
+) codegen.GenerateSymbolError!codegen.Result {
     _ = src_loc;
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,
@@ -1190,11 +1183,11 @@ pub fn generate(
     defer code_gen.deinit();
 
     genFunc(&code_gen) catch |err| switch (err) {
-        error.CodegenFail => return codegen.FnResult{ .fail = code_gen.err_msg },
+        error.CodegenFail => return codegen.Result{ .fail = code_gen.err_msg },
         else => |e| return e,
     };
 
-    return codegen.FnResult{ .appended = {} };
+    return codegen.Result.ok;
 }
 
 fn genFunc(func: *CodeGen) InnerError!void {

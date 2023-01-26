@@ -1046,7 +1046,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     );
 
     const code = switch (result) {
-        .appended => code_writer.items,
+        .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
@@ -1113,8 +1113,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     );
 
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_writer.items,
+        .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
@@ -1250,8 +1249,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
         },
     );
     const code = switch (result) {
-        .externally_managed => |x| x,
-        .appended => value_bytes.items,
+        .ok => value_bytes.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
