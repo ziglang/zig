@@ -4347,20 +4347,25 @@ pub fn addCCArgs(
                 });
             }
 
-            // It would be really nice if there was a more compact way to communicate this info to Clang.
-            const all_features_list = target.cpu.arch.allFeaturesList();
-            try argv.ensureUnusedCapacity(all_features_list.len * 4);
-            for (all_features_list) |feature, index_usize| {
-                const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+            var buf = std.ArrayList(u8).init(arena);
+            for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+                const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-                    const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
-                    argv.appendAssumeCapacity(arg);
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
+                    buf.appendSliceAssumeCapacity(",");
+                    buf.appendAssumeCapacity(plus_or_minus);
+                    buf.appendSliceAssumeCapacity(llvm_name);
                 }
             }
+            if (buf.items.len > 0) {
+                assert(buf.items.len > 1);
+                try argv.ensureUnusedCapacity(4);
+                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang", buf.items[1..] });
+            }
+
             const mcmodel = comp.bin_file.options.machine_code_model;
             if (mcmodel != .default) {
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mcmodel)}));
