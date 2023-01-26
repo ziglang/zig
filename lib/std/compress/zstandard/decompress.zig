@@ -22,7 +22,7 @@ fn isSkippableMagic(magic: u32) bool {
 /// if the the frame is skippable, `null` for Zstanndard frames that do not
 /// declare their content size. Returns `UnusedBitSet` and `ReservedBitSet`
 /// errors if the respective bits of the the frame descriptor are set.
-pub fn getFrameDecompressedSize(src: []const u8) !?usize {
+pub fn getFrameDecompressedSize(src: []const u8) !?u64 {
     switch (try frameType(src)) {
         .zstandard => {
             const header = try decodeZStandardHeader(src[4..], null);
@@ -216,7 +216,7 @@ pub const DecodeState = struct {
                 );
                 @field(self, field_name).table = .{ .fse = @field(self, field_name ++ "_fse_buffer")[0..table_size] };
                 @field(self, field_name).accuracy_log = std.math.log2_int_ceil(usize, table_size);
-                return counting_reader.bytes_read;
+                return std.math.cast(usize, counting_reader.bytes_read) orelse return error.MalformedFseTable;
             },
             .repeat => return if (self.fse_tables_undefined) error.RepeatModeFirst else 0,
         }
@@ -571,7 +571,8 @@ pub fn decodeZStandardFrameAlloc(allocator: std.mem.Allocator, src: []const u8, 
 
     if (frame_header.descriptor.dictionary_id_flag != 0) return error.DictionaryIdFlagUnsupported;
 
-    const window_size = frameWindowSize(frame_header) orelse return error.WindowSizeUnknown;
+    const window_size_raw = frameWindowSize(frame_header) orelse return error.WindowSizeUnknown;
+    const window_size = std.math.cast(usize, window_size_raw) orelse return error.WindowTooLarge;
 
     const should_compute_checksum = frame_header.descriptor.content_checksum_flag and verify_checksum;
     var hash = if (should_compute_checksum) std.hash.XxHash64.init(0) else null;
@@ -1043,7 +1044,8 @@ fn decodeHuffmanTree(src: []const u8, consumed_count: *usize) !LiteralsSection.H
         const table_size = try decodeFseTable(&bit_reader, 256, 6, &entries);
         const accuracy_log = std.math.log2_int_ceil(usize, table_size);
 
-        var huff_data = src[1 + counting_reader.bytes_read .. compressed_size + 1];
+        const start_index = std.math.cast(usize, 1 + counting_reader.bytes_read) orelse return error.MalformedHuffmanTree;
+        var huff_data = src[start_index .. compressed_size + 1];
         var huff_bits: ReverseBitReader = undefined;
         try huff_bits.init(huff_data);
 
