@@ -785,6 +785,8 @@ fn objSyntax(obj: *json.ObjectMap) ?Syntax {
             return .joined;
         } else if (std.mem.eql(u8, superclass, "CLCompileJoined")) {
             return .joined;
+        } else if (std.mem.eql(u8, superclass, "CLDXCJoined")) {
+            return .joined;
         } else if (std.mem.eql(u8, superclass, "JoinedOrSeparate")) {
             return .joined_or_separate;
         } else if (std.mem.eql(u8, superclass, "CLJoinedOrSeparate")) {
