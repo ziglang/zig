@@ -906,10 +906,15 @@ test "POSIX file locking with fcntl" {
     // The first byte (0) will be used to test an exclusive lock.
     // The second byte (1) will be used to test a shared lock.
     // The third byte (2) will be locked by the child to signal the parent
-    // to do the test.
+    // to do its tests.
     // The fourth byte (3) will be released by the parent to signal the
-    // child the tests are done.
-    var struct_flock = std.mem.zeroInit(std.os.Flock, .{ .start = 3, .len = 1, .type = std.os.F.WRLCK, .whence = std.os.SEEK.SET });
+    // child its tests are done.
+    var struct_flock: std.os.Flock = undefined;
+    @memset(@ptrCast([*]u8, &struct_flock), 0, @sizeOf(std.os.Flock));
+    struct_flock.start = 3;
+    struct_flock.len = 1;
+    struct_flock.type = std.os.F.WRLCK;
+    struct_flock.whence = std.os.SEEK.SET;
     _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
 
     const pid = try std.os.fork();
