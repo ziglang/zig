@@ -4000,7 +4000,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                                 const atom_index = switch (self.bin_file.tag) {
                                     .macho => owner_decl.link.macho.getSymbolIndex().?,
-                                    .coff => owner_decl.link.coff.sym_index,
+                                    .coff => owner_decl.link.coff.getSymbolIndex().?,
                                     else => unreachable, // unsupported target format
                                 };
                                 _ = try self.addInst(.{
@@ -4318,11 +4318,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                         .sym_index = fn_owner_decl.link.macho.getSymbolIndex().?,
                     },
                 });
-            } else if (self.bin_file.cast(link.File.Coff)) |_| {
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                try fn_owner_decl.link.coff.ensureInitialized(coff_file);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.coff.sym_index,
+                        .sym_index = fn_owner_decl.link.coff.getSymbolIndex().?,
                     },
                 });
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
@@ -5494,7 +5495,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => owner_decl.link.macho.getSymbolIndex().?,
-                            .coff => owner_decl.link.coff.sym_index,
+                            .coff => owner_decl.link.coff.getSymbolIndex().?,
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -5608,7 +5609,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = switch (self.bin_file.tag) {
                 .macho => owner_decl.link.macho.getSymbolIndex().?,
-                .coff => owner_decl.link.coff.sym_index,
+                .coff => owner_decl.link.coff.getSymbolIndex().?,
                 else => unreachable, // unsupported target format
             };
             _ = try self.addInst(.{
@@ -5802,7 +5803,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => owner_decl.link.macho.getSymbolIndex().?,
-                            .coff => owner_decl.link.coff.sym_index,
+                            .coff => owner_decl.link.coff.getSymbolIndex().?,
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -6129,11 +6130,11 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
             .type = .got,
             .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
-    } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        assert(decl.link.coff.sym_index != 0);
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        try decl.link.coff.ensureInitialized(coff_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.coff.sym_index,
+            .sym_index = decl.link.coff.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);

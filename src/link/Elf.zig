@@ -893,7 +893,7 @@ fn growAllocSection(self: *Elf, shdr_index: u16, phdr_index: u16, needed_size: u
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = if (self.atoms.get(phdr_index)) |last| blk: {
-            const sym = self.local_symbols.items[last.local_sym_index];
+            const sym = last.getSymbol(self);
             break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
         } else if (shdr_index == self.got_section_index.?) blk: {
             break :blk shdr.sh_size;
@@ -1031,7 +1031,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         while (it.next()) |entry| {
             const atom = entry.key_ptr.*;
             const relocs = entry.value_ptr.*;
-            const source_sym = self.local_symbols.items[atom.local_sym_index];
+            const source_sym = atom.getSymbol(self);
             const source_shdr = self.sections.items[source_sym.st_shndx];
 
             log.debug("relocating '{s}'", .{self.getString(source_sym.st_name)});
@@ -2034,10 +2034,12 @@ fn writeElfHeader(self: *Elf) !void {
 }
 
 fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
-    const local_sym = self.local_symbols.items[text_block.local_sym_index];
+    const local_sym = text_block.getSymbol(self);
     const name_str_index = local_sym.st_name;
     const name = self.getString(name_str_index);
     log.debug("freeTextBlock {*} ({s})", .{ text_block, name });
+
+    self.freeRelocationsForTextBlock(text_block);
 
     const free_list = self.atom_free_lists.getPtr(phdr_index).?;
     var already_have_free_list_node = false;
@@ -2107,7 +2109,7 @@ fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, phdr
 }
 
 fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64, phdr_index: u16) !u64 {
-    const sym = self.local_symbols.items[text_block.local_sym_index];
+    const sym = text_block.getSymbol(self);
     const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
     const need_realloc = !align_ok or new_block_size > text_block.capacity(self);
     if (!need_realloc) return sym.st_value;
@@ -2137,7 +2139,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             const big_block = free_list.items[i];
             // We now have a pointer to a live text block that has too much capacity.
             // Is it enough that we could fit this new text block?
-            const sym = self.local_symbols.items[big_block.local_sym_index];
+            const sym = big_block.getSymbol(self);
             const capacity = big_block.capacity(self);
             const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = std.math.add(u64, sym.st_value, ideal_capacity) catch ideal_capacity;
@@ -2168,7 +2170,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             }
             break :blk new_start_vaddr;
         } else if (self.atoms.get(phdr_index)) |last| {
-            const sym = self.local_symbols.items[last.local_sym_index];
+            const sym = last.getSymbol(self);
             const ideal_capacity = padToIdeal(sym.st_size);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
@@ -2270,6 +2272,11 @@ pub fn allocateGotOffset(self: *Elf) !u32 {
     return index;
 }
 
+fn freeRelocationsForTextBlock(self: *Elf, text_block: *TextBlock) void {
+    var removed_relocs = self.relocs.fetchRemove(text_block);
+    if (removed_relocs) |*relocs| relocs.value.deinit(self.base.allocator);
+}
+
 fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
@@ -2341,8 +2348,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const phdr_index = decl_ptr.*.?;
     const shdr_index = self.phdr_shdr_table.get(phdr_index).?;
 
-    assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
-    const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
+    const local_sym = decl.link.elf.getSymbolPtr(self);
     if (local_sym.st_size != 0) {
         const capacity = decl.link.elf.capacity(self);
         const need_realloc = code.len > capacity or
@@ -2366,7 +2372,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
         local_sym.st_other = 0;
         local_sym.st_shndx = shdr_index;
         // TODO this write could be avoided if no fields of the symbol were changed.
-        try self.writeSymbol(decl.link.elf.local_sym_index);
+        try self.writeSymbol(decl.link.elf.getSymbolIndex().?);
     } else {
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment, phdr_index);
@@ -2383,7 +2389,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
         };
         self.offset_table.items[decl.link.elf.offset_table_index] = vaddr;
 
-        try self.writeSymbol(decl.link.elf.local_sym_index);
+        try self.writeSymbol(decl.link.elf.getSymbolIndex().?);
         try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
     }
 
@@ -2412,6 +2418,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (gop.found_existing) {
         self.freeUnnamedConsts(decl_index);
+        self.freeRelocationsForTextBlock(atom);
     } else {
         gop.value_ptr.* = null;
     }
@@ -2481,7 +2488,9 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     const atom = &decl.link.elf;
     try atom.ensureInitialized(self);
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
-    if (!gop.found_existing) {
+    if (gop.found_existing) {
+        self.freeRelocationsForTextBlock(atom);
+    } else {
         gop.value_ptr.* = null;
     }
 
@@ -2500,14 +2509,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
         }, &code_buffer, .{
             .dwarf = ds,
         }, .{
-            .parent_atom_index = decl.link.elf.local_sym_index,
+            .parent_atom_index = decl.link.elf.getSymbolIndex().?,
         })
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
-            .parent_atom_index = decl.link.elf.local_sym_index,
+            .parent_atom_index = decl.link.elf.getSymbolIndex().?,
         });
 
     const code = switch (res) {
@@ -2551,6 +2560,8 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const atom = try self.base.allocator.create(TextBlock);
     errdefer self.base.allocator.destroy(atom);
     atom.* = TextBlock.empty;
+    // TODO for unnamed consts we don't need GOT offset/entry allocated
+    try atom.ensureInitialized(self);
     try self.managed_atoms.append(self.base.allocator, atom);
 
     const name_str_index = blk: {
@@ -2565,14 +2576,10 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     };
     const name = self.getString(name_str_index);
 
-    log.debug("allocating symbol indexes for {s}", .{name});
-    atom.local_sym_index = try self.allocateLocalSymbol();
-    try self.atom_by_index_table.putNoClobber(self.base.allocator, atom.local_sym_index, atom);
-
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .none = {},
     }, .{
-        .parent_atom_index = atom.local_sym_index,
+        .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2592,7 +2599,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });
 
-    const local_sym = &self.local_symbols.items[atom.local_sym_index];
+    const local_sym = atom.getSymbolPtr(self);
     local_sym.* = .{
         .st_name = name_str_index,
         .st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT,
@@ -2602,14 +2609,14 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
         .st_size = code.len,
     };
 
-    try self.writeSymbol(atom.local_sym_index);
+    try self.writeSymbol(atom.getSymbolIndex().?);
     try unnamed_consts.append(self.base.allocator, atom);
 
     const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
-    return atom.local_sym_index;
+    return atom.getSymbolIndex().?;
 }
 
 pub fn updateDeclExports(

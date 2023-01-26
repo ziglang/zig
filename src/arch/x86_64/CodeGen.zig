@@ -2673,7 +2673,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
             const atom_index = if (self.bin_file.tag == link.File.MachO.base_tag)
                 fn_owner_decl.link.macho.getSymbolIndex().?
             else
-                fn_owner_decl.link.coff.sym_index;
+                fn_owner_decl.link.coff.getSymbolIndex().?;
             const flags: u2 = switch (load_struct.type) {
                 .got => 0b00,
                 .direct => 0b01,
@@ -4005,11 +4005,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .ops = Mir.Inst.Ops.encode(.{ .flags = 0b01 }),
                     .data = .{ .imm = got_addr },
                 });
-            } else if (self.bin_file.cast(link.File.Coff)) |_| {
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                try fn_owner_decl.link.coff.ensureInitialized(coff_file);
+                const sym_index = fn_owner_decl.link.coff.getSymbolIndex().?;
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.coff.sym_index,
+                        .sym_index = sym_index,
                     },
                 });
                 _ = try self.addInst(.{
@@ -6725,11 +6727,11 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
             .type = .got,
             .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
-    } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        assert(decl.link.coff.sym_index != 0);
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        try decl.link.coff.ensureInitialized(coff_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.coff.sym_index,
+            .sym_index = decl.link.coff.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);

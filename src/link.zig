@@ -615,12 +615,16 @@ pub const File = struct {
             return;
         }
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
-            .elf => {}, // no-op
-            .macho => {}, // no-op
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
-            .c, .spirv, .nvptx => {},
+
+            .coff,
+            .elf,
+            .macho,
+            .c,
+            .spirv,
+            .nvptx,
+            => {},
         }
     }
 

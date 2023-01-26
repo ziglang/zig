@@ -39,30 +39,45 @@ pub const empty = Atom{
     .next = null,
 };
 
+pub fn ensureInitialized(self: *Atom, coff_file: *Coff) !void {
+    if (self.getSymbolIndex() != null) return; // Already initialized
+    self.sym_index = try coff_file.allocateSymbol();
+    try coff_file.atom_by_index_table.putNoClobber(coff_file.base.allocator, self.sym_index, self);
+}
+
+pub fn getSymbolIndex(self: Atom) ?u32 {
+    if (self.sym_index == 0) return null;
+    return self.sym_index;
+}
+
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, coff_file: *const Coff) *const coff.Symbol {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbol(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 /// Returns pointer-to-symbol referencing this atom.
 pub fn getSymbolPtr(self: Atom, coff_file: *Coff) *coff.Symbol {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbolPtr(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
-    return .{ .sym_index = self.sym_index, .file = self.file };
+    const sym_index = self.getSymbolIndex().?;
+    return .{ .sym_index = sym_index, .file = self.file };
 }
 
 /// Returns the name of this atom.
 pub fn getName(self: Atom, coff_file: *const Coff) []const u8 {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbolName(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }

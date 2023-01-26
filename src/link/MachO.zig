@@ -1056,19 +1056,14 @@ pub fn allocateSpecialSymbols(self: *MachO) !void {
 pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
 
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = @sizeOf(u64);
-        atom.alignment = @alignOf(u64);
-        break :blk atom;
-    };
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = @sizeOf(u64);
+    atom.alignment = @alignOf(u64);
     errdefer gpa.destroy(atom);
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, atom.sym_index, atom);
 
     const sym = atom.getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
@@ -1109,15 +1104,11 @@ pub fn createDyldPrivateAtom(self: *MachO) !void {
 
     const gpa = self.base.allocator;
 
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = @sizeOf(u64);
-        atom.alignment = @alignOf(u64);
-        break :blk atom;
-    };
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = @sizeOf(u64);
+    atom.alignment = @alignOf(u64);
     errdefer gpa.destroy(atom);
 
     const sym = atom.getSymbolPtr(self);
@@ -1126,7 +1117,6 @@ pub fn createDyldPrivateAtom(self: *MachO) !void {
     self.dyld_private_atom = atom;
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, atom.size, @alignOf(u64));
     log.debug("allocated dyld_private atom at 0x{x}", .{sym.n_value});
@@ -1144,18 +1134,14 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
         .aarch64 => 6 * @sizeOf(u32),
         else => unreachable,
     };
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = size;
-        atom.alignment = switch (arch) {
-            .x86_64 => 1,
-            .aarch64 => @alignOf(u32),
-            else => unreachable,
-        };
-        break :blk atom;
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = size;
+    atom.alignment = switch (arch) {
+        .x86_64 => 1,
+        .aarch64 => @alignOf(u32),
+        else => unreachable,
     };
     errdefer gpa.destroy(atom);
 
@@ -1163,7 +1149,7 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     sym.n_type = macho.N_SECT;
     sym.n_sect = self.stub_helper_section_index.? + 1;
 
-    const dyld_private_sym_index = self.dyld_private_atom.?.sym_index;
+    const dyld_private_sym_index = self.dyld_private_atom.?.getSymbolIndex().?;
 
     const code = try gpa.alloc(u8, size);
     defer gpa.free(code);
@@ -1258,7 +1244,6 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     self.stub_helper_preamble_atom = atom;
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, size, atom.alignment);
     log.debug("allocated stub preamble atom at 0x{x}", .{sym.n_value});
@@ -1273,18 +1258,14 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable,
     };
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = size;
-        atom.alignment = switch (arch) {
-            .x86_64 => 1,
-            .aarch64 => @alignOf(u32),
-            else => unreachable,
-        };
-        break :blk atom;
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = size;
+    atom.alignment = switch (arch) {
+        .x86_64 => 1,
+        .aarch64 => @alignOf(u32),
+        else => unreachable,
     };
     errdefer gpa.destroy(atom);
 
@@ -1306,7 +1287,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 
             try atom.addRelocation(self, .{
                 .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
-                .target = .{ .sym_index = self.stub_helper_preamble_atom.?.sym_index, .file = null },
+                .target = .{ .sym_index = self.stub_helper_preamble_atom.?.getSymbolIndex().?, .file = null },
                 .offset = 6,
                 .addend = 0,
                 .pcrel = true,
@@ -1329,7 +1310,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 
             try atom.addRelocation(self, .{
                 .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
-                .target = .{ .sym_index = self.stub_helper_preamble_atom.?.sym_index, .file = null },
+                .target = .{ .sym_index = self.stub_helper_preamble_atom.?.getSymbolIndex().?, .file = null },
                 .offset = 4,
                 .addend = 0,
                 .pcrel = true,
@@ -1340,7 +1321,6 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
     }
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, size, atom.alignment);
     log.debug("allocated stub helper atom at 0x{x}", .{sym.n_value});
@@ -1351,15 +1331,11 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 
 pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = @sizeOf(u64);
-        atom.alignment = @alignOf(u64);
-        break :blk atom;
-    };
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = @sizeOf(u64);
+    atom.alignment = @alignOf(u64);
     errdefer gpa.destroy(atom);
 
     const sym = atom.getSymbolPtr(self);
@@ -1385,7 +1361,6 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWi
     });
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, atom.size, @alignOf(u64));
     log.debug("allocated lazy pointer atom at 0x{x} ({s})", .{ sym.n_value, self.getSymbolName(target) });
@@ -1402,19 +1377,15 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable, // unhandled architecture type
     };
-    const sym_index = try self.allocateSymbol();
-    const atom = blk: {
-        const atom = try gpa.create(Atom);
-        atom.* = Atom.empty;
-        atom.sym_index = sym_index;
-        atom.size = size;
-        atom.alignment = switch (arch) {
-            .x86_64 => 1,
-            .aarch64 => @alignOf(u32),
-            else => unreachable, // unhandled architecture type
+    const atom = try gpa.create(Atom);
+    atom.* = Atom.empty;
+    try atom.ensureInitialized(self);
+    atom.size = size;
+    atom.alignment = switch (arch) {
+        .x86_64 => 1,
+        .aarch64 => @alignOf(u32),
+        else => unreachable, // unhandled architecture type
 
-        };
-        break :blk atom;
     };
     errdefer gpa.destroy(atom);
 
@@ -1476,7 +1447,6 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
     }
 
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
 
     sym.n_value = try self.allocateAtom(atom, size, atom.alignment);
     log.debug("allocated stub atom at 0x{x}", .{sym.n_value});
@@ -1617,9 +1587,9 @@ pub fn resolveSymbolsInDylibs(self: *MachO) !void {
 
                 const stub_index = try self.allocateStubEntry(global);
                 const stub_helper_atom = try self.createStubHelperAtom();
-                const laptr_atom = try self.createLazyPointerAtom(stub_helper_atom.sym_index, global);
-                const stub_atom = try self.createStubAtom(laptr_atom.sym_index);
-                self.stubs.items[stub_index].sym_index = stub_atom.sym_index;
+                const laptr_atom = try self.createLazyPointerAtom(stub_helper_atom.getSymbolIndex().?, global);
+                const stub_atom = try self.createStubAtom(laptr_atom.getSymbolIndex().?);
+                self.stubs.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
                 self.markRelocsDirtyByTarget(global);
             }
 
@@ -1717,7 +1687,7 @@ pub fn resolveDyldStubBinder(self: *MachO) !void {
     // Add dyld_stub_binder as the final GOT entry.
     const got_index = try self.allocateGotEntry(global);
     const got_atom = try self.createGotAtom(global);
-    self.got_entries.items[got_index].sym_index = got_atom.sym_index;
+    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
 
     try self.writePtrWidthAtom(got_atom);
 }
@@ -2098,14 +2068,11 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const atom = try gpa.create(Atom);
     errdefer gpa.destroy(atom);
     atom.* = Atom.empty;
-
-    atom.sym_index = try self.allocateSymbol();
-
+    try atom.ensureInitialized(self);
     try self.managed_atoms.append(gpa, atom);
-    try self.atom_by_index_table.putNoClobber(gpa, atom.sym_index, atom);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
-        .parent_atom_index = atom.sym_index,
+        .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2137,7 +2104,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
 
     try self.writeAtom(atom, code);
 
-    return atom.sym_index;
+    return atom.getSymbolIndex().?;
 }
 
 pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -2188,14 +2155,14 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
         }, &code_buffer, .{
             .dwarf = ds,
         }, .{
-            .parent_atom_index = decl.link.macho.sym_index,
+            .parent_atom_index = decl.link.macho.getSymbolIndex().?,
         })
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
-            .parent_atom_index = decl.link.macho.sym_index,
+            .parent_atom_index = decl.link.macho.getSymbolIndex().?,
         });
 
     const code = switch (res) {
