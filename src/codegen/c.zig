@@ -1663,6 +1663,22 @@ pub const DeclGen = struct {
         defer buffer.deinit();
 
         try buffer.appendSlice("struct ");
+
+        var needs_pack_attr = false;
+        {
+            var it = t.structFields().iterator();
+            while (it.next()) |field| {
+                const field_ty = field.value_ptr.ty;
+                if (!field_ty.hasRuntimeBits()) continue;
+                const alignment = field.value_ptr.abi_align;
+                if (alignment != 0 and alignment < field_ty.abiAlignment(dg.module.getTarget())) {
+                    needs_pack_attr = true;
+                    try buffer.appendSlice("zig_packed(");
+                    break;
+                }
+            }
+        }
+
         try buffer.appendSlice(name);
         try buffer.appendSlice(" {\n");
         {
@@ -1672,7 +1688,7 @@ pub const DeclGen = struct {
                 const field_ty = field.value_ptr.ty;
                 if (!field_ty.hasRuntimeBits()) continue;
 
-                const alignment = field.value_ptr.abi_align;
+                const alignment = field.value_ptr.alignment(dg.module.getTarget(), t.containerLayout());
                 const field_name = CValue{ .identifier = field.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, field_name, .Mut, alignment, .Complete);
@@ -1682,7 +1698,7 @@ pub const DeclGen = struct {
             }
             if (empty) try buffer.appendSlice(" char empty_struct;\n");
         }
-        try buffer.appendSlice("};\n");
+        if (needs_pack_attr) try buffer.appendSlice("});\n") else try buffer.appendSlice("};\n");
 
         const rendered = try buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -2367,8 +2383,13 @@ pub const DeclGen = struct {
             depth += 1;
         }
 
-        if (alignment != 0 and alignment > ty.abiAlignment(target)) {
-            try w.print("zig_align({}) ", .{alignment});
+        if (alignment != 0) {
+            const abi_alignment = ty.abiAlignment(target);
+            if (alignment < abi_alignment) {
+                try w.print("zig_under_align({}) ", .{alignment});
+            } else if (alignment > abi_alignment) {
+                try w.print("zig_align({}) ", .{alignment});
+            }
         }
         try dg.renderType(w, render_ty, kind);
 
@@ -2860,27 +2881,30 @@ pub fn genDecl(o: *Object) !void {
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
+        if (o.dg.decl.@"linksection") |section| try w.print("zig_linksection(\"{s}\", ", .{section});
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
+        if (o.dg.decl.@"linksection" != null) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, variable.init, .StaticInitializer);
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
+        const is_global = o.dg.module.decl_exports.contains(o.dg.decl_index);
+        const fwd_decl_writer = o.dg.fwd_decl.writer();
         const decl_c_value: CValue = .{ .decl = o.dg.decl_index };
 
-        const fwd_decl_writer = o.dg.fwd_decl.writer();
-        try fwd_decl_writer.writeAll("static ");
-        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
+        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
+        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, .Const, o.dg.decl.@"align", .Complete);
         try fwd_decl_writer.writeAll(";\n");
 
-        const writer = o.writer();
-        try writer.writeAll("static ");
-        // TODO ask the Decl if it is const
-        // https://github.com/ziglang/zig/issues/7582
-        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align", .Complete);
-        try writer.writeAll(" = ");
-        try o.dg.renderValue(writer, tv.ty, tv.val, .StaticInitializer);
-        try writer.writeAll(";\n");
+        const w = o.writer();
+        if (!is_global) try w.writeAll("static ");
+        if (o.dg.decl.@"linksection") |section| try w.print("zig_linksection(\"{s}\", ", .{section});
+        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .Const, o.dg.decl.@"align", .Complete);
+        if (o.dg.decl.@"linksection" != null) try w.writeAll(", read)");
+        try w.writeAll(" = ");
+        try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
+        try w.writeAll(";\n");
     }
 }
 

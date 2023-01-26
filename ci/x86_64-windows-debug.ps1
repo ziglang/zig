@@ -76,7 +76,8 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
   -ofmt=c `
   -femit-bin="test-x86_64-windows-msvc.c" `
   --test-no-exec `
-  -target x86_64-windows-msvc
+  -target x86_64-windows-msvc `
+  -lc
 CheckLastExitCode
 
 & "stage3-debug\bin\zig.exe" build-obj `
@@ -99,7 +100,7 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\E
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console -entry:wWinMainCRTStartup kernel32.lib ntdll.lib vcruntime.lib libucrt.lib
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
 CheckLastExitCode
 
 & .\test-x86_64-windows-msvc.exe
