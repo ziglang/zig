@@ -21,6 +21,8 @@ pub const Feature = enum {
     hvxv67,
     hvxv68,
     hvxv69,
+    hvxv71,
+    hvxv73,
     long_calls,
     mem_noshuf,
     memops,
@@ -42,6 +44,8 @@ pub const Feature = enum {
     v67,
     v68,
     v69,
+    v71,
+    v73,
     zreg,
 };
 
@@ -153,6 +157,20 @@ pub const all_features = blk: {
             .hvxv68,
         }),
     };
+    result[@enumToInt(Feature.hvxv71)] = .{
+        .llvm_name = "hvxv71",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv69,
+        }),
+    };
+    result[@enumToInt(Feature.hvxv73)] = .{
+        .llvm_name = "hvxv73",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv71,
+        }),
+    };
     result[@enumToInt(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
         .description = "Use constant-extended calls",
@@ -260,6 +278,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.v69)] = .{
         .llvm_name = "v69",
         .description = "Enable Hexagon V69 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.v71)] = .{
+        .llvm_name = "v71",
+        .description = "Enable Hexagon V71 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.v73)] = .{
+        .llvm_name = "v73",
+        .description = "Enable Hexagon V73 architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zreg)] = .{
@@ -482,6 +510,77 @@ pub const cpu = struct {
             .v67,
             .v68,
             .v69,
+        }),
+    };
+    pub const hexagonv71 = CpuModel{
+        .name = "hexagonv71",
+        .llvm_name = "hexagonv71",
+        .features = featureSet(&[_]Feature{
+            .cabac,
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+        }),
+    };
+    pub const hexagonv71t = CpuModel{
+        .name = "hexagonv71t",
+        .llvm_name = "hexagonv71t",
+        .features = featureSet(&[_]Feature{
+            .audio,
+            .compound,
+            .mem_noshuf,
+            .memops,
+            .nvs,
+            .small_data,
+            .tinycore,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+        }),
+    };
+    pub const hexagonv73 = CpuModel{
+        .name = "hexagonv73",
+        .llvm_name = "hexagonv73",
+        .features = featureSet(&[_]Feature{
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+            .v73,
         }),
     };
 };

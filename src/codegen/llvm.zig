@@ -78,6 +78,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .x86 => "i386",
         .x86_64 => "x86_64",
         .xcore => "xcore",
+        .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
         .le32 => "le32",
@@ -88,6 +89,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .hsail64 => "hsail64",
         .spir => "spir",
         .spir64 => "spir64",
+        .spirv32 => "spirv32",
+        .spirv64 => "spirv64",
         .kalimba => "kalimba",
         .shave => "shave",
         .lanai => "lanai",
@@ -97,8 +100,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .renderscript64 => "renderscript64",
         .ve => "ve",
         .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
-        .spirv32 => return error.@"LLVM backend does not support SPIR-V",
-        .spirv64 => return error.@"LLVM backend does not support SPIR-V",
     };
     try llvm_triple.appendSlice(llvm_arch);
     try llvm_triple.appendSlice("-unknown-");
@@ -169,6 +170,9 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .gnuabi64 => "gnuabi64",
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
+        .gnuf32 => "gnuf32",
+        .gnuf64 => "gnuf64",
+        .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .gnuilp32 => "gnuilp32",
         .code16 => "code16",
@@ -290,6 +294,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .x86 => .x86,
         .x86_64 => .x86_64,
         .xcore => .xcore,
+        .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
         .le32 => .le32,
@@ -10091,6 +10096,15 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeX86TargetMC();
             llvm.LLVMInitializeX86AsmPrinter();
             llvm.LLVMInitializeX86AsmParser();
+        },
+        .xtensa => {
+            if (build_options.llvm_has_xtensa) {
+                llvm.LLVMInitializeXtensaTarget();
+                llvm.LLVMInitializeXtensaTargetInfo();
+                llvm.LLVMInitializeXtensaTargetMC();
+                llvm.LLVMInitializeXtensaAsmPrinter();
+                llvm.LLVMInitializeXtensaAsmParser();
+            }
         },
         .xcore => {
             llvm.LLVMInitializeXCoreTarget();

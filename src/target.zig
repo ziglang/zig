@@ -88,6 +88,9 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuabi64,
         .gnueabi,
         .gnueabihf,
+        .gnuf32,
+        .gnuf64,
+        .gnusf,
         .gnux32,
         .gnuilp32,
         => return "glibc",
@@ -286,6 +289,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .x86,
         .x86_64,
         .xcore,
+        .xtensa,
         .nvptx,
         .nvptx64,
         .le32,
@@ -296,6 +300,8 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv32,
+        .spirv64,
         .kalimba,
         .shave,
         .lanai,
@@ -306,10 +312,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .ve,
         => true,
 
-        .spu_2,
-        .spirv32,
-        .spirv64,
-        => false,
+        .spu_2 => false,
     };
 }
 
@@ -566,6 +569,7 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .dxil,
         .loongarch32,
+        .xtensa,
         => 32,
 
         .aarch64,

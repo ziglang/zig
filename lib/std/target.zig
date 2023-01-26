@@ -459,6 +459,7 @@ pub const Target = struct {
     pub const bpf = @import("target/bpf.zig");
     pub const csky = @import("target/csky.zig");
     pub const hexagon = @import("target/hexagon.zig");
+    pub const loongarch = @import("target/loongarch.zig");
     pub const m68k = @import("target/m68k.zig");
     pub const mips = @import("target/mips.zig");
     pub const msp430 = @import("target/msp430.zig");
@@ -471,6 +472,7 @@ pub const Target = struct {
     pub const ve = @import("target/ve.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
+    pub const xtensa = @import("target/xtensa.zig");
 
     pub const Abi = enum {
         none,
@@ -1007,6 +1009,7 @@ pub const Target = struct {
                     .thumbeb => .ARM,
                     .x86 => .@"386",
                     .xcore => .XCORE,
+                    .xtensa => .XTENSA,
                     .nvptx => .NONE,
                     .amdil => .NONE,
                     .hsail => .NONE,
@@ -1032,7 +1035,7 @@ pub const Target = struct {
                     .spir64 => .NONE,
                     .wasm64 => .NONE,
                     .renderscript64 => .NONE,
-                    .amdgcn => .NONE,
+                    .amdgcn => .AMDGPU,
                     .bpfel => .BPF,
                     .bpfeb => .BPF,
                     .csky => .CSKY,
@@ -1122,6 +1125,7 @@ pub const Target = struct {
                     .amdil64,
                     .bpfel,
                     .csky,
+                    .xtensa,
                     .hexagon,
                     .hsail,
                     .hsail64,
@@ -1236,6 +1240,7 @@ pub const Target = struct {
                     .spirv32,
                     .loongarch32,
                     .dxil,
+                    .xtensa,
                     => return 32,
 
                     .aarch64,
@@ -1271,6 +1276,7 @@ pub const Target = struct {
                     .arm, .armeb, .thumb, .thumbeb => "arm",
                     .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
                     .bpfel, .bpfeb => "bpf",
+                    .loongarch32, .loongarch64 => "loongarch",
                     .mips, .mipsel, .mips64, .mips64el => "mips",
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
@@ -1290,9 +1296,13 @@ pub const Target = struct {
                 return switch (arch) {
                     .arm, .armeb, .thumb, .thumbeb => &arm.all_features,
                     .aarch64, .aarch64_be, .aarch64_32 => &aarch64.all_features,
+                    .arc => &arc.all_features,
                     .avr => &avr.all_features,
                     .bpfel, .bpfeb => &bpf.all_features,
+                    .csky => &csky.all_features,
                     .hexagon => &hexagon.all_features,
+                    .loongarch32, .loongarch64 => &loongarch.all_features,
+                    .m68k => &m68k.all_features,
                     .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
                     .msp430 => &msp430.all_features,
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
@@ -1302,6 +1312,7 @@ pub const Target = struct {
                     .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &s390x.all_features,
                     .x86, .x86_64 => &x86.all_features,
+                    .xtensa => &xtensa.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
                     .ve => &ve.all_features,
                     .wasm32, .wasm64 => &wasm.all_features,
@@ -1313,11 +1324,15 @@ pub const Target = struct {
             /// All processors Zig is aware of, sorted lexicographically by name.
             pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
                 return switch (arch) {
+                    .arc => comptime allCpusFromDecls(arc.cpu),
                     .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
                     .aarch64, .aarch64_be, .aarch64_32 => comptime allCpusFromDecls(aarch64.cpu),
                     .avr => comptime allCpusFromDecls(avr.cpu),
                     .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
+                    .csky => comptime allCpusFromDecls(csky.cpu),
                     .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                    .loongarch32, .loongarch64 => comptime allCpusFromDecls(loongarch.cpu),
+                    .m68k => comptime allCpusFromDecls(m68k.cpu),
                     .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
                     .msp430 => comptime allCpusFromDecls(msp430.cpu),
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
@@ -1326,6 +1341,7 @@ pub const Target = struct {
                     .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
                     .s390x => comptime allCpusFromDecls(s390x.cpu),
                     .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .xtensa => comptime allCpusFromDecls(xtensa.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
                     .ve => comptime allCpusFromDecls(ve.cpu),
                     .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
@@ -1373,6 +1389,8 @@ pub const Target = struct {
                     .avr => &avr.cpu.avr2,
                     .bpfel, .bpfeb => &bpf.cpu.generic,
                     .hexagon => &hexagon.cpu.generic,
+                    .loongarch32 => &loongarch.cpu.generic_la32,
+                    .loongarch64 => &loongarch.cpu.generic_la64,
                     .m68k => &m68k.cpu.generic,
                     .mips, .mipsel => &mips.cpu.mips32,
                     .mips64, .mips64el => &mips.cpu.mips64,
@@ -1720,6 +1738,7 @@ pub const Target = struct {
                 .dxil,
                 .loongarch32,
                 .loongarch64,
+                .xtensa,
                 => return result,
             },
 
@@ -1884,6 +1903,7 @@ pub const Target = struct {
             .dxil,
             .loongarch32,
             .loongarch64,
+            .xtensa,
             => 16,
         };
     }

@@ -97,6 +97,11 @@ pub fn build(b: *Builder) !void {
         "llvm-has-arc",
         "Whether LLVM has the experimental target arc enabled",
     ) orelse false;
+    const llvm_has_xtensa = b.option(
+        bool,
+        "llvm-has-xtensa",
+        "Whether LLVM has the experimental target xtensa enabled",
+    ) orelse false;
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
     const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
@@ -186,6 +191,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "omit_pkg_fetching_code", false);
@@ -340,6 +346,7 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);

@@ -2,6 +2,7 @@ pub const have_llvm = true;
 pub const llvm_has_m68k = false;
 pub const llvm_has_csky = false;
 pub const llvm_has_arc = false;
+pub const llvm_has_xtensa = false;
 pub const version: [:0]const u8 = "@RESOLVED_ZIG_VERSION@";
 pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
 pub const enable_logging: bool = false;
